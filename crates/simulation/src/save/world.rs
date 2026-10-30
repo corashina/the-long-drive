@@ -720,6 +720,7 @@ mod world_sync_tests {
             item_bodies: ItemBodyIndex::default(),
             pending_items: Vec::new(),
             frozen: HashSet::new(),
+            spawned: HashSet::new(),
             important: Vec::new(),
             spawned: HashSet::new(),
             configured: true,

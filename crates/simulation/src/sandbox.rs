@@ -6,10 +6,11 @@ use crate::reference::{ItemId, ReferenceManifest, SourceId, WorldPrototypeRefere
 use crate::starting_area::GarageRuntime;
 use crate::vehicle::{VehiclePose, to_rapier};
 use crate::world::stream::content_seats::ItemSeat;
-use crate::world::{ObjectKey, WorldLayer, WorldStream, stream::SupportGap};
+use crate::world::{AbsolutePose, ObjectKey, WorldLayer, WorldStream, stream::SupportGap};
 use rapier3d::math::{Rotation, Vector};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 /// Buildings that `building` checks from the start of the road.
 const BUILDING_SEARCH: usize = 4000;
@@ -25,7 +26,7 @@ const NAME_LIST: usize = 30;
 enum Action {
     /// Moves the player on foot to the ground at absolute `x`, `z`.
     Teleport { x: f64, z: f64 },
-    /// Moves the player to the start spawn.
+    /// Moves the player to the start spawn. Held cars go back to their pose before the first move.
     Garage,
     /// Moves the player to the first building on the road whose name contains `name`.
     Building { name: String },
@@ -65,6 +66,15 @@ enum SeatKind {
     Passenger,
 }
 
+/// Sandbox state that lives across commands.
+#[derive(Default)]
+pub struct Sandbox {
+    /// Replies that the next frame sends.
+    pub replies: Vec<String>,
+    /// Absolute pose of each held car before its first move. `garage` puts the car back there.
+    homes: BTreeMap<ObjectKey, AbsolutePose>,
+}
+
 #[derive(Serialize)]
 struct Reply {
     id: u32,
@@ -78,8 +88,9 @@ pub fn run(
     runtime: &mut GarageRuntime,
     reference: &ReferenceManifest,
     json: &str,
-    replies: &mut Vec<String>,
+    sandbox: &mut Sandbox,
 ) {
+    let replies = &mut sandbox.replies;
     let entries = match serde_json::from_str::<Vec<Value>>(json) {
         Ok(entries) => entries,
         Err(error) => {
@@ -95,7 +106,7 @@ pub fn run(
             .unwrap_or(0) as u32;
         let result = serde_json::from_value::<Action>(entry)
             .map_err(|e| format!("Bad sandbox command: {e}"))
-            .and_then(|action| apply(runtime, reference, action));
+            .and_then(|action| apply(runtime, reference, &mut sandbox.homes, action));
         replies.push(reply(id, result));
     }
 }
@@ -121,12 +132,13 @@ fn reply(id: u32, result: Result<(String, Value), String>) -> String {
 fn apply(
     runtime: &mut GarageRuntime,
     reference: &ReferenceManifest,
+    homes: &mut BTreeMap<ObjectKey, AbsolutePose>,
     action: Action,
 ) -> Result<(String, Value), String> {
     match action {
         Action::Teleport { x, z } => {
             let (height, _) = runtime.stream.terrain_sample([x, 0., z]);
-            place_player(runtime, [x, f64::from(height) + 2., z])?;
+            place_player(runtime, homes, [x, f64::from(height) + 2., z], true)?;
             Ok((
                 "Moved. The world loads around the player.".into(),
                 json!([x, z]),
@@ -134,12 +146,17 @@ fn apply(
         }
         Action::Garage => {
             let spawn = reference.area.player_spawn.translation.map(f64::from);
-            place_player(runtime, spawn)?;
+            place_player(runtime, homes, spawn, false)?;
             Ok(("Moved to the start spawn.".into(), Value::Null))
         }
         Action::Building { name } => {
             let (found, position) = building(reference, runtime.stream.seed(), &name)?;
-            place_player(runtime, [position[0], position[1] + 2., position[2]])?;
+            place_player(
+                runtime,
+                homes,
+                [position[0], position[1] + 2., position[2]],
+                true,
+            )?;
             Ok((format!("Moved to {found}."), json!(position)))
         }
         Action::Spawn { name, forward } if RABBITS.contains(&name.to_lowercase().as_str()) => {
@@ -228,7 +245,14 @@ fn apply(
 }
 
 /// Moves the player on foot, with the cars that hold an area, and asks the stream for the new area.
-fn place_player(runtime: &mut GarageRuntime, absolute: [f64; 3]) -> Result<(), String> {
+/// `row` puts the cars in a row next to the target. Else each car with a home goes back there,
+/// because a row next to the start spawn is inside the garage walls.
+fn place_player(
+    runtime: &mut GarageRuntime,
+    homes: &mut BTreeMap<ObjectKey, AbsolutePose>,
+    absolute: [f64; 3],
+    row: bool,
+) -> Result<(), String> {
     if runtime.area.player.seated() {
         return Err("Get out of the seat first.".into());
     }
@@ -255,16 +279,33 @@ fn place_player(runtime: &mut GarageRuntime, absolute: [f64; 3]) -> Result<(), S
         .cloned()
         .collect();
     for (index, key) in held.iter().enumerate() {
-        let x = absolute[0] + CAR_SPACING as f64 * (index + 1) as f64;
-        let (height, _) = runtime.stream.terrain_sample([x, 0., absolute[2]]);
-        let rotation = runtime.physics.snapshot(key).pose.rotation;
-        let position = runtime
-            .stream
-            .origin
-            .local([x, f64::from(height) + 1.5, absolute[2]]);
-        runtime
-            .physics
-            .reset_preserving_wheels(key, VehiclePose { position, rotation });
+        let pose = runtime.physics.snapshot(key).pose;
+        let target = if row {
+            let origin = &runtime.stream.origin;
+            homes.entry(key.clone()).or_insert(AbsolutePose {
+                position: origin.absolute(pose.position),
+                rotation: pose.rotation,
+            });
+            let x = absolute[0] + CAR_SPACING as f64 * (index + 1) as f64;
+            let (height, _) = runtime.stream.terrain_sample([x, 0., absolute[2]]);
+            AbsolutePose {
+                position: [x, f64::from(height) + 1.5, absolute[2]],
+                rotation: pose.rotation,
+            }
+        } else if let Some(home) = homes.remove(key) {
+            home
+        } else {
+            // The car did not move. It is still at its home.
+            continue;
+        };
+        let position = runtime.stream.origin.local(target.position);
+        runtime.physics.reset_preserving_wheels(
+            key,
+            VehiclePose {
+                position,
+                rotation: target.rotation,
+            },
+        );
     }
     runtime.physics.refresh_queries();
     // The step waits for a supported world, so the stream must ask for the new area here.

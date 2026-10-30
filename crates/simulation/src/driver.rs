@@ -61,8 +61,7 @@ pub struct SimDriver {
     pub(crate) sent: crate::world::RendererWorld,
     /// Camera position of the last rendered frame.
     listener: Option<[f32; 3]>,
-    /// Sandbox replies that the next frame sends.
-    sandbox: Vec<String>,
+    sandbox: crate::sandbox::Sandbox,
     /// Multiplayer peers. A load keeps them.
     pub net: crate::net::Net,
 }
@@ -108,7 +107,7 @@ impl SimDriver {
             failed: false,
             save: crate::save_requests::SaveState::new(source),
             listener: None,
-            sandbox: Vec::new(),
+            sandbox: Default::default(),
             net: crate::net::Net::default(),
         };
         driver.reset_look();
@@ -396,7 +395,7 @@ impl SimDriver {
         }
         frame
             .changes
-            .extend(self.sandbox.drain(..).map(Change::Sandbox));
+            .extend(self.sandbox.replies.drain(..).map(Change::Sandbox));
         if std::mem::take(&mut self.measure) {
             frame.changes.push(Change::Measurements(
                 self.runtime.measurements(reference).to_string(),
