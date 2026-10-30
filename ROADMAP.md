@@ -178,15 +178,10 @@ Prepare once:
 ### Saves
 
 1. Load, Load last and New game after death do not fail with "Asset CPU budget exceeded". Reload the page, then Load last from the start menu: the game starts, no "Source building metadata exceeds prototype CPU budget".
-2. Turn on "Load last save at start" and reload the page. The last save loads.
-3. Sleep, wake, save and load: the sleep hint stays off until the cooldown ends.
 
 ### Game options
 
-1. Type a seed, start a new game, note the road. Start again with the same seed: the same road. Type `abc`: the field shows 2147483647.
 2. Pause > Game mode > Survival off: the food and water bars hide, and food and water stay full. Turn it on again: they drain.
-3. Peaceful on, then drive out: no big rabbit has evil eyes. No human monster spawns in new buildings.
-4. Toggles persist after a page reload. Load a save: the current toggles stay, the save does not change them.
 
 ### Settings
 
@@ -201,7 +196,6 @@ Prepare once:
 4. In game with Deutsch: action hints, tank texts (name, Liter, voll, percents and fluids), radio volume and AM/FM, and the session distance use the German words.
 5. Look at the dashboard of a world car: the help box shows the car set with the bound keys. Toggle Auto clutch, then Auto shift: the set changes.
 6. A bus shows the auto shift set whatever the assists are. A motorcycle shows the motorcycle auto shift set.
-7. Help off hides the help box. Rebind Ignition: the help box shows the new key.
 8. Compare the help box place and the line breaks with the original.
 
 ### Start menu figure
@@ -209,7 +203,6 @@ Prepare once:
 1. The start menu shows the figure in the menu camera view, under the menu art. It wears the Appearance outfit. Change the outfit: the figure follows.
 2. Move the mouse: the head turns toward it. Hands and feet stay at their rest goals.
 3. Click and hold the left button on the figure, then move: the head and right hand follow the mouse. The right button kicks with the left leg. Both buttons slide the body. Release: the figure returns to rest.
-4. The right button opens no context menu on the start menu.
 5. The figure is gone in the pause menu, Appearance and in game. F3 on the start menu: frame time near the previous run.
 6. Compare with the original menu: pose, place, head turn speed. Note the port choices: no idle clip, no menu scenery, gray background.
 
@@ -333,9 +326,6 @@ Re-export first: the export now holds `playeranimationscript.sendInterval`. Use 
 4. Sit in the Lada as driver and passenger: the figure sits in the seat.
 5. Outfit: change the appearance on one peer. The other peer sees the change.
 6. Press Enter to chat. Messages show on all peers for 10 s. The multiplayer screen shows each player and its ping.
-7. Wrong code, wrong password and a full room each show their message. A different build shows "Different game version."
-8. A guest closes the tab: its figure goes away within 5 s. The host closes the tab: guests see "Host left." and keep playing alone.
-9. The guest cannot save: Save, Load and New game hide in the pause menu. Autosave does not run on the guest.
 10. Name labels stand above the heads. Check the label height (port choice 2.1 m).
 11. Each figure keeps its own outfit colors. The local body colors do not change.
 12. F3 with 1 and with 7 remote players. Report the frame time cost per figure.
