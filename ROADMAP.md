@@ -176,6 +176,7 @@ Prepare once:
 ### Saves
 
 1. Load, Load last and New game after death do not fail with "Asset CPU budget exceeded". Reload the page, then Load last from the start menu: the game starts, no "Source building metadata exceeds prototype CPU budget".
+2. Turn on "Load last save at start" and reload the page. The last save loads.
 
 ### Game options
 
@@ -229,7 +230,6 @@ Prepare once:
 21. The dark lens (profile 0) dims the view by 2 stops.
 22. Bright highlights look untonemapped, like the original.
 23. Lenses with the flare flag hide the sun flare. Other lenses keep it.
-24. Turn off "Sunglasses effects" in Settings > Graphics: the tint goes away. The flare rule stays. Reload the page: the setting stays.
 25. Take the glasses off: the tint clears. Die with them on: the tint clears and the death effect fades in.
 26. Save and load with the glasses worn: the tint comes back. Read the console for a warning about more than one active lens.
 
@@ -285,7 +285,6 @@ Prepare once:
 
 1. Drop and throw food and cut food pieces. Each makes its hit sound.
 2. Eat each food. Crumbs, meat, turd and chocolate bits fall from the food. Smoke a cigarette: ash falls now and then.
-3. Stay up at night for a few nights. The horror sound plays for 5 to 15 s on the first night, then every 1 to 5 nights. It stops at day.
 4. New game between 15 October and 15 November: the start pumpkin glows and flickers at night. Hold it and wear it: the light follows.
 
 ### Advanced rendering
@@ -324,6 +323,9 @@ Re-export first: the export now holds `playeranimationscript.sendInterval`. Use 
 4. Sit in the Lada as driver and passenger: the figure sits in the seat.
 5. Outfit: change the appearance on one peer. The other peer sees the change.
 6. Press Enter to chat. Messages show on all peers for 10 s. The multiplayer screen shows each player and its ping.
+7. Wrong code, wrong password and a full room each show their message. A different build shows "Different game version."
+8. A guest closes the tab: its figure goes away within 5 s. The host closes the tab: guests see "Host left." and keep playing alone.
+9. The guest cannot save: Save, Load and New game hide in the pause menu. Autosave does not run on the guest.
 10. Name labels stand above the heads. Check the label height (port choice 2.1 m).
 11. Each figure keeps its own outfit colors. The local body colors do not change.
 12. F3 with 1 and with 7 remote players. Report the frame time cost per figure.
