@@ -1,0 +1,3 @@
+UnityPy==1.25.4
+TypeTreeGeneratorAPI==0.0.10
+pygltflib==1.16.5

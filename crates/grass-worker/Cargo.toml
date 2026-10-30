@@ -1,0 +1,12 @@
+[package]
+name = "grass-worker"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+grass-mesh = { path = "../grass-mesh" }
+wasm-bindgen = "=0.2.129"
