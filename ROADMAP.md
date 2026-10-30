@@ -104,8 +104,6 @@ Prepare once:
 
 ### World and terrain
 
-1. Check the Game mode button position on the start menu.
-2. Start a new game in each biome. Check terrain, props, roads, lamps, fog, sky and swapped materials.
 3. Load a Mixed save with Winter set. The world must load as winter.
 4. Check the winter color: colder view in Winter, changes at biome borders in Mixed. Check F3 in Mixed while the color grading rebakes.
 5. Sandstorms: spawn a storm near the player with a temporary hook (never commit it). Check sky, fog, light, sound, dust, wind on loose items, and that dust and wind stop inside buildings and cars. Check the F3 storm line. Save and load inside a storm.
