@@ -661,7 +661,11 @@ fn read_input(
         save: requests.take_commands(),
         listener: drive.listener,
         // A pending save drops the input, so the commands wait in the browser.
-        sandbox: if hold { None } else { game_sandbox_take() },
+        sandbox: if hold {
+            Vec::new()
+        } else {
+            game_sandbox_take().into_iter().collect()
+        },
     };
     drive.link.send(command);
 }

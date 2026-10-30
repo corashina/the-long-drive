@@ -69,6 +69,8 @@ enum SeatKind {
 /// Sandbox state that lives across commands.
 #[derive(Default)]
 pub struct Sandbox {
+    /// JSON arrays of commands that wait for a command without hold.
+    pub queued: Vec<String>,
     /// Replies that the next frame sends.
     pub replies: Vec<String>,
     /// Absolute pose of each held car before its first move. `garage` puts the car back there.
@@ -83,8 +85,14 @@ struct Reply {
     data: Value,
 }
 
-/// Runs the commands of one JSON array. Each command adds one JSON reply.
-pub fn run(
+/// Runs the queued JSON arrays. Each command adds one JSON reply.
+pub fn run(runtime: &mut GarageRuntime, reference: &ReferenceManifest, sandbox: &mut Sandbox) {
+    for json in std::mem::take(&mut sandbox.queued) {
+        run_batch(runtime, reference, &json, sandbox);
+    }
+}
+
+fn run_batch(
     runtime: &mut GarageRuntime,
     reference: &ReferenceManifest,
     json: &str,

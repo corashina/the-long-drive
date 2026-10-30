@@ -155,10 +155,10 @@ impl SimDriver {
         self.accepted_seq = command.seq;
         self.measure |= command.measure;
         self.world.accept(command.world);
-        if let Some(json) = &command.sandbox
-            && !command.hold
-        {
-            crate::sandbox::run(&mut self.runtime, reference, json, &mut self.sandbox);
+        // A held command keeps its sandbox batches for the next command that runs.
+        self.sandbox.queued.extend(command.sandbox);
+        if !command.hold {
+            crate::sandbox::run(&mut self.runtime, reference, &mut self.sandbox);
         }
         if command.hold {
             clear_profile_input();

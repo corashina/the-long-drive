@@ -174,7 +174,7 @@ mod tests {
             &SimCommand {
                 seq: 1,
                 delta_seconds: 1. / 60.,
-                sandbox: Some(sandbox.to_string()),
+                sandbox: vec![sandbox.to_string()],
                 ..Default::default()
             },
             &mut command,

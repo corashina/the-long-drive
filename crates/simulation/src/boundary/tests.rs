@@ -339,7 +339,10 @@ fn command_merge_keeps_edges_and_sums_deltas() {
     second.input.held = 2;
     second.input.released = 1;
     second.input.mouse = [0.5, -1.];
+    first.sandbox.push("[1]".into());
+    second.sandbox.push("[2]".into());
     first.merge(second.clone());
+    assert_eq!(first.sandbox, ["[1]", "[2]"]);
     assert_eq!(
         (first.seq, first.delta_seconds, first.ready),
         (2, 0.75, true)
