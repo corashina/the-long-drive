@@ -83,6 +83,7 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
   typing:()=>!line.hidden,
   look:value=>net.look(value,name.value),
   leave:()=>net.leave(),
+  ready:()=>net.ready(),
   paint,
  };
 }

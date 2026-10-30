@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createNet,ROLE,STATUS,PREFIX,TIMEOUT_MS} from '../../web/net.js';
+import {createNet,ROLE,STATUS,PREFIX,TIMEOUT_MS,TICK_MS} from '../../web/net.js';
 import {joinPackets} from '../../web/simulation.js';
 
 // A PeerJS stand-in: peers meet in one in-memory broker. Messages pass at once.
@@ -66,12 +66,26 @@ test('a silent guest times out and the others see it leave',async()=>{
  for(let i=0;i<10;i++)await tick();
  b.net.join({code,name:'B'});
  for(let i=0;i<10;i++)await tick();
+ a.net.ready();b.net.ready();
  // Guest A goes silent: its first peer id sends nothing more.
  muted.add([...peers.keys()].find(id=>!id.startsWith(PREFIX)));
- clock.t=TIMEOUT_MS-1;b.run();host.run();
- clock.t=TIMEOUT_MS+1;b.run();host.run();
+ while(clock.t<=TIMEOUT_MS){clock.t+=TICK_MS/2;b.run();host.run();}
  assert.deepEqual(host.events.leaves,[1]);
  assert.deepEqual(b.events.leaves,[1]);
+});
+
+test('a guest that loads the host world with a stalled page stays in the room',async()=>{
+ const {Peer}=broker(),clock={t:0};
+ const host=setup(Peer,clock),a=setup(Peer,clock);
+ const code=await host.net.host({});
+ a.net.join({code,name:'A'});
+ for(let i=0;i<10;i++)await tick();
+ // The guest page sends nothing for 3 timeouts while it loads. Then its stalled tick runs.
+ while(clock.t<=3*TIMEOUT_MS){clock.t+=TICK_MS;host.run();}
+ a.run();a.net.ready();
+ for(let i=0;i<3;i++){clock.t+=TICK_MS;host.run();a.run();}
+ assert.deepEqual(host.events.leaves,[]);
+ assert.equal(a.net.role,ROLE.GUEST);
 });
 
 test('refuse reasons reach the join status',async()=>{
