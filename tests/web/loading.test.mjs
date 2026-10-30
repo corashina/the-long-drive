@@ -20,6 +20,8 @@ test('loading keeps counts and budgets on failure, then resets for the next load
  assert.equal(nodes.get('#loading-budgets').children[1].textContent,'120.0 / 512.0 MiB');
  now=3000;loading.progress(50000,50000,true,false);
  assert.equal(nodes.get('#loading-progress').value,null,'world preparation has no known percentage');
+ loading.progress(50001,50000,true,false);
+ assert.match(nodes.get('#loading-count').textContent,/Road index: 50,000 \/ 50,000/);
  loading.fail();const stopped=nodes.get('#loading-phase').textContent;
  loading.progress(1,50000,false,false);loading.budget('Asset GPU',0,512*1048576,'bytes');
  assert.equal(nodes.get('#loading-phase').textContent,stopped);
