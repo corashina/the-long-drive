@@ -213,7 +213,12 @@ impl GarageRuntime {
             r,
             now,
             dt,
-            |item| body(item).map(|b| physics.rapier().bodies[b].translation()),
+            // An unloaded weed gets no gust.
+            |item| {
+                body(item)
+                    .filter(|&b| physics.body_active(b))
+                    .map(|b| physics.rapier().bodies[b].translation())
+            },
             cast,
         );
         let pose = self.area.player.body_pose(physics);

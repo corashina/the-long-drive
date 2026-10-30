@@ -41,6 +41,8 @@ pub struct PersistentWorld {
     pending_items: Vec<(ItemId, AbsolutePose)>,
     /// Loose bodies made kinematic by distance, as source `itemPlaceRemoveScript`.
     frozen: HashSet<RigidBodyHandle>,
+    /// Spawned copies with an assembly record.
+    spawned: HashSet<ItemId>,
     important: Vec<[f64; 3]>,
     configured: bool,
 }
@@ -73,6 +75,7 @@ impl PersistentWorld {
             records,
             pending_items: Vec::new(),
             frozen: HashSet::new(),
+            spawned: HashSet::new(),
             important: Vec::new(),
             configured: true,
         };
@@ -133,6 +136,7 @@ impl PersistentWorld {
                 .map(|item| Ok((identities.item(&item.instance)?, item.pose)))
                 .collect::<Result<_, SaveError>>()?,
             frozen: HashSet::new(),
+            spawned: HashSet::new(),
             important: Vec::new(),
             configured: false,
         })
@@ -281,6 +285,41 @@ impl PersistentWorld {
                 |s| s.pose.position,
             )
     }
+    /// Spawned copies are loose assemblies. They freeze and unload with the world like source items.
+    fn track_spawned(&mut self, area: &StartingArea, physics: &mut PhysicsWorld) {
+        let mut changed = false;
+        if self.spawned.len() > area.spawned.len()
+            || area.spawned.iter().any(|s| !self.spawned.contains(&s.id))
+        {
+            let (spawned, frozen) = (&mut self.spawned, &mut self.frozen);
+            self.records.retain(|record| match record.key {
+                Key::Assembly(id) if spawned.contains(&id) && !area.spawned.contains(id) => {
+                    spawned.remove(&id);
+                    if let Some(handle) = record.handle {
+                        frozen.remove(&handle);
+                        physics.inactive_bodies.remove(&handle);
+                    }
+                    changed = true;
+                    false
+                }
+                _ => true,
+            });
+            for item in area.spawned.iter() {
+                if self.spawned.insert(item.id) {
+                    self.records.push(Record {
+                        key: Key::Assembly(item.id),
+                        root: None,
+                        handle: None,
+                        state: None,
+                    });
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            order_roots(&self.records, &mut self.order);
+        }
+    }
     pub fn sync(
         &mut self,
         reference: &ReferenceManifest,
@@ -340,6 +379,7 @@ impl PersistentWorld {
             self.configure_indexes(reference);
             self.configured = true;
         }
+        self.track_spawned(area, physics);
         self.item_bodies.refresh(&area.items);
         for record in &mut self.records {
             match record.key {
@@ -591,6 +631,11 @@ fn configure_roots(
             parent = parents.get(&id).copied().flatten();
         }
     }
+    order_roots(records, order);
+}
+
+/// Independent records first, then source children.
+fn order_roots(records: &[Record], order: &mut Vec<usize>) {
     order.clear();
     for children in [false, true] {
         order.extend(
@@ -724,5 +769,53 @@ mod world_sync_tests {
             assert!(run.area.items.get(oil).unwrap().inactive_pose.is_none());
             assert!(run.area.items.get(food).unwrap().inactive_pose.is_none());
         }
+    }
+
+    #[test]
+    #[ignore = "requires the installed source export"]
+    fn world_sync_unloads_a_spawned_weed_off_the_loaded_world() {
+        use crate::starting_area::{GarageRuntime, spawned};
+        let reference = ReferenceManifest::from_runtime_json(
+            &std::fs::read(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../web/assets/reference/manifest.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        let mut run = GarageRuntime::new_default(&reference).unwrap();
+        crate::world::stream::tests::prepare_ready(&mut run, &reference);
+        let item = reference.weather.tumbleweeds.item_id;
+        let prototype = reference
+            .item_prototypes
+            .iter()
+            .position(|p| p.item_id == Some(item))
+            .unwrap();
+        let mut pose = run.area.player.body_pose(&run.physics);
+        pose.position[1] += 2.;
+        let weed =
+            spawned::spawn_prototype(&reference, &mut run.area, &mut run.physics, prototype, pose)
+                .unwrap()[0];
+        let body = run.area.items.get(weed).unwrap().body.unwrap();
+        run.sync_world_activity(&reference).unwrap();
+        assert!(
+            run.physics.body_active(body),
+            "a weed near the player stays"
+        );
+        run.physics.edit_body(body, |b| {
+            b.set_translation(
+                Vector::new(pose.position[0] + 3000., 0., pose.position[2]),
+                true,
+            )
+        });
+        run.sync_world_activity(&reference).unwrap();
+        assert!(
+            !run.physics.body_active(body),
+            "a weed off the loaded world unloads"
+        );
+        assert!(run.area.items.get(weed).unwrap().inactive_pose.is_some());
+        spawned::despawn(&mut run.area, &mut run.physics, weed).unwrap();
+        run.sync_world_activity(&reference).unwrap();
+        assert!(!run.physics.inactive_bodies.contains(&body));
     }
 }
