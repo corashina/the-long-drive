@@ -6,7 +6,7 @@ Claude runs the ROADMAP test pass with these in Chrome. They are not automatic t
 2. Paste `helpers.js` into the game tab. Start a New game. Then paste one area file, for example `buses.js`.
 3. Call the steps. `window.sandbox` has `teleport(x, z)`, `garage()`, `building(name)`, `spawn(name, forward)`, `hand(name)`, `fill(fluid, liters)`, `cycle(seconds)` and `state(radius)`.
    Setup helpers use the game paths, so the checks after them stay valid:
-   - `seat(car, seat)`: sit on the nearest loaded seat. `car` is part of a car name (`'Lada'`) or `null` for any seat, such as a sled or the WC. `seat` is `'driver'`, `'passenger'` or `null`.
+   - `seat(car, seat)`: sit on the nearest loaded seat. `car` is part of a root name (`'Car02Full'`), a game name (`'Volna'`) or `'Lada'`, or `null` for any seat, such as a sled or the WC. `seat` is `'driver'`, `'passenger'` or `null`.
    - `stand()`: get out to the first clear exit.
    - `wear(name)`: spawn a wearable or the cigarette and put it on. A bad name lists the names.
    - `equip(name)`: place a gun, wait until the stream loads it, then put it in the hand with full ammo. A bad name lists the gun names.

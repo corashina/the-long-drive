@@ -376,9 +376,7 @@ fn sit(
         .interaction
         .item_seats()
         .filter(|seat| {
-            wanted
-                .as_ref()
-                .is_none_or(|w| name(seat).to_lowercase().contains(w))
+            wanted.as_ref().is_none_or(|w| car_matches(name(seat), w))
                 && kind.is_none_or(|k| seat.seat.driver == matches!(k, SeatKind::Driver))
                 && seat.can_sit(&runtime.physics)
         })
@@ -398,6 +396,16 @@ fn sit(
         return Err("Cannot sit there.".into());
     }
     Ok(found)
+}
+
+/// The root name (Car02Full), the game name (Volna) or, for the Volna, "Lada" contains `wanted`.
+fn car_matches(root: &str, wanted: &str) -> bool {
+    let game = crate::interaction::labels::vehicle_name(root).unwrap_or("");
+    let lada = if game == "Volna" { "lada" } else { "" };
+    !root.is_empty()
+        && [root, game, lada]
+            .iter()
+            .any(|n| !n.is_empty() && n.to_lowercase().contains(wanted))
 }
 
 /// Spawns a wearable in front of the player and puts it on, as the short Tab release does.
@@ -947,6 +955,8 @@ mod tests {
         let action = serde_json::from_value::<Action>(
             json!({"action": "seat", "car": null, "seat": "passenger"}),
         );
+        assert!(car_matches("Car02Full", "volna") && car_matches("Car02Full", "lada"));
+        assert!(car_matches("Car02Full", "car02") && !car_matches("Car07Full", "lada"));
         assert!(matches!(
             action,
             Ok(Action::Seat {
