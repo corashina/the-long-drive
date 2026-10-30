@@ -178,10 +178,6 @@ Prepare once:
 1. Load, Load last and New game after death do not fail with "Asset CPU budget exceeded". Reload the page, then Load last from the start menu: the game starts, no "Source building metadata exceeds prototype CPU budget".
 2. Turn on "Load last save at start" and reload the page. The last save loads.
 
-### Game options
-
-2. Pause > Game mode > Survival off: the food and water bars hide, and food and water stay full. Turn it on again: they drain.
-
 ### Settings
 
 5. Crosshair off hides it. Old crosshair shows the source dot, tinted for E, F and MMB, with the carry bar. Crosshair scale changes its size.
