@@ -229,7 +229,7 @@ impl GarageRuntime {
             .or(self.area.interaction.held())
     }
 
-    fn spawn_cigarette(
+    pub(crate) fn spawn_cigarette(
         &mut self,
         reference: &ReferenceManifest,
         root: VehiclePose,

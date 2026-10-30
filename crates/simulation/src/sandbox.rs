@@ -1,8 +1,10 @@
 //! Test sandbox. The `?sandbox` page sends these commands; Claude runs the ROADMAP test pass with them.
 //! A bad command changes nothing and answers `ok: false`. It never stops the game.
+use crate::player::SeatOwner;
 use crate::reference::{ReferenceManifest, WorldPrototypeReference};
 use crate::starting_area::GarageRuntime;
 use crate::vehicle::{VehiclePose, to_rapier};
+use crate::world::stream::content_seats::ItemSeat;
 use crate::world::{ObjectKey, WorldLayer, WorldStream, stream::SupportGap};
 use rapier3d::math::{Rotation, Vector};
 use serde::{Deserialize, Serialize};
@@ -31,10 +33,31 @@ enum Action {
     Hand { name: String },
     /// Replaces the fuel of the seated car, or the nearest car within 10 m, with `liters` of `fluid` (0 to 5).
     Fill { fluid: u8, liters: f32 },
+    /// Sits on the nearest loaded seat. `car` limits it to cars whose name contains `car`.
+    /// `seat` limits it to the driver or a passenger seat.
+    Seat {
+        car: Option<String>,
+        seat: Option<SeatKind>,
+    },
+    /// Gets out of the seat to the first clear exit.
+    Stand,
+    /// Spawns a wearable item prototype (catalog or root name) and puts it on.
+    Wear { name: String },
+    /// Spawns a gun (item prototype root name) with full ammo and puts it in the hand.
+    Equip { name: String },
+    /// Turns the head toward absolute `x`, `y`, `z`, within the look limits.
+    Aim { x: f64, y: f64, z: f64 },
     /// Sets the source day cycle seconds.
     Cycle { seconds: f64 },
     /// Answers the player, the cycle, the cars and the items within `radius` metres.
     State { radius: f32 },
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum SeatKind {
+    Driver,
+    Passenger,
 }
 
 #[derive(Serialize)]
@@ -154,6 +177,32 @@ fn apply(
             let message = if equipped { "In the hand." } else { "Carried." };
             Ok((message.into(), json!(items)))
         }
+        Action::Seat { car, seat } => {
+            let name = sit(runtime, reference, car.as_deref(), seat)?;
+            Ok((format!("Seated in {name}."), Value::Null))
+        }
+        Action::Stand => {
+            if !runtime.area.player.seated() {
+                return Err("Not seated.".into());
+            }
+            if !runtime.area.player.try_exit(&mut runtime.physics) {
+                return Err("No clear exit.".into());
+            }
+            Ok(("Standing.".into(), Value::Null))
+        }
+        Action::Wear { name } => {
+            let item = wear(runtime, reference, &name)?;
+            Ok((format!("Wearing {name}."), json!(item)))
+        }
+        Action::Equip { name } => {
+            let item = equip(runtime, reference, &name)?;
+            Ok((format!("{name} in the hand."), json!(item)))
+        }
+        Action::Aim { x, y, z } => {
+            let target = runtime.stream.origin.local([x, y, z]);
+            runtime.area.player.look_at(target, &runtime.physics);
+            Ok(("Aimed.".into(), Value::Null))
+        }
         Action::Fill { fluid, liters } => fill(runtime, fluid, liters),
         Action::Cycle { seconds } => {
             let cycle = &reference.lighting.cycle;
@@ -252,6 +301,195 @@ fn fill(runtime: &mut GarageRuntime, fluid: u8, liters: f32) -> Result<(String, 
         }],
     );
     Ok((format!("Filled {amount} L."), json!(format!("{key:?}"))))
+}
+
+/// Sits on the nearest seat that `car` and `kind` allow, as release E on the seat does.
+/// Returns the owner name.
+fn sit(
+    runtime: &mut GarageRuntime,
+    reference: &ReferenceManifest,
+    car: Option<&str>,
+    kind: Option<SeatKind>,
+) -> Result<String, String> {
+    if runtime.area.player.seated() {
+        return Err("Get out of the seat first.".into());
+    }
+    let player = Vector::from_array(runtime.area.player.body_pose(&runtime.physics).position);
+    let wanted = car.map(str::to_lowercase);
+    let bodies = &runtime.physics.rapier().bodies;
+    let name = |seat: &ItemSeat| match &seat.owner {
+        SeatOwner::Vehicle(key) => runtime.vehicles.get(key).map_or("", |v| {
+            prototype_name(&reference.world.prototypes[v.prototype])
+        }),
+        SeatOwner::Item(_) => "",
+    };
+    let seat = runtime
+        .area
+        .interaction
+        .item_seats()
+        .filter(|seat| {
+            wanted
+                .as_ref()
+                .is_none_or(|w| name(seat).to_lowercase().contains(w))
+                && kind.is_none_or(|k| seat.seat.driver == matches!(k, SeatKind::Driver))
+                && seat.can_sit(&runtime.physics)
+        })
+        .map(|seat| {
+            let at = *bodies[seat.body].position() * to_rapier(seat.pose);
+            (seat, at.translation.distance_squared(player))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(seat, _)| seat.clone())
+        .ok_or("No loaded seat matches. Spawn or teleport to the car first.")?;
+    let found = name(&seat).to_string();
+    if !runtime
+        .area
+        .player
+        .enter_item_seat(&seat, &mut runtime.physics)
+    {
+        return Err("Cannot sit there.".into());
+    }
+    Ok(found)
+}
+
+/// Spawns a wearable in front of the player and puts it on, as the short Tab release does.
+fn wear(
+    runtime: &mut GarageRuntime,
+    reference: &ReferenceManifest,
+    name: &str,
+) -> Result<u32, String> {
+    let cigarette = runtime.area.cigarettes.cigarette_prototype;
+    let wearables: Vec<usize> = reference
+        .clothing
+        .wearables
+        .iter()
+        .filter_map(|w| {
+            reference
+                .item_prototypes
+                .iter()
+                .position(|p| p.id == w.prototype)
+        })
+        .chain([cigarette])
+        .collect();
+    let prototype = named_prototype(reference, name)
+        .filter(|p| wearables.contains(p))
+        .ok_or_else(|| {
+            format!(
+                "No wearable {name}. Names: {}",
+                names(reference, wearables.iter().copied())
+            )
+        })?;
+    let root = ahead(runtime, 1.);
+    let item = if prototype == cigarette {
+        runtime.spawn_cigarette(reference, root)
+    } else {
+        crate::starting_area::spawned::spawn_prototype(
+            reference,
+            &mut runtime.area,
+            &mut runtime.physics,
+            prototype,
+            root,
+        )
+        .map(|items| items[0])
+    }
+    .map_err(|e| e.to_string())?;
+    if !runtime.area.put_on(&mut runtime.physics, item) {
+        return Err("Its slot is full. It lies in front of the player.".into());
+    }
+    runtime.area.update_glasses(&runtime.stream);
+    Ok(item.0)
+}
+
+/// Spawns a gun with full ammo, picks it up and puts it in the hand.
+fn equip(
+    runtime: &mut GarageRuntime,
+    reference: &ReferenceManifest,
+    name: &str,
+) -> Result<u32, String> {
+    let weapons = &reference.guns.weapons;
+    let prototype_of = |gun: &crate::reference::GunReference| {
+        reference
+            .item_prototypes
+            .iter()
+            .position(|p| p.id == gun.prototype)
+    };
+    let found = named_prototype(reference, name);
+    let gun = weapons
+        .iter()
+        .find(|g| found.is_some() && prototype_of(g) == found)
+        .ok_or_else(|| {
+            format!(
+                "No gun {name}. Names: {}",
+                names(reference, weapons.iter().filter_map(prototype_of))
+            )
+        })?;
+    let prototype = found.expect("gun prototype");
+    let pickup = reference.item_prototypes[prototype]
+        .pickups
+        .iter()
+        .position(|p| p.pickup.source == gun.pickup)
+        .ok_or("The gun has no pickup.")?;
+    let items = spawn_item(runtime, reference, prototype, 1.)?;
+    let item = crate::reference::ItemId(items[pickup]);
+    let area = &mut runtime.area;
+    let index = area
+        .interaction
+        .guns
+        .weapon_for(&gun.pickup)
+        .ok_or("The gun has no weapon record.")?;
+    let maximum = crate::interaction::spray::Ammo::new(&gun.ammo).maximum;
+    area.interaction.guns.bind(item, index, None, Some(maximum));
+    let point = area
+        .items
+        .get(item)
+        .ok_or("Spawned gun is missing")?
+        .pose
+        .position;
+    area.interaction
+        .pickup_item(
+            item,
+            point,
+            &area.player,
+            &mut area.items,
+            &mut runtime.physics,
+        )
+        .map_err(|e| e.to_string())?;
+    area.sync_inventory();
+    if !area
+        .equip_carried(&mut runtime.physics)
+        .map_err(|e| e.to_string())?
+    {
+        return Err("Carried, but the hand is not free.".into());
+    }
+    Ok(item.0)
+}
+
+/// An item prototype by catalog name, else by root node name.
+fn named_prototype(reference: &ReferenceManifest, name: &str) -> Option<usize> {
+    item_prototype(reference, name).ok().or_else(|| {
+        reference
+            .item_prototypes
+            .iter()
+            .position(|p| root_name(reference, p.root).eq_ignore_ascii_case(name))
+    })
+}
+
+fn root_name(reference: &ReferenceManifest, root: crate::reference::NodeId) -> &str {
+    reference
+        .nodes
+        .iter()
+        .find(|n| n.id == root)
+        .map_or("", |n| n.name.as_str())
+}
+
+/// The sorted root names of item prototypes.
+fn names(reference: &ReferenceManifest, prototypes: impl Iterator<Item = usize>) -> String {
+    let mut names: Vec<_> = prototypes
+        .map(|p| root_name(reference, reference.item_prototypes[p].root))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    names.join(", ")
 }
 
 /// The first building of the road sequence whose name contains `name`. Unknown: lists the names.
@@ -509,5 +747,15 @@ mod tests {
             json!({"action": "spawn", "name": "beer", "forward": 3.0}),
         );
         assert!(matches!(action, Ok(Action::Spawn { forward, .. }) if forward == 3.));
+        let action = serde_json::from_value::<Action>(
+            json!({"action": "seat", "car": null, "seat": "passenger"}),
+        );
+        assert!(matches!(
+            action,
+            Ok(Action::Seat {
+                car: None,
+                seat: Some(SeatKind::Passenger)
+            })
+        ));
     }
 }

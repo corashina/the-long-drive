@@ -191,7 +191,7 @@ impl WearRuntime {
 
 impl StartingArea {
     /// Source `Wear`: drop the item, remove it from physics, and put it in its slot.
-    pub(super) fn put_on(&mut self, physics: &mut PhysicsWorld, id: ItemId) -> bool {
+    pub(crate) fn put_on(&mut self, physics: &mut PhysicsWorld, id: ItemId) -> bool {
         let Some(rule) = self.wear.rule(&self.interaction, id) else {
             return false;
         };
@@ -246,7 +246,7 @@ impl StartingArea {
 
     /// Source `szbglasscript.Puton`: the active lens of the worn glasses, or none.
     /// Run after each put on, take off and save restore.
-    pub(super) fn update_glasses(&mut self, stream: &WorldStream) {
+    pub(crate) fn update_glasses(&mut self, stream: &WorldStream) {
         let wear = &mut self.wear;
         let rules = &wear.rules;
         let Some(item) = wear

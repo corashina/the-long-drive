@@ -1232,6 +1232,26 @@ impl PlayerState {
         });
         self.push_gripping = active;
     }
+    /// Turns the head toward the physics-space point `target`, within the look limits.
+    pub fn look_at(&mut self, target: [f32; 3], physics: &PhysicsWorld) {
+        let camera = Vector::from_array(self.view(physics).camera_pose.position);
+        // Seated, yaw and pitch are in the seat frame. On foot, the body carries the yaw.
+        let parent = match self.occupancy {
+            Some(_) => Rotation::from_array(self.body_pose(physics).rotation),
+            None => Rotation::IDENTITY,
+        };
+        let d = parent.inverse() * (Vector::from_array(target) - camera);
+        let yaw = d.x.atan2(-d.z).to_degrees();
+        self.pitch = (-d.y.atan2(d.x.hypot(d.z)).to_degrees()).clamp(-89.0, 89.0);
+        if let Some(seat) = &self.occupancy {
+            let [pitch_min, pitch_max] = seat.values.pitch_limits_degrees;
+            self.yaw = seat.values.clamp_yaw(yaw);
+            self.pitch = self.pitch.clamp(pitch_min, pitch_max);
+        } else {
+            self.yaw = yaw;
+            self.pose.rotation = Rotation::from_rotation_y(-self.yaw.to_radians());
+        }
+    }
     pub fn follow_push_grip(&mut self, turn_degrees: f32) {
         self.yaw -= turn_degrees;
         self.pose.rotation = Rotation::from_rotation_y(-self.yaw.to_radians());

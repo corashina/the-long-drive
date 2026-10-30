@@ -18,6 +18,8 @@ export function installSandbox(target,enabled){
  target.sandbox={
   teleport:(x,z)=>send('teleport',{x,z}),garage:()=>send('garage',{}),building:name=>send('building',{name}),
   spawn:(name,forward=3)=>send('spawn',{name,forward}),hand:name=>send('hand',{name}),
+  seat:(car=null,seat=null)=>send('seat',{car,seat}),stand:()=>send('stand',{}),wear:name=>send('wear',{name}),equip:name=>send('equip',{name}),
+  aim:(x,y,z)=>send('aim',{x,y,z}),
   fill:(fluid,liters)=>send('fill',{fluid:FLUIDS[fluid]??fluid,liters}),cycle:seconds=>send('cycle',{seconds}),state:(radius=50)=>send('state',{radius}),
  };
 }
