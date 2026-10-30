@@ -9,7 +9,7 @@ Claude runs the ROADMAP test pass with these in Chrome. They are not automatic t
    - `seat(car, seat)`: sit on the nearest loaded seat. `car` is part of a car name (`'Lada'`) or `null` for any seat, such as a sled or the WC. `seat` is `'driver'`, `'passenger'` or `null`.
    - `stand()`: get out to the first clear exit.
    - `wear(name)`: spawn a wearable or the cigarette and put it on. A bad name lists the names.
-   - `equip(name)`: spawn a gun with full ammo and put it in the hand. A bad name lists the gun names.
+   - `equip(name)`: place a gun, wait until the stream loads it, then put it in the hand with full ammo. A bad name lists the gun names.
    - `aim(x, y, z)`: turn the head toward an absolute world point. Positions come from `state()`.
    - `spawn('rabbit', forward)` and `spawn('evil rabbit', forward)`: a small rabbit, or a big one that gets evil eyes unless Peaceful is on.
    - `storm(distance)`: a sandstorm `distance` metres ahead. Default 50.

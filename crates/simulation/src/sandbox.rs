@@ -47,7 +47,7 @@ enum Action {
     Stand,
     /// Spawns a wearable item prototype (catalog or root name) and puts it on.
     Wear { name: String },
-    /// Spawns a gun (item prototype root name) with full ammo and puts it in the hand.
+    /// Places a gun (world prototype root name) and puts it in the hand with full ammo.
     Equip { name: String },
     /// Turns the head toward absolute `x`, `y`, `z`, within the look limits.
     Aim { x: f64, y: f64, z: f64 },
@@ -210,10 +210,7 @@ fn apply(
             let item = wear(runtime, reference, &name)?;
             Ok((format!("Wearing {name}."), json!(item)))
         }
-        Action::Equip { name } => {
-            let item = equip(runtime, reference, &name)?;
-            Ok((format!("{name} in the hand."), json!(item)))
-        }
+        Action::Equip { name } => equip(runtime, reference, &name),
         Action::Aim { x, y, z } => {
             let target = runtime.stream.origin.local([x, y, z]);
             runtime.area.player.look_at(target, &runtime.physics);
@@ -422,8 +419,16 @@ fn wear(
         })
         .chain([cigarette])
         .collect();
-    let prototype = named_prototype(reference, name)
-        .filter(|p| wearables.contains(p))
+    // A root name can repeat across prototypes, so the match stays inside the wearables.
+    let catalog = item_prototype(reference, name).ok();
+    let prototype = wearables
+        .iter()
+        .copied()
+        .find(|&p| {
+            catalog == Some(p)
+                || root_name(reference, reference.item_prototypes[p].root)
+                    .eq_ignore_ascii_case(name)
+        })
         .ok_or_else(|| {
             format!(
                 "No wearable {name}. Names: {}",
@@ -451,47 +456,58 @@ fn wear(
     Ok(item.0)
 }
 
-/// Spawns a gun with full ammo, picks it up and puts it in the hand.
+/// Places gun `name` (a world prototype root name), then puts the loaded gun in the hand with
+/// full ammo. The reply has `pending` until the stream loads it.
 fn equip(
     runtime: &mut GarageRuntime,
     reference: &ReferenceManifest,
     name: &str,
-) -> Result<u32, String> {
-    let weapons = &reference.guns.weapons;
-    let prototype_of = |gun: &crate::reference::GunReference| {
+) -> Result<(String, Value), String> {
+    let guns = reference.guns.weapons.iter().filter_map(|g| {
         reference
-            .item_prototypes
+            .world
+            .prototypes
             .iter()
-            .position(|p| p.id == gun.prototype)
+            .find(|w| w.source == g.prototype.0)
+    });
+    let Some(prototype) = guns
+        .clone()
+        .find(|w| prototype_name(w).eq_ignore_ascii_case(name))
+    else {
+        let mut names: Vec<_> = guns.map(prototype_name).collect();
+        names.sort_unstable();
+        names.dedup();
+        return Err(format!("No gun {name}. Names: {}", names.join(", ")));
     };
-    let found = named_prototype(reference, name);
-    let gun = weapons
-        .iter()
-        .find(|g| found.is_some() && prototype_of(g) == found)
-        .ok_or_else(|| {
-            format!(
-                "No gun {name}. Names: {}",
-                names(reference, weapons.iter().filter_map(prototype_of))
-            )
-        })?;
-    let prototype = found.expect("gun prototype");
-    let pickup = reference.item_prototypes[prototype]
-        .pickups
-        .iter()
-        .position(|p| p.pickup.source == gun.pickup)
-        .ok_or("The gun has no pickup.")?;
-    let items = spawn_item(runtime, reference, prototype, 1.)?;
-    let item = ItemId(items[pickup]);
-    let guns = &mut runtime.area.interaction.guns;
-    let index = guns
-        .weapon_for(&gun.pickup)
-        .ok_or("The gun has no weapon record.")?;
-    let maximum = crate::interaction::spray::Ammo::new(&gun.ammo).maximum;
-    guns.bind(item, index, None, Some(maximum));
+    let bound = |item| runtime.area.interaction.guns.runtime(item).is_some();
+    let Some(item) = loaded_world_item(runtime, &prototype.source, bound) else {
+        return place_pending(runtime, prototype, name);
+    };
     if !take_in_hand(runtime, item)? {
         return Err("Carried, but the hand is not free.".into());
     }
-    Ok(item.0)
+    runtime.area.interaction.guns.fill(item);
+    Ok((format!("{name} in the hand."), json!([item.0])))
+}
+
+/// Places world prototype `prototype` once. The item command answers `pending` until it loads.
+fn place_pending(
+    runtime: &mut GarageRuntime,
+    prototype: &WorldPrototypeReference,
+    name: &str,
+) -> Result<(String, Value), String> {
+    let placed = runtime
+        .stream
+        .added_placement_audit()
+        .iter()
+        .any(|(p, _)| p.prototype == prototype.source);
+    if !placed {
+        place_world(runtime, prototype, 1.)?;
+    }
+    Ok((
+        format!("Placed {name}. Call again when it loads."),
+        json!({"pending": true}),
+    ))
 }
 
 /// Picks up `item` and puts it in the hand. False: it stays carried.
@@ -539,22 +555,9 @@ fn hand(
                 .and_then(|i| i.prototype.as_ref())
                 .and_then(|p| reference.world.prototypes.iter().find(|w| &w.source == p))
                 .ok_or(error)?;
-            match loaded_world_item(runtime, &prototype.source) {
+            match loaded_world_item(runtime, &prototype.source, |_| true) {
                 Some(item) => item,
-                None => {
-                    let placed = runtime
-                        .stream
-                        .added_placement_audit()
-                        .iter()
-                        .any(|(p, _)| p.prototype == prototype.source);
-                    if !placed {
-                        place_world(runtime, prototype, 1.)?;
-                    }
-                    return Ok((
-                        format!("Placed {name}. Call hand again when it loads."),
-                        json!({"pending": true}),
-                    ));
-                }
+                None => return place_pending(runtime, prototype, name),
             }
         }
     };
@@ -567,8 +570,13 @@ fn hand(
 }
 
 /// The nearest loose item of a sandbox or startup placement of world prototype `source`.
-fn loaded_world_item(runtime: &GarageRuntime, source: &SourceId) -> Option<ItemId> {
+fn loaded_world_item(
+    runtime: &GarageRuntime,
+    source: &SourceId,
+    keep: impl Fn(ItemId) -> bool,
+) -> Option<ItemId> {
     let player = Vector::from_array(runtime.area.player.body_pose(&runtime.physics).position);
+    // The prototype root comes first, then the nearest copy.
     runtime
         .area
         .items
@@ -576,26 +584,16 @@ fn loaded_world_item(runtime: &GarageRuntime, source: &SourceId) -> Option<ItemI
         .filter(|(id, item)| {
             id.layer == WorldLayer::Startup
                 && &id.generator == source
-                && id.children.is_empty()
                 && !item.removed
                 && item.location == ItemLocation::World
+                && keep(item.id)
         })
-        .map(|(_, item)| {
+        .map(|(id, item)| {
             let at = Vector::from_array(item.pose.position);
-            (item.id, at.distance_squared(player))
+            (item.id, id.children.len(), at.distance_squared(player))
         })
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(id, _)| id)
-}
-
-/// An item prototype by catalog name, else by root node name.
-fn named_prototype(reference: &ReferenceManifest, name: &str) -> Option<usize> {
-    item_prototype(reference, name).ok().or_else(|| {
-        reference
-            .item_prototypes
-            .iter()
-            .position(|p| root_name(reference, p.root).eq_ignore_ascii_case(name))
-    })
+        .min_by(|a, b| a.1.cmp(&b.1).then(a.2.total_cmp(&b.2)))
+        .map(|(id, ..)| id)
 }
 
 fn root_name(reference: &ReferenceManifest, root: crate::reference::NodeId) -> &str {

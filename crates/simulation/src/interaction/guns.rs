@@ -551,6 +551,21 @@ impl GunState {
         touch(&mut self.presented, item);
         true
     }
+    /// Sandbox: full ammo, a magazine in, and a full revolver cylinder. False: no runtime.
+    pub fn fill(&mut self, item: ItemId) -> bool {
+        let Some(rt) = self.runtimes.get_mut(&item) else {
+            return false;
+        };
+        let g = &self.guns[rt.gun];
+        rt.ammo.count = rt.ammo.maximum;
+        match g.record.kind {
+            GunKind::Revolver { .. } => rt.chambers = low_bits(g.bullets.len()),
+            GunKind::Magazine { .. } => rt.has_mag = true,
+            _ => {}
+        }
+        touch(&mut self.changed, item);
+        true
+    }
     /// The saved state of a gun item, or `None` at its fresh state.
     pub fn snapshot(&self, item: ItemId) -> Option<GunSnapshot> {
         let rt = self.runtimes.get(&item)?;
