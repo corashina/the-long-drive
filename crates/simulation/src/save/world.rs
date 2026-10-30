@@ -722,7 +722,6 @@ mod world_sync_tests {
             frozen: HashSet::new(),
             spawned: HashSet::new(),
             important: Vec::new(),
-            spawned: HashSet::new(),
             configured: true,
         };
         let window = |x: f64| crate::world::WorldBounds {
