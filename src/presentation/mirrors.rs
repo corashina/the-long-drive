@@ -194,8 +194,10 @@ pub(crate) fn select(
         let visible = instances
             .mirror_renderers(candidate.instance, mirror.renderer)
             .any(|entity| visibility.get(entity).is_ok_and(|v| v.get()));
-        // Angle(T.up, v) < 90 degrees.
-        if k <= 0. || up.dot(reflected) <= 0. || !visible {
+        let far = settings.draw_distance * k;
+        // Angle(T.up, v) < 90 degrees. Near the max distance, far drops to the near plane:
+        // that camera has no frustum and fails the shadow fit. Treat it as out of range.
+        if far <= mirror.near || up.dot(reflected) <= 0. || !visible {
             continue;
         }
         let pose = Transform::from_translation(position)
@@ -206,7 +208,7 @@ pub(crate) fn select(
                 world_from_view: pose.to_matrix(),
                 fov_degrees: fov,
                 near: mirror.near,
-                far: settings.draw_distance * k,
+                far,
                 mask: mirror.mask,
             },
         ));
