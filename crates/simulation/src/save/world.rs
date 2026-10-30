@@ -29,6 +29,9 @@ struct Record {
     root: Option<BodyId>,
     handle: Option<RigidBodyHandle>,
     state: Option<BodyState>,
+    /// Collider reach from the body origin and whether the body is not dynamic. `sync` sets them.
+    extent: f64,
+    fixed: bool,
 }
 
 /// Inactive poses use absolute coordinates. Runtime handles never enter a save.
@@ -65,6 +68,8 @@ impl PersistentWorld {
                 root: None,
                 handle: None,
                 state: None,
+                extent: 0.,
+                fixed: false,
             })
             .collect();
         let mut result = Self {
@@ -91,6 +96,8 @@ impl PersistentWorld {
                     root: None,
                     handle: None,
                     state: None,
+                    extent: 0.,
+                    fixed: false,
                 });
             }
         }
@@ -100,6 +107,8 @@ impl PersistentWorld {
                 root: None,
                 handle: None,
                 state: None,
+                extent: 0.,
+                fixed: false,
             });
         }
         for body in &snapshot.bodies {
@@ -341,6 +350,8 @@ impl PersistentWorld {
                         root: None,
                         handle: None,
                         state: None,
+                        extent: 0.,
+                        fixed: false,
                     });
                 }
             }
@@ -476,6 +487,8 @@ impl PersistentWorld {
                     bounds.mins.abs().max(bounds.maxs.abs()).max_element()
                 })
                 .fold(0_f32, f32::max) as f64;
+            self.records[index].extent = extent;
+            self.records[index].fixed = !body.is_dynamic();
             let bounded = [0, 1, 2].iter().all(|&axis| {
                 (absolute[axis] - stream.origin.offset[axis]).abs() + extent <= REBASE_LIMIT as f64
             }) && [0, 2].iter().all(|&axis| {
@@ -612,6 +625,21 @@ impl PersistentWorld {
         }
         Ok(())
     }
+    /// True when an inactive fixed or kinematic body reaches into `bounds` on X and Z.
+    /// Such a body is ground that `sync` has not restored yet, such as the garage after a far move.
+    pub fn waits_for(&self, bounds: crate::world::WorldBounds) -> bool {
+        self.records.iter().any(|record| {
+            record.fixed
+                && record.root.is_none()
+                && record.state.is_some_and(|state| {
+                    state.enabled
+                        && [0, 2].into_iter().all(|axis| {
+                            state.pose.position[axis] - record.extent <= bounds.max[axis]
+                                && state.pose.position[axis] + record.extent >= bounds.min[axis]
+                        })
+                })
+        })
+    }
 }
 
 /// Preserve independent-record order before source children claim their shared handles.
@@ -657,7 +685,59 @@ mod world_sync_tests {
             root: None,
             handle: Some(handle),
             state: None,
+            extent: 0.,
+            fixed: false,
         }
+    }
+
+    #[test]
+    fn inactive_ground_near_the_player_holds_the_step() {
+        let state = BodyState {
+            pose: AbsolutePose {
+                position: [40., 0., -70.],
+                rotation: [0., 0., 0., 1.],
+            },
+            linear: [0.; 3],
+            angular: [0.; 3],
+            sleeping: false,
+            enabled: true,
+        };
+        let mut world = PersistentWorld {
+            records: vec![Record {
+                state: Some(state),
+                extent: 12.,
+                fixed: true,
+                ..record(
+                    Key::Source(BodyId(1)),
+                    RigidBodyHandle::from_raw_parts(1, 0),
+                )
+            }],
+            processed: HashSet::new(),
+            order: Vec::new(),
+            reference_items: HashMap::new(),
+            item_bodies: ItemBodyIndex::default(),
+            pending_items: Vec::new(),
+            frozen: HashSet::new(),
+            important: Vec::new(),
+            configured: true,
+        };
+        let window = |x: f64| crate::world::WorldBounds {
+            min: [x - 8., -500., -78.],
+            max: [x + 8., 500., -62.],
+        };
+        assert!(
+            world.waits_for(window(30.)),
+            "the garage reaches the player"
+        );
+        assert!(
+            !world.waits_for(window(600.)),
+            "far bodies do not hold the step"
+        );
+        world.records[0].state = None;
+        assert!(
+            !world.waits_for(window(30.)),
+            "active bodies do not hold the step"
+        );
     }
 
     #[test]

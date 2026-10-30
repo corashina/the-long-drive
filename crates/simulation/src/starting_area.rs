@@ -2919,10 +2919,12 @@ impl GarageRuntime {
         }
         let supported = |point: [f32; 3], padding: f64| {
             let center = self.stream.origin.absolute(point);
-            self.stream.supports(crate::world::WorldBounds {
+            let bounds = crate::world::WorldBounds {
                 min: center.map(|v| v - padding),
                 max: center.map(|v| v + padding),
-            })
+            };
+            // Source bodies return one sync after their own wider area loads. Wait for them too.
+            self.stream.supports(bounds) && !self.persistent_world.waits_for(bounds)
         };
         supported(self.area.player.focus_position(&self.physics), 8.)
             && self.vehicles.keys().all(|key| {
