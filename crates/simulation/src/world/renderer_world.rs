@@ -54,8 +54,8 @@ pub struct RendererFrame<'a> {
     pub startup: Option<&'a StartupTerrain>,
     pub failure: Option<&'a str>,
 }
-/// Lamp material variants by prototype and node.
-type LampChoices = Vec<(SourceId, SourceId, Arc<[SourceId]>)>;
+/// Lamp material variants by prototype, then by node.
+type LampChoices = HashMap<SourceId, Arc<HashMap<SourceId, Arc<[SourceId]>>>>;
 /// Fixed lookups from the world reference. Copies of one world share them.
 struct Lookups {
     reference: Arc<WorldReference>,
@@ -63,6 +63,8 @@ struct Lookups {
     biome_materials: crate::world::biome_materials::BiomeMaterials,
     /// Lamp material variants by prototype and node, filled by reads.
     lamp_materials: Mutex<LampChoices>,
+    /// The variants of a node without lamp materials.
+    no_lamp_materials: Arc<[SourceId]>,
 }
 /// Values of a pending or published structure placement that need the stream to compute.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -204,6 +206,7 @@ impl RendererWorld {
             ),
             reference,
             lamp_materials: Mutex::default(),
+            no_lamp_materials: Arc::new([]),
         }))
     }
     fn with_lookups(lookups: Arc<Lookups>) -> Self {
@@ -355,23 +358,32 @@ impl RendererWorld {
         node: &SourceId,
     ) -> Result<Arc<[SourceId]>, ReferenceError> {
         let lookups = &*self.lookups;
-        if let Some((_, _, output)) = lookups
+        let cached = lookups
             .lamp_materials
             .lock()
             .unwrap()
-            .iter()
-            .find(|(p, n, _)| p == prototype && n == node)
-        {
-            return Ok(output.clone());
-        }
-        let output: Arc<[SourceId]> =
-            super::lamp_materials_of(&lookups.rules, &lookups.reference, prototype, node)?.into();
-        lookups.lamp_materials.lock().unwrap().push((
-            prototype.clone(),
-            node.clone(),
-            output.clone(),
-        ));
-        Ok(output)
+            .get(prototype)
+            .cloned();
+        let nodes = match cached {
+            Some(nodes) => nodes,
+            None => {
+                let nodes = Arc::new(super::lamp_materials_of(
+                    &lookups.rules,
+                    &lookups.reference,
+                    prototype,
+                )?);
+                lookups
+                    .lamp_materials
+                    .lock()
+                    .unwrap()
+                    .insert(prototype.clone(), nodes.clone());
+                nodes
+            }
+        };
+        Ok(nodes
+            .get(node)
+            .unwrap_or(&lookups.no_lamp_materials)
+            .clone())
     }
     pub fn lod_owner(&self, source: &SourceId) -> Option<&SourceId> {
         self.lookups

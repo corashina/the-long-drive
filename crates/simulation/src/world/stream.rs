@@ -5678,31 +5678,42 @@ fn cable_entry_bytes(entry: &CableEntry) -> usize {
 fn cable_entry_heap(entry: &CableEntry) -> usize {
     super::contents::identity_heap(&entry.0) + super::contents::appearance_bytes(&entry.1)
 }
-/// Lamp and radio on/off materials of `node` in `prototype`.
+/// Lamp and radio on/off materials of each node in `prototype`, in one hierarchy walk.
 pub(super) fn lamp_materials_of(
     rules: &super::spawn_rules::SourceRules,
     world: &WorldReference,
     prototype: &SourceId,
-    node: &SourceId,
-) -> Result<Vec<SourceId>, ReferenceError> {
-    let mut output = Vec::new();
+) -> Result<HashMap<SourceId, Arc<[SourceId]>>, ReferenceError> {
+    let mut output: HashMap<SourceId, Vec<SourceId>> = HashMap::new();
+    let mut add = |node: &SourceId, material: &SourceId| {
+        let list = output.entry(node.clone()).or_default();
+        if !list.contains(material) {
+            list.push(material.clone());
+        }
+    };
     use super::spawn_rules::*;
     let mut controllers = Vec::new();
     rules.children(world, prototype, "flashlightscript", true, &mut controllers)?;
+    let mut roots = Vec::new();
     for source in controllers {
         let f = rules.get(world, source)?.fields;
         for lamp in array(f, "Lamps")? {
             let lamp = fields(lamp)?;
-            if !array(lamp, "R")?
-                .iter()
-                .any(|r| value_link(r).ok().and_then(|r| rules.root(world, r).ok()) == Some(node))
-            {
+            roots.clear();
+            for r in array(lamp, "R")? {
+                if let Some(root) = value_link(r).ok().and_then(|r| rules.root(world, r).ok()) {
+                    if !roots.contains(&root) {
+                        roots.push(root);
+                    }
+                }
+            }
+            if roots.is_empty() {
                 continue;
             }
             for field in ["mON", "mOFF"] {
                 if let Some(material) = optional(lamp, field)?.or(optional(f, field)?) {
-                    if !output.contains(material) {
-                        output.push(material.clone());
+                    for node in &roots {
+                        add(node, material);
                     }
                 }
             }
@@ -5713,45 +5724,35 @@ pub(super) fn lamp_materials_of(
     for source in radios {
         let f = rules.get(world, source)?.fields;
         for (renderer, on, off) in [("RS", "SOn", "SOff"), ("RMutato", "MutatoOn", "MutatoOff")] {
-            if rules.root(world, link(f, renderer)?)? != node {
+            let node = rules.root(world, link(f, renderer)?)?;
+            for material in [link(f, on)?, link(f, off)?] {
+                add(node, material);
+            }
+        }
+    }
+    if let Some(p) = world.prototypes.iter().find(|p| &p.source == prototype) {
+        let mut seen = std::collections::HashSet::new();
+        for (index, node) in p.nodes.iter().enumerate() {
+            // A repeated node source takes the variants of its first node.
+            if !seen.insert(&node.source) {
                 continue;
             }
-            for material in [link(f, on)?, link(f, off)?] {
-                if !output.contains(material) {
-                    output.push(material.clone());
+            if let Some(record) = &p.vehicle {
+                for link in record.renderer_materials(index as u32) {
+                    add(&node.source, &link.source);
                 }
             }
-        }
-    }
-    if let Some((record, index)) = world
-        .prototypes
-        .iter()
-        .find(|p| &p.source == prototype)
-        .and_then(|p| {
-            let index = p.nodes.iter().position(|n| &n.source == node)?;
-            Some((p.vehicle.as_ref()?, index))
-        })
-    {
-        for link in record.renderer_materials(index as u32) {
-            if !output.contains(&link.source) {
-                output.push(link.source.clone());
+            for link in p
+                .gauges
+                .iter()
+                .flat_map(|g| g.renderer_materials(index as u32))
+            {
+                add(&node.source, &link.source);
             }
         }
     }
-    if let Some((gauges, index)) = world
-        .prototypes
-        .iter()
-        .find(|p| &p.source == prototype)
-        .and_then(|p| Some((&p.gauges, p.nodes.iter().position(|n| &n.source == node)?)))
-    {
-        for link in gauges
-            .iter()
-            .flat_map(|g| g.renderer_materials(index as u32))
-        {
-            if !output.contains(&link.source) {
-                output.push(link.source.clone());
-            }
-        }
-    }
-    Ok(output)
+    Ok(output
+        .into_iter()
+        .map(|(node, list)| (node, list.into()))
+        .collect())
 }
