@@ -320,6 +320,8 @@ impl PersistentWorld {
                         root: None,
                         handle: None,
                         state: None,
+                        extent: 0.,
+                        fixed: false,
                     });
                     changed = true;
                 }
@@ -719,6 +721,7 @@ mod world_sync_tests {
             pending_items: Vec::new(),
             frozen: HashSet::new(),
             important: Vec::new(),
+            spawned: HashSet::new(),
             configured: true,
         };
         let window = |x: f64| crate::world::WorldBounds {
