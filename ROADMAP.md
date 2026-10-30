@@ -220,8 +220,6 @@ Prepare once:
 15. Save and load with worn items: they stay worn. Die: each worn item drops.
 16. Open Appearance from the start menu and the pause menu. The preview figure shows next to the panel with the export camera and lights. Check the figure pose, the lights and the colors. Changes show at once. Back and Escape save. Reload the page: the outfit stays.
 17. Set Male and Female with custom colors and disabled parts. Check them in game, in the shadow and on the ragdoll. Check the submesh colors of each segment.
-18. Set the model modes Off, Shadow and Visible. Shadow hides the body but keeps its shadow.
-19. Check the world view and its shadows do not draw the preview figure.
 20. Put on glasses with each lens color. Each lens tints the view like the original, and the tint matches the visible lens color.
 21. The dark lens (profile 0) dims the view by 2 stops.
 22. Bright highlights look untonemapped, like the original.
