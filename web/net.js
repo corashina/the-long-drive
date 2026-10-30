@@ -2,7 +2,8 @@
 // Star like the source: guests talk only to the host. The host forwards guest messages to the other guests.
 // Each guest has a `reliable` connection for the session messages and the save, and a `pose` connection for
 // the simulation packets. A packet is the type byte, the sender slot byte, then a body that only Rust reads.
-export const PREFIX='tls-',MAX_PLAYERS=8,TIMEOUT_MS=5000,JOIN_TIMEOUT_MS=15000,CHUNK=16384,CHAT_BYTES=200;
+// A guest loads the host world for many seconds with a busy page thread, so silence until `ready` uses `LOAD_TIMEOUT_MS`.
+export const PREFIX='tls-',MAX_PLAYERS=8,TIMEOUT_MS=5000,JOIN_TIMEOUT_MS=15000,LOAD_TIMEOUT_MS=120000,TICK_MS=1000,CHUNK=16384,CHAT_BYTES=200;
 const LETTERS='ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const ROLE={OFF:0,HOST:1,GUEST:2};
 export const STATUS={
@@ -22,7 +23,7 @@ export function chatText(text){
 // Events: `packet(bytes)`, `leave(slot)`, `looks(Map slot→{name,outfit})`, `chat({name,text})`, `status(text)`,
 // `save(bytes)`, `session(role,slot)`, `peers([{slot,name,ping}])`.
 export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performance.now(),setTimer=setInterval,clearTimer=clearInterval}){
- let role=ROLE.OFF,slot=0,peer=null,timer=null,joinStarted=0,me={name:'',outfit:null};
+ let role=ROLE.OFF,slot=0,peer=null,timer=null,joinStarted=0,lastTick=0,me={name:'',outfit:null};
  let max=MAX_PLAYERS,password='',host=null;
  const guests=new Map(),looks=new Map();
  const emit=(name,...args)=>on[name]?.(...args);
@@ -81,6 +82,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   else if(m.t==='ping')g.reliable.send({t:'pong',at:m.at});
   else if(m.t==='pong'){g.ping=Math.round(now()-m.at);peers();}
   else if(m.t==='leave')removeGuest(g.id);
+  else if(m.t==='ready')g.ready=true;
  }
  function hostPose(g,data){
   g.seen=now();
@@ -99,19 +101,21 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
    g.pose=conn;conn.on('data',data=>hostPose(g,data));return;
   }
   if(guests.has(id)){conn.close();return;}
-  const g={id,reliable:conn,pose:null,slot:undefined,welcomed:false,seen:now(),ping:null};
+  const g={id,reliable:conn,pose:null,slot:undefined,welcomed:false,ready:false,seen:now(),ping:null};
   guests.set(id,g);
   conn.on('data',m=>hostMessage(g,m));
   conn.on('close',()=>removeGuest(id));
   conn.on('error',()=>removeGuest(id));
  }
  function tick(){
-  const t=now();
+  const t=now(),stalled=t-lastTick>2*TICK_MS;lastTick=t;
+  // A late tick means this page thread stalled. Messages can wait in the queue behind it, so silence is not proof.
+  if(stalled){for(const g of guests.values())g.seen=t;if(host)host.seen=t;}
   if(role===ROLE.HOST){
-   for(const g of [...guests.values()]){if(t-g.seen>TIMEOUT_MS)removeGuest(g.id);else if(g.welcomed)g.reliable.send({t:'ping',at:t});}
+   for(const g of [...guests.values()]){if(t-g.seen>(g.ready?TIMEOUT_MS:LOAD_TIMEOUT_MS))removeGuest(g.id);else if(g.welcomed)g.reliable.send({t:'ping',at:t});}
   }else if(role===ROLE.GUEST&&host){
    if(!host.welcomed){if(t-joinStarted>JOIN_TIMEOUT_MS)stop(STATUS.connect);return;}
-   if(t-host.seen>TIMEOUT_MS)return stop(STATUS.hostLeft);
+   if(t-host.seen>(host.ready?TIMEOUT_MS:LOAD_TIMEOUT_MS))return stop(STATUS.hostLeft);
    host.reliable.send({t:'ping',at:t});
   }
  }
@@ -153,7 +157,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
    const code=roomCode();
    return new Promise((resolve,reject)=>{
     peer=new Peer(PREFIX+code);
-    peer.on('open',()=>{role=ROLE.HOST;slot=0;setLook(0,me);timer=setTimer(tick,1000);emit('session',ROLE.HOST,0);resolve(code);});
+    peer.on('open',()=>{role=ROLE.HOST;slot=0;setLook(0,me);lastTick=now();timer=setTimer(tick,TICK_MS);emit('session',ROLE.HOST,0);resolve(code);});
     peer.on('connection',accept);
     peer.on('error',error=>{if(role===ROLE.OFF){stop();reject(error);}else if(error?.type!=='peer-unavailable')failure(error);});
    });
@@ -167,13 +171,18 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
    peer=new Peer();
    peer.on('error',failure);
    peer.on('open',()=>{
-    role=ROLE.GUEST;timer=setTimer(tick,1000);
+    role=ROLE.GUEST;lastTick=now();timer=setTimer(tick,TICK_MS);
     const reliable=peer.connect(PREFIX+code,{label:'reliable',reliable:true,serialization:'binary'});
-    host={reliable,pose:null,welcomed:false,seen:now(),ping:null,chunks:null,received:0};
+    host={reliable,pose:null,welcomed:false,ready:false,seen:now(),ping:null,chunks:null,received:0};
     reliable.on('open',()=>reliable.send({t:'hello',name:me.name,outfit:me.outfit,build:buildId,exportHash,password:pass}));
     reliable.on('data',guestMessage);
     reliable.on('close',()=>{if(role===ROLE.GUEST)stop(STATUS.hostLeft);});
    });
+  },
+  // The guest runs the host world. Silence counts as leaving again after this.
+  ready(){
+   if(role!==ROLE.GUEST||!host?.welcomed||host.ready)return;
+   host.ready=true;host.seen=now();host.reliable.send({t:'ready'});
   },
   leave(){
    if(role===ROLE.GUEST&&host?.welcomed)host.reliable.send({t:'leave'});
