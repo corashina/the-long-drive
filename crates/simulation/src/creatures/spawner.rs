@@ -89,6 +89,10 @@ impl Spawner {
         Self { next: now }
     }
 
+    pub fn due(&self, now: f64) -> bool {
+        now >= self.next
+    }
+
     /// The places of one due `TrySpawn`, or none before the time. `count` is the live AI count.
     pub(crate) fn step(
         &mut self,
@@ -100,7 +104,7 @@ impl Spawner {
         random: &mut StormRandom,
         mut spawn: impl FnMut(Vector, &mut StormRandom),
     ) {
-        if now < self.next {
+        if !self.due(now) {
             return;
         }
         if count < r.max_count as usize && random.unit() <= r.chance {

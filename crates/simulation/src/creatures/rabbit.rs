@@ -61,6 +61,19 @@ pub struct LiveCollider {
     pub bone: bool,
 }
 
+/// The rule that called `Die`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Death {
+    /// `breakablescript.Shoot`.
+    Shot,
+    /// `breakablescript.OnCollisionEnter`.
+    Hit,
+    /// `aiscript.Update`: the velocity changed above `accelerationDeath` in one step.
+    Speed,
+    /// The `PlayerDeathTrigger` of an evil rabbit.
+    Bite,
+}
+
 pub struct Rabbit {
     /// Runtime id for frame rows.
     pub id: u32,
@@ -82,7 +95,11 @@ pub struct Rabbit {
     pub senses: Senses,
     pub brain: Brain,
     pub alive: bool,
-    /// False while the world has no collision around the rabbit. The body is off.
+    /// What killed the rabbit in this session. Saves do not keep it.
+    pub death: Option<Death>,
+    /// `itemPlaceRemoveScript`: kinematic beyond `itemFreezeDist` until `itemUnFreezeDist`.
+    pub frozen: bool,
+    /// False while frozen or while the world has no collision around the rabbit. The body is off.
     pub active: bool,
     pub next_support_check: f64,
     pub colliders: Vec<LiveCollider>,
@@ -200,6 +217,8 @@ impl Rabbit {
             senses: Senses::new(&r.senses, random, now),
             brain: Brain::new(&r.brain, position),
             alive: true,
+            death: None,
+            frozen: false,
             active: true,
             next_support_check: now,
             colliders,

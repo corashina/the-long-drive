@@ -262,7 +262,7 @@ Prepare once:
 
 1. See planes cross the sky at 600 m with their contrails and engine sound. The first plane comes at start, then one every 50 to 500 s, at most 3. About one in ten is a UFO: it spins and hums.
 2. Bats: set the PC date between 15 Oct and 15 Nov, start a new game and drive to a gas station. In 65% of stations, 5 to 30 bats fly near it, flap and squeak. Pick one up: it keeps squeaking and does not fly out of the hand. Save and load near the bats.
-3. Rabbits spawn 30 to 100 m away, first at start, then every 50 to 100 s, at most 10. Big ones are larger and slower.
+3. Rabbits spawn outside the view, up to 100 m around a point 100 m from the player, first at start, then every 50 to 100 s, at most 10. Big ones are larger and slower. Drive far away: far rabbits unload, new ones spawn near, and the old ones come back when you return.
 4. They roam, run from the player and from shots, and jump over small obstacles. Their ears twitch.
 5. They die on hard hits, falls and head shots, with a die sound. A head shot can take the eyes (eyes hide) or the ears.
 6. Dead rabbits fall as ragdolls. Pick up and carry a bone: the body follows.

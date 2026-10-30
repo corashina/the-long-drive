@@ -1876,6 +1876,16 @@ impl GarageRuntime {
                 max: p.map(|v| v + 2.),
             })
         };
+        let important = |p: rapier3d::math::Vector| {
+            stream.important_distance(origin.absolute(p.to_array()), None)
+        };
+        let d = &stream.distances;
+        let distances = crate::creatures::PlaceDistances {
+            remove: d.item_remove_dist.powi(2),
+            spawn: d.item_spawn_dist.powi(2),
+            freeze: d.item_freeze_dist.powi(2),
+            unfreeze: d.item_unfreeze_dist.powi(2),
+        };
         self.creatures.step(
             &reference.creatures.rabbit,
             &mut self.physics,
@@ -1889,8 +1899,13 @@ impl GarageRuntime {
                 head: (head, player.body_handle()),
                 origin: &origin,
                 supports: &supports,
+                important: &important,
+                distances,
             },
         );
+        if self.creatures.place_remove_due(self.simulation_seconds) {
+            self.place_remove_rabbits(reference, distances);
+        }
         self.settle_rabbits(reference);
     }
 

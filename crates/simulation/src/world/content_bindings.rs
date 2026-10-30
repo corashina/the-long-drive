@@ -1040,7 +1040,7 @@ impl WorldStream {
     }
     /// Squared distance to the nearest source important object: the player, the start car and the last seated car.
     /// A car does not count itself: `own` is its chassis.
-    fn important_distance(
+    pub(crate) fn important_distance(
         &self,
         position: [f64; 3],
         own: Option<rapier3d::prelude::RigidBodyHandle>,
