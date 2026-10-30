@@ -118,7 +118,7 @@ export function createFeedback(ui,manifest,settings,actions,language) {
   [0,'computerUse','{lmb}: <use>',0,COMPUTER.USE],
   [0,'computerConnect','{use}: <connect>',0,COMPUTER.CONNECT],
   [0,'computerDisconnect','{use}: <disconnect>',0,COMPUTER.DISCONNECT]
- ].map(([bit,role,template,prompt=0,computer=0])=>{const n=document.createElement('p');n.className='action-row';n.hidden=true;root.append(n);return {bit,prompt,computer,role,template,n,family:0,top:0,line:0,offset:-1};});
+ ].map(([bit,role,template,prompt=0,computer=0])=>{const n=document.createElement('p');n.className='action-row';n.hidden=true;root.append(n);return {bit,prompt,computer,role,template,n,family:0,top:-1};});
  const named=Object.fromEntries(rows.map(r=>[r.role,r.n]));
  // fpscontroller GCWeapon: the gun crosshair sprite tinted by its color. It is one crosshair layer.
  const weapon=document.createElement('div');weapon.id='weapon-crosshair';weapon.hidden=true;let weaponIcon=0;
@@ -148,15 +148,21 @@ export function createFeedback(ui,manifest,settings,actions,language) {
   for(const [name,t] of Object.entries(templates))texts[name]=fill(t);
   lastCarry=lastDoor=lastUse=lastTune=lastScroll=lastPrimary=lastCrank=lastHelp='';
  }
- const counts=new Uint8Array(4);
+ // Prompt families stack in screen order. A family starts below the lines of the families above it, so no two rows share a line.
+ const counts=new Uint8Array(4),familyTops=new Float32Array(4),familyLines=new Float32Array(4),starts=new Float32Array(4),order=[0,1,2,3];
  const destinations={use:'use',door:'use',pickup:'pickup',drop:'pickup',mount:'mount',dismount:'mount',fill:'fill',eat:'use',smoke:'use',takeOne:'use',putOn:'pickup',drink:'use',tune:'use',enter:'use',exit:'use',switch:'use',primary:'use',push:'pickup',grip:'pickup',release:'pickup',throw:'pickup',scroll:'use',heldSwitch:'use',wash:'use',scrub:'use',equip:'pickup',recenter:'pickup',releaseEquipment:'pickup',releaseEquipmentSeated:'pickup',crank:'use',hoseAttach:'mount',coilUp:'use',drain:'use',reload:'use',unload:'use',binocularsUse:'use',binocularsFocus:'use',computerTurnOn:'use',computerTurnOff:'use',computerUse:'use',computerConnect:'use',computerDisconnect:'use'};
  const families={use:0,pickup:1,mount:2,fill:3};
  function placeRows(){
   counts.fill(0);
-  for(const row of rows){if(row.n.hidden)continue;const offset=counts[row.family]++;if(offset!==row.offset){row.n.style.top=(row.top+offset*row.line)+'px';row.offset=offset;}}
+  for(const row of rows)if(!row.n.hidden)counts[row.family]++;
+  let bottom=-Infinity;
+  for(const f of order){starts[f]=Math.max(familyTops[f],bottom);if(counts[f])bottom=starts[f]+counts[f]*familyLines[f];}
+  counts.fill(0);
+  for(const row of rows){if(row.n.hidden)continue;const top=starts[row.family]+counts[row.family]++*familyLines[row.family];if(top!==row.top){row.n.style.top=top+'px';row.top=top;}}
  }
  function resize(){
-  for(const row of rows){const role=destinations[row.role],box=applyLayout(row.n,ui.layouts[role]);row.family=families[role];row.top=box.y;row.line=box.fontSize*1.4;row.offset=-1;}
+  for(const row of rows){const role=destinations[row.role],box=applyLayout(row.n,ui.layouts[role]),f=families[role];row.family=f;row.top=-1;familyTops[f]=box.y;familyLines[f]=box.fontSize*1.4;}
+  order.sort((a,b)=>familyTops[a]-familyTops[b]);
   placeRows();
   const scale=applyLayout(icon,ui.layouts.reticle).scale;icon.style.left='50%';icon.style.top='50%';icon.style.width=icon.style.height='0';
   for(const [layer,[,width,height]] of layers.map((n,i)=>[n,crosshairLayers(0)[i]])){layer.style.width=width*scale+'px';layer.style.height=height*scale+'px';}
