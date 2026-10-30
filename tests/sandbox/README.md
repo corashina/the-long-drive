@@ -11,6 +11,10 @@ Claude runs the ROADMAP test pass with these in Chrome. They are not automatic t
    - `wear(name)`: spawn a wearable or the cigarette and put it on. A bad name lists the names.
    - `equip(name)`: spawn a gun with full ammo and put it in the hand. A bad name lists the gun names.
    - `aim(x, y, z)`: turn the head toward an absolute world point. Positions come from `state()`.
+   - `spawn('rabbit', forward)` and `spawn('evil rabbit', forward)`: a small rabbit, or a big one that gets evil eyes unless Peaceful is on.
+   - `storm(distance)`: a sandstorm `distance` metres ahead. Default 50.
+   - `hand(name)` also takes world prototype items, such as `binoculars`. It waits until the stream loads the item.
+   - `state()` lists `creatures` (rabbits, bats and planes), `storms` and `storm_influence`.
 4. `__run` holds each step with the sandbox state and F3. Write it to the run report with one screenshot per step.
 
 `spawn` takes a catalog item name (`sunglasses`) or a world prototype root name (`Bus02Full`, a gun, loot). A world prototype appears when the stream loads it, Save and load with a world spawn is not checked yet.

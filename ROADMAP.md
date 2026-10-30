@@ -106,7 +106,7 @@ Prepare once:
 
 3. Load a Mixed save with Winter set. The world must load as winter.
 4. Check the winter color: colder view in Winter, changes at biome borders in Mixed. Check F3 in Mixed while the color grading rebakes.
-5. Sandstorms: spawn a storm near the player with a temporary hook (never commit it). Check sky, fog, light, sound, dust, wind on loose items, and that dust and wind stop inside buildings and cars. Check the F3 storm line. Save and load inside a storm.
+5. Sandstorms: spawn a storm near the player with sandbox `storm(50)`. Check sky, fog, light, sound, dust, wind on loose items, and that dust and wind stop inside buildings and cars. Check the F3 storm line. Save and load inside a storm.
 6. Power cables: check poles link to the next pole on curves and tilted poles, road buildings and the home link to a pole, and the rope meshes are not flipped.
 7. Draw distance: check F3 at 500, 2500 and 5000 m near the garage and on the road.
 8. Check far terrain, buildings and fog at 2500 m against the original.

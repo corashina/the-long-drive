@@ -39,6 +39,11 @@ const IGNORED_HIT_LAYERS: [u32; 2] = [15, 17];
 /// `SetBasedOnSize` calls `GetEvil(natural: true)` above this size.
 const EVIL_SIZE: f32 = 0.75;
 
+/// The rabbit is big enough to get evil.
+pub fn evil_size(size: f32) -> bool {
+    size > EVIL_SIZE
+}
+
 /// What the rabbits read of the world this step.
 pub struct StepInput<'a> {
     pub now: f64,
@@ -522,6 +527,21 @@ impl Creatures {
         }
     }
 
+    /// Spawns a rabbit of `size` (0 to 1) at `pose`, as the spawner does. Returns its id.
+    pub fn spawn_rabbit(
+        &mut self,
+        r: &RabbitReference,
+        physics: &mut PhysicsWorld,
+        pose: Pose,
+        size: f32,
+        now: f64,
+    ) -> Result<u32, ReferenceError> {
+        let size = Size::new(r, size);
+        Ok(self
+            .spawn(r, physics, pose, size, size.shoot_health, now)?
+            .id)
+    }
+
     fn spawn(
         &mut self,
         r: &RabbitReference,
@@ -546,7 +566,7 @@ impl Creatures {
             &mut self.random,
         );
         rabbit.health.shoot_health = shoot_health;
-        if size.size > EVIL_SIZE && !self.peaceful {
+        if evil_size(size.size) && !self.peaceful {
             rabbit
                 .evil
                 .get_evil(&r.evil, &mut rabbit.brain, true, now, &mut self.random);

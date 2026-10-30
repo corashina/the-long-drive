@@ -1,7 +1,8 @@
 //! Test sandbox. The `?sandbox` page sends these commands; Claude runs the ROADMAP test pass with them.
 //! A bad command changes nothing and answers `ok: false`. It never stops the game.
+use crate::interaction::items::ItemLocation;
 use crate::player::SeatOwner;
-use crate::reference::{ReferenceManifest, WorldPrototypeReference};
+use crate::reference::{ItemId, ReferenceManifest, SourceId, WorldPrototypeReference};
 use crate::starting_area::GarageRuntime;
 use crate::vehicle::{VehiclePose, to_rapier};
 use crate::world::stream::content_seats::ItemSeat;
@@ -14,6 +15,8 @@ use serde_json::{Value, json};
 const BUILDING_SEARCH: usize = 4000;
 /// Metres between the cars that come along on a move.
 const CAR_SPACING: f32 = 8.;
+/// `spawn` names of a normal and an evil rabbit.
+const RABBITS: [&str; 2] = ["rabbit", "evil rabbit"];
 /// World prototype names that a failed `spawn` lists.
 const NAME_LIST: usize = 30;
 
@@ -47,6 +50,8 @@ enum Action {
     Equip { name: String },
     /// Turns the head toward absolute `x`, `y`, `z`, within the look limits.
     Aim { x: f64, y: f64, z: f64 },
+    /// Spawns a sandstorm `distance` metres in front of the player.
+    Storm { distance: f32 },
     /// Sets the source day cycle seconds.
     Cycle { seconds: f64 },
     /// Answers the player, the cycle, the cars and the items within `radius` metres.
@@ -137,6 +142,26 @@ fn apply(
             place_player(runtime, [position[0], position[1] + 2., position[2]])?;
             Ok((format!("Moved to {found}."), json!(position)))
         }
+        Action::Spawn { name, forward } if RABBITS.contains(&name.to_lowercase().as_str()) => {
+            // Source `nyulscript`: a rabbit above the evil size gets evil unless peaceful.
+            let size = if name.eq_ignore_ascii_case("rabbit") {
+                0.5
+            } else {
+                1.
+            };
+            let pose = to_rapier(ahead(runtime, forward));
+            let id = runtime
+                .creatures
+                .spawn_rabbit(
+                    &reference.creatures.rabbit,
+                    &mut runtime.physics,
+                    pose,
+                    size,
+                    runtime.simulation_seconds,
+                )
+                .map_err(|e| e.to_string())?;
+            Ok((format!("Spawned {name}."), json!(id)))
+        }
         Action::Spawn { name, forward } => match item_prototype(reference, &name) {
             Ok(prototype) => {
                 let items = spawn_item(runtime, reference, prototype, forward)?;
@@ -150,33 +175,7 @@ fn apply(
                 ))
             }
         },
-        Action::Hand { name } => {
-            let prototype = item_prototype(reference, &name)?;
-            let items = spawn_item(runtime, reference, prototype, 1.)?;
-            let item = *items.first().ok_or("The prototype has no pickup.")?;
-            let area = &mut runtime.area;
-            let point = area
-                .items
-                .get(crate::reference::ItemId(item))
-                .ok_or("Spawned item is missing")?
-                .pose
-                .position;
-            area.interaction
-                .pickup_item(
-                    crate::reference::ItemId(item),
-                    point,
-                    &area.player,
-                    &mut area.items,
-                    &mut runtime.physics,
-                )
-                .map_err(|e| e.to_string())?;
-            area.sync_inventory();
-            let equipped = area
-                .equip_carried(&mut runtime.physics)
-                .map_err(|e| e.to_string())?;
-            let message = if equipped { "In the hand." } else { "Carried." };
-            Ok((message.into(), json!(items)))
-        }
+        Action::Hand { name } => hand(runtime, reference, &name),
         Action::Seat { car, seat } => {
             let name = sit(runtime, reference, car.as_deref(), seat)?;
             Ok((format!("Seated in {name}."), Value::Null))
@@ -202,6 +201,17 @@ fn apply(
             let target = runtime.stream.origin.local([x, y, z]);
             runtime.area.player.look_at(target, &runtime.physics);
             Ok(("Aimed.".into(), Value::Null))
+        }
+        Action::Storm { distance } => {
+            let position = runtime
+                .stream
+                .origin
+                .absolute(ahead(runtime, distance).position);
+            let id = runtime.weather.spawn_at(&reference.weather, position);
+            Ok((
+                "Storm spawned.".into(),
+                json!({"id": id.0, "position": position}),
+            ))
         }
         Action::Fill { fluid, liters } => fill(runtime, fluid, liters),
         Action::Cycle { seconds } => {
@@ -430,19 +440,26 @@ fn equip(
         .position(|p| p.pickup.source == gun.pickup)
         .ok_or("The gun has no pickup.")?;
     let items = spawn_item(runtime, reference, prototype, 1.)?;
-    let item = crate::reference::ItemId(items[pickup]);
-    let area = &mut runtime.area;
-    let index = area
-        .interaction
-        .guns
+    let item = ItemId(items[pickup]);
+    let guns = &mut runtime.area.interaction.guns;
+    let index = guns
         .weapon_for(&gun.pickup)
         .ok_or("The gun has no weapon record.")?;
     let maximum = crate::interaction::spray::Ammo::new(&gun.ammo).maximum;
-    area.interaction.guns.bind(item, index, None, Some(maximum));
+    guns.bind(item, index, None, Some(maximum));
+    if !take_in_hand(runtime, item)? {
+        return Err("Carried, but the hand is not free.".into());
+    }
+    Ok(item.0)
+}
+
+/// Picks up `item` and puts it in the hand. False: it stays carried.
+fn take_in_hand(runtime: &mut GarageRuntime, item: ItemId) -> Result<bool, String> {
+    let area = &mut runtime.area;
     let point = area
         .items
         .get(item)
-        .ok_or("Spawned gun is missing")?
+        .ok_or("The item is missing")?
         .pose
         .position;
     area.interaction
@@ -455,13 +472,79 @@ fn equip(
         )
         .map_err(|e| e.to_string())?;
     area.sync_inventory();
-    if !area
-        .equip_carried(&mut runtime.physics)
-        .map_err(|e| e.to_string())?
-    {
-        return Err("Carried, but the hand is not free.".into());
-    }
-    Ok(item.0)
+    area.equip_carried(&mut runtime.physics)
+        .map_err(|e| e.to_string())
+}
+
+/// Spawns item `name` and puts it in the hand. A catalog item of a world prototype, such as the
+/// binoculars, is placed first and taken once the stream loads it: the reply then has `pending`.
+fn hand(
+    runtime: &mut GarageRuntime,
+    reference: &ReferenceManifest,
+    name: &str,
+) -> Result<(String, Value), String> {
+    let item = match item_prototype(reference, name) {
+        Ok(prototype) => {
+            let items = spawn_item(runtime, reference, prototype, 1.)?;
+            ItemId(*items.first().ok_or("The prototype has no pickup.")?)
+        }
+        Err(error) => {
+            let prototype = reference
+                .world
+                .catalog
+                .items
+                .iter()
+                .find(|i| i.name.eq_ignore_ascii_case(name))
+                .and_then(|i| i.prototype.as_ref())
+                .and_then(|p| reference.world.prototypes.iter().find(|w| &w.source == p))
+                .ok_or(error)?;
+            match loaded_world_item(runtime, &prototype.source) {
+                Some(item) => item,
+                None => {
+                    let placed = runtime
+                        .stream
+                        .added_placement_audit()
+                        .iter()
+                        .any(|(p, _)| p.prototype == prototype.source);
+                    if !placed {
+                        place_world(runtime, prototype, 1.)?;
+                    }
+                    return Ok((
+                        format!("Placed {name}. Call hand again when it loads."),
+                        json!({"pending": true}),
+                    ));
+                }
+            }
+        }
+    };
+    let message = if take_in_hand(runtime, item)? {
+        "In the hand."
+    } else {
+        "Carried."
+    };
+    Ok((message.into(), json!([item.0])))
+}
+
+/// The nearest loose item of a sandbox or startup placement of world prototype `source`.
+fn loaded_world_item(runtime: &GarageRuntime, source: &SourceId) -> Option<ItemId> {
+    let player = Vector::from_array(runtime.area.player.body_pose(&runtime.physics).position);
+    runtime
+        .area
+        .items
+        .generated_bindings()
+        .filter(|(id, item)| {
+            id.layer == WorldLayer::Startup
+                && &id.generator == source
+                && id.children.is_empty()
+                && !item.removed
+                && item.location == ItemLocation::World
+        })
+        .map(|(_, item)| {
+            let at = Vector::from_array(item.pose.position);
+            (item.id, at.distance_squared(player))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(id, _)| id)
 }
 
 /// An item prototype by catalog name, else by root node name.
@@ -577,6 +660,15 @@ fn spawn_world(
             names.join(", ")
         ));
     };
+    place_world(runtime, prototype, forward)
+}
+
+/// Places world prototype `prototype` in front of the player. Returns the absolute position.
+fn place_world(
+    runtime: &mut GarageRuntime,
+    prototype: &WorldPrototypeReference,
+    forward: f32,
+) -> Result<[f64; 3], String> {
     let root = ahead(runtime, forward);
     let position = runtime.stream.origin.absolute(root.position);
     runtime
@@ -698,7 +790,73 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
         "night_seconds": cycle.night_seconds,
         "cars": cars,
         "items": items,
+        "creatures": creatures(runtime, reference),
+        "storms": runtime
+            .weather
+            .storms()
+            .iter()
+            .map(|s| json!({
+                "id": s.id.0,
+                "position": s.absolute_position,
+                "size": s.size,
+                "life": s.life,
+                "strength": s.strength,
+            }))
+            .collect::<Vec<_>>(),
+        "storm_influence": runtime.weather.influence().strength,
     })
+}
+
+/// Rabbits, bats and planes. Positions are absolute.
+fn creatures(runtime: &GarageRuntime, reference: &ReferenceManifest) -> Vec<Value> {
+    let origin = runtime.stream.origin;
+    let bodies = &runtime.physics.rapier().bodies;
+    let rabbits = runtime
+        .creatures
+        .rabbits()
+        .zip(runtime.creatures.views(&runtime.physics))
+        .map(|(r, view)| {
+            let state = if !r.alive {
+                "dead"
+            } else if r.evil.attacking {
+                "attack"
+            } else if r.evil.roaring {
+                "roar"
+            } else if r.brain.fleeing {
+                "flee"
+            } else {
+                "roam"
+            };
+            json!({
+                "kind": "rabbit",
+                "id": r.id,
+                "position": origin.absolute(view.pose.translation.to_array()),
+                "size": r.size.size,
+                "big": crate::creatures::evil_size(r.size.size),
+                "evil": r.evil.kind.map(|k| format!("{k:?}").to_lowercase()),
+                "alive": r.alive,
+                "active": r.active,
+                "eyes": r.senses.has_eyes,
+                "ears": r.senses.has_ears,
+                "state": state,
+            })
+        });
+    let bats = runtime.flyers.flyers().iter().map(|f| {
+        json!({
+            "kind": "bat",
+            "id": f.item.0,
+            "position": origin.absolute(bodies[f.body].translation().to_array()),
+        })
+    });
+    let anchor = runtime.sky_anchor(reference);
+    let planes = runtime.sky().planes().iter().map(|p| {
+        json!({
+            "kind": "plane",
+            "id": p.id,
+            "position": std::array::from_fn::<f64, 3, _>(|i| anchor[i] + f64::from(p.offset.to_array()[i])),
+        })
+    });
+    rabbits.chain(bats).chain(planes).collect()
 }
 
 fn gap_json(reference: &ReferenceManifest, stream: &WorldStream, gap: SupportGap) -> Value {
