@@ -131,30 +131,14 @@ impl DrivetrainState {
                 ignition_request = !vehicle.dont_ignite_with_throttle_in_automatic
                     && throttle > 0.25
                     && !engine.running;
-                let mut maximum = 0.;
-                for (index, ratio) in vehicle.gear_ratios.iter().enumerate().rev() {
-                    if *ratio != 0.
-                        && if pressed_forward {
-                            *ratio > 0.
-                        } else {
-                            *ratio < 0.
-                        }
-                    {
-                        let mut current = torque(
-                            &part.torque_curve,
-                            wheel_rpm.abs() * vehicle.final_drive_ratio * ratio.abs(),
-                        );
-                        if current == 0. {
-                            current = torque(
-                                &part.torque_curve,
-                                part.max_rpm.abs() * 0.5 * vehicle.final_drive_ratio * ratio.abs(),
-                            );
-                        }
-                        if current > maximum {
-                            maximum = current;
-                            self.auto_shift_to = index;
-                        }
-                    }
+                if let Some(gear) = auto_gear(
+                    vehicle.gear_ratios,
+                    vehicle.final_drive_ratio,
+                    part,
+                    wheel_rpm,
+                    pressed_forward,
+                ) {
+                    self.auto_shift_to = gear;
                 }
                 self.gear = self.auto_shift_to;
             } else if vehicle.gear_ratios[self.gear] != 0. && !pressed_forward {
@@ -237,6 +221,37 @@ impl DrivetrainState {
         }
     }
 }
+/// Source AutoShift gear pick: the gear with the most engine torque at the wheel speed.
+/// Gears with equal torque keep the lowest one, so a car at rest starts in first.
+fn auto_gear(
+    ratios: &[f32],
+    final_drive_ratio: f32,
+    part: &EnginePartReference,
+    wheel_rpm: f32,
+    forward: bool,
+) -> Option<usize> {
+    let mut maximum = 0.;
+    let mut gear = None;
+    for (index, ratio) in ratios.iter().enumerate() {
+        if *ratio != 0. && (*ratio > 0.) == forward {
+            let mut current = torque(
+                &part.torque_curve,
+                wheel_rpm.abs() * final_drive_ratio * ratio.abs(),
+            );
+            if current == 0. {
+                current = torque(
+                    &part.torque_curve,
+                    part.max_rpm.abs() * 0.5 * final_drive_ratio * ratio.abs(),
+                );
+            }
+            if current > maximum {
+                maximum = current;
+                gear = Some(index);
+            }
+        }
+    }
+    gear
+}
 /// EngineOutput already includes clutch engagement. These are axle torques in Nm.
 pub fn transmitted_torques(
     engine: EngineOutput,
@@ -248,5 +263,19 @@ pub fn transmitted_torques(
         motor_nm: engine.torque_nm * ratio * vehicle.final_drive_ratio,
         engine_brake_nm: engine.brake_torque_nm * ratio.abs() * vehicle.final_drive_ratio,
         pedal_nm: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_gear_at_rest_is_first() {
+        let part: EnginePartReference =
+            serde_json::from_value(crate::reference::engine_part_fixture()).unwrap();
+        let ratios = [-3.5, 0., 3.7, 2.1, 1.4, 1.];
+        assert_eq!(auto_gear(&ratios, 4.1, &part, 0., true), Some(2));
+        assert_eq!(auto_gear(&ratios, 4.1, &part, 0., false), Some(0));
     }
 }

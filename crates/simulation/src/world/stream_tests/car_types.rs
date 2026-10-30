@@ -435,3 +435,73 @@ fn car07_drives_in_forced_automatic() {
     assert!(moved, "Car07 drives 20 m");
     assert!(running(&run, &key), "Car07 engine runs after the drive");
 }
+
+/// MC2: the garage start car with automatic gears starts in first and drives out of its spot.
+#[test]
+#[ignore = "requires the installed source export"]
+fn garage_start_car_drives_in_automatic() {
+    let reference = reference();
+    let mut run = start_world(&reference, StartCar::LADA.field());
+    run.started = true;
+    run.paused = false;
+    run.driving_assists = DrivingAssists {
+        automatic_clutch: true,
+        automatic_gears: true,
+    };
+    for _ in 0..2000 {
+        if start_key(&run).is_some() {
+            break;
+        }
+        frame(&mut run, &reference);
+    }
+    let key = start_key(&run).expect("start car");
+    assert!(enter(&mut run, &reference), "driver seat");
+    settle(&mut run, &reference, 1.);
+    fill_fluids(&mut run, &key);
+    let started = hold(
+        &mut run,
+        &reference,
+        keys::IGNITION,
+        0,
+        keys::IGNITION,
+        20.,
+        |run| running(run, &key),
+    );
+    assert!(started, "engine starts");
+    let released = FrameInput {
+        released: keys::IGNITION,
+        ..FrameInput::default()
+    };
+    frame_with(&mut run, &reference, released);
+    settle(&mut run, &reference, 1.);
+    let state = |run: &GarageRuntime| {
+        let wheels: Vec<_> = (0..run.physics.wheel_contacts(&key).count())
+            .map(|i| run.physics.wheel_motion(&key, i))
+            .collect();
+        format!(
+            "gear {} rpm {:.0} speed {:.2} wheels {wheels:?}",
+            run.vehicles[&key].drivetrain.gear(),
+            run.engine_output(&key).rpm,
+            run.physics.snapshot(&key).speed_mps,
+        )
+    };
+    eprintln!("idle: {}", state(&run));
+    let neutral = crate::starting_area::world_vehicle(&reference, run.vehicles[&key].prototype)
+        .gear_ratios
+        .iter()
+        .position(|r| *r == 0.)
+        .unwrap();
+    hold(&mut run, &reference, 0, player_keys::GAS, 0, 0.1, |_| false);
+    eprintln!("gas 0.1 s: {}", state(&run));
+    assert_eq!(
+        run.vehicles[&key].drivetrain.gear(),
+        neutral + 1,
+        "first gear at standstill: {}",
+        state(&run)
+    );
+    let start = absolute(&run, &key).0;
+    let moved = hold(&mut run, &reference, 0, player_keys::GAS, 0, 10., |run| {
+        horizontal(absolute(run, &key).0, start) > 5.
+    });
+    assert!(moved, "drives 5 m: {}", state(&run));
+}
