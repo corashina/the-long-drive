@@ -1418,12 +1418,16 @@ impl WorldStream {
             "recipe": self.recipes.contains_key(source),
         })
     }
+    /// A sandbox world spawn: a startup placement after the source startup list.
+    fn added_placement(&self, placement: &Placement) -> bool {
+        let base = (self.reference.startup.len() + self.startup_items.len()) as u32;
+        placement.id.layer == WorldLayer::Startup && placement.id.ordinal >= base
+    }
     /// The progress of each sandbox world spawn.
     pub fn added_placement_audit(&self) -> Vec<(&Placement, serde_json::Value)> {
-        let base = (self.reference.startup.len() + self.startup_items.len()) as u32;
         self.startup_placements
             .iter()
-            .filter(|p| p.id.ordinal >= base)
+            .filter(|p| self.added_placement(p))
             .map(|p| {
                 let mut audit = self.structure_audit(p);
                 audit["wanted"] = self.wanted_structures.iter().any(|w| w.id == p.id).into();
@@ -3871,10 +3875,13 @@ impl WorldStream {
                 .any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(index));
             return Some(SupportGap::Road { index, surface });
         }
+        // A sandbox spawn never gates the step: it may load late or not at all.
         if let Some(placement) = self.wanted_structures.iter().find(|p| {
-            [0, 2].into_iter().all(|axis| {
-                p.bounds.min[axis] <= swept.max[axis] && p.bounds.max[axis] >= swept.min[axis]
-            }) && !self.structures.iter().any(|s| s.placement.id == p.id)
+            !self.added_placement(p)
+                && [0, 2].into_iter().all(|axis| {
+                    p.bounds.min[axis] <= swept.max[axis] && p.bounds.max[axis] >= swept.min[axis]
+                })
+                && !self.structures.iter().any(|s| s.placement.id == p.id)
         }) {
             return Some(SupportGap::Structure(placement));
         }
