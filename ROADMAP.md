@@ -216,7 +216,7 @@ Prepare once:
 11. The death screen effect fades in over 14 s, then the menu opens. Read the console for DeadV parameters the port ignores.
 12. Load a save: no ragdoll is left.
 13. Put on and take off each wearable type (glasses, hat, cap, helmet, mask) and the cigarette with Tab and X. The cigarette comes off first.
-14. Worn items are hidden in first person but cast shadows.
+14. Worn items are hidden in first person but cast shadows. The worn pumpkin inner mesh stays visible, as in the source.
 15. Save and load with worn items: they stay worn. Die: each worn item drops.
 16. Open Appearance from the start menu and the pause menu. The preview figure shows next to the panel with the export camera and lights. Check the figure pose, the lights and the colors. Changes show at once. Back and Escape save. Reload the page: the outfit stays.
 17. Set Male and Female with custom colors and disabled parts. Check them in game, in the shadow and on the ragdoll. Check the submesh colors of each segment.
