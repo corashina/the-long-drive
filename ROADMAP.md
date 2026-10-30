@@ -311,15 +311,11 @@ Prepare once:
 
 Re-export first: the export now holds `playeranimationscript.sendInterval`. Use two browser tabs on one PC first, then two PCs.
 
-1. Host from the pause menu: a 6-letter room code shows. Join from the start menu with the code and a name.
 2. The guest loads the host world and stands where the host stood. A host in a car seat puts the guest in the same seat until M02.
 3. Each player sees the other walk, run, duck, prone, look up and down, and carry items. Names show above the heads.
 4. Sit in the Lada as driver and passenger: the figure sits in the seat.
 5. Outfit: change the appearance on one peer. The other peer sees the change.
-6. Press Enter to chat. Messages show on all peers for 10 s. The multiplayer screen shows each player and its ping.
 7. Wrong code, wrong password and a full room each show their message. A different build shows "Different game version."
-8. A guest closes the tab: its figure goes away within 5 s. The host closes the tab: guests see "Host left." and keep playing alone.
-9. The guest cannot save: Save, Load and New game hide in the pause menu. Autosave does not run on the guest.
 10. Name labels stand above the heads. Check the label height (port choice 2.1 m).
 11. Each figure keeps its own outfit colors. The local body colors do not change.
 12. F3 with 1 and with 7 remote players. Report the frame time cost per figure.
