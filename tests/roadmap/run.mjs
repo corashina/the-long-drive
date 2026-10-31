@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {chromium} from 'playwright-core';
 import {Game} from './game.mjs';
 
-const SECTIONS=['creatures','saves','settings','weapons','world'];
+const SECTIONS=['car-camera','creatures','saves','settings','weapons','world'];
 const args=process.argv.slice(2),flags=Object.fromEntries(args.filter(a=>a.startsWith('--')).map(a=>a.slice(2).split('=')));
 const [name,...wanted]=args.filter(a=>!a.startsWith('--'));
 if(!SECTIONS.includes(name)){console.log('Sections: '+SECTIONS.join(', '));process.exit(2);}

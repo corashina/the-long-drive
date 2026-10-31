@@ -12,6 +12,7 @@ They use the `?sandbox` helpers of `tests/sandbox/`. One run loads the page once
 ```
 node tests/roadmap/run.mjs creatures
 node tests/roadmap/run.mjs creatures 3 9
+node tests/roadmap/run.mjs car-camera
 node tests/roadmap/run.mjs saves --url=http://127.0.0.1:4173/?sandbox
 ```
 

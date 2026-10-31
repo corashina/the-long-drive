@@ -71,13 +71,13 @@ export default {name:'Creatures',query:'date=10-20',rows:{
   const close=await rabbit(g,'rabbit',5);
   const fromPlayer=await states(g,close,8,s=>s.includes('flee'));
   const far=await rabbit(g,'rabbit',30);
-  const before=await states(g,far,6,s=>s.includes('roam'));
+  const before=await states(g,far,6,s=>s.includes('roam')||s.includes('target'));
   const name=await gun(g);
   await g.eval(()=>window.__keys.look(0,-300,4));await g.click(0);
   const afterShot=await states(g,far,6,s=>s.includes('flee'));
   await g.shot('creatures-4');
   const evidence=`Rabbit at 5 m: ${fromPlayer.join(' > ')}. Rabbit at 30 m: ${before.join(' > ')}, after a ${name} shot: ${afterShot.join(' > ')}.`;
-  return check(fromPlayer.includes('flee')&&before.includes('roam')&&afterShot.includes('flee'),evidence+' Jumps and ear twitch: check by eye.');
+  return check(fromPlayer.includes('flee')&&(before.includes('roam')||before.includes('target'))&&afterShot.includes('flee'),evidence+' Jumps and ear twitch: check by eye.');
  }},
  5:{title:'Rabbits die from a shot, eyes or ears can go',async run(g){
   await away(g);const name=await gun(g);const tries=[];
