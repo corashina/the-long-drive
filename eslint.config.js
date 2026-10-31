@@ -5,6 +5,8 @@ export default [
  {ignores:['web/pkg/','web/vendor/','web/assets/']},
  {files:['web/**/*.js'],languageOptions:{globals:{...globals.browser,...globals.worker}}},
  {files:['tests/web/**/*.mjs'],languageOptions:{globals:globals.node}},
+ // Roadmap runs: Node code with page callbacks.
+ {files:['tests/roadmap/**/*.mjs'],languageOptions:{globals:{...globals.node,...globals.browser}}},
  // Real bugs only: style rules stay off.
  {files:['**/*.js','**/*.mjs'],rules:{...js.configs.recommended.rules,'no-unused-vars':'off','no-empty':'off'}},
 ];
