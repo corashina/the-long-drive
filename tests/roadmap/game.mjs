@@ -1,8 +1,14 @@
 // One game tab for a roadmap run. It drives the `?sandbox` page through `tests/sandbox/helpers.js`.
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {keyName} from '../../web/bindings.js';
 
 const HELPERS=new URL('../sandbox/helpers.js',import.meta.url);
+// Key codes that a bound key name can come from.
+const CODES=[...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map(c=>'Key'+c).concat([...'0123456789'].flatMap(d=>['Digit'+d,'Numpad'+d]),
+ Array.from({length:12},(_,i)=>'F'+(i+1)),['Space','Tab','Escape','Backspace','CapsLock','Comma','Period','Slash','Semicolon','Quote','Minus','Backslash',
+ 'ShiftLeft','ShiftRight','ControlLeft','ControlRight','AltLeft','AltRight','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Enter','Equal',
+ 'BracketLeft','BracketRight','Backquote','Insert','Delete','Home','End','PageUp','PageDown','Mouse0','Mouse1','Mouse2']);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 export class Game{
@@ -55,6 +61,20 @@ export class Game{
  tap(code,ms){return this.page.evaluate(([c,ms])=>window.__keys.tap(c,ms),[code,ms]);}
  click(button=0,ms){return this.page.evaluate(([b,ms])=>window.__keys.mouse(b,ms),[button,ms]);}
  sleep(seconds){return sleep(seconds*1000);}
+ // The first bound key of the action whose controls row id matches `pattern`, from Settings > Controls.
+ async key(pattern){
+  const rows=await this.page.evaluate(()=>[...document.querySelectorAll('#key-bindings .key-row')].map(r=>[r.querySelector('span').id.slice(8),r.querySelector('.key-cell').textContent]));
+  const row=rows.find(([action])=>pattern.test(action));
+  if(!row)throw Error(`No key row ${pattern}. Rows: ${rows.map(r=>r[0]).join(', ')}`);
+  const code=CODES.find(c=>keyName(c)===row[1]);
+  if(!code)throw Error(`Key ${row[1]} of ${row[0]} has no code.`);
+  return code;
+ }
+ // Presses the bound key of `pattern` for `ms`.
+ async press(pattern,ms=120){
+  const code=await this.key(pattern),mouse=/^Mouse(\d)$/.exec(code);
+  return mouse?this.click([0,2,1][mouse[1]],ms):this.tap(code,ms);
+ }
  // F3 FPS samples, one per second. Shows the F3 panel first.
  async fps(seconds=10){
   await this.page.evaluate(()=>{const p=document.querySelector('#performance');if(p.hidden)window.dispatchEvent(new KeyboardEvent('keydown',{code:'F3'}));});

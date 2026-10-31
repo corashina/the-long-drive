@@ -13,6 +13,7 @@ They use the `?sandbox` helpers of `tests/sandbox/`. One run loads the page once
 node tests/roadmap/run.mjs creatures
 node tests/roadmap/run.mjs creatures 3 9
 node tests/roadmap/run.mjs car-camera
+node tests/roadmap/run.mjs more-cars
 node tests/roadmap/run.mjs saves --url=http://127.0.0.1:4173/?sandbox
 ```
 
@@ -34,4 +35,4 @@ Remove a ROADMAP row after `PASS`, or after `LOOK` when the screenshot is good.
 
 Add `<section>.mjs` with `{name, query, rows}` and add its name to `SECTIONS` in `run.mjs`.
 `query` adds URL flags, such as `date=10-20`. Each row is `{title, seconds, run(game)}`. Row keys are the ROADMAP row numbers.
-`run` answers `pass`, `fail`, `look` or `skip` from `game.mjs`. `Game` has the sandbox calls, `state()`, `saveLoad()`, keys and `shot()`.
+`run` answers `pass`, `fail`, `look` or `skip` from `game.mjs`. `Game` has the sandbox calls, `state()`, `saveLoad()`, keys, `press(/action/)` for bound keys and `shot()`.
