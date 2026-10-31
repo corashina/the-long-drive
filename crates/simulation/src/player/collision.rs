@@ -1,20 +1,21 @@
 //! Fixed query union. Physical shapes remain separate, uniquely owned colliders.
 use crate::reference::{PlayerPostureReference, PlayerReference};
 use rapier3d::{
-    control::{CharacterAutostep, CharacterLength},
     math::{Pose, Vector},
     parry::{
         bounding_volume::{Aabb, BoundingSphere, BoundingVolume},
         mass_properties::MassProperties,
         partitioning::{Bvh, BvhBuildStrategy},
         query::{
-            PointProjection, PointQuery, Ray, RayCast, RayIntersection, details::NormalConstraints,
+            PointProjection, PointQuery, Ray, RayCast, RayIntersection, ShapeCastOptions,
+            details::NormalConstraints,
         },
         shape::{
             Ball, Capsule, CompositeShape, CompositeShapeRef, FeatureId, Shape, ShapeType,
             TypedCompositeShape, TypedShape,
         },
     },
+    pipeline::QueryPipeline,
 };
 
 #[derive(Clone)]
@@ -74,15 +75,53 @@ impl PlayerSweepShape {
     pub fn radius(&self) -> f32 {
         self.feet.radius
     }
-    /// The source feet sphere climbs edges below its center. Prone has no feet sphere.
-    pub fn autostep(&self) -> Option<CharacterAutostep> {
-        self.feet_enabled.then_some(CharacterAutostep {
-            max_height: CharacterLength::Absolute(self.feet.radius),
-            // Half a radius past the edge puts the edge 30 degrees off the sphere bottom.
-            // A shorter advance lands on the edge, steeper than the 45 degree climb limit.
-            min_width: CharacterLength::Absolute(self.feet.radius * 0.5),
-            include_dynamic_bodies: true,
-        })
+    /// The source feet sphere rolls over an edge below its center. Prone has no feet sphere.
+    /// `contact` is the world edge point that blocked a move along the horizontal `dir`.
+    /// The step puts the edge 30 degrees off the sphere bottom, inside the 45 degree climb limit.
+    /// It probes from the real edge, so the next step of steep stairs does not block it.
+    pub fn edge_step(
+        &self,
+        queries: &QueryPipeline,
+        pose: &Pose,
+        dir: Vector,
+        contact: Vector,
+        offset: f32,
+    ) -> Option<Vector> {
+        if !self.feet_enabled {
+            return None;
+        }
+        let feet = *pose * self.feet_pose.translation;
+        let edge = contact - feet;
+        if edge.y >= 0.0 || edge.dot(dir) <= 0.0 {
+            return None;
+        }
+        let reach = self.feet.radius + offset;
+        let lift = edge.y + reach * 30f32.to_radians().cos() + offset;
+        let forward = (edge.dot(dir) - reach * 0.5).max(0.0);
+        if lift <= 0.0 {
+            return None;
+        }
+        let cast = |from: &Pose, along: Vector, distance: f32| {
+            queries.cast_shape(
+                from,
+                along,
+                self,
+                ShapeCastOptions {
+                    target_distance: offset,
+                    stop_at_penetration: false,
+                    max_time_of_impact: distance,
+                    compute_impact_geometry_on_penetration: true,
+                },
+            )
+        };
+        if cast(pose, Vector::Y, lift).is_some() {
+            return None;
+        }
+        let lifted = Pose::from_parts(pose.translation + Vector::Y * lift, pose.rotation);
+        if cast(&lifted, dir, forward).is_some() {
+            return None;
+        }
+        Some(Vector::Y * lift + dir * forward)
     }
     pub fn capsule(&self) -> &Capsule {
         &self.capsule
@@ -206,9 +245,8 @@ mod tests {
     use rapier3d::parry::shape::{Ball, Capsule};
     use rapier3d::{control::KinematicCharacterController, prelude::*};
 
-    /// The standing player walks up 0.18 m stairs without a jump.
-    #[test]
-    fn standing_player_walks_up_stairs() {
+    /// Walks the standing player 3 s toward -z up 5 steps. Returns the final pose.
+    fn walk_up_stairs(rise: f32, tread: f32) -> Pose {
         let (radius, feet_y, head_y) = (0.3, -0.573, 0.65);
         let feet_pose = Pose::from_translation(Vector::new(0.0, feet_y, 0.0));
         let feet = Ball::new(radius);
@@ -237,7 +275,6 @@ mod tests {
             ground,
             &mut bodies,
         );
-        let (rise, tread) = (0.18, 0.28);
         // Each step runs from its riser to a landing at z = -10.
         for step in 1..=5 {
             let (height, riser) = (rise * step as f32, -1.0 - tread * (step - 1) as f32);
@@ -269,37 +306,55 @@ mod tests {
             &(),
         );
         let queries = broad_phase.as_query_pipeline(
-            &rapier3d::parry::query::DefaultQueryDispatcher,
+            &crate::player::normals::CharacterQueryDispatcher,
             &bodies,
             &colliders,
             QueryFilter::default(),
         );
-        let controller = KinematicCharacterController {
-            autostep: shape.autostep(),
-            ..Default::default()
-        };
-        let dt = 1.0 / 50.0;
+        let controller = KinematicCharacterController::default();
+        let (dt, speed, offset) = (1.0 / 50.0, 1.5, 0.01);
+        let dir = -Vector::Z;
         let mut pose = Pose::from_translation(Vector::new(0.0, radius - feet_y, 0.0));
         let mut vertical = 0.0;
-        for _ in 0..75 {
+        let mut contacts = vec![];
+        for _ in 0..150 {
             vertical -= 9.81 * dt;
-            let movement = controller.move_shape(
-                dt,
-                &queries,
-                &shape,
-                &pose,
-                Vector::new(0.0, vertical * dt, -2.0 * dt),
-                |_| {},
-            );
+            contacts.clear();
+            let desired = Vector::new(0.0, vertical * dt, 0.0) + dir * speed * dt;
+            let mut movement =
+                controller.move_shape(dt, &queries, &shape, &pose, desired, |collision| {
+                    contacts.push(collision.hit.witness1)
+                });
+            if movement.translation.dot(dir) < 0.5 * speed * dt {
+                let moved = Pose::from_translation(pose.translation + movement.translation);
+                if let Some(step) = contacts
+                    .iter()
+                    .find_map(|&contact| shape.edge_step(&queries, &moved, dir, contact, offset))
+                {
+                    movement.translation += step;
+                }
+            }
             pose.translation += movement.translation;
             if movement.grounded {
                 vertical = 0.0;
             }
         }
-        assert!(pose.translation.z < -1.0 - tread * 4.0, "{pose:?}");
-        assert!(
-            pose.translation.y + feet_y - radius > rise * 5.0 - 0.05,
-            "{pose:?}"
-        );
+        pose
+    }
+
+    /// The standing player walks up stairs without a jump. Steep pit stairs included.
+    #[test]
+    fn standing_player_walks_up_stairs() {
+        for (rise, tread) in [(0.18, 0.28), (0.2, 0.22), (0.25, 0.2), (0.3, 0.25)] {
+            let pose = walk_up_stairs(rise, tread);
+            assert!(
+                pose.translation.z < -1.0 - tread * 4.0,
+                "{rise} {tread} {pose:?}"
+            );
+            assert!(
+                pose.translation.y - 0.573 - 0.3 > rise * 5.0 - 0.05,
+                "{rise} {tread} {pose:?}"
+            );
+        }
     }
 }

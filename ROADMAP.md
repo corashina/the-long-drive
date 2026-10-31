@@ -51,7 +51,6 @@ Known failures on master c0da737f (2026-10-30 browser retest), fix before the ne
 - Appearance preview shows only the legs and shoes. The camera framing is wrong for Male and Female.
 - Looking down shows hollow shirt sleeves, floating hands and hollow pant legs. It also shows at normal pitch while walking.
 - Outside the Lada, E on the door handle does not open it. The HUD shows "[LMB]+[Mouse]: Move | [F]: Dismount".
-- The inspection pit traps the player: about 2 m deep, no way to climb out.
 - First page load can stall at the start of object loading with dependency staging full (7.7/7.8 MiB). A reload clears it.
 - In game, pause > Load > Load last once stayed on "Loading..." for over 6 minutes, with no console messages.
 - Most ignored cargo tests fail: no start vehicle after `load_garage`, restore stays pending, stack overflows in debug.
@@ -76,7 +75,7 @@ Prepare once:
 8. Binoculars: pick up the garage binoculars and hold LMB. The view zooms through the lens with the black two-circle mask, the binoculars and the crosshair hide, and look speed drops. Scroll changes the zoom between 3 and 4 degrees. Release LMB to return. Try it with the binoculars equipped too.
 9. Tune icons: look at the radio volume and tune knobs, the compass and clock knobs, and a tuneable sink tap. Each shows its own mouse wheel image. A tuneable cap without an image shows the cap image.
 10. Garage rest: the garage barrel and the wire brush stay still. Drive the Lada and check that parked cars and dropped items still settle and sleep.
-11. Stairs: walk up stairs without a jump. Duck and walk up again. Prone does not step up.
+11. Stairs: walk up stairs without a jump. Walk out of the garage inspection pit. Duck and walk up again. Prone does not step up.
 12. Press B many times on foot and in the Lada until a turd spawns. The game does not stop. Cut a food with the knife: the piece shows.
 
 ### Car parts and repair

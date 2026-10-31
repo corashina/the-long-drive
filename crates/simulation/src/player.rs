@@ -188,6 +188,8 @@ pub struct PlayerState {
     pose: Pose,
     occupancy: Option<Occupancy>,
     collisions: Vec<CharacterCollision>,
+    /// World points that blocked the last move. Reused each step.
+    step_contacts: Vec<Vector>,
     yaw: f32,
     pitch: f32,
     /// Yaw and pitch degrees that the mouse added in the last view step.
@@ -323,6 +325,7 @@ impl PlayerState {
             pose,
             occupancy: None,
             collisions: Vec::with_capacity(20),
+            step_contacts: Vec::with_capacity(20),
             yaw: yaw_from_rotation(pose.rotation),
             pitch: 0.0,
             look_applied: [0.; 2],
@@ -606,16 +609,17 @@ impl PlayerState {
             self.controller_offset(),
             self.reference.max_depenetration_velocity * dt,
         );
-        self.controller.autostep = self.sweep.autostep();
         let shape = &self.sweep;
         let rapier = physics.rapier();
-        let movement = self.controller.move_shape(
+        self.step_contacts.clear();
+        let mut movement = self.controller.move_shape(
             dt,
             &physics.character_queries(filter),
             shape,
             &self.pose,
             desired,
             |collision| {
+                self.step_contacts.push(collision.hit.witness1);
                 let dynamic = rapier.colliders[collision.handle]
                     .parent()
                     .is_some_and(|body| rapier.bodies[body].is_dynamic());
@@ -625,6 +629,27 @@ impl PlayerState {
                 }
             },
         );
+        // A blocked grounded walk climbs the edge that blocked it.
+        let horizontal = Vector::new(desired.x, 0.0, desired.z);
+        if was_grounded
+            && climb.is_none()
+            && let Some(dir) = horizontal.try_normalize()
+            && movement.translation.dot(dir) < 0.5 * horizontal.length()
+        {
+            let moved = Pose::from_parts(
+                self.pose.translation + movement.translation,
+                self.pose.rotation,
+            );
+            let queries = physics.character_queries(filter);
+            let offset = self.controller_offset();
+            if let Some(step) = self
+                .step_contacts
+                .iter()
+                .find_map(|&contact| shape.edge_step(&queries, &moved, dir, contact, offset))
+            {
+                movement.translation += step;
+            }
+        }
         if !self.collisions.is_empty() {
             physics.solve_character_collision_impulses(
                 &self.controller,
