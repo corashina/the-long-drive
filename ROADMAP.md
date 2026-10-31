@@ -26,6 +26,7 @@ The starting area, car parts, world and more cars sections are done. Only their 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
 | X03 | Creatures | XL | Ground UFO, EMP and green-eyed evil rabbits, human monster (attacks hurt the player), breakablescript `DamageFrom` for AI. Rabbits do not yet sense the player hum. |
+| MC2 | Garage car does not move | M | A Volna chassis collider face (world z -70.28, 1.3 m left of the center line, 5 m long) sits 0.15 m into the garage floor and holds the car. Name it with `garage_start_car_drives_in_automatic` (it prints the chassis colliders on failure), then fix its geometry or layer. |
 | X06c | Building reflection probes | S | Car probes are live. Check the original building prefabs for realtime `ReflectionProbe`s. Export any as prototype probes. The live probe slots then take them. |
 
 ### Multiplayer

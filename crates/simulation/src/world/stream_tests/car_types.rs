@@ -503,5 +503,136 @@ fn garage_start_car_drives_in_automatic() {
     let moved = hold(&mut run, &reference, 0, player_keys::GAS, 0, 10., |run| {
         horizontal(absolute(run, &key).0, start) > 5.
     });
+    if !moved {
+        let world = run.physics.rapier();
+        let chassis = run.physics.chassis_handle(&key);
+        let body = &world.bodies[chassis];
+        eprintln!(
+            "chassis: type {:?} sleeping {} mass {} locked {:?} enabled {} inactive {} y {}",
+            body.body_type(),
+            body.is_sleeping(),
+            body.mass(),
+            body.locked_axes(),
+            body.is_enabled(),
+            !run.physics.body_active(chassis),
+            body.translation().y,
+        );
+        for (a, b, _, joint) in world.impulse_joints.attached_joints(chassis) {
+            let other = if a == chassis { b } else { a };
+            eprintln!(
+                "joint: {other:?} type {:?} at {:?} locked {:?}",
+                world.bodies[other].body_type(),
+                world.bodies[other].translation(),
+                joint.data.locked_axes,
+            );
+        }
+        for pair in world.narrow_phase.contact_pairs() {
+            let parent = |c: rapier3d::prelude::ColliderHandle| world.colliders[c].parent();
+            let other = if parent(pair.collider1) == Some(chassis) {
+                eprintln!("chassis side {:?}", pair.collider1);
+                pair.collider2
+            } else if parent(pair.collider2) == Some(chassis) {
+                eprintln!("chassis side {:?}", pair.collider2);
+                pair.collider1
+            } else {
+                continue;
+            };
+            if !pair.has_any_active_contact() {
+                continue;
+            }
+            let collider = &world.colliders[other];
+            let depth = pair
+                .manifolds()
+                .iter()
+                .flat_map(|m| m.points.iter().map(|p| p.dist))
+                .fold(f32::MAX, f32::min);
+            eprintln!(
+                "contact: {other:?} parent {:?} type {:?} user {:#x} at {:?} depth {depth}",
+                collider.parent(),
+                collider.parent().map(|b| world.bodies[b].body_type()),
+                collider.user_data,
+                collider.translation(),
+            );
+            for m in pair.manifolds() {
+                let normal = m.data.normal;
+                for point in &m.points {
+                    let local = if pair.collider1 == other {
+                        point.local_p1
+                    } else {
+                        point.local_p2
+                    };
+                    eprintln!(
+                        "  point {:?} normal {normal:?} dist {}",
+                        collider.position() * local,
+                        point.dist
+                    );
+                }
+            }
+            let id = (collider.user_data >> 64) as u32;
+            if let Some(record) = reference.colliders.iter().find(|c| c.id.0 == id) {
+                let node = reference.nodes.iter().find(|n| n.id == record.node);
+                let item = (collider.user_data & 0xffff_ffff) as u32;
+                let item = item
+                    .checked_sub(1)
+                    .and_then(|i| reference.items.iter().find(|r| r.id.0 == i));
+                eprintln!(
+                    "  source {:?} enabled {} sensor {} groups {:#x}/{:#x} item {:?} geometry {:?}",
+                    node.map(|n| &n.hierarchy_path),
+                    record.enabled,
+                    record.sensor,
+                    record.membership,
+                    record.filter,
+                    item.map(|i| &i.name),
+                    format!("{:?}", record.geometry)
+                        .chars()
+                        .take(300)
+                        .collect::<String>(),
+                );
+            }
+        }
+        for &handle in body.colliders() {
+            let c = &world.colliders[handle];
+            let aabb = c.compute_aabb();
+            eprintln!(
+                "chassis collider {handle:?} sensor {} enabled {} groups {:#x}/{:#x} solver {:#x}/{:#x} user {:#x} aabb {:?}..{:?} shape {:?}",
+                c.is_sensor(),
+                c.is_enabled(),
+                c.collision_groups().memberships.bits(),
+                c.collision_groups().filter.bits(),
+                c.solver_groups().memberships.bits(),
+                c.solver_groups().filter.bits(),
+                c.user_data,
+                aabb.mins,
+                aabb.maxs,
+                c.shape().shape_type(),
+            );
+        }
+        let prototype = &reference.world.prototypes[run.vehicles[&key].prototype];
+        for (i, c) in prototype.colliders.iter().enumerate() {
+            let node = &prototype.nodes[c.node as usize];
+            eprintln!(
+                "prototype collider {i}: {} layer {} active {} enabled {} trigger {} body {:?} geometry {}",
+                node.name,
+                node.layer,
+                node.active,
+                c.enabled,
+                c.trigger,
+                c.body,
+                format!("{:?}", c.geometry)
+                    .chars()
+                    .take(160)
+                    .collect::<String>(),
+            );
+        }
+        let pose = run.physics.snapshot(&key).pose;
+        eprintln!(
+            "car pose {:?} {:?}",
+            run.stream.origin.absolute(pose.position),
+            pose.rotation
+        );
+        for (i, center) in run.physics.wheel_centers(&key).unwrap().enumerate() {
+            eprintln!("wheel {i} center (body space) {center:?}");
+        }
+    }
     assert!(moved, "drives 5 m: {}", state(&run));
 }
