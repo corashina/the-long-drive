@@ -1002,6 +1002,90 @@ impl PlayerState {
             &exit_queries,
         )
     }
+    /// Test report of each exit search step: permission, forward ray and capsule blockers.
+    #[cfg(test)]
+    pub(crate) fn exit_trace(&self, physics: &PhysicsWorld) -> String {
+        use std::fmt::Write;
+        let Some(seat) = self.occupancy.as_ref() else {
+            return "not seated".into();
+        };
+        let limits = &seat.values.exit;
+        let resolved = self.view(physics);
+        let view = to_rapier(resolved.head_pose);
+        let camera = to_rapier(resolved.camera_pose);
+        let body = to_rapier(self.body_pose(physics));
+        let mut out = format!(
+            "limits {limits:?} head {:?} permission {}\n",
+            view.translation,
+            view::exit_permission(camera, body, limits.minimum_look_angle_degrees)
+        );
+        let use_mask = self.reference.action_masks.use_mask;
+        let exit_mask = self.reference.get_out_layer_mask;
+        let rapier = physics.rapier();
+        let describe = |handle: ColliderHandle| {
+            let c = &rapier.colliders[handle];
+            let aabb = c.compute_aabb();
+            format!(
+                "{handle:?} body {:?} groups {:#x} shape {:?} aabb {:?}..{:?}",
+                c.parent(),
+                c.collision_groups().memberships.bits(),
+                c.shape().shape_type(),
+                aabb.mins,
+                aabb.maxs
+            )
+        };
+        let ray_targets = |_: ColliderHandle, c: &rapier3d::prelude::Collider| {
+            c.is_enabled()
+                && c.collision_groups().memberships.bits() & use_mask != 0
+                && !c.shape().contains_point(c.position(), view.translation)
+        };
+        let rays = physics.queries(
+            QueryFilter::default()
+                .exclude_sensors()
+                .exclude_rigid_body(self.body)
+                .predicate(&ray_targets),
+        );
+        let forward = view.rotation * -Vector::Z;
+        let ray = rapier3d::prelude::Ray::new(view.translation, forward);
+        match rays.cast_ray_and_get_normal(&ray, limits.distance, true) {
+            Some((handle, hit)) => writeln!(
+                out,
+                "ray hit at {} normal {:?}: {}",
+                hit.time_of_impact,
+                hit.normal,
+                describe(handle)
+            ),
+            None => writeln!(out, "ray clear"),
+        }
+        .unwrap();
+        let exit_targets = |_: ColliderHandle, c: &rapier3d::prelude::Collider| {
+            c.is_enabled() && c.collision_groups().memberships.bits() & exit_mask != 0
+        };
+        let clearance = physics.queries(
+            QueryFilter::default()
+                .exclude_sensors()
+                .exclude_rigid_body(self.body)
+                .predicate(&exit_targets),
+        );
+        let mut vertical = 0.;
+        for index in 0..limits.horizontal_steps {
+            let distance = index as f32 * limits.horizontal_step;
+            for _ in 0..limits.vertical_steps {
+                let point = view.translation + forward * distance + Vector::Y * vertical;
+                let blockers: Vec<_> = clearance
+                    .intersect_shape(Pose::from_translation(point), self.exit_capsule.as_ref())
+                    .map(|(handle, _)| describe(handle))
+                    .collect();
+                writeln!(
+                    out,
+                    "  d {distance:.2} v {vertical:.2} {point:?}: {blockers:#?}"
+                )
+                .unwrap();
+                vertical += limits.vertical_step;
+            }
+        }
+        out
+    }
     /// Exit rules come from the occupied seat values.
     pub fn can_exit(&self, physics: &PhysicsWorld) -> bool {
         self.exit_pose(physics).is_some()

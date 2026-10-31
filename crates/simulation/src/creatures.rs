@@ -23,7 +23,7 @@ use crate::world::WorldOrigin;
 use animator::{Action, ActionPose, ActionTiming};
 use brain::BrainInput;
 use evil::{Events, EyeKind};
-use rabbit::{Rabbit, Size};
+use rabbit::{Death, Rabbit, Size};
 use ragdoll::Bone;
 use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{ColliderHandle, QueryFilter, Ray, RigidBodyHandle};
@@ -34,6 +34,8 @@ use stimuli::{PlayerStimuli, SoundStimulus, Stimuli};
 
 /// Seconds between the world collision checks of each rabbit.
 const SUPPORT_INTERVAL: f64 = 1.;
+/// `itemPlaceRemoveScript.checkInterval`.
+const PLACE_INTERVAL: f64 = 1.;
 /// `breakablescript.OnCollisionEnter` of an AI ignores colliders on these layers.
 const IGNORED_HIT_LAYERS: [u32; 2] = [15, 17];
 /// `SetBasedOnSize` calls `GetEvil(natural: true)` above this size.
@@ -55,6 +57,18 @@ pub struct StepInput<'a> {
     pub origin: &'a WorldOrigin,
     /// True when the world has collision around a local point.
     pub supports: &'a dyn Fn(Vector) -> bool,
+    /// Squared horizontal distance from a local point to the nearest source important object.
+    pub important: &'a dyn Fn(Vector) -> f32,
+    pub distances: PlaceDistances,
+}
+
+/// Source `itemPlaceRemoveScript` distances, squared as in `FStart`.
+#[derive(Clone, Copy, Debug)]
+pub struct PlaceDistances {
+    pub remove: f32,
+    pub spawn: f32,
+    pub freeze: f32,
+    pub unfreeze: f32,
 }
 
 /// One rabbit for the renderer.
@@ -105,7 +119,13 @@ pub struct Creatures {
     /// Engine, horn and radio sound stimuli of this step.
     bound: Vec<SoundStimulus>,
     spawner: Spawner,
+    /// `aispawn.AIs`: ids of the spawned rabbits. Saved and placed rabbits are not in it.
+    ais: Vec<u32>,
     rabbits: Vec<Rabbit>,
+    /// `savedatascript.farStuff`: rabbits that `itemPlaceRemoveScript` removed.
+    far: Vec<RabbitSnapshot>,
+    /// Simulation seconds of the next `itemPlaceRemoveScript.DoUpd`.
+    next_place: f64,
     next_id: u32,
     pose: RigPose,
     random: StormRandom,
@@ -188,7 +208,10 @@ impl Creatures {
             stimuli: Stimuli::new(),
             bound: Vec::with_capacity(32),
             spawner: Spawner::new(now),
+            ais: Vec::with_capacity(max),
             rabbits: Vec::with_capacity(max),
+            far: Vec::with_capacity(max),
+            next_place: now,
             next_id: 1,
             random: StormRandom(seed ^ 0x7261_6262_6974_0001),
             peaceful: false,
@@ -263,7 +286,7 @@ impl Creatures {
             });
         }
         if effect.broken {
-            kill(rabbit, true, &mut self.deaths);
+            kill(rabbit, Death::Shot, &mut self.deaths);
         }
         match effect.lost {
             Some(Sense::Eyes) => rabbit.senses.has_eyes = false,
@@ -401,7 +424,18 @@ impl Creatures {
             .rebuild(&self.sources, input.head, &self.bound, now, |p| {
                 Vector::from_array(origin.local(p))
             });
-        let count = self.rabbits.len();
+        if self.spawner.due(now) {
+            // `SpawnRoutine` drops one destroyed AI per tick.
+            let rabbits = &self.rabbits;
+            if let Some(i) = self
+                .ais
+                .iter()
+                .position(|id| !rabbits.iter().any(|r| r.id == *id))
+            {
+                self.ais.remove(i);
+            }
+        }
+        let count = self.ais.len();
         let mut spawned = Vec::new();
         self.spawner.step(
             &r.spawner,
@@ -417,8 +451,11 @@ impl Creatures {
         );
         for (place, size, yaw) in spawned {
             let pose = Pose::from_parts(place, Rotation::from_rotation_y(-yaw.to_radians()));
-            self.spawn(r, physics, pose, size, size.shoot_health, now)
-                .expect("validated rabbit reference");
+            let id = self
+                .spawn(r, physics, pose, size, size.shoot_health, now)
+                .expect("validated rabbit reference")
+                .id;
+            self.ais.push(id);
         }
         let rules = &r.damage.rules;
         for hit in physics.hits() {
@@ -439,7 +476,7 @@ impl Creatures {
                 if let Some(force) = collision_force(rules, hit.speed)
                     && try_break(rules, &mut rabbit.health.health, force)
                 {
-                    kill(rabbit, true, &mut self.deaths);
+                    kill(rabbit, Death::Hit, &mut self.deaths);
                 }
             }
         }
@@ -452,10 +489,23 @@ impl Creatures {
             if now >= rabbit.next_support_check {
                 rabbit.next_support_check = now + SUPPORT_INTERVAL;
                 let position = physics.rapier().bodies[rabbit.body].translation();
-                let active = (input.supports)(position);
+                let distance = (input.important)(position);
+                if distance >= input.distances.freeze {
+                    rabbit.frozen = true;
+                } else if distance < input.distances.unfreeze {
+                    rabbit.frozen = false;
+                }
+                let active = !rabbit.frozen && (input.supports)(position);
                 if active != rabbit.active {
+                    // The rabbit waits at rest, so the collision that comes back does not
+                    // count as a velocity change.
                     rabbit.active = active;
-                    physics.edit_body(rabbit.body, |b| b.set_enabled(active));
+                    rabbit.last_velocity = Vector::ZERO;
+                    physics.edit_body(rabbit.body, |b| {
+                        b.set_linvel(Vector::ZERO, false);
+                        b.set_angvel(Vector::ZERO, false);
+                        b.set_enabled(active);
+                    });
                 }
             }
             if !rabbit.active {
@@ -463,7 +513,7 @@ impl Creatures {
             }
             let velocity = physics.rapier().bodies[rabbit.body].linvel();
             if accelerated(limit, velocity, rabbit.last_velocity) {
-                kill(rabbit, true, &mut self.deaths);
+                kill(rabbit, Death::Speed, &mut self.deaths);
                 continue;
             }
             rabbit.last_velocity = velocity;
@@ -521,7 +571,7 @@ impl Creatures {
                     continue;
                 };
                 if try_break(rules, &mut rabbit.health.health, damage) {
-                    kill(rabbit, true, &mut self.deaths);
+                    kill(rabbit, Death::Bite, &mut self.deaths);
                 }
             }
         }
@@ -604,31 +654,57 @@ impl Creatures {
         }
     }
 
-    /// Source `save_nyulscript` and the prefab pose of each rabbit.
+    /// Source `save_nyulscript` and the prefab pose of each rabbit, far ones included.
     pub fn snapshot(&self, physics: &PhysicsWorld, origin: &WorldOrigin) -> Vec<RabbitSnapshot> {
         self.rabbits
             .iter()
-            .map(|rabbit| {
-                let absolute = |pose: &Pose| AbsolutePose {
-                    position: origin.absolute(pose.translation.to_array()),
-                    rotation: pose.rotation.to_array(),
-                };
-                let pose = root_pose(physics, rabbit);
-                RabbitSnapshot {
-                    pose: absolute(&pose),
-                    size: rabbit.size.size,
-                    shoot_health: rabbit.health.shoot_health,
-                    alive: rabbit.alive,
-                    eyes: rabbit.senses.has_eyes,
-                    ears: rabbit.senses.has_ears,
-                    bones: rabbit
-                        .bones
-                        .iter()
-                        .map(|b| absolute(physics.rapier().bodies[b.body].position()))
-                        .collect(),
-                }
-            })
+            .map(|rabbit| snapshot(physics, origin, rabbit))
+            .chain(self.far.iter().cloned())
             .collect()
+    }
+
+    /// True once per `itemPlaceRemoveScript.checkInterval`.
+    pub fn place_remove_due(&mut self, now: f64) -> bool {
+        if now < self.next_place {
+            return false;
+        }
+        self.next_place = now + PLACE_INTERVAL;
+        true
+    }
+
+    /// `itemPlaceRemoveScript.RemoveItems`: each rabbit that `remove` selects by its local root
+    /// position goes to the far rabbits. The caller releases the bone items and bodies in
+    /// `bones`.
+    pub fn unload(
+        &mut self,
+        physics: &mut PhysicsWorld,
+        origin: &WorldOrigin,
+        remove: impl Fn(Vector) -> bool,
+        bones: &mut Vec<(ItemId, RigidBodyHandle)>,
+    ) {
+        let mut i = 0;
+        while i < self.rabbits.len() {
+            let rabbit = &self.rabbits[i];
+            if !remove(root_pose(physics, rabbit).translation) {
+                i += 1;
+                continue;
+            }
+            self.far.push(snapshot(physics, origin, rabbit));
+            let mut rabbit = self.rabbits.swap_remove(i);
+            if let Some(trigger) = rabbit.trigger.take() {
+                self.triggers.push((trigger.handle, false));
+            }
+            if rabbit.bones.is_empty() {
+                physics.remove_body(rabbit.body);
+            }
+            bones.extend(rabbit.bones.iter().map(|b| (b.item, b.body)));
+        }
+    }
+
+    /// `PlaceItems`: the next far rabbit that `near` selects by its absolute position.
+    pub fn take_far(&mut self, near: impl Fn([f64; 3]) -> bool) -> Option<RabbitSnapshot> {
+        let i = self.far.iter().position(|s| near(s.pose.position))?;
+        Some(self.far.swap_remove(i))
     }
 
     /// Spawns the saved live rabbits. `SetBasedOnSize` runs with the saved size, then
@@ -708,11 +784,34 @@ fn accelerated(limit: f32, velocity: Vector, last: Vector) -> bool {
 }
 
 /// `aiscript.Die` once per rabbit.
-fn kill(rabbit: &mut Rabbit, sound: bool, deaths: &mut Vec<(u32, bool)>) {
+fn kill(rabbit: &mut Rabbit, death: Death, deaths: &mut Vec<(u32, bool)>) {
     if rabbit.alive {
         rabbit.alive = false;
+        rabbit.death = Some(death);
         rabbit.evil.die();
-        deaths.push((rabbit.id, sound));
+        deaths.push((rabbit.id, true));
+    }
+}
+
+/// Source `save_nyulscript` and the prefab pose of one rabbit.
+fn snapshot(physics: &PhysicsWorld, origin: &WorldOrigin, rabbit: &Rabbit) -> RabbitSnapshot {
+    let absolute = |pose: &Pose| AbsolutePose {
+        position: origin.absolute(pose.translation.to_array()),
+        rotation: pose.rotation.to_array(),
+    };
+    let pose = root_pose(physics, rabbit);
+    RabbitSnapshot {
+        pose: absolute(&pose),
+        size: rabbit.size.size,
+        shoot_health: rabbit.health.shoot_health,
+        alive: rabbit.alive,
+        eyes: rabbit.senses.has_eyes,
+        ears: rabbit.senses.has_ears,
+        bones: rabbit
+            .bones
+            .iter()
+            .map(|b| absolute(physics.rapier().bodies[b.body].position()))
+            .collect(),
     }
 }
 

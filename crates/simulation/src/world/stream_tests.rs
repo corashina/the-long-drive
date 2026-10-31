@@ -15,6 +15,8 @@ mod drive_out;
 mod explosions;
 #[path = "stream_tests/garage_controls.rs"]
 mod garage_controls;
+#[path = "stream_tests/garage_exit.rs"]
+mod garage_exit;
 #[path = "stream_tests/guns.rs"]
 mod guns;
 #[path = "stream_tests/item_seats.rs"]

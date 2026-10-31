@@ -20,6 +20,8 @@ pub struct Steer {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Brain {
     pub fleeing: bool,
+    /// The last `Update` had a positive flight sum: the rabbit goes to a stimulus.
+    pub targeting: bool,
     pub interest: Vector,
     pub sens_rot: f32,
     /// Simulation seconds.
@@ -77,6 +79,7 @@ impl Brain {
     pub fn new(r: &BrainReference, position: Vector) -> Self {
         Self {
             fleeing: false,
+            targeting: false,
             interest: position,
             sens_rot: 0.,
             last_flee_signal: 0.,
@@ -129,6 +132,7 @@ impl Brain {
             positive_at = negative_at;
         }
         let position = i.position;
+        self.targeting = flight > 0.;
         if flight < 0. && r.flee {
             self.fleeing = true;
             self.last_flee_signal = i.now;

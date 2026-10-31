@@ -174,7 +174,9 @@ fn apply(
             } else {
                 1.
             };
-            let pose = to_rapier(ahead(runtime, forward));
+            // The rabbit faces the player.
+            let mut pose = to_rapier(ahead(runtime, forward));
+            pose.rotation *= Rotation::from_rotation_y(std::f32::consts::PI);
             let id = runtime
                 .creatures
                 .spawn_rabbit(
@@ -879,6 +881,8 @@ fn creatures(runtime: &GarageRuntime, reference: &ReferenceManifest) -> Vec<Valu
                 "roar"
             } else if r.brain.fleeing {
                 "flee"
+            } else if r.brain.targeting {
+                "target"
             } else {
                 "roam"
             };
@@ -894,6 +898,7 @@ fn creatures(runtime: &GarageRuntime, reference: &ReferenceManifest) -> Vec<Valu
                 "eyes": r.senses.has_eyes,
                 "ears": r.senses.has_ears,
                 "state": state,
+                "death": r.death.map(|d| format!("{d:?}").to_lowercase()),
             })
         });
     let bats = runtime.flyers.flyers().iter().map(|f| {

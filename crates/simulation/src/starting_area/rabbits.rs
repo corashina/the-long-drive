@@ -148,6 +148,63 @@ impl GarageRuntime {
         Ok(())
     }
 
+    /// Source `itemPlaceRemoveScript`: rabbits away from every important object unload, and far
+    /// rabbits near one come back where the world is loaded. The spawner then refills its slots.
+    pub(super) fn place_remove_rabbits(
+        &mut self,
+        reference: &ReferenceManifest,
+        distances: crate::creatures::PlaceDistances,
+    ) {
+        let (stream, origin) = (&self.stream, self.stream.origin);
+        let mut bones = Vec::new();
+        self.creatures.unload(
+            &mut self.physics,
+            &origin,
+            |p| stream.important_distance(origin.absolute(p.to_array()), None) >= distances.remove,
+            &mut bones,
+        );
+        let area = &mut self.area;
+        for (item, body) in bones {
+            if area.interaction.held() == Some(item) {
+                area.interaction
+                    .drop_held(&mut area.items, &mut self.physics);
+            }
+            area.inventory.forget(item);
+            area.interaction.remove_spawned(item, body);
+            self.physics.remove_body(body);
+            if let Some(state) = area.items.set_body(item, None) {
+                state.location = crate::interaction::items::ItemLocation::World;
+            }
+            area.items.remove_spawned(item);
+            area.item_render_poses.retain(|(i, _, _)| *i != item);
+        }
+        let near = |p: [f64; 3]| {
+            stream.important_distance(p, None) < distances.spawn
+                && stream.supports(crate::world::WorldBounds {
+                    min: p.map(|v| v - 2.),
+                    max: p.map(|v| v + 2.),
+                })
+        };
+        let mut placed = Vec::new();
+        while let Some(s) = self.creatures.take_far(near) {
+            placed.push(s);
+        }
+        if placed.is_empty() {
+            return;
+        }
+        let r = &reference.creatures.rabbit;
+        let now = self.simulation_seconds;
+        if self
+            .creatures
+            .restore(r, &mut self.physics, &origin, &placed, now)
+            .and_then(|()| self.restore_dead_rabbits(reference, &placed))
+            .is_err()
+        {
+            self.notice = "Cannot place the rabbit.";
+        }
+        self.physics.refresh_queries();
+    }
+
     /// Saved dead rabbits with their bones.
     pub(super) fn restore_dead_rabbits(
         &mut self,

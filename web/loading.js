@@ -43,6 +43,8 @@ export function createLoading(){
    if(!active)return;
    if(rendering!==renderReady||world!==worldReady)lastChange=performance.now();
    runtime=true;rendering=renderReady;world=worldReady;
+   // The index goes on past the start roads. The count shows only the start roads.
+   roads=Math.min(roads,maximum);
    stage(roads<maximum?'Indexing the world...':'Preparing the garage and world...',roads,maximum);
   },
   budget(name,used,limit,unit){
