@@ -210,6 +210,7 @@ Prepare once:
 7. Press M in a seat: the camera rises over 1/3 s and looks down. Scroll sets the height from 2.5 to 200 m. Q and the mouse pan. Tab recenters. Press M again: the camera comes back down.
 8. In each other view: E does not get out or use things, prompts and the crosshair hide, worn items show, and the sunglasses tint is off. Sleep is not possible.
 15. Overheat a car engine above 110 degrees with coolant: steam rises under the hood and the boil sound grows with the heat. Check that steam is not lost inside the hood colliders. Car08 and Car08c have no steam.
+16. Sit in the garage Volna with the doors closed. E does not get out, same as the original. Drag the driver door open with LMB, look out through it and press E: you get out.
 
 ### Saves
 
