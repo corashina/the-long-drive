@@ -300,6 +300,10 @@ def recover_road_lamp(source: Source, output: Path) -> dict:
     prefab=source.resolve(generator,g['prefabs'][0])
     if key(prefab)!=('sharedassets1.assets',30934) or key(source.resolve(road,f['koz']))!=key(controller):raise ValueError('Desert road prefab controller mismatch')
     pose=world_pose(source,root)
+    # Runtime road lamps share one electronicsscript state on collider layer 0 without override.
+    elec=source.resolve(controller,source.read(controller)['electronics']);e=source.read(elec)
+    if e['overRideMaxJamValue']!=0 or source.read(source.resolve(elec,e['m_GameObject']))['m_Layer']!=0:
+        raise ValueError('Road lamp electronics contract differs')
     main=source.read(source.get('level1',64919))
     return {'asset':source.lighting_assets[key(root)],'source':source_id(controller),'road_source':source_id(road),'generator_source':source_id(generator),
         'spacing_meters':g['roadSegmentLength'],'road_pose':pose,'rotation_node':source.lighting_nodes[key(source.resolve(road,f['randomPoleRotTransform']))],

@@ -79,6 +79,8 @@ pub mod player_keys {
     pub const STEER_LEFT: u16 = 1024;
     pub const STEER_RIGHT: u16 = 2048;
     pub const HANDBRAKE: u16 = 4096;
+    /// Source `IN.hum` (Caps Lock).
+    pub const HUM: u16 = 8192;
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]

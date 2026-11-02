@@ -798,6 +798,8 @@ pub struct LightingState {
     pub poses: Vec<ControlPoseOutput>,
     visibility: Vec<NodeVisibilityOutput>,
     pose_progress: Vec<Option<SwitchMotion>>,
+    /// The road lamp `kozlampa.electronics`. Every road lamp shares it.
+    pub road_electronics: crate::electronics::Electronics,
 }
 impl LightingState {
     pub fn new(
@@ -824,6 +826,13 @@ impl LightingState {
                 })
                 .collect(),
             pose_progress: vec![None; reference.controllers.len()],
+            road_electronics: crate::electronics::Electronics::new(
+                reference
+                    .controllers
+                    .iter()
+                    .find(|c| c.id == reference.road_lamp.controller)
+                    .map_or(1., |c| c.electronics_output),
+            ),
             controllers: reference
                 .controllers
                 .iter()
@@ -1098,20 +1107,16 @@ impl LightingState {
             }
         }
     }
-    /// New road instances use the current phase and electronics output.
+    /// Road instances use the current phase and the live road electronics output.
     pub fn road_lamp_output(&self, reference: &crate::reference::LightingRecord) -> LightOutput {
         let road = &reference.road_lamp;
-        let controller = reference
-            .controllers
-            .iter()
-            .find(|c| c.id == road.controller)
-            .unwrap();
+        let output = self.road_electronics.output();
         LightOutput {
             id: road.lights[0],
             enabled: road.global_enabled
                 && self.cycle.output().roadside_enabled
-                && controller.electronics_output > road.electronics_threshold,
-            intensity: controller.electronics_output,
+                && output > road.electronics_threshold,
+            intensity: output,
         }
     }
     pub fn light_outputs(&self) -> &[LightOutput] {

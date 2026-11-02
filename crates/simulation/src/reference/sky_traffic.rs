@@ -18,7 +18,39 @@ pub struct SkyReference {
     pub contrail_rate: f32,
     pub prefabs: Vec<SkyPrefab>,
     pub evidence: ManagedEvidence,
+    pub ground_ufo: GroundUfoReference,
     pub flyer: FlyerReference,
+}
+/// Source fedospawnscript on the Player and the fedoscript AI of its prefab.
+/// Distances are source meters. Ranges are [min, max].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GroundUfoReference {
+    pub source: SourceId,
+    /// Index into `SkyReference::prefabs`.
+    pub prefab: usize,
+    /// Nights to the next spawn chance. The max is inclusive.
+    pub night_range: [i32; 2],
+    pub nights_after_spawn: i32,
+    pub chance: f32,
+    /// Spawn distance behind the player along source -Z.
+    pub back_range: [f32; 2],
+    /// Spawn offset range to each side.
+    pub side_distance: f32,
+    pub up_distance: f32,
+    /// fedoscript on the prefab root.
+    pub fedo: SourceId,
+    pub speed: f32,
+    pub high_speed: f32,
+    /// Source Start squares it.
+    pub target_distance: f32,
+    pub road_height_offset: f32,
+    pub ai_distance_range: [f32; 2],
+    pub ai_multiplier_range: [f32; 2],
+    /// Source Start adds `road_height_offset`.
+    pub visited_distance: f32,
+    pub disappear_distance: f32,
+    pub evidence: ManagedEvidence,
 }
 /// Source randomFlyer on RandomBat, a world prototype. Ranges are [min, max].
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -124,6 +156,8 @@ pub struct SkyPrefab {
     /// Audio voice IDs of the prefab AudioSources.
     pub voices: Vec<u32>,
     pub spin: Option<SkySpin>,
+    /// The empscript on the prefab root.
+    pub emp: Option<crate::electronics::EmpReference>,
 }
 /// Source fedoscript rotor spin.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -184,6 +218,23 @@ impl SkyReference {
                     "sky spin",
                 )?;
             }
+            if let Some(e) = &p.emp {
+                require(
+                    finite(&[
+                        e.range,
+                        e.value,
+                        e.range_spread,
+                        e.range_speed,
+                        e.value_spread,
+                        e.value_speed,
+                    ]) && e.range > 0.
+                        && e.range_spread >= 0.
+                        && e.value_spread >= 0.
+                        && !e.fall_off.keys.is_empty()
+                        && particles::curve_valid(&e.fall_off),
+                    "sky emp",
+                )?;
+            }
             if let Some(c) = &p.contrail {
                 require(
                     c.role.starts_with("sky_") && c.role.ends_with("_contrail"),
@@ -192,7 +243,39 @@ impl SkyReference {
                 particles::validate_particle(c, 2)?;
             }
         }
+        self.ground_ufo.validate(self)?;
         self.flyer.validate(m)
+    }
+}
+impl GroundUfoReference {
+    fn validate(&self, sky: &SkyReference) -> Result<(), ReferenceError> {
+        let range = |r: [f32; 2]| finite(&r) && 0. <= r[0] && r[0] <= r[1];
+        require(
+            self.evidence.valid()
+                && sky
+                    .prefabs
+                    .get(self.prefab)
+                    .is_some_and(|p| p.emp.is_some())
+                && 0 <= self.night_range[0]
+                && self.night_range[0] <= self.night_range[1]
+                && self.nights_after_spawn >= 0
+                && (0. ..=1.).contains(&self.chance)
+                && range(self.back_range)
+                && range(self.ai_distance_range)
+                && range(self.ai_multiplier_range)
+                && finite(&[
+                    self.side_distance,
+                    self.up_distance,
+                    self.road_height_offset,
+                    self.visited_distance,
+                ])
+                && self.side_distance >= 0.
+                && 0. < self.speed
+                && self.speed <= self.high_speed
+                && self.target_distance > 0.
+                && self.disappear_distance > 0.,
+            "ground ufo",
+        )
     }
 }
 

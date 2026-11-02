@@ -14,6 +14,9 @@ pub struct CreaturesReference {
     pub player_stimulus: SourceId,
     /// The stimulus of the `mainscript.Audio` prefab. `PlayClipAtPoint` sets it to the volume.
     pub sound_stimulus: SourceId,
+    /// `fpscontroller.humStimul`, a second node at the player Head origin. `SetAudioValue` sets
+    /// it to the hum volume.
+    pub hum_stimulus: SourceId,
 }
 
 /// Source `stimulType`.
@@ -321,6 +324,30 @@ pub struct EvilReference {
     pub trigger: AttackTrigger,
 }
 
+/// The `electronicsscript` whose `nyul` is the rabbit. `empscript.makeRabbitsEvil` reads it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RabbitElectronics {
+    pub source: SourceId,
+    /// `HeadCollider`. The colliders sit on it.
+    pub node: NodeId,
+    pub max_output: f32,
+    pub override_max_jam: f32,
+    pub jam: f32,
+    /// The colliders that `Physics.OverlapSphere` finds on the node.
+    pub colliders: Vec<ElectronicsCollider>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ElectronicsCollider {
+    pub source: SourceId,
+    /// Unity layer index.
+    pub layer: u32,
+    /// In `ragdollactivatescript.animColliders`: `SetRagdol(true)` disables it.
+    pub anim: bool,
+}
+
 /// `EyeEvil` and `EyeGreen` in the rabbit asset.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -366,6 +393,7 @@ pub struct RabbitReference {
     pub ragdoll: CreatureRagdoll,
     pub animator: BlendReference,
     pub evil: EvilReference,
+    pub electronics: RabbitElectronics,
     /// `Sdie` audio clip ids.
     pub die_clips: Vec<u32>,
     /// One-shot car voice template of `mainscript.PlayClipAtPoint`.
@@ -534,6 +562,13 @@ impl CreaturesReference {
                         && !s.check_audio_sources
                         && s.audio_sources.is_empty()
                         && !s.stimuli.is_empty()
+                })
+                && self.stimulus(&self.hum_stimulus).is_some_and(|s| {
+                    s.sound
+                        && !s.check_audio_sources
+                        && s.audio_sources.is_empty()
+                        && !s.stimuli.is_empty()
+                        && s.root == self.stimulus(&self.player_stimulus).unwrap().root
                 }),
             "stimulus sources",
         )
@@ -596,6 +631,14 @@ impl RabbitReference {
                 && range(&b.roam_time)
                 && b.preferences.iter().all(|p| p.value.is_finite()),
             "rabbit brain",
+        )?;
+        let x = &self.electronics;
+        require(
+            self.local(m, x.node)
+                && finite(&[x.max_output, x.override_max_jam, x.jam])
+                && !x.colliders.is_empty()
+                && x.colliders.iter().all(|c| c.layer < 32),
+            "rabbit electronics",
         )?;
         let mo = &self.motion;
         require(
