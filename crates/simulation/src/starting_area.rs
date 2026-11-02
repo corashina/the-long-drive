@@ -1941,6 +1941,7 @@ impl GarageRuntime {
             },
         );
         self.place_humans(reference);
+        self.step_humans(reference, dt);
         if self.creatures.place_remove_due(self.simulation_seconds) {
             self.place_remove_rabbits(reference, distances);
             self.place_remove_humans(reference, distances);

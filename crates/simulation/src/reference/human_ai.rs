@@ -10,11 +10,11 @@ pub struct CapsuleShape {
     pub center: [f32; 3],
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HumanAiReference {
-    /// `sensU`, `sensH`, `sensD`, `sensG` and `sensCanGetUp` trigger nodes.
-    pub sens: [NodeId; 5],
+    /// `sensU`, `sensH`, `sensD`, `sensG` and `sensCanGetUp` triggers, in their node space.
+    pub sens: [LiveCollider; 5],
     /// `col`: the live capsule that lerps from `stand` to `duck`.
     pub col: NodeId,
     pub stand: CapsuleShape,
@@ -47,7 +47,6 @@ pub struct HumanAiReference {
     pub avoid_lerp: f32,
     pub ray_attack_dist_range: f32,
     pub door_speed: f32,
-    pub start_patrol_time: [f32; 2],
     pub start_patrol_dist: f32,
     pub patrol_ray_start_dist: f32,
     pub patrol_iteration: u32,
@@ -90,7 +89,6 @@ impl HumanAiReference {
             ]) && finite(&self.stand.center)
                 && finite(&self.duck.center)
                 && range(&self.chase_time)
-                && range(&self.start_patrol_time)
                 && range(&self.patrol_ray_range)
                 && self.patrol_ray_count > 0,
             "human AI",
