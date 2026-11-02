@@ -3,7 +3,7 @@ pub mod recovery;
 mod under_map;
 use crate::interaction::{
     InteractionAction, InteractionState, ResolvedAim,
-    items::{ItemStore, node_pose},
+    items::{ItemLocation, ItemStore, node_pose},
 };
 use crate::player::{PlayerState, PlayerStepContext};
 use crate::reference::{BodyId, ItemId, NodeId, PrototypeTool, ReferenceError, ReferenceManifest};
@@ -494,7 +494,8 @@ pub struct VehicleRuntime {
     pub drivetrain: crate::simulation::drivetrain::DrivetrainState,
     pub exhaust: crate::exhaust::ExhaustState,
     pub coolant_steam: crate::coolant_steam::CoolantSteamState,
-    /// Source `carscript.Tank`: the root tank, else the tank part in `fuel_tank_slot`.
+    /// Source `carscript.Tank`: the root tank, else the tank part in `fuel_tank_slot`, else
+    /// the first tank attached to that part.
     /// Found once at the start of each step.
     pub fuel_tank: Option<ItemId>,
     /// Car root `tankscript` item.
@@ -2825,11 +2826,19 @@ impl GarageRuntime {
         let parts = &self.area.interaction.parts;
         for (key, vehicle) in &mut self.vehicles {
             vehicle.powertrain = self.powertrain.mounted_on(items, key);
+            // Source: the part `tankscript`, else the first tank of its `tosaveitem` (Bike03 tanks).
+            let tank = |item: ItemId| items.get(item).is_some_and(|i| i.fluid.is_some());
             vehicle.fuel_tank = vehicle.root_tank.or_else(|| {
-                vehicle
+                let part = vehicle
                     .fuel_tank_slot
-                    .and_then(|slot| parts.slot_item(slot))
-                    .filter(|&item| items.get(item).is_some_and(|i| i.fluid.is_some()))
+                    .and_then(|slot| parts.slot_item(slot))?;
+                if tank(part) {
+                    return Some(part);
+                }
+                items
+                    .iter()
+                    .find(|i| i.location == ItemLocation::Attached(part) && tank(i.id))
+                    .map(|i| i.id)
             });
         }
     }
