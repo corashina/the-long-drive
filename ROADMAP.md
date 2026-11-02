@@ -31,10 +31,6 @@ The starting area, car parts, world and more cars sections are done. Only their 
 
 Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). WebRTC peer to peer through PeerJS. The host browser runs the world. Guests talk only to the host. The host forwards.
 
-| ID | Task | Size | Remaining work |
-| --- | --- | --- | --- |
-| M03 | Shared items and world | XL | Food, ammo, weapons, push, colors, breakables. License plates and random types need no message: the port draws them from the seed and never changes them. Design: project file `plans/m03-design.md`. |
-
 Not planned: VR, stereo 3D, mod events, Steam features.
 
 ## Test pass
@@ -50,6 +46,9 @@ Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix 
 - 32 of 169 ignored simulation tests failed in release. Debug overflows the stack. #KF removed 8 old tests that `roadmap_tests` covers, and changed 4 without a run. The lines below name each open one.
 - WD3: `tp_wd3_each_melee_weapon_swings_with_each_key_and_breaks_a_bottle` needs the next export. The exporter now links melee weapons through `pickupable.melee` (#WD3), which adds the katana, fly swatter and leg. The test passes on ee6554d with those records added.
 - WD20: `tp_wd20_a_hard_hit_breaks_a_tumbleweed_with_its_gib_and_it_stays_gone` needs the next export. The exporter now exports gib ParticleSystems (`behavior.gib_particles`, #WD20). The tumbleweed gib is particles only. The test passes on ee6554d with a stand-in particle record.
+- CP4: `tp_cp4_siphon_hose_drains_siphons_tears_coils_and_stores` changed without a run. Source `TryAttach` attaches the free end nearer the cap, not the carried end. The test now reads which end is on the Lada tank. Rerun it.
+- MP (3fd48db run): four multiplayer tests changed without a run. The tests were wrong, not the game. `tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it` takes the OilCan, not the nearest item. `tp_m03_a_host_spawn_appears_on_the_guest` spawns a shovel where the seated players stood, not in a player capsule. `tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it` holds the gas key, not walk forward. `tp_mp_m04c_host_rabbits_appear_on_the_guest` compares right after a host pose lands: the guest runs its own rabbit AI between the 1 s poses, as the source does. Rerun them.
+- CR2: `tp_cr2_halloween_bats_near_buildings` was flaky: load time depends on the machine, and the one tracked bat could break before it squeaked. It now collects bats from the first frame of each visit and checks squeaks, flight and save over all bats of the building (#TP CR2). Changed without a run.
 - Export field added (#PB): `player.seat_push_force` (source `fpscontroller.seatPushForce`). Export ee6554d lacks it, so re-export before the next run.
 - Export field added (#M01): `player.remote` (source `mpplayerscript` of `snTempPlayerSync.playerPrefab`). Export ee6554d lacks it, so re-export before the next run. `tp_mp5_the_other_figure_turns_solid_after_3_s` then checks the remote figure body.
 - Export format changed (#X06c): each world prototype has `probes`, and `vehicle.probe` is gone. Re-export before the next run. Then stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
@@ -77,3 +76,4 @@ Two browsers, host and guest in one room. Check F3 on the host before and after,
 7. M03: The guest pours fuel from a canister into the start car and opens its fuel cap. The host sees the canister level drop, the car level rise and the cap open. The host opens a door; it opens on the guest.
 8. M03: The guest takes off the start car hood and a wheel, and takes the tire off the rim. They come off on the host. The guest puts them back; they go back on at the host. The host hitches a trailer; it hitches on the guest.
 9. M03: The guest rides a sled down a dune. The host sees the sled and the guest move together. The host switches a garage light and a building lamp, and opens a bus door; all change on the guest. The guest rusts a part with a crash; the host sees the rust.
+10. M03: The guest eats half a sandwich, fires a gun and reloads it. The host sees the bites and hears the shot; the gun ammo matches on both. The guest pushes a wheelbarrow; it moves on the host. The guest breaks a bottle: the host sees it break and the shards on both match.

@@ -152,7 +152,7 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
         .cloned()
         .expect("the guest sits");
     let gas = FrameInput {
-        held: keys::FORWARD,
+        player_held: crate::simulation::player_keys::GAS,
         ..Default::default()
     };
     for _ in 0..90 {
@@ -444,7 +444,8 @@ fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
     let mut guest = save_load(&run, &reference);
     let mut pair = Pair::new();
     pair.run(&reference, &mut run, &mut guest, 0.5);
-    let copy = loose_item(&guest);
+    // The nearest loose item can be one that the hand cannot carry: take a light garage item.
+    let copy = find(&guest, "OilCan");
     let item = same(&guest, &run, copy);
     pick_up(&mut guest, &reference, copy);
     pair.run(&reference, &mut run, &mut guest, 0.5);
@@ -493,13 +494,20 @@ fn tp_m03_a_host_spawn_appears_on_the_guest() {
     let mut guest = save_load(&run, &reference);
     let mut pair = Pair::new();
     pair.run(&reference, &mut run, &mut guest, 0.5);
+    // A metal shovel where both players stood. They sit in the car first: a spawn in a player
+    // capsule is thrown out and can break before the host sends it.
+    let shovel = crate::world::stream::tests::melee::weapon(&reference, &["shovel"]);
     let prototype = reference
         .item_prototypes
         .iter()
-        .position(|p| !p.pickups.is_empty())
-        .expect("an item prototype");
-    let mut root = run.area.player.body_pose(&run.physics);
-    root.position[1] += 1.;
+        .position(|p| p.id == shovel.prototype)
+        .expect("the shovel prototype");
+    let root = run.area.player.body_pose(&run.physics);
+    for peer in [&mut run, &mut guest] {
+        act(peer, &reference, r#"{"action":"seat","seat":"driver"}"#);
+        assert!(peer.area.player.seated(), "the player sits");
+    }
+    pair.run(&reference, &mut run, &mut guest, 0.2);
     let ids = crate::starting_area::spawned::spawn_prototype(
         &reference,
         &mut run.area,
@@ -509,7 +517,8 @@ fn tp_m03_a_host_spawn_appears_on_the_guest() {
     )
     .unwrap();
     let serial = run.area.spawned.get(ids[0]).unwrap().serial;
-    pair.run(&reference, &mut run, &mut guest, 1.2);
+    // The last host pose of the 1 s checks comes after the shovel lies still.
+    pair.run(&reference, &mut run, &mut guest, 2.2);
     let copy = guest
         .area
         .spawned
@@ -653,6 +662,33 @@ fn tp_m03_host_rust_and_light_switch_reach_the_guest() {
     );
 }
 
+/// M03. Source `SFood`: a bite that the host takes shows on the guest.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_m03_a_host_bite_reaches_the_guest() {
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let mut guest = save_load(&run, &reference);
+    let mut pair = Pair::new();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    let food = run
+        .area
+        .items
+        .iter()
+        .find(|i| {
+            !i.removed
+                && i.food
+                    .is_some_and(|f| f.bite + 1 < reference.survival.foods[f.prototype_index].bites)
+        })
+        .expect("a food")
+        .id;
+    let copy = same(&run, &guest, food);
+    let bite = run.area.items.get(food).unwrap().food.unwrap().bite + 1;
+    run.set_food_bite(&reference, food, bite).unwrap();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    assert_eq!(guest.area.items.get(copy).unwrap().food.unwrap().bite, bite);
+}
+
 /// MP M04c. Source `aispawn.SpawnRoutine` (`isServerOrNoMulti`) and the item pose of an AI: the
 /// guest spawns no rabbits of its own, and a rabbit that the host spawns appears on the guest with
 /// the host id and follows the host pose.
@@ -673,7 +709,17 @@ fn tp_mp_m04c_host_rabbits_appear_on_the_guest() {
     .as_u64()
     .unwrap() as u32;
     let before: Vec<u32> = guest_run.creatures.rabbits().map(|r| r.id).collect();
-    for _ in 0..(2. / FIXED_DT) as usize {
+    let at = |run: &GarageRuntime| {
+        run.creatures
+            .views(&run.physics)
+            .find(|v| v.id == id)
+            .map(|v| run.stream.origin.absolute(v.pose.translation.to_array()))
+    };
+    // The guest runs its own rabbit AI between host poses, so the copies drift for up to 1 s.
+    // Right after a host pose lands, the guest rabbit is at the host rabbit.
+    let mut synced = 0;
+    let mut gap = f64::INFINITY;
+    for step in 0..(2.5 / FIXED_DT) as usize {
         exchange(
             &reference,
             [
@@ -682,20 +728,20 @@ fn tp_mp_m04c_host_rabbits_appear_on_the_guest() {
             ],
             &mut frame,
         );
+        let h = at(&host_run).unwrap();
+        let Some(g) = at(&guest_run) else {
+            continue;
+        };
+        let d = apart(h, g);
+        if (step as f32) * FIXED_DT > 0.5 {
+            gap = gap.min(d);
+            synced += usize::from(d < 0.05);
+        }
     }
-    let at = |run: &GarageRuntime| {
-        run.creatures
-            .views(&run.physics)
-            .find(|v| v.id == id)
-            .map(|v| run.stream.origin.absolute(v.pose.translation.to_array()))
-    };
-    let (h, g) = (
-        at(&host_run).unwrap(),
-        at(&guest_run).expect("the host rabbit on the guest"),
-    );
+    assert!(at(&guest_run).is_some(), "the host rabbit on the guest");
     assert!(
-        apart(h, g) < 1.,
-        "the guest rabbit follows the host: {h:?} {g:?}"
+        synced > 0,
+        "the guest rabbit takes the host pose: nearest {gap} m"
     );
     let spawned = guest_run
         .creatures

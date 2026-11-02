@@ -76,6 +76,9 @@ pub struct PushState {
     grip: Option<Grip>,
     cancelled: bool,
     steer: Option<f32>,
+    /// Impulses of this frame on items: the item, the world impulse and the world point. Net
+    /// drains it.
+    pub pushes: Vec<(ItemId, Vector, Vector)>,
 }
 impl PushState {
     pub fn new(reference: &ReferenceManifest) -> Self {
@@ -119,6 +122,7 @@ impl PushState {
             grip: None,
             cancelled: false,
             steer: None,
+            pushes: Vec::with_capacity(8),
         }
     }
     /// Adds the push rule of a world copy. `grip` holds the generated ids of the grip colliders.
@@ -219,6 +223,11 @@ impl PushState {
     }
     pub fn steering(&self) -> Option<(RigidBodyHandle, f32)> {
         Some((self.grip.as_ref()?.body, self.steer?))
+    }
+    fn push(&mut self, item: ItemId, impulse: Vector, point: Vector) {
+        if self.pushes.len() < self.pushes.capacity() {
+            self.pushes.push((item, impulse, point));
+        }
     }
     pub fn gripping(&self) -> bool {
         self.grip.is_some() && !self.cancelled
@@ -466,16 +475,14 @@ impl PushState {
                 * forward;
             let up = car_pose.rotation * Vector::Y;
             let projected = (direction - up * direction.dot(up)).normalize_or_zero();
+            let impulse = projected
+                * self.player.grip_speed
+                * self.player.grip_force
+                * self.player.source_force_interval;
             physics.edit_body(body_handle, |body| {
-                body.apply_impulse_at_point(
-                    projected
-                        * self.player.grip_speed
-                        * self.player.grip_force
-                        * self.player.source_force_interval,
-                    position,
-                    true,
-                )
+                body.apply_impulse_at_point(impulse, position, true)
             });
+            self.push(target.item, impulse, position);
             return Some(target.item);
         }
         if self.grip.is_some() {
@@ -501,18 +508,17 @@ impl PushState {
             direction = projected;
         }
         let mass = physics.rapier().bodies[body_handle].mass();
+        let impulse = direction
+            * mass
+            * self.player.push_force
+            * dt
+            * rule.modifier
+            * self.player.source_force_interval;
+        let point = Vector::from_array(target.point);
         physics.edit_body(body_handle, |body| {
-            body.apply_impulse_at_point(
-                direction
-                    * mass
-                    * self.player.push_force
-                    * dt
-                    * rule.modifier
-                    * self.player.source_force_interval,
-                Vector::from_array(target.point),
-                true,
-            )
+            body.apply_impulse_at_point(impulse, point, true)
         });
+        self.push(target.item, impulse, point);
         if !player.grounded() {
             player.apply_recoil(
                 -forward * self.player.airborne_push_force * self.player.source_force_interval,

@@ -32,6 +32,16 @@ pub const PART_CONDITION: u8 = 20;
 pub const FLASHLIGHT: u8 = 30;
 /// Source `msgType.bus`.
 pub const BUS: u8 = 32;
+/// Source `msgType.food`.
+pub const FOOD: u8 = 37;
+/// Source `msgType.ammo`.
+pub const AMMO: u8 = 38;
+/// Source `msgType.weapon`.
+pub const WEAPON: u8 = 40;
+/// Source `msgType.push`.
+pub const PUSH: u8 = 39;
+/// Source `msgType.broke`.
+pub const BROKE: u8 = 43;
 /// Source `msgType.partslot`.
 pub const PART_SLOT: u8 = 21;
 /// Source `msgType.usable`.
@@ -381,6 +391,58 @@ pub struct BusMessage {
     pub signed: u32,
 }
 
+/// Source `SFood`: the bites taken.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct FoodMessage {
+    pub key: u64,
+    pub bite: u32,
+    pub pad: u32,
+}
+
+/// Source `SAmmo`: the count of a loose ammo item or a magazine.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct AmmoMessage {
+    pub key: u64,
+    pub count: f32,
+    pub pad: u32,
+}
+
+/// Source `SWeapon`: the state of a gun.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct WeaponMessage {
+    pub key: u64,
+    pub ammo: f32,
+    pub fr: f32,
+    pub chambers: u32,
+    pub cylinder: i32,
+    pub power: u32,
+    pub has_mag: u32,
+}
+
+/// Source `SPush`: a player pushed an item that another peer owns.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct PushMessage {
+    pub key: u64,
+    /// World impulse.
+    pub impulse: [f32; 3],
+    /// The point in the item frame.
+    pub point: [f32; 3],
+}
+
+/// Source `SBroke`: a guest asks the host to break an item.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct BrokeMessage {
+    pub key: u64,
+    /// The breakable record index.
+    pub record: u32,
+    pub pad: u32,
+}
+
 /// Source `SRemoveItem`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -515,6 +577,25 @@ impl Message for LampMessage {
 }
 impl Message for BusMessage {
     const TYPE: u8 = BUS;
+    const RELIABLE: bool = true;
+}
+impl Message for FoodMessage {
+    const TYPE: u8 = FOOD;
+    const RELIABLE: bool = true;
+}
+impl Message for AmmoMessage {
+    const TYPE: u8 = AMMO;
+    const RELIABLE: bool = true;
+}
+impl Message for WeaponMessage {
+    const TYPE: u8 = WEAPON;
+    const RELIABLE: bool = true;
+}
+impl Message for PushMessage {
+    const TYPE: u8 = PUSH;
+}
+impl Message for BrokeMessage {
+    const TYPE: u8 = BROKE;
     const RELIABLE: bool = true;
 }
 impl Message for RemoveMessage {

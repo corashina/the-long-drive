@@ -310,6 +310,29 @@ impl GarageRuntime {
         }
         Ok(())
     }
+    /// Source `UpdFood`: the food takes bite `bite`. The last bite destroys it if the recipe says so.
+    pub(crate) fn set_food_bite(
+        &mut self,
+        reference: &ReferenceManifest,
+        item: ItemId,
+        bite: u8,
+    ) -> Result<(), ReferenceError> {
+        let Some(food) = self.area.items.get_mut(item).and_then(|s| s.food.as_mut()) else {
+            return Ok(());
+        };
+        let prototype = &reference.survival.foods[food.prototype_index];
+        if bite > prototype.bites || bite == food.bite {
+            return Ok(());
+        }
+        food.bite = bite;
+        let end = bite == prototype.bites && prototype.destroy_on_end;
+        self.area.items.mark_dirty(item);
+        self.sync_food_colliders(reference, item);
+        if end {
+            self.remove_consumable(item)?;
+        }
+        Ok(())
+    }
     /// Enabled food colliders follow the bite.
     fn sync_food_colliders(&mut self, reference: &ReferenceManifest, item: ItemId) {
         if matches!(
