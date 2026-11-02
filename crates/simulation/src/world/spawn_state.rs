@@ -563,6 +563,34 @@ fn identity_bytes(id: &GeneratedId) -> usize {
 }
 
 #[cfg(test)]
+impl SourceSpawnState {
+    /// Temporary diagnostic: retained and JSON bytes by part.
+    pub fn breakdown(&self) -> String {
+        let init: usize = self
+            .boundaries
+            .iter()
+            .filter_map(|b| b.initialization.as_ref())
+            .map(|i| std::mem::size_of::<SpawnInitialization>() + i.retained_bytes())
+            .sum();
+        let with_init = self.boundaries.iter().filter(|b| b.initialization.is_some()).count();
+        let h = self.capture_history();
+        let j = |v: String| v.len();
+        format!(
+            "boundaries {} parents {} callers {} contexts {} pools {}; retained {} (init {init} in {with_init}); json total {} parents {} init {} pools {}",
+            self.boundaries.len(),
+            self.parents.values.len(),
+            self.callers.values.len(),
+            self.contexts.values.len(),
+            self.pools.len(),
+            self.retained_bytes(),
+            j(serde_json::to_string(&h).unwrap()),
+            j(serde_json::to_string(&h.parents).unwrap()),
+            j(serde_json::to_string(&h.boundaries.iter().map(|b| &b.initialization).collect::<Vec<_>>()).unwrap()),
+            j(serde_json::to_string(&h.pools).unwrap()),
+        )
+    }
+}
+#[cfg(test)]
 mod tests {
     use super::*;
 
