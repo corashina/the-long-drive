@@ -173,13 +173,8 @@ impl GarageRuntime {
             let item = match self.crash.candidates.remove(index) {
                 Candidate::Part(item) => {
                     interaction
-                        .parts
-                        .fall_off(item, items, physics)
+                        .fall_off_part(item, items, physics)
                         .expect("mounted part falls off");
-                    interaction
-                        .parts
-                        .detach_mechanism(item, &mut interaction.mechanisms, physics);
-                    interaction.sync_parts(items, physics).expect("bound parts");
                     item
                 }
                 Candidate::Wheel(slot) => self

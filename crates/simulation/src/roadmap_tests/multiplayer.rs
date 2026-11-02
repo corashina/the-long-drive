@@ -506,3 +506,52 @@ fn tp_m03_a_host_fluid_change_reaches_the_guest() {
     let host = run.area.items.get(tank).unwrap().fluid.as_ref().unwrap();
     assert!((host.total() - liters).abs() < 1e-3, "no echo");
 }
+
+/// M03. Source `PartSlotUnCraft` and `PartSlotCraft`: a part that comes off the host car comes off
+/// the guest car, and goes back on.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_m03_a_host_part_comes_off_and_goes_on_at_the_guest() {
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let mut guest = save_load(&run, &reference);
+    let mut pair = Pair::new();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    let (part, slot) = run
+        .area
+        .interaction
+        .parts
+        .mounted()
+        .find_map(|(item, _)| match run.area.items.get(item)?.location {
+            ItemLocation::PartSlot(slot) => {
+                let i = &run.area.interaction;
+                (i.parts
+                    .can_remove(item, &run.area.player, &run.area.items)
+                    .is_ok())
+                .then_some((item, slot))
+            }
+            _ => None,
+        })
+        .expect("a removable part");
+    let copy = same(&run, &guest, part);
+    let i = &mut run.area.interaction;
+    i.fall_off_part(part, &mut run.area.items, &mut run.physics)
+        .unwrap();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    assert_eq!(
+        guest.area.items.get(copy).unwrap().location,
+        ItemLocation::World,
+        "the part is off at the guest"
+    );
+    let i = &mut run.area.interaction;
+    i.install_part(part, slot, &mut run.area.items, &mut run.physics)
+        .unwrap();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    assert!(
+        matches!(
+            guest.area.items.get(copy).unwrap().location,
+            ItemLocation::PartSlot(_)
+        ),
+        "the part is on at the guest"
+    );
+}

@@ -74,6 +74,12 @@ impl ObjectKey {
         }
     }
 }
+/// Stable seed of a source object, the hash of `ObjectKey::seed`.
+pub fn source_seed(id: &SourceId) -> u64 {
+    let mut hash = FNV_OFFSET;
+    mix_source(&mut hash, id);
+    hash
+}
 /// FNV-1a of `bytes`, the hash of `ObjectKey::seed`.
 pub fn fnv1a(bytes: &[u8]) -> u64 {
     let mut hash = FNV_OFFSET;
