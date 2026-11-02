@@ -179,6 +179,8 @@ pub struct SourceContents {
     deferred: Vec<DeferredBatch>,
     /// Broken boxes whose content may publish.
     pub boxes: super::stream::content_boxes::BoxReleases,
+    /// Human monster placements for the creature runtime. A replay places one again.
+    humans: Vec<SpawnedContent>,
 }
 impl SourceContents {
     pub fn discard_replay_siblings(&mut self, wanted: &[Placement]) {
@@ -261,6 +263,7 @@ impl SourceContents {
             input_revision: 0,
             next: 0,
             boxes: Default::default(),
+            humans: Vec::new(),
         }
     }
     pub fn eligibility_changed(
@@ -293,9 +296,19 @@ impl SourceContents {
         self.active_revision += 1;
     }
     pub(super) fn push_active(&mut self, mut content: ContentInstance) {
+        if !content.content.inputs.humans.is_empty() {
+            self.humans.push(content.content);
+            return;
+        }
         self.boxes.place(&mut content.content.placement);
         self.active.push(content);
         self.active_revision += 1;
+    }
+    /// The next human monster placement and its `newAiScript.Start` roll.
+    pub fn take_human(&mut self) -> Option<(Placement, super::spawn_state::HumanRoll)> {
+        let content = self.humans.pop()?;
+        let roll = content.inputs.humans.first()?.1;
+        Some((content.placement, roll))
     }
     pub fn remove_active(&mut self, index: usize) -> ContentInstance {
         let content = self.active.swap_remove(index);
