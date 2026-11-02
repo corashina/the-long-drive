@@ -1439,20 +1439,22 @@ fn tp_cp4_siphon_hose_drains_siphons_tears_coils_and_stores() {
             .unwrap();
         run.area.sync_inventory();
     };
+    // One end on the Lada tank. Source `TryAttach` attaches the free end nearer the cap, which
+    // need not be the carried end.
+    let ends = run.area.interaction.hose_ends(segments[0]).unwrap();
+    attach_end(&mut run, &reference, ends[0].0, lada_cap, car);
+    let ends = run.area.interaction.hose_ends(segments[0]).unwrap();
+    let on_lada = ends
+        .iter()
+        .position(|e| e.1 == Some(lada_opening))
+        .expect("one end on the Lada tank");
+    assert_eq!(ends[1 - on_lada].1, None, "the other end stays free");
+    let (lada_end, can_end) = (ends[on_lada].0, ends[1 - on_lada].0);
+    // (Lada end cap, can end cap).
     let ends_now = |run: &GarageRuntime| {
         let ends = run.area.interaction.hose_ends(segments[0]).unwrap();
-        (ends[0].1, ends[1].1)
+        (ends[on_lada].1, ends[1 - on_lada].1)
     };
-
-    // End 1 on the Lada tank.
-    let ends = run.area.interaction.hose_ends(segments[0]).unwrap();
-    let (lada_end, can_end) = (ends[0].0, ends[1].0);
-    attach_end(&mut run, &reference, lada_end, lada_cap, car);
-    assert_eq!(
-        ends_now(&run),
-        (Some(lada_opening), None),
-        "end 1 on the Lada tank"
-    );
 
     // Drain: carry the free end and hold LMB. The Lada tank drains out of it.
     // Look at the floor below the Lada cap: LMB on an aimed cap toggles it, as in the source.
