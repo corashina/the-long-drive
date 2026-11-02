@@ -221,13 +221,14 @@ def humanoid_record(source, ai, anim, node, relative_pose):
     for c in core['grounded'] + core['crouching']:
         c['clip'] = used.index(c.pop('slot'))
     d = source.read(ai)
-    animated = {key(r['reader']) for r in source.hierarchy(transform)}
+    under = {key(r['reader']) for r in source.hierarchy(transform)}
     copies = []
     for bone, target in zip(d['bones'], d['bonesTarget'], strict=True):
         b, t = source.resolve(ai, bone), source.resolve(ai, target)
-        if key(t) in animated:
-            raise ValueError('Human bone copy target is animated')
-        copies.append({'node': node(b), 'target': relative_pose(t, transform)})
+        # The target moves with the Animator pose, so the runtime reads it from the rig.
+        if key(b) not in under or key(t) not in under:
+            raise ValueError('Human bone copy is outside the Animator Transform')
+        copies.append({'node': node(b), 'target': node(t)})
     # `LateUpdate` limits the head about the monster root rotation. The runtime uses the Animator one.
     root = source.transform_for(source.resolve(ai, d['m_GameObject']))
     t = source.read(transform)
