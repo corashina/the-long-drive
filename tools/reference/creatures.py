@@ -121,6 +121,35 @@ def senses_record(source, senses, node):
         'vision_mask': mask(d['visionMask']), 'rays': rays}
 
 
+def human_ai_record(source, ai, node):
+    """newAiScript AI fields of the human monster. X03e places the result at human['ai']."""
+    d = source.read(ai)
+
+    def owner(pptr):
+        component = source.resolve(ai, pptr)
+        return node(source.transform_for(source.resolve(component, source.read(component)['m_GameObject'])))
+
+    def capsule(pptr):
+        c = source.read(source.resolve(ai, pptr))
+        return {'height': c['m_Height'], 'center': list(convert_point(vector(c['m_Center'])))}
+
+    return {'head': node(source.resolve(ai, d['head'])),
+        'sens': [owner(d[f]) for f in ('sensU', 'sensH', 'sensD', 'sensG', 'sensCanGetUp')],
+        'col': owner(d['col']), 'stand': capsule(d['colStand']), 'duck': capsule(d['colDuck']),
+        'mask': mask(d['lm']), 'fov': d['fov'], 'range': d['range'], 'chase_time': [d['chaseTimeMin'], d['chaseTimeMax']],
+        'walk_dist': d['walkDist'], 'run_dist': d['runDist'], 'target_dist': d['targetDist'], 'target_dist_v': d['targetDistV'],
+        'min_speed': d['minSpeed'], 'max_speed': d['maxSpeed'], 'max_velocity': d['maxVelocity'],
+        'velocity_change': d['velocityChange'], 'rot_speed': d['rotSpeed'], 'jump_velocity': d['jumpVelocity'],
+        'jump_velocity_duck': d['jumpVelocityDuck'], 'duck_debounce_speed_up': d['duckDebounceSpeedUp'],
+        'duck_debounce_speed_down': d['duckDebounceSpeedDown'], 'grounded_vertical_velocity': d['groundedVerticalVelocity'],
+        'avoid_ray_x': d['avoidRayX'], 'avoid_ray_y': d['avoidRayY'], 'avoid_ray_range': d['avoidRayRange'],
+        'avoid_ray_vertical': d['avoidRayVertical'], 'avoid_ray_angle': d['avoidRayAngle'], 'avoid_force': d['avoidForce'],
+        'avoid_lerp': d['avoidLerp'], 'ray_attack_dist_range': d['rayAttackDistRange'], 'door_speed': d['doorSpeed'],
+        'start_patrol_time': [d['startPatrolTimeMin'], d['startPatrolTimeMax']], 'start_patrol_dist': d['startPatrolDist'],
+        'patrol_ray_start_dist': d['patrolRayStartDist'], 'patrol_iteration': d['patrolIteration'],
+        'patrol_ray_count': d['patrolRayCount'], 'patrol_ray_range': [d['patrolRayRangeMin'], d['patrolRayRangeMax']]}
+
+
 def size_record(source, nyul, node):
     d = source.read(nyul)
     if d['started'] or d['size'] < 0:

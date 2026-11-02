@@ -3,6 +3,7 @@
 pub mod animator;
 pub mod brain;
 pub mod evil;
+pub mod human_ai;
 pub mod motion;
 pub mod rabbit;
 pub mod ragdoll;
