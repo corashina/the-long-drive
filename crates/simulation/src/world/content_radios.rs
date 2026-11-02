@@ -1,11 +1,12 @@
 //! Source portable radios: radioscript controls, needle and screen materials on generated items.
 use super::WorldStream;
 use super::content_index::ContentSlot;
+use crate::electronics::{Electronics, Emp, NodeElectronics};
 use crate::interaction::items::ItemStore;
 use crate::interaction::{InteractionState, Knob};
 use crate::reference::{ColliderId, ItemId, ReferenceError, SourceId, Transform, UiReference};
 use crate::simulation::radio::{RadioControl, RadioState};
-use crate::vehicle::PhysicsWorld;
+use crate::vehicle::{PhysicsWorld, to_rapier};
 use crate::world::spawn_appearance::NodeAppearance;
 use crate::world::spawn_rules::*;
 use crate::world::{GeneratedId, ObjectKey};
@@ -19,8 +20,8 @@ pub struct RadioBinding {
     script: SourceId,
     knobs: Vec<(ColliderId, Knob)>,
     pub state: RadioState,
-    /// electronicsscript output without jam.
-    pub output: f32,
+    /// The radio electronicsscript.
+    pub electronics: NodeElectronics,
     /// TMutato prototype node index and local pose.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub needle_node: usize,
@@ -189,8 +190,13 @@ impl WorldStream {
                 .ok_or_else(|| ReferenceError("Radio node outside its prototype".into()))
         };
         let f = rules.get(reference, script)?.fields;
-        let electronics = rules.get(reference, link(f, "electronics")?)?.fields;
-        let output = number(electronics, "maxOutput")?;
+        let electronics = link(f, "electronics")?;
+        let node = index(rules.root(reference, electronics)?)?;
+        let electronics = NodeElectronics {
+            node: node as u32,
+            layer: u32::from(prototype.nodes[node].layer),
+            state: Electronics::from_fields(rules.get(reference, electronics)?.fields)?,
+        };
         let needle_node = index(link(f, "TMutato")?)?;
         let needle_parent = prototype.nodes[needle_node]
             .parent
@@ -287,7 +293,7 @@ impl WorldStream {
             script: script.clone(),
             knobs,
             state,
-            output,
+            electronics,
             needle_node,
             needle: prototype.nodes[needle_node].transform,
             start: local("ST1")?,
@@ -302,7 +308,7 @@ impl WorldStream {
     /// radioscript RS and RMutato materials follow the powered state.
     fn show_radio_power(&mut self, index: usize) {
         let b = &mut self.radio_bindings[index];
-        let power = b.state.on && b.output > self.reference.electronics_cutoff;
+        let power = b.state.on && b.electronics.state.output() > self.reference.electronics_cutoff;
         if b.shown == Some(power) {
             return;
         }
@@ -422,9 +428,23 @@ impl WorldStream {
     pub fn portable_radios(
         &self,
     ) -> impl Iterator<Item = (ItemId, &SourceId, &RadioState, f32, &GeneratedId)> + Clone {
-        self.radio_bindings
-            .iter()
-            .map(|b| (b.item, &b.script, &b.state, b.output, &b.parent))
+        self.radio_bindings.iter().map(|b| {
+            let output = b.electronics.state.output();
+            (b.item, &b.script, &b.state, output, &b.parent)
+        })
+    }
+    /// EMPs jam each radio at its item position. The screens follow the power.
+    pub fn expose_radios(&mut self, emps: &[Emp], items: &ItemStore, dt: f32) {
+        for index in 0..self.radio_bindings.len() {
+            let b = &mut self.radio_bindings[index];
+            let Some(item) = items.get(b.item) else {
+                continue;
+            };
+            let e = &mut b.electronics;
+            e.state
+                .expose(emps, to_rapier(item.pose).translation, e.layer, dt);
+            self.show_radio_power(index);
+        }
     }
     pub fn radio(&self, parent: &GeneratedId) -> Option<&RadioBinding> {
         self.radio_bindings.iter().find(|b| &b.parent == parent)

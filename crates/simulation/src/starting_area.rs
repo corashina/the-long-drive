@@ -25,6 +25,7 @@ mod audio_frame;
 mod body;
 pub mod cigarettes;
 mod computers;
+mod electronics;
 mod explosions;
 mod frame;
 mod frame_particles;
@@ -454,8 +455,10 @@ pub struct WorldCarParts {
     pub recovery_bounds: crate::reference::Bounds,
     /// Other bodies of the car instance.
     pub bodies: Vec<RigidBodyHandle>,
-    /// `carscript.electronics` output. None: the car has no electronics.
-    pub electronics: Option<f32>,
+    /// Electronics nodes of the car.
+    pub electronics: Vec<crate::electronics::NodeElectronics>,
+    /// `carscript.electronics` index in `electronics`. None: the car has no electronics.
+    pub car_electronics: Option<usize>,
     /// Links of each record light controller.
     pub lights: Vec<crate::simulation::car_lights::CarLightLinks>,
     /// The item of the `carscript.InteractSwitchLights` usable.
@@ -506,8 +509,10 @@ pub struct VehicleRuntime {
     pub fuel_tank_slot: Option<crate::reference::PartSlotId>,
     /// Source `carscript.startingTime`.
     pub starter_delay_seconds: f32,
-    /// Car electronics allow ignition.
-    pub electronics_enabled: bool,
+    /// Electronics nodes of the car. EMPs jam them.
+    pub electronics: Vec<crate::electronics::NodeElectronics>,
+    /// `carscript.electronics` index in `electronics`.
+    pub car_electronics: Option<usize>,
     /// Gauge state. The presentation advances it each frame.
     pub instruments: Option<crate::simulation::instruments::InstrumentState>,
     /// Light controllers of the car.
@@ -552,6 +557,16 @@ pub struct VehicleRuntime {
 }
 
 impl VehicleRuntime {
+    /// `carscript.electronics` output. 1 without electronics.
+    pub fn electronics_output(&self) -> f32 {
+        self.car_electronics
+            .map_or(1., |i| self.electronics[i].state.output())
+    }
+    /// `carscript.Electronics()`: no electronics, or output above the cutoff.
+    pub fn electronics_enabled(&self) -> bool {
+        self.car_electronics
+            .is_none_or(|i| self.electronics[i].state.output() > ELECTRONICS_CUTOFF)
+    }
     /// Runtime of a car copy of world prototype `prototype`.
     pub fn world(
         prototype: usize,
@@ -578,9 +593,8 @@ impl VehicleRuntime {
             root_tank: parts.fuel_tank,
             fuel_tank_slot: None,
             starter_delay_seconds: record.starter_delay_seconds,
-            electronics_enabled: parts
-                .electronics
-                .is_none_or(|output| output > ELECTRONICS_CUTOFF),
+            electronics: parts.electronics,
+            car_electronics: parts.car_electronics,
             instruments: record
                 .instruments
                 .as_ref()
@@ -1582,6 +1596,7 @@ impl GarageRuntime {
                 self.reach_seated_car(reference, &key, crate::simulation::reach::handbrake);
             }
         }
+        self.advance_electronics(FIXED_DT);
         self.refresh_powertrains();
         // Taking the map lets each car step borrow the runtime without allocation.
         let mut vehicles = std::mem::take(&mut self.vehicles);
@@ -1633,9 +1648,6 @@ impl GarageRuntime {
         self.stream.step_trailers(&mut self.physics);
         self.stream.step_followers(&self.physics);
         self.advance_urine(reference, FIXED_DT);
-        for emp in &mut self.emps {
-            emp.advance(FIXED_DT);
-        }
         self.advance_ambient(reference, FIXED_DT);
         self.advance_weather(reference, FIXED_DT);
         self.advance_sky(reference, FIXED_DT);
@@ -2075,6 +2087,7 @@ impl GarageRuntime {
         vehicle.lights.advance(
             &record.lights,
             input,
+            &vehicle.electronics,
             |item| root.is_some_and(|root| item == root || items.descends(item, root)),
             |item| mechanisms.value(item, false).unwrap_or(0.),
             FIXED_DT,
@@ -2444,7 +2457,7 @@ impl GarageRuntime {
                 released: ignition_released,
             },
             vehicle.starter_delay_seconds,
-            vehicle.electronics_enabled,
+            vehicle.electronics_enabled(),
             FIXED_DT,
         );
         let was_running = engine.is_some_and(|engine| engine.state.output().running);
@@ -2473,7 +2486,7 @@ impl GarageRuntime {
                         coolant_boil: world_vehicle(reference, vehicle.prototype)
                             .coolant_steam
                             .is_some(),
-                        electronics_enabled: vehicle.electronics_enabled,
+                        electronics_enabled: vehicle.electronics_enabled(),
                     }),
                     ..climate
                 },
@@ -3276,7 +3289,8 @@ pub fn instrument_sample(
         oil_led_two_stroke: record.oil_led_two_stroke,
         headlights,
         local_ignition: vehicle.ignition.ignition
-            && limits.electronics_output > limits.electronics_off_threshold,
+            && vehicle.electronics_output() > limits.electronics_off_threshold,
+        electronics_output: vehicle.electronics_output(),
         distance_m: vehicle.trip_m,
     }
 }
