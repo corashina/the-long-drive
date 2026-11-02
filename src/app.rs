@@ -400,7 +400,7 @@ fn check_ready(
     mut sim: ResMut<SimFrameResource>,
     mut visuals: ResMut<ReferenceVisuals>,
     extras: Query<(Entity, &GltfExtras)>,
-    primitives: Query<(Entity, &ChildOf), With<Mesh3d>>,
+    graph: presentation::scene_nodes::SceneGraph,
     mut renderer: presentation::readiness::RendererReadinessAccess,
     lighting: (
         Res<presentation::lighting::SourceLighting>,
@@ -489,7 +489,7 @@ fn check_ready(
             &reference.0,
             &mut visuals,
             &extras,
-            &primitives,
+            &graph,
         ) {
             Ok(true) => {
                 match &lighting.state {
