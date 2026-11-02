@@ -1,8 +1,8 @@
 //! Renderer data of one tick.
 use super::GarageRuntime;
 use crate::boundary::{
-    BudgetRow, Change, CigaretteRow, ConditionRow, CreatureBoneRow, CreatureRow, PlaneRow, PoseRow,
-    SimFrame, StateBlock, ValveRow,
+    BudgetRow, Change, CigaretteRow, ConditionRow, CreatureBoneRow, CreatureRow, HumanRow,
+    PlaneRow, PoseRow, SimFrame, StateBlock, ValveRow,
 };
 use crate::creatures::animator::Action;
 use crate::creatures::evil::EyeKind;
@@ -255,6 +255,38 @@ impl GarageRuntime {
                 action_time: v.action.map_or(0., |a| a.time),
                 action_weight: v.action.map_or(0., |a| a.weight),
                 bones: [start, frame.creature_bones.len() as u32 - start],
+            });
+        }
+        frame.humans.clear();
+        frame.human_bones.clear();
+        let bodies = &reference.creatures.human.ragdoll.bodies;
+        for v in self.creatures.humans.views(&self.physics) {
+            let start = frame.human_bones.len() as u32;
+            if v.died {
+                self.creatures
+                    .humans
+                    .each_bone(&self.physics, v.id, |i, pose| {
+                        frame.human_bones.push(CreatureBoneRow {
+                            node: bodies[i].node.0,
+                            position: pose.translation.to_array(),
+                            rotation: pose.rotation.to_array(),
+                        });
+                    });
+            } else {
+                self.creatures.humans.each_animated(v.id, |node, pose| {
+                    frame.human_bones.push(CreatureBoneRow {
+                        node: node.0,
+                        position: pose.translation.to_array(),
+                        rotation: pose.rotation.to_array(),
+                    });
+                });
+            }
+            frame.humans.push(HumanRow {
+                id: v.id,
+                flags: if v.died { CreatureRow::DEAD } else { 0 },
+                position: v.pose.translation.to_array(),
+                rotation: v.pose.rotation.to_array(),
+                bones: [start, frame.human_bones.len() as u32 - start],
             });
         }
         let lighting = &self.lighting;

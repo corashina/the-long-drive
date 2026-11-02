@@ -376,6 +376,31 @@ impl InteractionState {
             .map(|item| item.id)
     }
 
+    /// `GetComponentInParent<usablescript>` of a collider for `newAiScript`: the usable, its
+    /// position, `rotateAble` and `slideAble`.
+    pub fn ai_usable(
+        &self,
+        handle: ColliderHandle,
+        physics: &PhysicsWorld,
+    ) -> Option<crate::creatures::human_ai::Usable> {
+        let item = self.collider_bindings.get(&handle)?.use_owner?;
+        if !self.supports_use(item) {
+            return None;
+        }
+        let m = &self.mechanisms;
+        let position = m
+            .item_node(item)
+            .and_then(|node| m.node_pose(node))
+            .map(|pose| to_rapier(pose).translation)
+            .unwrap_or_else(|| physics.rapier().colliders[handle].translation());
+        Some(crate::creatures::human_ai::Usable {
+            item,
+            position,
+            rotate: m.rotation_degrees(item).is_some(),
+            slide: m.slideable(item),
+        })
+    }
+
     fn supports_use(&self, item: ItemId) -> bool {
         self.usable_items.contains(&item) || self.mechanisms.contains(item)
     }

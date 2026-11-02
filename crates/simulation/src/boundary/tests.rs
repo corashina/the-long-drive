@@ -132,6 +132,18 @@ fn frame_round_trips() {
             position: [0., 0.1, 0.],
             rotation: [0., 0., 0., 1.],
         }],
+        humans: vec![HumanRow {
+            id: 3,
+            flags: CreatureRow::DEAD,
+            position: [4., 5., 6.],
+            rotation: [0., 0., 0., 1.],
+            bones: [0, 1],
+        }],
+        human_bones: vec![CreatureBoneRow {
+            node: 9,
+            position: [0., 0.2, 0.],
+            rotation: [0., 0., 0., 1.],
+        }],
         conditions: vec![ConditionRow {
             id: 4,
             state: 2,
