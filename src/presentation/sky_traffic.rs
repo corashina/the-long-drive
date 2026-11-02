@@ -1,11 +1,11 @@
 //! Scene instances of the sky traffic planes. Planes have no bodies.
 use super::materials::SourceMaterial;
-use super::reference::{ReferenceVisuals, bind_node};
+use super::reference::ReferenceVisuals;
+use super::scene_nodes::SceneGraph;
 use super::sim_frame::SimFrameResource;
 use crate::app::RuntimeReference;
-use crate::reference::{NodeId, SourceId};
+use crate::reference::NodeId;
 use bevy::ecs as bevy_ecs;
-use bevy::gltf::GltfExtras;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAssetRoot, WorldInstanceReady};
 use simulation::boundary::PlaneRow;
@@ -19,6 +19,8 @@ struct SkyInstance {
     prefab: usize,
     ready: bool,
     bound: bool,
+    /// Binding failed. The plane stays hidden and binding does not run again.
+    failed: bool,
     shown: bool,
     nodes: Vec<(NodeId, Entity)>,
     primitives: Vec<Entity>,
@@ -37,21 +39,6 @@ pub struct SkyTrafficVisuals {
 
 impl SkyTrafficVisuals {}
 
-#[derive(serde::Deserialize)]
-struct Identity {
-    reference_id: Option<SourceId>,
-}
-
-fn descends(mut entity: Entity, root: Entity, parents: &Query<&ChildOf>) -> bool {
-    while let Ok(link) = parents.get(entity) {
-        entity = link.parent();
-        if entity == root {
-            return true;
-        }
-    }
-    false
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn sync(
     mut commands: Commands,
@@ -60,9 +47,7 @@ pub(crate) fn sync(
     visuals: Res<ReferenceVisuals>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
     mut sky: ResMut<SkyTrafficVisuals>,
-    extras: Query<(Entity, &GltfExtras)>,
-    parents: Query<&ChildOf>,
-    primitives: Query<(Entity, &ChildOf), With<Mesh3d>>,
+    graph: SceneGraph,
     source_materials: Query<(), With<MeshMaterial3d<SourceMaterial>>>,
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility, With<SkyScene>>,
@@ -121,6 +106,7 @@ pub(crate) fn sync(
                     prefab: plane.prefab as usize,
                     ready: false,
                     bound: false,
+                    failed: false,
                     shown: false,
                     nodes: Vec::new(),
                     primitives: Vec::new(),
@@ -133,41 +119,18 @@ pub(crate) fn sync(
         if !instance.ready {
             continue;
         }
+        if instance.failed {
+            continue;
+        }
         if !instance.bound {
-            for (entity, extra) in &extras {
-                if !descends(entity, instance.root, &parents) {
-                    continue;
-                }
-                let Ok(identity) = serde_json::from_str::<Identity>(&extra.value) else {
-                    continue;
-                };
-                let Some(node) = identity.reference_id.and_then(|source| {
-                    manifest
-                        .nodes
-                        .iter()
-                        .find(|node| node.source == source && node.asset == prefab.asset)
-                }) else {
-                    continue;
-                };
-                if !instance.nodes.iter().any(|(id, _)| *id == node.id)
-                    && bind_node(&mut commands, node, entity, extra, &primitives).is_ok()
-                {
-                    instance.nodes.push((node.id, entity));
-                }
-            }
-            let count = manifest
-                .nodes
-                .iter()
-                .filter(|node| node.asset == prefab.asset)
-                .count();
-            if instance.nodes.len() != count {
+            let binding = graph.bind_instance(&mut commands, manifest, instance.root, prefab.asset);
+            if !binding.complete() {
+                error!("Sky plane {}: {}", plane.id, binding.failure());
+                instance.failed = true;
                 continue;
             }
-            for (primitive, _) in &primitives {
-                if descends(primitive, instance.root, &parents) {
-                    instance.primitives.push(primitive);
-                }
-            }
+            instance.nodes = binding.nodes;
+            instance.primitives = binding.primitives;
             instance.spin = prefab.spin.as_ref().and_then(|spin| {
                 let (_, entity) = instance.nodes.iter().find(|(id, _)| *id == spin.node)?;
                 Some((*entity, transforms.get(*entity).ok()?.rotation))

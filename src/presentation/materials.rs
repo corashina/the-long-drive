@@ -1407,9 +1407,10 @@ const MAIN_SLOT: usize = 0;
 /// Index of `_EmissionMap` in `SLOTS`.
 const EMISSION_SLOT: usize = 4;
 /// Source `SetColor("_EmissionColor")` and, with `map`, `SetTexture("_EmissionMap")`.
-/// `None` keeps the current map. Only a changed value touches the asset.
+/// `None` keeps the current map. Only a changed value touches `assets`: an untouched
+/// `assets` keeps its change tick, so the shadow scene does not walk every caster again.
 pub fn write_emission(
-    assets: &mut Assets<SourceMaterial>,
+    assets: &mut ResMut<Assets<SourceMaterial>>,
     handle: &Handle<SourceMaterial>,
     linear: Vec4,
     map: Option<Handle<Image>>,

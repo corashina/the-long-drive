@@ -1,12 +1,11 @@
 //! Scene instances of the human monsters. The bone rows pose the Animator nodes of a live human
 //! and the ragdoll bones of a dead one.
 use super::creatures::CreatureScene;
-use super::reference::{ReferenceVisuals, bind_node};
+use super::reference::ReferenceVisuals;
+use super::scene_nodes::SceneGraph;
 use super::sim_frame::SimFrameResource;
 use crate::app::{Drive, RuntimeReference};
-use crate::reference::SourceId;
 use bevy::ecs as bevy_ecs;
-use bevy::gltf::GltfExtras;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAssetRoot, WorldInstanceReady};
 use simulation::creatures::rig::{Rig, RigPose};
@@ -17,6 +16,8 @@ struct Instance {
     root: Entity,
     ready: bool,
     bound: bool,
+    /// Binding failed. The human stays hidden and binding does not run again.
+    failed: bool,
     shown: bool,
     /// Rig node index and entity.
     nodes: Vec<(usize, Entity)>,
@@ -28,24 +29,9 @@ struct Instance {
 
 #[derive(Resource, Default)]
 pub struct HumanVisuals {
-    rig: Option<Rig>,
+    rig: Option<Result<Rig, ()>>,
     /// Human id to scene instance.
     instances: HashMap<u32, Instance>,
-}
-
-#[derive(serde::Deserialize)]
-struct Identity {
-    reference_id: Option<SourceId>,
-}
-
-fn descends(mut entity: Entity, root: Entity, parents: &Query<&ChildOf>) -> bool {
-    while let Ok(link) = parents.get(entity) {
-        entity = link.parent();
-        if entity == root {
-            return true;
-        }
-    }
-    false
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -57,9 +43,7 @@ pub(crate) fn sync(
     visuals: Res<ReferenceVisuals>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
     mut humans: ResMut<HumanVisuals>,
-    extras: Query<(Entity, &GltfExtras)>,
-    parents: Query<&ChildOf>,
-    primitives: Query<(Entity, &ChildOf), With<Mesh3d>>,
+    graph: SceneGraph,
     source_materials: Query<(), With<MeshMaterial3d<super::materials::SourceMaterial>>>,
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
@@ -70,16 +54,15 @@ pub(crate) fn sync(
     let manifest = &reference.0;
     let r = &manifest.creatures.human;
     let humans = &mut *humans;
-    if humans.rig.is_none() {
-        match Rig::rest(&manifest.nodes, r.root) {
-            Ok(rig) => humans.rig = Some(rig),
-            Err(error) => {
-                error!("Human rig: {error}");
-                return;
-            }
-        }
-    }
-    let rig = humans.rig.as_ref().unwrap();
+    // A rig error is logged once and stops the human visuals.
+    let rig = humans.rig.get_or_insert_with(|| {
+        Rig::rest(&manifest.nodes, r.root)
+            .inspect_err(|error| error!("Human rig: {error}"))
+            .map_err(drop)
+    });
+    let Ok(rig) = rig.as_ref() else {
+        return;
+    };
     let rows = &frame.frame.humans;
     humans.instances.retain(|id, instance| {
         let keep = rows.iter().any(|row| row.id == *id);
@@ -122,6 +105,7 @@ pub(crate) fn sync(
                     root,
                     ready: false,
                     bound: false,
+                    failed: false,
                     shown: false,
                     nodes: Vec::with_capacity(rig.len()),
                     primitives: Vec::new(),
@@ -134,39 +118,28 @@ pub(crate) fn sync(
         if !instance.ready {
             continue;
         }
+        if instance.failed {
+            continue;
+        }
         if !instance.bound {
-            for (entity, extra) in &extras {
-                if !descends(entity, instance.root, &parents) {
-                    continue;
-                }
-                let Ok(identity) = serde_json::from_str::<Identity>(&extra.value) else {
-                    continue;
-                };
-                let Some(node) = identity.reference_id.and_then(|source| {
-                    manifest
-                        .nodes
-                        .iter()
-                        .find(|node| node.source == source && node.asset == r.asset)
-                }) else {
-                    continue;
-                };
-                let Some(index) = rig.index(node.id) else {
-                    continue;
-                };
-                if !instance.nodes.iter().any(|(i, _)| *i == index)
-                    && bind_node(&mut commands, node, entity, extra, &primitives).is_ok()
-                {
-                    instance.nodes.push((index, entity));
-                }
-            }
+            let binding = graph.bind_instance(&mut commands, manifest, instance.root, r.asset);
+            instance.nodes.extend(
+                binding
+                    .nodes
+                    .iter()
+                    .filter_map(|(id, entity)| Some((rig.index(*id)?, *entity))),
+            );
             if instance.nodes.len() != rig.len() {
+                error!(
+                    "Human {}: {} rig nodes, {}",
+                    row.id,
+                    rig.len(),
+                    binding.failure()
+                );
+                instance.failed = true;
                 continue;
             }
-            for (primitive, _) in &primitives {
-                if descends(primitive, instance.root, &parents) {
-                    instance.primitives.push(primitive);
-                }
-            }
+            instance.primitives = binding.primitives;
             // The scene root carries the root pose.
             if let Some((_, entity)) = instance.nodes.iter().find(|(i, _)| *i == 0)
                 && let Ok(mut transform) = transforms.get_mut(*entity)
