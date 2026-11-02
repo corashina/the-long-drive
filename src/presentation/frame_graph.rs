@@ -8,7 +8,7 @@ use super::{
     lighting_assets::LightingRenderAssets,
     materials::RenderingState,
     probes::{ProbeFilter, ProbePublication},
-    readiness::{RendererStateHandle, SourceExecutionGate},
+    readiness::{RendererState, RendererStateHandle, SourceExecutionGate},
     source_lighting::SourceViewCamera,
     source_sky::SkyPass,
     surface_graph::{SourceSurface, SourceSurfaceStage},
@@ -226,6 +226,7 @@ impl Plugin for SourceFramePlugin {
                     finish_surface
                         .in_set(SourceSurfaceStage::AfterTransparent)
                         .run_if(surface_ready),
+                    hold_display.in_set(SourceSurfaceStage::AfterTransparent),
                 ),
             )
             .add_systems(RenderGraph, begin_frame.in_set(RenderGraphSystems::Begin))
@@ -639,9 +640,7 @@ pub(crate) fn surface_ready(
     let state = progress.lock();
     index < VIEW_COUNT
         && frame.views[index].is_some()
-        && frame
-            .render_identity()
-            .is_none_or(|key| state.proof.allows_frame(key, frame.frame))
+        && frame_allowed(&frame, &state)
         && camera.ready()
         && resources.is_some_and(|r| r.display.ready(&cache))
         && effects.is_some_and(|effects| effects.ready(&cache))
@@ -658,6 +657,42 @@ pub(crate) fn surface_ready(
                     p.probes[frame.probe_index].accepts(frame.probe_token)
                         && p.probes[frame.probe_index].filter.ready(&cache)
                 })))
+}
+/// Loading draws one frame of four. A skipped frame draws no view and no sky.
+fn frame_allowed(frame: &SourceViewFrame, state: &RendererState) -> bool {
+    frame
+        .render_identity()
+        .is_none_or(|key| state.proof.allows_frame(key, frame.frame))
+}
+/// The canvas gets a new cleared texture each frame. A skipped frame shows the last image again.
+fn hold_display(
+    view: ViewQuery<(&SourceSurfaceView, &ViewTarget)>,
+    frame: Res<SourceViewFrame>,
+    progress: Res<RendererStateHandle>,
+    resources: Option<Res<FrameResources>>,
+    cache: Res<PipelineCache>,
+    mut context: RenderContext,
+) {
+    let (source, target) = view.into_inner();
+    if source.index != 0 {
+        return;
+    }
+    {
+        let state = progress.lock();
+        if state.audit.first_token == 0 || frame_allowed(&frame, &state) {
+            return;
+        }
+    }
+    let Some(resources) = resources else { return };
+    if !resources.display.ready(&cache) {
+        return;
+    }
+    let Some(output) = target.out_texture_color_attachment(None) else {
+        return;
+    };
+    resources
+        .display
+        .encode(context.command_encoder(), &cache, output.view);
 }
 /// `DrawMesh` skips every draw until both direct and frustum preprocess pipelines exist.
 fn preprocess_ready(pipelines: &bevy::pbr::PreprocessPipelines, cache: &PipelineCache) -> bool {
@@ -773,6 +808,7 @@ fn render_sky(
     if frame.sky_clip_from_world.is_none()
         || !frame.required_views_ready()
         || !preprocess_ready(&preprocess, &cache)
+        || !frame_allowed(&frame, &progress.lock())
     {
         return;
     }
