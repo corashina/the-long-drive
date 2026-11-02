@@ -597,3 +597,55 @@ fn tp_m03_host_rust_and_light_switch_reach_the_guest() {
         "the guest light switched"
     );
 }
+
+/// MP M04c. Source `aispawn.SpawnRoutine` (`isServerOrNoMulti`) and the item pose of an AI: the
+/// guest spawns no rabbits of its own, and a rabbit that the host spawns appears on the guest with
+/// the host id and follows the host pose.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_mp_m04c_host_rabbits_appear_on_the_guest() {
+    let (reference, mut host_run) = super::creatures::outdoors();
+    let mut guest_run = save_load(&host_run, &reference);
+    let (mut host, mut guest) = (Net::default(), Net::default());
+    host.set_session(NetRole::Host, 0);
+    guest.set_session(NetRole::Guest, 1);
+    let mut frame = SimFrame::default();
+    let id = act(
+        &mut host_run,
+        &reference,
+        r#"{"action":"spawn","name":"rabbit","forward":4}"#,
+    )
+    .as_u64()
+    .unwrap() as u32;
+    let before: Vec<u32> = guest_run.creatures.rabbits().map(|r| r.id).collect();
+    for _ in 0..(2. / FIXED_DT) as usize {
+        exchange(
+            &reference,
+            [
+                (&mut host_run, &mut host, FrameInput::default()),
+                (&mut guest_run, &mut guest, FrameInput::default()),
+            ],
+            &mut frame,
+        );
+    }
+    let at = |run: &GarageRuntime| {
+        run.creatures
+            .views(&run.physics)
+            .find(|v| v.id == id)
+            .map(|v| run.stream.origin.absolute(v.pose.translation.to_array()))
+    };
+    let (h, g) = (
+        at(&host_run).unwrap(),
+        at(&guest_run).expect("the host rabbit on the guest"),
+    );
+    assert!(
+        apart(h, g) < 1.,
+        "the guest rabbit follows the host: {h:?} {g:?}"
+    );
+    let spawned = guest_run
+        .creatures
+        .rabbits()
+        .filter(|r| !before.contains(&r.id) && r.id != id)
+        .count();
+    assert_eq!(spawned, 0, "the guest spawns no rabbits of its own");
+}

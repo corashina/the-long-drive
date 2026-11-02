@@ -3,6 +3,7 @@
 pub mod car;
 pub mod claim;
 pub mod conditions;
+pub mod creatures;
 pub mod inventory;
 pub mod items;
 pub mod lamps;
@@ -19,6 +20,7 @@ use crate::reference::ReferenceManifest;
 use crate::starting_area::GarageRuntime;
 use car::CarFloats;
 use conditions::ConditionSync;
+use creatures::CreatureSync;
 use inventory::InventorySync;
 use items::ItemSync;
 use lamps::LampSync;
@@ -71,6 +73,7 @@ pub struct Net {
     outbox: Vec<u8>,
     remotes: Vec<Remote>,
     world: WorldSync,
+    creatures: CreatureSync,
     objects: ObjectIndex,
     items: ItemSync,
     cars: Vec<CarValues>,
@@ -146,8 +149,10 @@ impl Net {
         if let Some(audio) = &mut runtime.audio {
             audio.broadcasts.set_remote(self.role == NetRole::Guest);
         }
+        runtime.net_guest = self.role == NetRole::Guest;
         if self.role == NetRole::Off {
             runtime.shared_sounds.clear();
+            runtime.shared_radios.clear();
             if std::mem::take(&mut self.cars_touched) {
                 for vehicle in runtime.vehicles.values_mut() {
                     vehicle.net.clear();
@@ -174,8 +179,18 @@ impl Net {
         self.share_cars(runtime);
         self.send_cars(runtime);
         self.send(reference, runtime, real_dt);
-        self.world
-            .send(self.role, self.slot, runtime, real_dt, &mut self.outbox);
+        self.world.send(
+            self.role,
+            self.slot,
+            runtime,
+            real_dt,
+            &self.objects,
+            &mut self.outbox,
+        );
+        if self.role == NetRole::Host {
+            self.creatures
+                .send(self.slot, runtime, real_dt, &mut self.outbox);
+        }
         self.objects
             .refresh(&runtime.area.items, &runtime.area.spawned);
         self.items.bound(
@@ -263,8 +278,9 @@ impl Net {
                 }
             } else if !self.read_item(reference, packet, runtime)
                 && !self.read_car(reference, packet, runtime)
+                && !(self.role == NetRole::Guest && creatures::receive(reference, packet, runtime))
             {
-                WorldSync::receive(self.role, packet, runtime);
+                WorldSync::receive(self.role, packet, &self.objects, runtime);
             }
         }
         // The buffer keeps its capacity.

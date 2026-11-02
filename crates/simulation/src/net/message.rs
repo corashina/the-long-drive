@@ -14,6 +14,8 @@ pub const CAR_HANDBRAKE: u8 = 26;
 pub const CAR_GEAR: u8 = 28;
 /// Source `msgType.carignition`.
 pub const CAR_IGNITION: u8 = 29;
+/// Source `msgType.radio`.
+pub const RADIO: u8 = 34;
 /// Source `msgType.radioChannel`.
 pub const RADIO_CHANNEL: u8 = 35;
 /// Source `msgType.soundplay`.
@@ -46,6 +48,8 @@ pub const CLAIM: u8 = 18;
 pub const VELOCITY: u8 = 19;
 /// Source `msgType.removeItem`.
 pub const REMOVE: u8 = 48;
+/// Port only. The source sends an AI as a save item (`itemPosUpd`); port rabbits are no items.
+pub const CREATURE: u8 = 64;
 pub const HEADER: usize = 2;
 /// Outbox length prefix bit: `web/net.js` sends the packet on the reliable connection.
 pub const RELIABLE: u16 = 0x8000;
@@ -384,6 +388,34 @@ pub struct RemoveMessage {
     pub key: u64,
 }
 
+/// The host pose of one rabbit (source item pose of an `aiscript` item).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct CreatureMessage {
+    /// `RabbitSnapshot::id`.
+    pub id: u32,
+    pub alive: u32,
+    pub size: f32,
+    pub pad: u32,
+    /// World space. It does not change with origin shifts.
+    pub position: [f64; 3],
+    pub rotation: [f32; 4],
+    pub velocity: [f32; 3],
+    pub pad2: u32,
+}
+
+/// Source `SRadio`: the controls of one radio item.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct RadioMessage {
+    /// `NetKey` of the radio item.
+    pub key: u64,
+    pub tuning: f32,
+    pub volume: f32,
+    pub on: u32,
+    pub am: u32,
+}
+
 pub trait Message: Pod {
     const TYPE: u8;
     /// Source `EP2PSendReliable`. Other messages can drop.
@@ -423,6 +455,13 @@ impl Message for CarGearMessage {
 }
 impl Message for CarIgnitionMessage {
     const TYPE: u8 = CAR_IGNITION;
+    const RELIABLE: bool = true;
+}
+impl Message for CreatureMessage {
+    const TYPE: u8 = CREATURE;
+}
+impl Message for RadioMessage {
+    const TYPE: u8 = RADIO;
     const RELIABLE: bool = true;
 }
 impl Message for TimeMessage {

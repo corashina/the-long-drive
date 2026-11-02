@@ -193,6 +193,11 @@ impl GarageRuntime {
 
     /// Source thumbleweedMain and thumbleweedScript. The player body is the important object.
     fn advance_tumbleweeds(&mut self, reference: &ReferenceManifest, dt: f32) {
+        // Source `thumbleweedMain`: only the host spawns weeds and gives them wind (`bwind`).
+        // Guests get the weeds as spawned items.
+        if self.net_guest {
+            return;
+        }
         let r = &reference.weather.tumbleweeds;
         let now = self.simulation_seconds;
         let (physics, items, spawned) = (&self.physics, &self.area.items, &self.area.spawned);
