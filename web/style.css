@@ -129,6 +129,8 @@ button:focus-visible {outline:2px solid #fff;outline-offset:3px;}
 #net-chat input {width:100%;box-sizing:border-box;min-height:32px;background:#000a;border:1px solid #b48046;font:inherit;color:#fff;pointer-events:auto;}
 #net-labels {position:absolute;inset:0;overflow:hidden;pointer-events:none;}
 #net-labels span {position:absolute;left:0;top:0;font:16px Arial,sans-serif;color:#fff;text-shadow:2px 2px 2px #000;white-space:nowrap;}
+#net-labels span.speaking::after {content:' 🔊';}
+#net-mic {position:absolute;right:16px;bottom:96px;font:32px Arial,sans-serif;text-shadow:2px 2px 2px #000;pointer-events:none;}
 #autosave-notice {position:absolute;right:16px;top:16px;margin:0;color:#fff;font-family:Arial,sans-serif;text-shadow:2px 2px 2px #000;pointer-events:none;}
 #action-notice {position:absolute;left:0;bottom:20px;margin:0;color:#fff;text-shadow:2px 2px 2px #000;}
 @media(max-width:799px) {

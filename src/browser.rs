@@ -275,6 +275,9 @@ extern "C" {
     /// Name label of a remote figure in canvas pixels. Negative: hidden.
     #[wasm_bindgen(js_namespace = window, js_name = gameRemoteLabel)]
     pub fn game_remote_label(slot: u32, x: f32, y: f32);
+    /// Voice position of a remote figure in listener space (`gameAudioListener`). `alive` false: it is gone.
+    #[wasm_bindgen(js_namespace = window, js_name = gameRemoteVoice)]
+    pub fn game_remote_voice(slot: u32, x: f32, y: f32, z: f32, alive: bool);
     /// "Antialiasing" setting at page load.
     #[wasm_bindgen(js_namespace = window, js_name = gameAntialiasing)]
     pub fn game_antialiasing() -> bool;
