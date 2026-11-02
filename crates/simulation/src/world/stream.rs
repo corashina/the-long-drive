@@ -424,6 +424,9 @@ pub struct WorldStream {
     publication_available: bool,
     /// The renderer holds the publication slot of this frame.
     publication_lent: bool,
+    /// The last publication found a renderer-ready surface that waits, such as a road that
+    /// waits for a required structure.
+    surface_waits: bool,
     /// Renderer want of the last report above its covered use.
     presentation_want: PresentationAllocation,
     /// Renderer use of the last report above its credit. The grant credits it back.
@@ -1099,6 +1102,7 @@ impl WorldStream {
             shared_cpu_bytes: Some(shared_cpu_bytes),
             publication_available: false,
             publication_lent: false,
+            surface_waits: false,
             presentation_want: PresentationAllocation::default(),
             presentation_used: PresentationAllocation::default(),
             ramps_wait: false,
@@ -1135,11 +1139,15 @@ impl WorldStream {
             .dependency_staging_bytes
             .min(covered.staging_bytes)
             .max(report.used.dependency_staging_bytes);
-        // With no renderer-ready work to publish, the renderer takes this frame's publication slot.
-        // A prepared surface without its renderer receipt cannot publish. The renderer work that
-        // finishes the receipt can itself wait for the slot.
+        // With no work that can publish, the renderer takes this frame's publication slot.
+        // A prepared surface without its renderer receipt cannot publish, and a road can wait
+        // for a required structure. The renderer work that finishes the receipt or the
+        // structure can itself wait for the slot.
         self.publication_lent = self.failure.is_none()
-            && self.ready.as_ref().is_none_or(|work| !work.renderer_ready)
+            && self
+                .ready
+                .as_ref()
+                .is_none_or(|work| !work.renderer_ready || self.surface_waits)
             && self.ready_structures.is_empty();
         if let Err(error) = self.set_presentation_allocation(covered) {
             self.presentation = credit;
@@ -3680,6 +3688,7 @@ impl WorldStream {
         physics: &mut PhysicsWorld,
         required_lights: &[super::GeneratedId],
     ) -> Result<(), ReferenceError> {
+        self.surface_waits = self.ready.is_some() && !self.surface_publishable(required_lights);
         let result = self.publish_unit(physics, required_lights);
         if result.is_ok() && self.failure.is_none() {
             self.retire_surfaces(physics);
@@ -3697,6 +3706,34 @@ impl WorldStream {
                     work.published.key.layer == WorldLayer::Road
                         && work.published.key.unit[0] == light.id.unit[0]
                 }))
+    }
+    /// True if the prepared surface can publish now.
+    fn surface_publishable(&self, required_lights: &[super::GeneratedId]) -> bool {
+        // Hold the surface until every required owner publishes. Drain individually ready
+        // structures meanwhile, so unrelated owners cannot fill the shared pending queue.
+        // Each structure receipt already includes geometry, materials and caster pipelines.
+        if self
+            .lights
+            .iter()
+            .filter(|light| self.publication_light(light, required_lights))
+            .any(|light| {
+                !self
+                    .structures
+                    .iter()
+                    .any(|s| light.owned_by(&s.placement.id))
+            })
+        {
+            return false;
+        }
+        let Some(work) = self.ready.as_ref() else {
+            return false;
+        };
+        let admitted = match &work.published.prototype {
+            Some(source) => self.prototype_holds.get(source).is_some_and(|bound| *bound),
+            None => self.terrain_ready[layer_tier(work.published.key.layer)],
+        };
+        // A road waits for `required_ready`, which can wait for a required structure.
+        admitted && work.renderer_ready && self.road_publication_valid(work)
     }
     fn publish_unit(
         &mut self,
@@ -3717,34 +3754,11 @@ impl WorldStream {
             self.discard_unreserved_surface();
             return Ok(());
         }
-        // Hold the surface until every required owner publishes. Drain individually ready
-        // structures meanwhile, so unrelated owners cannot fill the shared pending queue.
-        // Each structure receipt already includes geometry, materials and caster pipelines.
-        if self
-            .lights
-            .iter()
-            .filter(|light| self.publication_light(light, required_lights))
-            .any(|light| {
-                !self
-                    .structures
-                    .iter()
-                    .any(|s| light.owned_by(&s.placement.id))
-            })
-        {
+        // A waiting surface does not block structures.
+        if !self.surface_publishable(required_lights) {
             return self.publish_structure(physics, required_lights);
         }
-        let Some(work) = self.ready.as_ref() else {
-            return self.publish_structure(physics, required_lights);
-        };
-        let admitted = match &work.published.prototype {
-            Some(source) => self.prototype_holds.get(source).is_some_and(|bound| *bound),
-            None => self.terrain_ready[layer_tier(work.published.key.layer)],
-        };
-        // A waiting surface does not block structures. A road waits for `required_ready`,
-        // which can wait for a required structure.
-        if !admitted || !work.renderer_ready || !self.road_publication_valid(work) {
-            return self.publish_structure(physics, required_lights);
-        }
+        let work = self.ready.as_ref().unwrap();
         let metrics = self.metrics();
         // Geometry and renderer staging were reserved before allocation. Rapier adds collision storage.
         let count = match work.published.key.layer {
