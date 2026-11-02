@@ -25,7 +25,6 @@ The starting area, car parts, world and more cars sections are done. Only their 
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| X03c | Green-eyed evil rabbits | S | Needs X03b. `empscript.makeRabbitsEvil`: rabbit `electronicsscript.nyul` output below 0.2 calls `GetEvil(natural: false)`. `Evil::get_evil` has the `Green` path. Link rabbit electronics and render `EyeGreen`. |
 | X03e | Human monster body and save | M | Export the `newAiScript` prefab (`world_spawn.py` excludes it as an actor) and spawn it. `Start`: `startSleepChange`, voice pitch, patrol time. Ragdoll and `breakablescript` health. Save `save_newai`: `died`, `sleeping`, `first`, `health`, `shootHealth`, `explosionHealth`. Host-only, as rabbits (#M04). |
 | X03f | Human monster AI | L | Needs X03e. `newAiScript.Update`: sight by `fov` and ray, chase time, patrol (`GetNewPatrolPos`), rigidbody move, `AvoidWalls`, jump when stuck, ladders (`ladderV`), doors (`Use`), `peacefulEnemies`, `rizseshusi` target. |
 | X03g | Human monster animation and voice | M | Needs X03f. `newAiAnim` animator, look target and hand IK. Voices: idle, notice, chase, attack and death lists with pitch, and the `TVoice` mouth move. |
