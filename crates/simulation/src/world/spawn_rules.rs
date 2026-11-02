@@ -78,9 +78,35 @@ pub struct SourceNode<'a> {
 }
 pub struct SourceRules {
     indices: Vec<(bool, u32)>,
-    nodes: Vec<u32>,
-    owners: Vec<u32>,
+    /// Interned source file names of the three maps below.
+    files: HashMap<String, u32>,
+    /// Source to its `indices` entry. Duplicate sources keep the entry that a binary search finds.
+    records: HashMap<(u32, i64), (bool, u32)>,
+    /// Node source and node owner to the node index.
+    nodes: HashMap<(u32, i64), u32>,
+    owners: HashMap<(u32, i64), u32>,
     radii: HashMap<SourceId, f64>,
+}
+/// Sorted positions to a map from source to the value at the position that a binary search finds.
+fn source_map<'r>(
+    files: &mut HashMap<String, u32>,
+    sorted: &[u32],
+    source: impl Fn(u32) -> &'r SourceId,
+) -> HashMap<(u32, i64), u32> {
+    let mut map = HashMap::with_capacity(sorted.len());
+    for (i, &entry) in sorted.iter().enumerate() {
+        let id = source(entry);
+        if i > 0 && source(sorted[i - 1]) == id {
+            continue;
+        }
+        let found = sorted
+            .binary_search_by(|e| source_order(source(*e), id))
+            .expect("a sorted source finds itself");
+        let next = files.len() as u32;
+        let file = *files.entry(id.file.clone()).or_insert(next);
+        map.insert((file, id.path_id), sorted[found]);
+    }
+    map
 }
 impl SourceRules {
     pub fn new(reference: &WorldReference) -> Self {
@@ -94,23 +120,30 @@ impl SourceRules {
                 Self::indexed_source(reference, *b),
             )
         });
-        let mut nodes: Vec<_> = (0..reference.initialization.nodes.len() as u32).collect();
-        nodes.sort_unstable_by(|a, b| {
-            source_order(
-                &reference.initialization.nodes[*a as usize].source,
-                &reference.initialization.nodes[*b as usize].source,
-            )
+        let nodes = &reference.initialization.nodes;
+        let mut by_source: Vec<_> = (0..nodes.len() as u32).collect();
+        by_source.sort_unstable_by(|a, b| {
+            source_order(&nodes[*a as usize].source, &nodes[*b as usize].source)
         });
-        let mut owners = nodes.clone();
-        owners.sort_unstable_by(|a, b| {
-            source_order(
-                &reference.initialization.nodes[*a as usize].owner,
-                &reference.initialization.nodes[*b as usize].owner,
-            )
+        let mut by_owner = by_source.clone();
+        by_owner.sort_unstable_by(|a, b| {
+            source_order(&nodes[*a as usize].owner, &nodes[*b as usize].owner)
         });
+        let mut files = HashMap::new();
+        let positions: Vec<u32> = (0..indices.len() as u32).collect();
+        let records = source_map(&mut files, &positions, |i| {
+            Self::indexed_source(reference, indices[i as usize])
+        })
+        .into_iter()
+        .map(|(key, i)| (key, indices[i as usize]))
+        .collect();
+        let node_map = source_map(&mut files, &by_source, |i| &nodes[i as usize].source);
+        let owners = source_map(&mut files, &by_owner, |i| &nodes[i as usize].owner);
         Self {
             indices,
-            nodes,
+            files,
+            records,
+            nodes: node_map,
             owners,
             radii: super::placement::prototype_radii(reference),
         }
@@ -122,22 +155,15 @@ impl SourceRules {
             &reference.records[index as usize].source
         }
     }
-    fn index(&self, reference: &WorldReference, source: &SourceId) -> Option<(bool, usize)> {
-        self.indices
-            .binary_search_by(|entry| source_order(Self::indexed_source(reference, *entry), source))
-            .ok()
-            .map(|i| {
-                let (compact, index) = self.indices[i];
-                (compact, index as usize)
-            })
+    fn key(&self, source: &SourceId) -> Option<(u32, i64)> {
+        Some((*self.files.get(source.file.as_str())?, source.path_id))
     }
-    fn node_index(&self, reference: &WorldReference, source: &SourceId) -> Option<usize> {
-        self.nodes
-            .binary_search_by(|i| {
-                source_order(&reference.initialization.nodes[*i as usize].source, source)
-            })
-            .ok()
-            .map(|i| self.nodes[i] as usize)
+    fn index(&self, source: &SourceId) -> Option<(bool, usize)> {
+        let &(compact, index) = self.records.get(&self.key(source)?)?;
+        Some((compact, index as usize))
+    }
+    fn node_index(&self, source: &SourceId) -> Option<usize> {
+        Some(*self.nodes.get(&self.key(source)?)? as usize)
     }
     /// Preserve full-record LOD ownership when compact and full sources share an identity.
     pub fn full_record_owner<'a>(
@@ -210,7 +236,7 @@ impl SourceRules {
             }
             Ok(())
         };
-        if let Some(i) = self.node_index(reference, root) {
+        if let Some(i) = self.node_index(root) {
             let node = &reference.initialization.nodes[i];
             for source in &node.components {
                 component(source)?;
@@ -241,7 +267,16 @@ impl SourceRules {
     }
     pub fn retained_bytes(&self) -> usize {
         self.indices.capacity() * std::mem::size_of::<(bool, u32)>()
-            + (self.nodes.capacity() + self.owners.capacity()) * std::mem::size_of::<u32>()
+            + super::metrics::map_bytes(self.files.capacity(), std::mem::size_of::<(String, u32)>())
+            + self.files.keys().map(String::capacity).sum::<usize>()
+            + super::metrics::map_bytes(
+                self.records.capacity(),
+                std::mem::size_of::<((u32, i64), (bool, u32))>(),
+            )
+            + super::metrics::map_bytes(
+                self.nodes.capacity() + self.owners.capacity(),
+                std::mem::size_of::<((u32, i64), u32)>(),
+            )
             + self.radii.capacity() * (std::mem::size_of::<(SourceId, f64)>() + 16)
             + self.radii.keys().map(|s| s.file.capacity()).sum::<usize>()
     }
@@ -250,7 +285,7 @@ impl SourceRules {
         reference: &'a WorldReference,
         source: &SourceId,
     ) -> Result<SourceRecord<'a>, ReferenceError> {
-        let (compact, i) = self.index(reference, source).ok_or_else(|| {
+        let (compact, i) = self.index(source).ok_or_else(|| {
             ReferenceError(format!(
                 "Missing source rule {}:{}",
                 source.file, source.path_id
@@ -261,7 +296,7 @@ impl SourceRules {
         }
         let r = &reference.records[i];
         let order = if let Some(WorldValue::Link(script)) = r.fields.get("m_Script") {
-            self.index(reference, script)
+            self.index(script)
                 .filter(|(c, _)| !*c)
                 .and_then(|(_, i)| reference.records[i].fields.get("m_ExecutionOrder"))
                 .and_then(|v| {
@@ -282,7 +317,7 @@ impl SourceRules {
         reference: &'a WorldReference,
         source: &SourceId,
     ) -> Result<SourceNode<'a>, ReferenceError> {
-        if let Some(i) = self.node_index(reference, source) {
+        if let Some(i) = self.node_index(source) {
             let n = &reference.initialization.nodes[i];
             return Ok(SourceNode {
                 owner: &n.owner,
@@ -318,19 +353,17 @@ impl SourceRules {
         reference: &'a WorldReference,
         object: &SourceId,
     ) -> Result<&'a SourceId, ReferenceError> {
-        if let Some(i) = self.node_index(reference, object) {
+        if let Some(i) = self.node_index(object) {
             return Ok(&reference.initialization.nodes[i].source);
         }
-        if let Ok(i) = self.owners.binary_search_by(|i| {
-            source_order(&reference.initialization.nodes[*i as usize].owner, object)
-        }) {
-            return Ok(&reference.initialization.nodes[self.owners[i] as usize].source);
+        if let Some(i) = self.key(object).and_then(|key| self.owners.get(&key)) {
+            return Ok(&reference.initialization.nodes[*i as usize].source);
         }
         let r = self.get(reference, object)?;
         if matches!(r.class_name, "Transform" | "RectTransform") {
             return Ok(r.source);
         }
-        if let Some((true, i)) = self.index(reference, object) {
+        if let Some((true, i)) = self.index(object) {
             return self.root(reference, &reference.initialization.components[i].owner);
         }
         let owner = if r.class_name == "GameObject" {
@@ -359,7 +392,7 @@ impl SourceRules {
         if class == "Transform" {
             return Ok(None);
         }
-        if let Some(i) = self.node_index(reference, root) {
+        if let Some(i) = self.node_index(root) {
             for source in &reference.initialization.nodes[i].components {
                 let r = self.get(reference, source)?;
                 if r.class_name == class {
@@ -422,7 +455,7 @@ impl SourceRules {
                         .get("m_Enabled")
                         .is_some_and(|v| numeric(v).is_ok_and(|n| n != 0.)))
         };
-        if let Some(i) = self.node_index(reference, root) {
+        if let Some(i) = self.node_index(root) {
             let n = &reference.initialization.nodes[i];
             for source in &n.components {
                 let r = self.get(reference, source)?;

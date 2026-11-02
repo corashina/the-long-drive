@@ -37,8 +37,17 @@ pub enum Stage {
     RoadPacking,
     RoadResult,
     RoadPublication,
+    DescriptorSelection,
+    DescriptorPlan,
+    DescriptorRoads,
+    DescriptorProps,
+    DescriptorContents,
+    ContentCables,
+    ContentAdvance,
+    ContentSelect,
 }
-const NAMES: [&str; 30] = [
+const STAGES: usize = 38;
+const NAMES: [&str; STAGES] = [
     "Cleanup",
     "FixedInputs",
     "Pipelines",
@@ -69,6 +78,14 @@ const NAMES: [&str; 30] = [
     "RoadPacking",
     "RoadResult",
     "RoadPublication",
+    "DescriptorSelection",
+    "DescriptorPlan",
+    "DescriptorRoads",
+    "DescriptorProps",
+    "DescriptorContents",
+    "ContentCables",
+    "ContentAdvance",
+    "ContentSelect",
 ];
 #[derive(Clone, Copy, Default, serde::Serialize)]
 struct Measurement {
@@ -82,8 +99,9 @@ struct Measurement {
 }
 static ENABLED: AtomicBool = AtomicBool::new(false);
 const SAMPLE_CAPACITY: usize = 4096;
-static SAMPLES: Mutex<[[f64; SAMPLE_CAPACITY]; 30]> = Mutex::new([[0.; SAMPLE_CAPACITY]; 30]);
-static VALUES: Mutex<[Measurement; 30]> = Mutex::new(
+static SAMPLES: Mutex<[[f64; SAMPLE_CAPACITY]; STAGES]> =
+    Mutex::new([[0.; SAMPLE_CAPACITY]; STAGES]);
+static VALUES: Mutex<[Measurement; STAGES]> = Mutex::new(
     [Measurement {
         calls: 0,
         total_ms: 0.,
@@ -91,7 +109,7 @@ static VALUES: Mutex<[Measurement; 30]> = Mutex::new(
         over_2_ms: 0,
         items: 0,
         max_items: 0,
-    }; 30],
+    }; STAGES],
 );
 
 pub struct Timer {
@@ -158,7 +176,7 @@ fn now() -> std::time::Instant {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn streaming_profile(enabled: bool) {
     ENABLED.store(false, Ordering::Relaxed);
-    *VALUES.lock().unwrap() = [Measurement::default(); 30];
+    *VALUES.lock().unwrap() = [Measurement::default(); STAGES];
     if enabled {
         for samples in SAMPLES.lock().unwrap().iter_mut() {
             samples.fill(0.);
@@ -182,10 +200,10 @@ pub fn streaming_profile_audit() -> String {
     }).collect();
     serde_json::to_string(&serde_json::json!({
         "enabled": ENABLED.load(Ordering::Relaxed),
-        "stages": NAMES,
+        "stages": &NAMES[..],
         "measurements": measurements,
         "retainedBytes": std::mem::size_of_val(&*samples) + std::mem::size_of_val(&*values),
-        "nested_stages": ["StreamDescriptors", "StreamGeometry", "Terrain", "Road", "RoadPacking", "RoadResult", "RoadPublication"],
+        "nested_stages": ["StreamDescriptors", "StreamGeometry", "Terrain", "Road", "RoadPacking", "RoadResult", "RoadPublication", "DescriptorSelection", "DescriptorPlan", "DescriptorRoads", "DescriptorProps", "DescriptorContents", "ContentCables", "ContentAdvance", "ContentSelect"],
     }))
     .expect("streaming measurements serialize")
 }

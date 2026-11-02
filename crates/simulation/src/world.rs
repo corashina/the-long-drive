@@ -16,6 +16,7 @@ pub use cables::aim;
 mod lamps;
 mod source_lights;
 pub use source_lights::{WorldLight, required_world_lights};
+mod id_index;
 mod placement;
 mod prop_layers;
 mod props;

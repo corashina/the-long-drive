@@ -57,7 +57,7 @@ impl WorldStream {
         slot: usize,
         item: ItemId,
     ) -> Result<AmmoBinding, ReferenceError> {
-        let content = &self.contents.active[slot].content;
+        let content = &self.contents.active()[slot].content;
         let placement = &content.placement;
         let f = self
             .contents
@@ -148,7 +148,7 @@ impl WorldStream {
     /// The `RandomSpawned` ammo count of a generated item.
     pub fn content_ammo(&self, item: ItemId) -> Option<f32> {
         self.contents
-            .active
+            .active()
             .iter()
             .find(|c| c.item == Some(item))
             .and_then(|c| c.content.ammo)

@@ -181,7 +181,7 @@ impl WorldStream {
             return;
         }
         let records = &reference.breakables;
-        let active = &self.contents.active;
+        let active = self.contents.active();
         let lamps = &self.lamp_bindings;
         let structures = &self.structures;
         let present = |item| items.get(item).is_some_and(|s| !s.removed);

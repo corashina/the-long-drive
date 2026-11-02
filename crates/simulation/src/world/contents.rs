@@ -169,7 +169,9 @@ pub struct SourceContents {
     pub rules: SourceRules,
     pub state: SourceSpawnState,
     cursors: Vec<Cursor>,
-    pub active: Vec<ContentInstance>,
+    active: Vec<ContentInstance>,
+    /// `retained_bytes` and `pending_bytes` of the current state. Every `&mut self` call clears it.
+    bytes: std::cell::Cell<Option<(usize, usize)>>,
     // Membership and order only. Pose and appearance remain live.
     active_revision: u64,
     /// Bumps when a cursor or its root content changes.
@@ -186,6 +188,7 @@ pub struct SourceContents {
 }
 impl SourceContents {
     pub fn discard_replay_siblings(&mut self, wanted: &[Placement]) {
+        self.bytes.set(None);
         let previous = self.active.len();
         self.active.retain(|content| {
             content.item.is_some()
@@ -258,6 +261,7 @@ impl SourceContents {
             ),
             cursors: Vec::new(),
             active: Vec::new(),
+            bytes: Default::default(),
             active_revision: 0,
             roots_revision: 0,
             deferred: Vec::new(),
@@ -299,9 +303,11 @@ impl SourceContents {
     }
     /// Active contents got their items. Scans that skip contents without an item run again.
     pub(super) fn items_bound(&mut self) {
+        self.bytes.set(None);
         self.active_revision += 1;
     }
     pub(super) fn push_active(&mut self, mut content: ContentInstance) {
+        self.bytes.set(None);
         if !content.content.inputs.humans.is_empty() {
             self.humans.push(content.content);
             return;
@@ -312,16 +318,19 @@ impl SourceContents {
     }
     /// The next human monster placement and its `newAiScript.Start` roll.
     pub fn take_human(&mut self) -> Option<(Placement, super::spawn_state::HumanRoll)> {
+        self.bytes.set(None);
         let content = self.humans.pop()?;
         let roll = content.inputs.humans.first()?.1;
         Some((content.placement, roll))
     }
     pub fn remove_active(&mut self, index: usize) -> ContentInstance {
+        self.bytes.set(None);
         let content = self.active.swap_remove(index);
         self.active_revision += 1;
         content
     }
     pub fn select_revision(&mut self, session: u64, revision: u64) {
+        self.bytes.set(None);
         if self.selection != Some((session, revision)) {
             self.selection = Some((session, revision));
             // A newly selected region performs its first check without simulating timed polling.
@@ -338,6 +347,7 @@ impl SourceContents {
         deferred: usize,
         staging: usize,
     ) -> Result<usize, ReferenceError> {
+        self.bytes.set(None);
         fn overlap<T>(values: &Vec<T>, extra: usize) -> usize {
             let required = values.len().saturating_add(extra);
             if required > values.capacity() {
@@ -361,6 +371,7 @@ impl SourceContents {
         Ok(staging - bytes)
     }
     pub fn retain_requests(&mut self, structures: &[Placement], replays: &[Placement]) {
+        self.bytes.set(None);
         let previous = self.active.len();
         self.active.retain(|c| {
             !c.replay_only || c.item.is_some() || replays.iter().any(|p| p.id == c.origin.id)
@@ -392,6 +403,7 @@ impl SourceContents {
         pending: usize,
         staging: usize,
     ) -> Result<(), ReferenceError> {
+        self.bytes.set(None);
         let initial_pending = self.pending_requests();
         self.update = self.update.wrapping_add(1);
         let eligible = self
@@ -401,11 +413,11 @@ impl SourceContents {
             .map(|b| b.tasks.len() - b.next)
             .sum::<usize>();
         let initial_count = self.active.len();
-        let initial_bytes = self.retained_bytes();
+        let initial_bytes = self.scan_retained();
         for _ in 0..eligible {
             let remaining = limit.saturating_sub(self.active.len().saturating_sub(initial_count));
             let available =
-                staging.saturating_sub(self.retained_bytes().saturating_sub(initial_bytes));
+                staging.saturating_sub(self.scan_retained().saturating_sub(initial_bytes));
             if remaining == 0 || available == 0 {
                 return Ok(());
             }
@@ -415,11 +427,11 @@ impl SourceContents {
             }
         }
         let limit = limit.saturating_sub(self.active.len().saturating_sub(initial_count));
-        let staging = staging.saturating_sub(self.retained_bytes().saturating_sub(initial_bytes));
+        let staging = staging.saturating_sub(self.scan_retained().saturating_sub(initial_bytes));
         if limit == 0 || staging == 0 {
             return Ok(());
         }
-        let cursor_before = self.retained_bytes();
+        let cursor_before = self.scan_retained();
         for (instance, replay_only) in structures
             .iter()
             .map(|p| (p, false))
@@ -466,7 +478,7 @@ impl SourceContents {
                 + existing.map_or(0, |c| {
                     spawned_heap(&c.content) + c.content.inputs.retained_bytes()
                 });
-            if bound > staging.saturating_sub(self.retained_bytes().saturating_sub(cursor_before)) {
+            if bound > staging.saturating_sub(self.scan_retained().saturating_sub(cursor_before)) {
                 return Err(ReferenceError(
                     "Source caller cursor exceeds staging".into(),
                 ));
@@ -495,7 +507,7 @@ impl SourceContents {
                     .unwrap_or_default(),
             });
         }
-        let staging = staging.saturating_sub(self.retained_bytes().saturating_sub(cursor_before));
+        let staging = staging.saturating_sub(self.scan_retained().saturating_sub(cursor_before));
         if let Some(index) = self.cursors.iter().position(|c| c.root.is_none()) {
             if pending.saturating_add(initial_pending) <= self.pending_requests() {
                 return Ok(());
@@ -639,13 +651,13 @@ impl SourceContents {
             return Ok(());
         }
         let before_count = self.active.len();
-        let before_bytes = self.retained_bytes();
+        let before_bytes = self.scan_retained();
         let mut current_bytes = before_bytes;
         let mut dirty = false;
         for _ in 0..self.cursors.len() {
             let limit = limit.saturating_sub(self.active.len().saturating_sub(before_count));
             if dirty {
-                current_bytes = self.retained_bytes();
+                current_bytes = self.scan_retained();
                 dirty = false;
             }
             #[cfg(test)]
@@ -810,6 +822,7 @@ impl SourceContents {
         cap: usize,
         staging: usize,
     ) -> Result<bool, ReferenceError> {
+        self.bytes.set(None);
         let Some(index) = self.deferred.iter().position(|b| b.eligible <= self.update) else {
             return Ok(false);
         };
@@ -940,6 +953,7 @@ impl SourceContents {
         initialization: super::spawn_state::SpawnInitialization,
         final_task: bool,
     ) -> Result<(), ReferenceError> {
+        self.bytes.set(None);
         let owner = &self.deferred[index];
         let cursor = self
             .cursors
@@ -989,6 +1003,7 @@ impl SourceContents {
         on: bool,
         staging: usize,
     ) -> Result<(), ReferenceError> {
+        self.bytes.set(None);
         let deferred = |i: &super::spawn_state::SpawnInitialization| {
             i.lamps.iter().any(|(p, s, _)| p == parent && s == source)
         };
@@ -1013,6 +1028,7 @@ impl SourceContents {
         lamps: u64,
         staging: usize,
     ) -> Result<(), ReferenceError> {
+        self.bytes.set(None);
         let deferred = |i: &super::spawn_state::SpawnInitialization| {
             i.lamps.iter().any(|(p, s, _)| p == parent && s == source)
         };
@@ -1029,6 +1045,7 @@ impl SourceContents {
         jam: f32,
         staging: usize,
     ) -> Result<(), ReferenceError> {
+        self.bytes.set(None);
         let deferred = |i: &super::spawn_state::SpawnInitialization| {
             i.initialized
                 .iter()
@@ -1049,6 +1066,7 @@ impl SourceContents {
         deferred: impl Fn(&super::spawn_state::SpawnInitialization) -> bool,
         change: impl Fn(&mut super::spawn_state::SpawnInitialization) -> bool,
     ) -> Result<(), ReferenceError> {
+        self.bytes.set(None);
         let current = self
             .instances()
             .find(|c| &c.placement.id == parent)
@@ -1127,7 +1145,7 @@ impl SourceContents {
                 })
                 .sum::<usize>()
     }
-    pub fn pending_bytes(&self) -> usize {
+    fn count_pending(&self) -> usize {
         self.cursors
             .iter()
             .filter(|c| c.replay_only)
@@ -1254,6 +1272,7 @@ impl SourceContents {
     }
     /// The active content or cursor root of placement `id`.
     pub fn instance_mut(&mut self, id: &GeneratedId) -> Option<&mut SpawnedContent> {
+        self.bytes.set(None);
         if let Some(i) = self
             .active
             .iter()
@@ -1295,11 +1314,55 @@ impl SourceContents {
     pub fn contains(&self, id: &GeneratedId) -> bool {
         self.active.iter().any(|c| c.content.placement.id == *id)
     }
+    pub fn active(&self) -> &[ContentInstance] {
+        &self.active
+    }
+    /// Active contents for edit, with the rules and box releases for reading.
+    pub fn active_parts(
+        &mut self,
+    ) -> (
+        &mut Vec<ContentInstance>,
+        &SourceRules,
+        &super::stream::content_boxes::BoxReleases,
+    ) {
+        self.bytes.set(None);
+        (&mut self.active, &self.rules, &self.boxes)
+    }
+    pub fn active_mut(&mut self) -> &mut Vec<ContentInstance> {
+        self.bytes.set(None);
+        &mut self.active
+    }
+    /// `retained_bytes` and `pending_bytes`, from the cache when no edit came after the last count.
+    fn bytes(&self) -> (usize, usize) {
+        if let Some(bytes) = self.bytes.get() {
+            #[cfg(test)]
+            assert_eq!(bytes, (self.count_retained(), self.count_pending()));
+            return bytes;
+        }
+        let bytes = (self.count_retained(), self.count_pending());
+        self.bytes.set(Some(bytes));
+        bytes
+    }
+    /// Retained bytes for readers outside this type. Tests count each call as one scan.
     pub fn retained_bytes(&self) -> usize {
+        Self::observe_scan();
+        self.bytes().0
+    }
+    pub fn pending_bytes(&self) -> usize {
+        self.bytes().1
+    }
+    /// Retained bytes inside a `&mut self` call, which must not fill the cache.
+    fn scan_retained(&self) -> usize {
+        Self::observe_scan();
+        self.count_retained()
+    }
+    fn observe_scan() {
         #[cfg(test)]
         if tests::OBSERVING.get() {
             tests::RETAINED_SCANS.set(tests::RETAINED_SCANS.get() + 1);
         }
+    }
+    fn count_retained(&self) -> usize {
         self.deferred_bytes()
             + self.cursors.capacity() * std::mem::size_of::<Cursor>()
             + self.cursors.iter().map(cursor_heap).sum::<usize>()
@@ -1482,7 +1545,7 @@ mod tests {
         }
         assert_eq!(
             current_bytes,
-            contents.retained_bytes(),
+            contents.scan_retained(),
             "stale final cursor guard"
         );
         GUARDS.with_borrow_mut(|guards| {

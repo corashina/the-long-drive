@@ -70,14 +70,14 @@ pub struct ExplosiveBinding {
 impl WorldStream {
     /// Binds the explosivescript of each active generated item once.
     pub(super) fn sync_explosives(&mut self) -> Result<(), ReferenceError> {
-        let active = &self.contents.active;
+        let active = &self.contents.active();
         self.small_items.explosives.retain(|b| {
             active
                 .iter()
                 .any(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
         });
-        for slot in 0..self.contents.active.len() {
-            let content = &self.contents.active[slot];
+        for slot in 0..self.contents.active().len() {
+            let content = &self.contents.active()[slot];
             let Some(item) = content.item else {
                 continue;
             };
@@ -102,7 +102,7 @@ impl WorldStream {
         slot: usize,
         item: ItemId,
     ) -> Result<Option<ExplosiveBinding>, ReferenceError> {
-        let placement = &self.contents.active[slot].content.placement;
+        let placement = &self.contents.active()[slot].content.placement;
         let rules = &self.contents.rules;
         let Some(e) = rules.component(&self.reference, &placement.prototype, "explosivescript")?
         else {

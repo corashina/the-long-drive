@@ -332,7 +332,7 @@ impl WorldStream {
             let b = &self.seat_bindings[i];
             if self
                 .contents
-                .active
+                .active()
                 .iter()
                 .any(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
             {
@@ -346,8 +346,8 @@ impl WorldStream {
                 self.seat_bindings.swap_remove(i);
             }
         }
-        for slot in 0..self.contents.active.len() {
-            let content = &self.contents.active[slot];
+        for slot in 0..self.contents.active().len() {
+            let content = &self.contents.active()[slot];
             let Some(item) = content.item else {
                 continue;
             };
@@ -386,7 +386,7 @@ impl WorldStream {
             .get(item)
             .and_then(|i| i.body)
             .ok_or_else(|| ReferenceError("Seat item has no body".into()))?;
-        let placement = &self.contents.active[slot].content.placement;
+        let placement = &self.contents.active()[slot].content.placement;
         let prototype = self
             .reference
             .prototypes
@@ -459,7 +459,7 @@ impl WorldStream {
                 driving_hands: drive.map_or([None; 2], |d| [d.left_hand, d.right_hand].map(frame)),
                 driving_legs: drive.map_or([None; 2], |d| [d.left_leg, d.right_leg].map(frame)),
             };
-            let content = &self.contents.active[slot];
+            let content = &self.contents.active()[slot];
             let mut cursor = Some(seat.hit_nodes[0]);
             let mut seat_item = item;
             while let Some(n) = cursor {

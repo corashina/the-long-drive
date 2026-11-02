@@ -55,7 +55,7 @@ impl WorldStream {
             let b = &mut self.level_bindings[i];
             if let Some(slot) = self
                 .contents
-                .active
+                .active()
                 .iter()
                 .position(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
             {
@@ -65,8 +65,8 @@ impl WorldStream {
                 self.level_bindings.swap_remove(i);
             }
         }
-        for slot in 0..self.contents.active.len() {
-            let content = &self.contents.active[slot];
+        for slot in 0..self.contents.active().len() {
+            let content = &self.contents.active()[slot];
             let Some(item) = content.item else {
                 continue;
             };
@@ -92,7 +92,7 @@ impl WorldStream {
         slot: usize,
         item: ItemId,
     ) -> Result<LevelBinding, ReferenceError> {
-        let content = &self.contents.active[slot];
+        let content = &self.contents.active()[slot];
         let placement = &content.content.placement;
         let reference = &self.reference;
         let rules = &self.contents.rules;

@@ -686,7 +686,7 @@ impl WorldStream {
         let mut count = 0;
         for (id, content) in self
             .contents
-            .active
+            .active()
             .iter()
             .map(|c| (&c.content.placement.id, &c.content))
             .chain(self.contents.cursor_roots())

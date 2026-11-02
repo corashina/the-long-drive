@@ -406,6 +406,9 @@ pub struct WorldStream {
     supplies: Vec<PublishedSupply>,
     wanted_structures: pending_structures::PendingStructures,
     ready_structures: Vec<super::GeneratedId>,
+    /// Reused per step by `prepare_contents`: an index of `lights` and the lights to keep.
+    light_index: super::id_index::IdIndex,
+    light_keep: Vec<bool>,
     startup: Option<StartupTerrain>,
     /// Fixed prototype placements of the startup list, set with `startup`.
     startup_placements: Vec<Placement>,
@@ -460,7 +463,7 @@ impl WorldStream {
             }
             let owner = self
                 .contents
-                .active
+                .active()
                 .iter()
                 .chain(&self.static_controls)
                 .find(|c| c.item == Some(item.id) || c.bindings.iter().any(|b| b.item == item.id));
@@ -544,7 +547,7 @@ impl WorldStream {
             changes.retain_dependency(key.clone(), snapshot);
             if let Some(owner) = self
                 .contents
-                .active
+                .active()
                 .iter()
                 .chain(&self.static_controls)
                 .find(|c| c.item == Some(id) || c.bindings.iter().any(|b| b.item == id))
@@ -661,7 +664,7 @@ impl WorldStream {
             super::ObjectKey::Imported(_) => true,
             super::ObjectKey::Generated(_) => self
                 .contents
-                .active
+                .active()
                 .iter()
                 .chain(&self.static_controls)
                 .find(|c| c.item == Some(item) || c.bindings.iter().any(|b| b.item == item))
@@ -781,8 +784,8 @@ impl WorldStream {
         }
     }
     fn discard_fixed_decoration_changes(&mut self) {
-        for index in 0..self.contents.active.len() {
-            let content = &self.contents.active[index];
+        for index in 0..self.contents.active().len() {
+            let content = &self.contents.active()[index];
             if content.restored
                 || content.item.is_some()
                 || !self.fixed_decoration(&content.content.placement)
@@ -792,7 +795,7 @@ impl WorldStream {
             let id = content.content.placement.id.clone();
             self.forget_fixed_decoration_changes(&id);
             // This instance has no mutable state or bindings to reconstruct.
-            self.contents.active[index].restored = true;
+            self.contents.active_mut()[index].restored = true;
         }
         // Deletion compacts records. Refresh indices before any replay consumer runs.
         if self.change_revision != self.changes.revision() {
@@ -1070,6 +1073,8 @@ impl WorldStream {
             // Grows with use. Capacity is charged as retained CPU.
             wanted_structures: Default::default(),
             ready_structures: Vec::with_capacity(32),
+            light_index: Default::default(),
+            light_keep: Vec::new(),
             startup: None,
             startup_placements: Vec::new(),
             startup_items: {
@@ -1466,7 +1471,7 @@ impl WorldStream {
             .filter(|p| self.added_placement(p))
             .map(|p| {
                 let mut audit = self.structure_audit(p);
-                audit["wanted"] = self.wanted_structures.iter().any(|w| w.id == p.id).into();
+                audit["wanted"] = self.wanted_structures.contains(&p.id).into();
                 audit["published"] = self
                     .structures
                     .iter()
@@ -1800,6 +1805,8 @@ impl WorldStream {
         // revises replay selection; it must not restart the one-metre baseline.
         let force_structures = self.plan_revision != self.request.revision
             || self.selection_inputs != self.contents.input_revision();
+        use super::stream_profile::{Stage, Timer};
+        let mut timer = Timer::new(Stage::DescriptorSelection);
         if self.selection_inputs != self.contents.input_revision()
             || self.selection_changes != self.changes.revision()
         {
@@ -1808,6 +1815,7 @@ impl WorldStream {
         if self.failure.is_some() {
             return;
         }
+        timer.next(Stage::DescriptorPlan);
         while !self.initial_generation_ready {
             let slots = 2usize.saturating_sub(self.presentation.jobs);
             let before = (
@@ -1859,12 +1867,15 @@ impl WorldStream {
                 return;
             }
         }
+        timer.next(Stage::DescriptorRoads);
         if self.next_road < self.road_candidates.len() {
             self.discover_road();
         }
         // Placement needs the complete selected road-point set.
         if self.next_road == self.road_candidates.len() {
+            timer.next(Stage::DescriptorProps);
             self.prepare_props();
+            timer.next(Stage::DescriptorContents);
             self.prepare_contents();
         }
     }
@@ -2142,14 +2153,14 @@ impl WorldStream {
                     .get(super::ObjectKey::Generated(p.id.clone()))
                     .is_none()
         };
-        let active = &self.contents.active;
+        let active = &self.contents.active();
         self.wanted_structures.retain(|p| {
             p.id.layer != WorldLayer::Startup
                 || wanted(p)
                 || active.iter().any(|c| c.content.placement.id == p.id)
         });
         for placement in &self.startup_placements {
-            if wanted(placement) && !self.wanted_structures.iter().any(|p| p.id == placement.id) {
+            if wanted(placement) && !self.wanted_structures.contains(&placement.id) {
                 self.wanted_structures.push(placement.clone());
             }
         }
@@ -2188,9 +2199,9 @@ impl WorldStream {
             .props
             .placements()
             .iter()
-            .chain(self.contents.active.iter().map(|c| &c.content.placement))
+            .chain(self.contents.active().iter().map(|c| &c.content.placement))
         {
-            if !self.wanted_structures.iter().any(|p| p.id == placement.id) {
+            if !self.wanted_structures.contains(&placement.id) {
                 self.wanted_structures.push(placement.clone());
             }
         }
@@ -2198,7 +2209,7 @@ impl WorldStream {
         self.refresh_poles();
         self.refresh_startup_placements();
         self.ready_structures
-            .retain(|id| self.wanted_structures.iter().any(|p| &p.id == id));
+            .retain(|id| self.wanted_structures.contains(id));
         removed || count != self.wanted_structures.iter().filter(|p| numeric(p)).count()
     }
     /// A building lookup without room waits while the renderer holds unused prototype CPU
@@ -2243,7 +2254,7 @@ impl WorldStream {
         self.wanted_structures
             .retain(|p| p.id.layer != WorldLayer::Lamp || self.lights.iter().any(|l| l.id == p.id));
         for light in &self.lights {
-            if light.biome.is_none() || self.wanted_structures.iter().any(|p| p.id == light.id) {
+            if light.biome.is_none() || self.wanted_structures.contains(&light.id) {
                 continue;
             }
             self.wanted_structures.push(Placement {
@@ -2321,21 +2332,16 @@ impl WorldStream {
                     | WorldLayer::Tower
                     | WorldLayer::DesertBuilding
             ) || self.props.contains(&p.id)
-                || (!p.id.children.is_empty()
-                    && self.props.placements().iter().any(|parent| {
-                        parent.id.layer == p.id.layer
-                            && parent.id.unit == p.id.unit
-                            && parent.id.ordinal == p.id.ordinal
-                    }))
+                || (!p.id.children.is_empty() && self.props.contains_root(&p.id))
         });
         for p in self.props.placements() {
-            if !self.wanted_structures.iter().any(|w| w.id == p.id) {
+            if !self.wanted_structures.contains(&p.id) {
                 self.wanted_structures.push(p.clone());
             }
         }
         self.append_ramps();
         self.ready_structures
-            .retain(|id| self.wanted_structures.iter().any(|p| &p.id == id));
+            .retain(|id| self.wanted_structures.contains(id));
     }
     /// Source `buildingscript.FStart(0)`: a road building connects to the nearest road pole.
     /// Contents wait for the cable. The search replays at most 8 road segments per update.
@@ -2442,10 +2448,13 @@ impl WorldStream {
         if !self.admit_generation(reservation) {
             return;
         }
+        let mut timer =
+            super::stream_profile::Timer::new(super::stream_profile::Stage::ContentCables);
         self.prepare_building_cables();
         if self.failure.is_some() {
             return;
         }
+        timer.next(super::stream_profile::Stage::ContentAdvance);
         let replay_admission = self.contents.has_replay() || self.available_external_jobs() > 0;
         if let Err(error) = self.contents.advance(
             &self.reference,
@@ -2466,6 +2475,7 @@ impl WorldStream {
             self.failure = Some(error.0);
             return;
         }
+        timer.next(super::stream_profile::Stage::ContentSelect);
         self.discard_fixed_decoration_changes();
         self.wanted_structures.retain(|p| {
             self.changes
@@ -2481,7 +2491,7 @@ impl WorldStream {
         self.wanted_structures.retain(|p| {
             let unbound = self
                 .contents
-                .active
+                .active()
                 .iter()
                 .any(|c| c.content.placement.id == p.id && c.item.is_none());
             !unbound
@@ -2502,7 +2512,7 @@ impl WorldStream {
                                 Some(super::ObjectKey::Generated(id)) if id == &p.id)
                 })
         });
-        let missing = |p: &Placement| !self.wanted_structures.iter().any(|w| w.id == p.id);
+        let missing = |p: &Placement| !self.wanted_structures.contains(&p.id);
         let missing_light = |l: &super::WorldLight| !self.lights.iter().any(|w| w.id == l.id);
         let count = self
             .contents
@@ -2586,37 +2596,47 @@ impl WorldStream {
             {
                 continue;
             }
-            if !self
-                .wanted_structures
-                .iter()
-                .any(|p| p.id == content.placement.id)
-            {
+            if !self.wanted_structures.contains(&content.placement.id) {
                 self.wanted_structures.push(content.placement.clone());
             }
         }
-        self.lights.retain(|light| {
-            light.biome.is_some()
-                || self
-                    .contents
-                    .instances()
-                    .filter(|c| {
-                        self.wanted_structures
-                            .iter()
-                            .any(|p| p.id == c.placement.id)
-                    })
-                    .any(|c| c.lights.iter().any(|l| l.id == light.id))
-        });
-        for content in self.contents.instances().filter(|c| {
-            self.wanted_structures
-                .iter()
-                .any(|p| p.id == c.placement.id)
-        }) {
+        // Keep biome lights and lights of wanted contents.
+        self.light_index.rebuild(&self.lights, |l| &l.id);
+        self.light_keep.clear();
+        self.light_keep
+            .extend(self.lights.iter().map(|l| l.biome.is_some()));
+        for content in self
+            .contents
+            .instances()
+            .filter(|c| self.wanted_structures.contains(&c.placement.id))
+        {
             for light in &content.lights {
-                if let Some(current) = self.lights.iter_mut().find(|l| l.id == light.id) {
+                if let Some(i) = self
+                    .light_index
+                    .position(&self.lights, |l| &l.id, &light.id)
+                {
+                    self.light_keep[i] = true;
+                }
+            }
+        }
+        let mut keep = self.light_keep.iter();
+        self.lights.retain(|_| *keep.next().unwrap());
+        self.light_index.rebuild(&self.lights, |l| &l.id);
+        for content in self
+            .contents
+            .instances()
+            .filter(|c| self.wanted_structures.contains(&c.placement.id))
+        {
+            for light in &content.lights {
+                let found = self
+                    .light_index
+                    .position(&self.lights, |l| &l.id, &light.id);
+                if let Some(current) = found.map(|i| &mut self.lights[i]) {
                     current.enabled = light.enabled;
                     current.intensity = light.intensity;
                     current.pose = light.pose;
                 } else {
+                    self.light_index.push(&light.id, self.lights.len());
                     self.lights.push(light.clone());
                 }
             }
@@ -2631,7 +2651,7 @@ impl WorldStream {
                         && change.instance.as_ref().is_some_and(|id| {
                             !self
                                 .contents
-                                .active
+                                .active()
                                 .iter()
                                 .chain(&self.static_controls)
                                 .any(|c| &c.content.placement.id == id && c.restored)
@@ -2702,7 +2722,7 @@ impl WorldStream {
             };
             let active = change.instance.as_ref().is_some_and(|id| {
                 self.contents
-                    .active
+                    .active()
                     .iter()
                     .chain(&self.static_controls)
                     .any(|c| &c.content.placement.id == id)
@@ -2948,7 +2968,7 @@ impl WorldStream {
             .iter()
             .filter(|l| {
                 l.biome.is_some()
-                    && !self.wanted_structures.iter().any(|p| p.id == l.id)
+                    && !self.wanted_structures.contains(&l.id)
                     && !self.structures.iter().any(|p| p.placement.id == l.id)
             })
             .count();
@@ -4351,8 +4371,7 @@ impl WorldStream {
     }
     /// True while the stream still wants the structure.
     pub fn structure_wanted(&self, request: WorldRequest, id: &super::GeneratedId) -> bool {
-        request.session == self.request.session
-            && self.wanted_structures.iter().any(|p| p.id == *id)
+        request.session == self.request.session && self.wanted_structures.contains(id)
     }
     /// The renderer finished the structure. Its drained claim and credit move to the ready queue.
     fn accept_structure_renderer(
@@ -4798,7 +4817,7 @@ impl WorldStream {
             self.saved_item_protection.retain(|key| {
                 items.resolve_key(key).is_none_or(|item| {
                     self.contents
-                        .active
+                        .active()
                         .iter()
                         .chain(&self.static_controls)
                         .any(|c| {
@@ -4818,7 +4837,7 @@ impl WorldStream {
         items: &crate::interaction::items::ItemStore,
         physics: &mut PhysicsWorld,
     ) {
-        for content in &self.contents.active {
+        for content in self.contents.active() {
             let Some(item) = content.item.and_then(|id| items.get(id)) else {
                 continue;
             };
@@ -4888,11 +4907,11 @@ impl WorldStream {
                 // A startup structure stays while it is wanted, as `refresh_startup_placements`
                 // selects it, also before its contents bind.
                 || ((!id.children.is_empty() || id.layer == WorldLayer::Startup)
-                    && self.wanted_structures.iter().any(|p| &p.id == id))
+                    && self.wanted_structures.contains(id))
                 // A wanted replay owner stays until its replay finishes. Else a far owner
                 // publishes and retires each step, and its replayed items never publish.
                 || (self.structure_replay_required(id)
-                    && self.wanted_structures.iter().any(|p| &p.id == id))
+                    && self.wanted_structures.contains(id))
                 || (id.children.is_empty()
                     && id.layer != WorldLayer::Building
                     && self.props.contains(id))
@@ -4933,7 +4952,7 @@ impl WorldStream {
                 if let Some(item) = content.item {
                     content_bindings::unbind_storage(
                         item,
-                        &self.contents.active,
+                        &self.contents.active(),
                         items,
                         interaction,
                         physics,
@@ -5199,7 +5218,7 @@ impl WorldStream {
         let mut counters = super::metrics::WorldPerformance {
             objects: self
                 .contents
-                .active
+                .active()
                 .iter()
                 .chain(&self.static_controls)
                 .map(|c| c.bindings.len() + usize::from(c.item.is_some()))
@@ -5488,6 +5507,8 @@ impl WorldStream {
                 + self.startup_points.capacity() * std::mem::size_of::<TerrainRoadPoint>()
                 + self.surfaces.capacity() * std::mem::size_of::<PublishedSurface>()
                 + self.lights.capacity() * std::mem::size_of::<super::WorldLight>()
+                + self.light_index.retained_bytes()
+                + self.light_keep.capacity()
                 + self
                     .lights
                     .iter()
@@ -5502,6 +5523,7 @@ impl WorldStream {
                     .sum::<usize>()
                 + self.supplies.capacity() * std::mem::size_of::<PublishedSupply>()
                 + self.wanted_structures.capacity() * std::mem::size_of::<Placement>()
+                + self.wanted_structures.index_bytes()
                 + self
                     .wanted_structures
                     .iter()
@@ -5513,14 +5535,14 @@ impl WorldStream {
             last_road_work: self.last_road_work,
             generated_objects: self
                 .contents
-                .active
+                .active()
                 .iter()
                 .chain(&self.static_controls)
                 .map(|c| c.bindings.len() + usize::from(c.item.is_some()))
                 .sum::<usize>()
                 + self
                     .contents
-                    .active
+                    .active()
                     .iter()
                     .filter(|c| {
                         c.item.is_none()

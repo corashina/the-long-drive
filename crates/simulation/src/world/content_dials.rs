@@ -100,7 +100,7 @@ impl WorldStream {
             let b = &mut self.dial_bindings[i];
             if let Some(slot) = self
                 .contents
-                .active
+                .active()
                 .iter()
                 .position(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
             {
@@ -113,8 +113,8 @@ impl WorldStream {
                 self.dial_bindings.swap_remove(i);
             }
         }
-        for slot in 0..self.contents.active.len() {
-            let content = &self.contents.active[slot];
+        for slot in 0..self.contents.active().len() {
+            let content = &self.contents.active()[slot];
             let Some(item) = content.item else {
                 continue;
             };
@@ -163,7 +163,7 @@ impl WorldStream {
         item: ItemId,
         script: &SourceId,
     ) -> Result<DialBinding, ReferenceError> {
-        let content = &self.contents.active[slot];
+        let content = &self.contents.active()[slot];
         let parent = content.content.placement.id.clone();
         let rules = &self.contents.rules;
         let reference = &self.reference;
