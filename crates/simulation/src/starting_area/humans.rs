@@ -47,6 +47,8 @@ impl GarageRuntime {
             |handle, physics: &crate::vehicle::PhysicsWorld| interaction.ai_usable(handle, physics);
         let mut doors = Vec::new();
         let r = &reference.creatures.human;
+        let now = self.simulation_seconds;
+        self.creatures.humans.voice_block(r, now, dt);
         let damage = self.creatures.humans.step_ai(
             r,
             &mut self.physics,
@@ -65,6 +67,7 @@ impl GarageRuntime {
             self.survival.damage_instant(&reference.survival, damage);
             self.announce_death(reference);
         }
+        self.creatures.humans.animate(r, &self.physics, now, dt);
         for door in doors {
             self.area
                 .interaction
@@ -79,6 +82,10 @@ impl GarageRuntime {
             if self.kill_human(reference, id, None).is_err() {
                 self.notice = "Cannot drop the human ragdoll.";
             }
+            let r = &reference.creatures.human;
+            self.creatures
+                .humans
+                .death_voice(r, id, self.simulation_seconds);
         }
     }
 
