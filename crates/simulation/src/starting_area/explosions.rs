@@ -32,6 +32,7 @@ impl GarageRuntime {
             self.explode(reference, &blast);
         }
         self.area.interaction.explosions.finish();
+        self.settle_humans(reference);
         self.announce_death(reference);
     }
     /// `weaponscript.Shot` on a tank and an explosive prop.
@@ -171,6 +172,12 @@ impl GarageRuntime {
             if let Some(target) = breakables.target_of(&self.physics, collider) {
                 breakables.try_break_explosion(&reference.breakables, target, power);
             }
+            self.creatures.humans.explode(
+                &reference.creatures.human,
+                &self.physics,
+                collider,
+                power,
+            );
             let parent = self.physics.rapier().colliders[collider].parent();
             if parent.is_some() && parent == player {
                 // fpscontrollerholder is on one collider: the strongest player collider counts.
