@@ -174,6 +174,11 @@ pub fn run(reference_json: &[u8], startup: &[u8]) -> Result<(), JsValue> {
         presentation::readiness::RendererStateHandle::default,
     )
     .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    // Reject unsupported reference data before the app starts. Systems need these resources.
+    let materials = presentation::materials::load_materials(&reference)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let fixed_assets = presentation::fixed_assets::SourceFixedAssets::new(&reference)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let allocation = presentation::world::runtime::SourcePresentationAllocation::bootstrap(
         startup.session,
         fixed,
@@ -182,6 +187,8 @@ pub fn run(reference_json: &[u8], startup: &[u8]) -> Result<(), JsValue> {
     App::new()
         .insert_resource(graph)
         .insert_resource(allocation)
+        .insert_resource(materials)
+        .insert_resource(fixed_assets)
         .insert_resource(RuntimeReference(reference.clone()))
         .init_resource::<save::SaveRequests>()
         .insert_resource(Drive {
@@ -353,23 +360,10 @@ fn setup(
     commands.insert_resource(presentation::sky_traffic::SkyTrafficVisuals::default());
     commands.insert_resource(presentation::creatures::CreatureVisuals::default());
     commands.insert_resource(presentation::humans::HumanVisuals::default());
-    if let Err(error) =
-        presentation::materials::load_materials(&mut commands, &server, &reference.0)
-    {
-        game_failure(&error.to_string());
-        return;
-    }
     presentation::lighting::load_lighting(&mut commands, &server, &reference.0.lighting);
     presentation::lighting_assets::load_lighting(&mut commands, &server, Arc::clone(&reference.0));
     presentation::lighting::load_lamp_materials(&mut commands, &gltf_extensions, &reference.0);
     presentation::reference::load(&mut commands, &server, &reference.0);
-    match presentation::fixed_assets::SourceFixedAssets::new(&reference.0) {
-        Ok(fixed) => commands.insert_resource(fixed),
-        Err(error) => {
-            game_failure(&error.to_string());
-            return;
-        }
-    };
     presentation::frame_graph::spawn_cameras(
         &mut commands,
         &mut images,
