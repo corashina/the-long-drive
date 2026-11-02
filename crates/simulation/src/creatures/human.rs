@@ -314,7 +314,7 @@ impl Humans {
 
     pub fn rebase(&mut self, shift: Vector) {
         for h in &mut self.humans {
-            h.target += shift;
+            h.target -= shift;
         }
     }
 
