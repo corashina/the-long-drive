@@ -246,6 +246,28 @@ impl Hitches {
             .map(|i| HitchTarget(i as u32))
     }
 
+    /// The target of `owner` whose source has `crate::world::source_seed` `seed`.
+    pub fn target_of(&self, owner: ItemId, seed: u64) -> Option<HitchTarget> {
+        self.targets
+            .iter()
+            .position(|t| {
+                t.as_ref().is_some_and(|t| {
+                    t.owner == owner && crate::world::source_seed(&t.source) == seed
+                })
+            })
+            .map(|i| HitchTarget(i as u32))
+    }
+
+    /// Each hitched grip, its target owner and the target source.
+    pub fn hitched(&self) -> impl Iterator<Item = (ItemId, ItemId, &SourceId)> + '_ {
+        self.trailers.iter().filter_map(|t| match t.link {
+            Link::Hitched { target, .. } => self
+                .target(target)
+                .map(|target| (t.spec.grip, target.owner, &target.source)),
+            Link::Loose(_) => None,
+        })
+    }
+
     pub fn is_grip(&self, item: ItemId) -> bool {
         self.trailers.iter().any(|t| t.spec.grip == item)
     }

@@ -5,6 +5,7 @@ pub mod claim;
 pub mod inventory;
 pub mod items;
 pub mod message;
+pub mod mounts;
 pub mod objects;
 pub mod remote;
 pub mod state;
@@ -19,9 +20,10 @@ use inventory::InventorySync;
 use items::ItemSync;
 use message::{
     BodyMessage, CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage,
-    ClaimMessage, FluidMessage, InventoryMessage, ItemPoseMessage, Message, PoseMessage,
-    RemoveMessage, RequestMessage, TankCapMessage, UsableMessage, VelocityMessage,
+    ClaimMessage, FluidMessage, InventoryMessage, ItemPoseMessage, Message, MountMessage,
+    PoseMessage, RemoveMessage, RequestMessage, TankCapMessage, UsableMessage, VelocityMessage,
 };
+use mounts::MountSync;
 use objects::{NetKey, ObjectIndex};
 use remote::Remote;
 use state::StateSync;
@@ -71,6 +73,7 @@ pub struct Net {
     cars_touched: bool,
     inventory: InventorySync,
     state: StateSync,
+    mounts: MountSync,
     /// Remote figure poses of this frame, in stream space.
     figures: Vec<(u8, rapier3d::math::Pose)>,
     /// Peers that left since the last frame.
@@ -90,6 +93,7 @@ impl Net {
             self.objects.clear();
             self.items.clear();
             self.state.clear();
+            self.mounts.clear();
             self.cars.clear();
         }
     }
@@ -185,6 +189,8 @@ impl Net {
         };
         self.inventory.send(runtime, &self.objects, out);
         self.state
+            .send(runtime, &self.objects, &self.items.requested, real_dt, out);
+        self.mounts
             .send(runtime, &self.objects, &self.items.requested, real_dt, out);
         self.items.requested.clear();
         let origin = &runtime.stream.origin;
@@ -307,6 +313,10 @@ impl Net {
         } else if let Ok((slot, m)) = UsableMessage::decode(packet) {
             if let Some(id) = item(slot, m.key) {
                 self.state.got_usable(runtime, id, &m);
+            }
+        } else if let Ok((slot, m)) = MountMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                self.mounts.got(runtime, &self.objects, id, &m);
             }
         } else if let Ok((slot, m)) = ClaimMessage::decode(packet) {
             if let Some(id) = item(slot, m.key) {
