@@ -1,4 +1,4 @@
-//! ROADMAP test pass: Multiplayer (MP rows).
+//! Headless scenario tests: Multiplayer (MP rows).
 use crate::boundary::SimFrame;
 use crate::interaction::items::ItemLocation;
 use crate::net::{Net, NetRole};

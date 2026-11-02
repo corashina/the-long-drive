@@ -1,6 +1,6 @@
-# ROADMAP test pass rows
+# Headless scenario tests
 
-Headless scenario tests of the ROADMAP test pass rows. One file per section.
+Headless scenario tests from the former ROADMAP rows. One file per area.
 They read the installed export (`web/assets/reference/manifest.json`) and are `#[ignore]`.
 Use the kit in `world/stream_tests/kit.rs`: `use crate::world::stream::tests::kit::*;`.
 
