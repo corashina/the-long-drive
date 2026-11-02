@@ -543,6 +543,10 @@ impl WorldTextures {
             if selected.is_empty() {
                 return Ok(());
             }
+            // A batch takes its staging only with a job. A queued batch that holds staging and
+            // waits for a job can hold the dependency reserve while job owners wait (K4).
+            let jobs = ledger.available_external_jobs();
+            selected.truncate(jobs.max(1));
             // Every request runs, so the report asks for all credit of the batches at once.
             let claims = ledger.can_request_independent(selected.len());
             let shared = if let Some((owner, _, _, _)) = &current {
@@ -584,7 +588,7 @@ impl WorldTextures {
             // Short credit waits. The report asks the stream for the rest.
             ledger.request_staging(requested);
             ledger.request_prototype(requested, 0);
-            if !claims {
+            if !claims || jobs == 0 {
                 return Ok(());
             }
             let admission = if refill {

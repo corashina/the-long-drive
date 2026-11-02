@@ -1330,15 +1330,29 @@ impl WorldStream {
             ));
             return false;
         }
-        self.wait_for_room(bytes <= self.available_staging_bytes(), Reclaim::STAGING)
+        self.wait_for_staging(bytes)
+    }
+    /// True if `bytes` of generation staging fit. Generation reclaims renderer staging only
+    /// when renderer credit blocks the bytes. Credit that comes back does not enlarge the
+    /// generation share. Work at that share can wait for renderer loads, and a reclaim then
+    /// stops those loads: the first page load stalls (K4).
+    fn wait_for_staging(&self, bytes: usize) -> bool {
+        bytes <= self.generation_share_bytes()
+            && self.wait_for_room(
+                bytes <= self.available_dependency_staging_bytes(),
+                Reclaim::STAGING,
+            )
     }
     // Retained generation may wait for resources. Keep one checked input window free.
     // Grass and synchronous published bindings drain without further resource loads.
     pub(crate) fn available_staging_bytes(&self) -> usize {
-        self.available_dependency_staging_bytes().min(
-            (STAGING - self.dependency_staging_reserve)
-                .saturating_sub(self.generation_pending_bytes() - self.binding_reserved),
-        )
+        self.available_dependency_staging_bytes()
+            .min(self.generation_share_bytes())
+    }
+    /// Free generation staging. The dependency reserve stays for the renderer.
+    fn generation_share_bytes(&self) -> usize {
+        (STAGING - self.dependency_staging_reserve)
+            .saturating_sub(self.generation_pending_bytes() - self.binding_reserved)
     }
     pub(crate) fn available_dependency_staging_bytes(&self) -> usize {
         STAGING.saturating_sub(self.presentation.staging_bytes + self.generation_pending_bytes())
@@ -3602,7 +3616,7 @@ impl WorldStream {
                 self.limits.active_gpu,
             )));
         }
-        if !self.wait_for_room(cpu <= self.available_staging_bytes(), Reclaim::STAGING) {
+        if !self.wait_for_staging(cpu) {
             return Ok(false);
         }
         self.ready.as_mut().unwrap().offered = true;
