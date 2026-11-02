@@ -454,6 +454,7 @@ impl GarageRuntime {
                 "active_gpu": self.stream.presentation_credit().active_gpu,
             },
             "jobs": self.stream.startup_job_audit(),
+            "budgets": self.stream.budget_audit(),
             "physics_bodies": self.physics.rapier().bodies.len(),
             "physics_colliders": self.physics.collider_count(),
             "active_items": self.area.items.len(),
