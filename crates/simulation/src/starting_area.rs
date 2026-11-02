@@ -762,8 +762,11 @@ pub struct GarageRuntime {
     pub shared_sounds: Vec<crate::net::message::SoundMessage>,
     /// Items that broke on this guest, with the breakable record. Net sends them to the host.
     pub shared_breaks: Vec<(ItemId, u32)>,
-    /// A multiplayer guest: the host breaks items. Net sets it each frame.
+    /// Multiplayer guest. The host alone spawns rabbits and tumbleweeds and breaks items (source
+    /// `isServerOrNoMulti`). Net sets it.
     pub net_guest: bool,
+    /// Radios whose controls changed, for multiplayer peers (source `SRadio`). Net drains it each frame.
+    pub shared_radios: Vec<ItemId>,
     heat_haze: crate::heat_haze::OldHeatHaze,
     /// Source `BOldHeatHaze`. The driver sets it.
     pub old_heat_haze: bool,
@@ -956,6 +959,7 @@ impl GarageRuntime {
             shared_sounds: Vec::with_capacity(SHARED_SOUNDS),
             shared_breaks: Vec::with_capacity(SHARED_SOUNDS),
             net_guest: false,
+            shared_radios: Vec::with_capacity(SHARED_SOUNDS),
             heat_haze: crate::heat_haze::OldHeatHaze::new(&reference.small_items.heat_haze),
             old_heat_haze: false,
             ambient: crate::audio::AmbientState::new(&reference.ambient),
@@ -1392,15 +1396,24 @@ impl GarageRuntime {
                         .switch_display(knob, reference, &self.area.items)
                     && !self.stream.tune_dial(knob, direction, &mut self.area.items)
                     && !self.stream.switch_detector(knob, &mut self.area.items)
-                    && let Some((item, true)) =
+                    && let Some((radio, click)) =
                         self.stream
                             .radio_control(knob, direction, &mut self.area.items)
-                    && let (Some(audio), Some(item)) = (&mut self.audio, self.area.items.get(item))
                 {
-                    let origin = self.area.origin;
-                    audio.radio_click_at(std::array::from_fn(|i| {
-                        origin[i] + f64::from(item.pose.position[i])
-                    }));
+                    if !self.shared_radios.contains(&radio)
+                        && self.shared_radios.len() < self.shared_radios.capacity()
+                    {
+                        self.shared_radios.push(radio);
+                    }
+                    if click
+                        && let (Some(audio), Some(item)) =
+                            (&mut self.audio, self.area.items.get(radio))
+                    {
+                        let origin = self.area.origin;
+                        audio.radio_click_at(std::array::from_fn(|i| {
+                            origin[i] + f64::from(item.pose.position[i])
+                        }));
+                    }
                 }
             }
             Some(InteractionAction::Crank(knob, look)) => {
@@ -1923,6 +1936,7 @@ impl GarageRuntime {
                 supports: &supports,
                 important: &important,
                 distances,
+                spawns: !self.net_guest,
             },
         );
         if self.creatures.place_remove_due(self.simulation_seconds) {

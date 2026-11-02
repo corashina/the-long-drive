@@ -8,15 +8,23 @@ use rapier3d::prelude::{
     ImpulseJointHandle, PairFilterContext, PhysicsHooks, QueryFilter, QueryPipelineMut, RigidBody,
     RigidBodyHandle, SolverFlags,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-/// Bodies of one group do not collide with one another (source `Physics.IgnoreCollision`).
-/// Each body maps to its group key.
+/// Source `Physics.IgnoreCollision`. Bodies of one group do not collide with one another.
+/// Each body maps to its group key. `pairs` holds single ignored body pairs in both orders.
 #[derive(Default)]
-pub(super) struct IgnoredCollisions(HashMap<RigidBodyHandle, RigidBodyHandle>);
+pub(super) struct IgnoredCollisions {
+    groups: HashMap<RigidBodyHandle, RigidBodyHandle>,
+    pairs: HashSet<(RigidBodyHandle, RigidBodyHandle)>,
+}
 impl PhysicsHooks for IgnoredCollisions {
     fn filter_contact_pair(&self, context: &PairFilterContext) -> Option<SolverFlags> {
-        let group = |body: Option<RigidBodyHandle>| body.and_then(|body| self.0.get(&body));
+        if let (Some(a), Some(b)) = (context.rigid_body1, context.rigid_body2)
+            && self.pairs.contains(&(a, b))
+        {
+            return None;
+        }
+        let group = |body: Option<RigidBodyHandle>| body.and_then(|body| self.groups.get(&body));
         match (group(context.rigid_body1), group(context.rigid_body2)) {
             (Some(a), Some(b)) if a == b => None,
             _ => Some(SolverFlags::default()),
@@ -142,7 +150,7 @@ impl PhysicsWorld {
             return;
         };
         for &body in bodies {
-            self.ignored.0.insert(body, group);
+            self.ignored.groups.insert(body, group);
             for &collider in self.physics.bodies[body].colliders() {
                 let collider = &mut self.physics.colliders[collider];
                 collider
@@ -150,8 +158,31 @@ impl PhysicsWorld {
             }
         }
     }
+    /// Source `Physics.IgnoreCollision(a, b, ignore)` for two bodies.
+    pub fn ignore_pair(&mut self, a: RigidBodyHandle, b: RigidBodyHandle, ignore: bool) {
+        if !ignore {
+            self.ignored.pairs.remove(&(a, b));
+            self.ignored.pairs.remove(&(b, a));
+            return;
+        }
+        self.ignored.pairs.insert((a, b));
+        self.ignored.pairs.insert((b, a));
+        for body in [a, b] {
+            let Some(state) = self.physics.bodies.get(body) else {
+                continue;
+            };
+            for &collider in state.colliders() {
+                let collider = &mut self.physics.colliders[collider];
+                collider
+                    .set_active_hooks(collider.active_hooks() | ActiveHooks::FILTER_CONTACT_PAIRS);
+            }
+        }
+    }
     pub fn remove_body(&mut self, body: RigidBodyHandle) -> Option<RigidBody> {
-        self.ignored.0.remove(&body);
+        self.ignored.groups.remove(&body);
+        if !self.ignored.pairs.is_empty() {
+            self.ignored.pairs.retain(|(a, b)| *a != body && *b != body);
+        }
         let state = self.physics.bodies.get(body)?;
         for &collider in state.colliders() {
             self.query_bounds.retire_collider(collider);

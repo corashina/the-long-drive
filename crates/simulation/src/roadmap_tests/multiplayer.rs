@@ -210,6 +210,61 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
     }
 }
 
+/// MP5 (M01). Source `mpplayerscript`: the figure of the other player turns solid 3 s after it
+/// shows, on layer 0. A ray with the player capsule layers then hits its body at the figure.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_mp5_the_other_figure_turns_solid_after_3_s() {
+    use rapier3d::prelude::{QueryFilter, Ray};
+    let (reference, mut host_run) = load_garage();
+    settle(&mut host_run, &reference);
+    let mut guest_run = save_load(&host_run, &reference);
+    let (mut host, mut guest) = (Net::default(), Net::default());
+    host.set_session(NetRole::Host, 0);
+    guest.set_session(NetRole::Guest, 1);
+    let (mut out, mut packets) = (SimFrame::default(), Vec::new());
+    let mut sync =
+        |host_run: &mut GarageRuntime, guest_run: &mut GarageRuntime, guest: &mut Net, s: f32| {
+            for _ in 0..(s / FIXED_DT) as usize {
+                frame(host_run, &reference);
+                frame(guest_run, &reference);
+                host.fill(&reference, host_run, FIXED_DT, 1., &mut out);
+                host.take_outbox(&mut packets);
+                guest.receive(&packets);
+                guest.fill(&reference, guest_run, FIXED_DT, 1., &mut out);
+                guest.take_outbox(&mut packets);
+            }
+        };
+    sync(&mut host_run, &mut guest_run, &mut guest, 2.5);
+    let body = guest.remote_body(0).expect("the host figure has a body");
+    assert!(!body.enabled(), "not solid before 3 s");
+    sync(&mut host_run, &mut guest_run, &mut guest, 1.);
+    let body = guest.remote_body(0).unwrap();
+    assert!(body.enabled(), "solid after 3 s");
+    let at = body.position(&guest_run.physics);
+    let capsule = &reference.player.posture;
+    let handle = body.handle;
+    // The guest starts where the host stood: skip its own body.
+    let own = guest_run.area.player.body_handle();
+    let filter = |_, c: &rapier3d::prelude::Collider| {
+        c.is_enabled()
+            && c.parent() != Some(own)
+            && c.collision_groups().memberships.bits() & capsule.capsule_filter != 0
+            && c.collision_groups().filter.bits() & capsule.capsule_membership != 0
+    };
+    let ray = Ray::new(at + Vector::new(2., 0., 0.), Vector::new(-1., 0., 0.));
+    let (hit, _) = guest_run
+        .physics
+        .queries(QueryFilter::default().predicate(&filter))
+        .cast_ray(&ray, 4., true)
+        .expect("the ray hits the figure");
+    assert_eq!(
+        guest_run.physics.rapier().colliders[hit].parent(),
+        Some(handle),
+        "the figure body blocks the player capsule layers"
+    );
+}
+
 /// MP M04a. Source `SendStartStuff`, `RTime`, `RadioChannelMultiplayerUpd` and `SSound`: when a guest
 /// joins, the host sends its clock and its radio stations. The guest takes them. A host burp plays at
 /// the host position on the guest.
@@ -623,4 +678,56 @@ fn tp_m03_a_host_bite_reaches_the_guest() {
     run.set_food_bite(&reference, food, bite).unwrap();
     pair.run(&reference, &mut run, &mut guest, 0.5);
     assert_eq!(guest.area.items.get(copy).unwrap().food.unwrap().bite, bite);
+}
+
+/// MP M04c. Source `aispawn.SpawnRoutine` (`isServerOrNoMulti`) and the item pose of an AI: the
+/// guest spawns no rabbits of its own, and a rabbit that the host spawns appears on the guest with
+/// the host id and follows the host pose.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_mp_m04c_host_rabbits_appear_on_the_guest() {
+    let (reference, mut host_run) = super::creatures::outdoors();
+    let mut guest_run = save_load(&host_run, &reference);
+    let (mut host, mut guest) = (Net::default(), Net::default());
+    host.set_session(NetRole::Host, 0);
+    guest.set_session(NetRole::Guest, 1);
+    let mut frame = SimFrame::default();
+    let id = act(
+        &mut host_run,
+        &reference,
+        r#"{"action":"spawn","name":"rabbit","forward":4}"#,
+    )
+    .as_u64()
+    .unwrap() as u32;
+    let before: Vec<u32> = guest_run.creatures.rabbits().map(|r| r.id).collect();
+    for _ in 0..(2. / FIXED_DT) as usize {
+        exchange(
+            &reference,
+            [
+                (&mut host_run, &mut host, FrameInput::default()),
+                (&mut guest_run, &mut guest, FrameInput::default()),
+            ],
+            &mut frame,
+        );
+    }
+    let at = |run: &GarageRuntime| {
+        run.creatures
+            .views(&run.physics)
+            .find(|v| v.id == id)
+            .map(|v| run.stream.origin.absolute(v.pose.translation.to_array()))
+    };
+    let (h, g) = (
+        at(&host_run).unwrap(),
+        at(&guest_run).expect("the host rabbit on the guest"),
+    );
+    assert!(
+        apart(h, g) < 1.,
+        "the guest rabbit follows the host: {h:?} {g:?}"
+    );
+    let spawned = guest_run
+        .creatures
+        .rabbits()
+        .filter(|r| !before.contains(&r.id) && r.id != id)
+        .count();
+    assert_eq!(spawned, 0, "the guest spawns no rabbits of its own");
 }

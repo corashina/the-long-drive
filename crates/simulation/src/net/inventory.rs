@@ -208,6 +208,22 @@ impl InventorySync {
         }
     }
 
+    /// The bodies of the items that the player of `slot` carries or holds.
+    pub fn held_bodies(
+        &self,
+        runtime: &GarageRuntime,
+        slot: u8,
+        out: &mut Vec<rapier3d::prelude::RigidBodyHandle>,
+    ) {
+        out.clear();
+        out.extend(
+            self.held
+                .iter()
+                .filter(|(_, h)| h.slot == slot)
+                .filter_map(|(item, _)| runtime.area.items.get(*item).and_then(|i| i.body)),
+        );
+    }
+
     /// A player left: its items fall where they are.
     pub fn leave(&mut self, runtime: &mut GarageRuntime, slot: u8) {
         let items: Vec<ItemId> = self

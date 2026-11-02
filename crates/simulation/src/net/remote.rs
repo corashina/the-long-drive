@@ -1,8 +1,10 @@
 //! One remote player: source `snTempPlayerSync.player` smoothing and the `mpplayerscript` body.
 use super::SYNC_TIME;
+use super::body::{RemoteBody, Shapes};
 use super::message::{BodyMessage, PoseMessage};
 use crate::player::body::BodyState;
-use crate::vehicle::VehiclePose;
+use crate::reference::RemotePlayerReference;
+use crate::vehicle::{PhysicsWorld, VehiclePose, to_rapier};
 use crate::world::WorldOrigin;
 use glam::{DQuat, DVec3};
 
@@ -30,6 +32,9 @@ pub struct Remote {
     pub body: BodyState,
     pub smoothing: Smoothing,
     targets: Option<[[f32; 7]; 6]>,
+    pub collision: Option<RemoteBody>,
+    /// The absolute position of the last body write.
+    written: DVec3,
 }
 
 impl Remote {
@@ -39,6 +44,8 @@ impl Remote {
             body,
             smoothing: Smoothing::default(),
             targets: None,
+            collision: None,
+            written: DVec3::ZERO,
         }
     }
 
@@ -47,22 +54,44 @@ impl Remote {
         self.targets = Some(m.targets);
     }
 
-    /// Source `UpdPos`, then the IK. Returns the figure pose in stream space and `CharacterRoot`.
+    /// Source `UpdPos`, the IK, then `UpdCollider` after each received pose.
+    /// Returns the figure pose in stream space and `CharacterRoot`.
     /// `car`: the shown world pose of a car by key and seat index, `None` when the car is not here.
     pub fn step(
         &mut self,
         now: f64,
         dt: f32,
+        reference: &RemotePlayerReference,
         origin: &WorldOrigin,
+        physics: &mut PhysicsWorld,
         car: impl FnOnce(u64, u32) -> Option<(DVec3, DQuat)>,
     ) -> Option<(VehiclePose, VehiclePose)> {
         let targets = self.targets?;
+        // Contacts move a standing figure between writes, like the source rigidbody moves `T`.
+        if let Some(c) = &self.collision
+            && !c.seated()
+        {
+            let at = origin.absolute(c.position(physics).to_array());
+            self.smoothing.shown.position += DVec3::from_array(at) - self.written;
+        }
         let shown = self.smoothing.update(now, dt, car)?;
         self.body.pose_remote(self.smoothing.duck, &targets);
         let pose = VehiclePose {
             position: origin.local(shown.position.to_array()),
             rotation: shown.rotation.as_quat().to_array(),
         };
+        if let Some(head) = self.body.node_local(reference.head) {
+            let shapes = Shapes::new(reference, head.position, self.smoothing.duck);
+            let collision = self.collision.get_or_insert_with(|| {
+                RemoteBody::new(reference, shapes, to_rapier(pose), now, physics)
+            });
+            if std::mem::take(&mut self.smoothing.fresh) {
+                collision.update(reference, shapes, self.smoothing.seated, now, physics);
+            }
+            collision.tick(now, physics);
+            collision.place(physics, to_rapier(pose));
+            self.written = shown.position;
+        }
         Some((pose, self.body.root_local()))
     }
 }
@@ -85,6 +114,8 @@ pub struct Smoothing {
     car: Option<(u64, u32)>,
     pub duck: f32,
     start: Option<f64>,
+    /// A pose came since the last `UpdCollider`.
+    fresh: bool,
 }
 
 impl Smoothing {
@@ -106,10 +137,12 @@ impl Smoothing {
                 car: None,
                 duck: m.duck,
                 start: Some(now),
+                fresh: true,
             };
         }
         let was_seated = self.seated;
         self.seated = seated;
+        self.fresh = true;
         self.car = (m.flags & PoseMessage::IN_CAR != 0).then_some((m.car, m.seat));
         self.duck = m.duck;
         self.old = self.last;
@@ -131,6 +164,11 @@ impl Smoothing {
         }
         self.last_time = now;
         self.next_time = now + (self.last_time - self.old_time);
+    }
+
+    /// The car key and seat of a figure in a car.
+    pub fn car(&self) -> Option<(u64, u32)> {
+        self.car
     }
 
     /// Source `UpdPos`. `None` before the first pose.
