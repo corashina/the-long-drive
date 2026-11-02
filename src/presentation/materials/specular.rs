@@ -346,8 +346,9 @@ impl AsBindGroup for SpecularMaterial {
                 .filter(|entry| entry.binding == 0),
         );
         result.extend(
+            // The shadow caster vertex stage reads the UV transform from binding 120.
             BindGroupLayoutEntries::with_indices(
-                ShaderStages::FRAGMENT,
+                ShaderStages::VERTEX_FRAGMENT,
                 ((120, uniform_buffer::<SourceUniform>(false)),),
             )
             .to_vec(),
