@@ -552,7 +552,11 @@ impl AudioState {
         }
     }
     /// Loops of the sky prefab voices, one instance per plane. `anchor` is absolute.
-    pub fn sky(&mut self, planes: &[crate::sky_traffic::Plane], anchor: [f64; 3]) {
+    pub fn sky<'a>(
+        &mut self,
+        planes: impl IntoIterator<Item = &'a crate::sky_traffic::Plane>,
+        anchor: [f64; 3],
+    ) {
         self.voice_loops.clear();
         for plane in planes {
             for v in self.sky_voices.iter().filter(|v| v.prefab == plane.prefab) {
