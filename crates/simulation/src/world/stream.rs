@@ -2706,9 +2706,6 @@ impl WorldStream {
             }
         }
     }
-    pub fn spawn_boundaries(&self) -> &[super::SpawnBoundary] {
-        self.contents.state.boundaries()
-    }
     pub fn contents_initialized(&self, id: &super::GeneratedId) -> bool {
         self.contents.initialized(id)
     }
@@ -5178,7 +5175,6 @@ impl WorldStream {
                 + usize::from(self.contents.has_replay()),
             pending_bytes: self.presentation.staging_bytes + self.generation_pending_bytes(),
             pending_work: self.pending_work(),
-            spawn_parents: self.contents.state.parent_count(),
             spawn_boundaries: self.contents.state.boundary_count(),
             spawn_boundary_bytes: self.contents.state.retained_bytes(),
             checkpoint_bytes: self.contents.state.retained_bytes()
