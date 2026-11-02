@@ -1,6 +1,13 @@
 //! Source object layers retain candidate buffers only for active chunks.
 use super::{Placement, PropCandidate, PropGenerator, TerrainContext};
 use crate::reference::{ReferenceError, WorldReference};
+use std::collections::{HashMap, HashSet};
+
+/// Layer, chunk unit and ordinal of a placement: the part that its children share.
+type RootKey = (super::WorldLayer, [i64; 2], u32);
+fn root_key(id: &super::GeneratedId) -> RootKey {
+    (id.layer, id.unit, id.ordinal)
+}
 
 struct Chunk {
     layer: usize,
@@ -21,6 +28,9 @@ pub struct PropLayers {
     layers: [Layer; 4],
     chunks: Vec<Chunk>,
     placements: Vec<Placement>,
+    /// Ids and root keys of `placements`, for lookups without a scan.
+    ids: HashSet<super::GeneratedId>,
+    roots: HashMap<RootKey, u32>,
     retiring: Vec<super::GeneratedId>,
     layer: usize,
 }
@@ -58,6 +68,8 @@ impl PropLayers {
             layers: layers.try_into().ok().unwrap(),
             chunks: Vec::new(),
             placements: Vec::new(),
+            ids: HashSet::new(),
+            roots: HashMap::new(),
             retiring: Vec::new(),
             layer: 0,
         })
@@ -78,6 +90,7 @@ impl PropLayers {
                 })
                 .sum::<usize>()
             + self.placements.capacity() * std::mem::size_of::<Placement>()
+            + self.index_bytes(0)
             + self.retiring.capacity() * std::mem::size_of::<super::GeneratedId>()
             + self
                 .placements
@@ -131,13 +144,33 @@ impl PropLayers {
         &self.placements
     }
     pub fn contains(&self, id: &super::GeneratedId) -> bool {
-        self.placements.iter().any(|p| &p.id == id)
+        self.ids.contains(id)
+    }
+    /// True if a placement shares the layer, unit and ordinal of `id`.
+    pub fn contains_root(&self, id: &super::GeneratedId) -> bool {
+        self.roots.contains_key(&root_key(id))
+    }
+    /// Index bytes with room for `extra` more placements.
+    fn index_bytes(&self, extra: usize) -> usize {
+        super::metrics::map_bytes(
+            self.ids.capacity().max(self.ids.len() + extra),
+            std::mem::size_of::<super::GeneratedId>(),
+        ) + self
+            .ids
+            .iter()
+            .map(super::contents::identity_heap)
+            .sum::<usize>()
+            + super::metrics::map_bytes(
+                self.roots.capacity().max(self.roots.len() + extra),
+                std::mem::size_of::<(RootKey, u32)>(),
+            )
     }
     /// Reserve a complete candidate buffer before any source generation work.
     pub fn allocation_bound(&self) -> usize {
         self.layers[self.layer].generator.candidate_count() * std::mem::size_of::<PropCandidate>()
             + (self.chunks.capacity() + 1) * std::mem::size_of::<Chunk>()
             + (self.placements.capacity() + 1) * std::mem::size_of::<Placement>()
+            + self.index_bytes(1)
             + self
                 .chunks
                 .iter()
@@ -194,7 +227,18 @@ impl PropLayers {
             .position(|id| id.layer == layer.generator.layer)
         {
             let id = self.retiring.remove(index);
+            let before = self.placements.len();
             self.placements.retain(|p| p.id != id);
+            let removed = (before - self.placements.len()) as u32;
+            if removed > 0 {
+                self.ids.remove(&id);
+                let key = root_key(&id);
+                let count = self.roots.get_mut(&key).expect("a placement has a root");
+                *count -= removed;
+                if *count == 0 {
+                    self.roots.remove(&key);
+                }
+            }
         }
         let j = layer.focus;
         layer.focus = (layer.focus + 1) % 2;
@@ -253,7 +297,13 @@ impl PropLayers {
                         "Source prop count exceeds object admission budget".into(),
                     ));
                 }
+                self.ids
+                    .try_reserve(1)
+                    .and(self.roots.try_reserve(1))
+                    .map_err(|_| ReferenceError("Source prop index allocation failed".into()))?;
                 chunk.placed.push(placement.id.clone());
+                self.ids.insert(placement.id.clone());
+                *self.roots.entry(root_key(&placement.id)).or_insert(0) += 1;
                 self.placements.push(placement);
             }
             chunk.candidates.remove(candidate_index);

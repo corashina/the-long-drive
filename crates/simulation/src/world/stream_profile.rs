@@ -99,7 +99,8 @@ struct Measurement {
 }
 static ENABLED: AtomicBool = AtomicBool::new(false);
 const SAMPLE_CAPACITY: usize = 4096;
-static SAMPLES: Mutex<[[f64; SAMPLE_CAPACITY]; STAGES]> = Mutex::new([[0.; SAMPLE_CAPACITY]; STAGES]);
+static SAMPLES: Mutex<[[f64; SAMPLE_CAPACITY]; STAGES]> =
+    Mutex::new([[0.; SAMPLE_CAPACITY]; STAGES]);
 static VALUES: Mutex<[Measurement; STAGES]> = Mutex::new(
     [Measurement {
         calls: 0,

@@ -155,12 +155,12 @@ impl WorldStream {
         let mut complete = true;
         self.sled_bindings.retain(|b| {
             self.contents
-                .active
+                .active()
                 .iter()
                 .any(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
         });
-        for slot in 0..self.contents.active.len() {
-            let content = &self.contents.active[slot];
+        for slot in 0..self.contents.active().len() {
+            let content = &self.contents.active()[slot];
             let Some(item) = content.item else {
                 continue;
             };
@@ -198,7 +198,7 @@ impl WorldStream {
             .get(item)
             .and_then(|i| i.body)
             .ok_or_else(|| ReferenceError("Sled item has no body".into()))?;
-        let placement = &self.contents.active[slot].content.placement;
+        let placement = &self.contents.active()[slot].content.placement;
         let prototype = self
             .reference
             .prototypes

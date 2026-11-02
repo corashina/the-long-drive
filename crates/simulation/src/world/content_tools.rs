@@ -123,7 +123,7 @@ impl WorldStream {
                     .collect(),
             );
         }
-        let active = &self.contents.active;
+        let active = &self.contents.active();
         self.tools.bindings.retain_mut(|b| {
             let slot = active
                 .iter()
@@ -135,8 +135,8 @@ impl WorldStream {
             slot.is_some()
         });
         let mut complete = true;
-        for slot in 0..self.contents.active.len() {
-            let content = &self.contents.active[slot];
+        for slot in 0..self.contents.active().len() {
+            let content = &self.contents.active()[slot];
             let prototypes = self.tools.prototypes.as_ref().expect("built above");
             let (Some(item), Some(&tool)) = (
                 content.item,
@@ -166,7 +166,7 @@ impl WorldStream {
         item: ItemId,
         tool: usize,
     ) -> Result<ToolBinding, ReferenceError> {
-        let content = &self.contents.active[slot];
+        let content = &self.contents.active()[slot];
         let placement = &content.content.placement;
         let prototype = self
             .reference

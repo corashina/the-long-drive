@@ -106,7 +106,7 @@ impl WorldStream {
             let b = &mut self.detector_bindings[i];
             if let Some(slot) = self
                 .contents
-                .active
+                .active()
                 .iter()
                 .position(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
             {
@@ -119,8 +119,8 @@ impl WorldStream {
                 self.detector_bindings.swap_remove(i);
             }
         }
-        for slot in 0..self.contents.active.len() {
-            let content = &self.contents.active[slot];
+        for slot in 0..self.contents.active().len() {
+            let content = &self.contents.active()[slot];
             let Some(item) = content.item else {
                 continue;
             };
@@ -155,7 +155,7 @@ impl WorldStream {
         item: ItemId,
         script: &SourceId,
     ) -> Result<DetectorBinding, ReferenceError> {
-        let content = &self.contents.active[slot];
+        let content = &self.contents.active()[slot];
         let parent = content.content.placement.id.clone();
         let rules = &self.contents.rules;
         let reference = &self.reference;
@@ -410,13 +410,13 @@ impl WorldStream {
     pub fn mark_presentation(&mut self, parent: &GeneratedId, hint: &mut usize) {
         if self
             .contents
-            .active
+            .active()
             .get(*hint)
             .is_none_or(|c| &c.content.placement.id != parent)
         {
             let Some(slot) = self
                 .contents
-                .active
+                .active()
                 .iter()
                 .position(|c| &c.content.placement.id == parent)
             else {

@@ -149,7 +149,7 @@ impl WorldStream {
         let Some(state) = items.get(item) else {
             return;
         };
-        let Some(content) = self.contents.active.iter().find(|c| c.item == Some(item)) else {
+        let Some(content) = self.contents.active().iter().find(|c| c.item == Some(item)) else {
             return;
         };
         let release = BoxRelease {
@@ -163,12 +163,9 @@ impl WorldStream {
         if !self.contents.boxes.release(release.clone()) {
             return;
         }
-        let contents = &mut self.contents;
-        for content in &mut contents.active {
-            if contents
-                .boxes
-                .content_of(&release.id, &content.content.placement.id)
-            {
+        let (active, _, boxes) = self.contents.active_parts();
+        for content in active {
+            if boxes.content_of(&release.id, &content.content.placement.id) {
                 relocate(
                     &mut content.content.placement,
                     &release.origin,

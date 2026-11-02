@@ -236,7 +236,7 @@ impl WorldStream {
             if !binding.collision_dirty
                 || self
                     .contents
-                    .active
+                    .active()
                     .iter()
                     .chain(&self.static_controls)
                     .any(|c| c.content.placement.id == binding.parent && !c.restored)
@@ -316,7 +316,7 @@ impl WorldStream {
     /// The bound item of an active portable lamp instance.
     fn portable_lamp_item(&self, parent: &GeneratedId) -> Option<crate::reference::ItemId> {
         self.contents
-            .active
+            .active()
             .iter()
             .find(|c| &c.content.placement.id == parent)
             .and_then(|c| c.item)
@@ -347,7 +347,7 @@ impl WorldStream {
         let button = self.lamp_button(&parent, &source)?;
         let baseline = self
             .contents
-            .active
+            .active()
             .iter()
             .find(|c| c.content.placement.id == parent)
             .and_then(|c| c.baseline.clone())
@@ -544,7 +544,7 @@ impl WorldStream {
         }
     }
     pub(super) fn sync_moving_lamps(&mut self, items: &crate::interaction::items::ItemStore) {
-        for content in &self.contents.active {
+        for content in self.contents.active() {
             let Some(item) = content.item.and_then(|id| items.get(id)) else {
                 continue;
             };
@@ -591,7 +591,7 @@ impl WorldStream {
     ) {
         let Some(content) = self
             .contents
-            .active
+            .active_mut()
             .iter_mut()
             .find(|c| c.content.placement.id == *parent)
         else {
@@ -619,7 +619,7 @@ impl WorldStream {
     ) {
         let Some(content) = self
             .contents
-            .active
+            .active_mut()
             .iter_mut()
             .find(|c| c.content.placement.id == *parent)
         else {
