@@ -143,6 +143,31 @@ impl SaveSnapshot {
                 absolute(bone)?;
             }
         }
+        for (i, human) in self.humans.iter().enumerate() {
+            absolute(&human.pose)?;
+            data(
+                [
+                    human.voice_pitch,
+                    human.patrol_time,
+                    human.health,
+                    human.shoot_health,
+                    human.explosion_health,
+                ]
+                .iter()
+                .all(|v| v.is_finite())
+                    && human.bones.len()
+                        == if human.died {
+                            reference.creatures.human.ragdoll.bodies.len()
+                        } else {
+                            0
+                        }
+                    && !self.humans[..i].iter().any(|h| h.key == human.key),
+                "Human state",
+            )?;
+            for bone in &human.bones {
+                absolute(bone)?;
+            }
+        }
         crate::conditions::validate_surfaces(reference, &self.conditions)?;
         crate::interaction::cleaning::validate_tools(reference, &self.conditions.tools)?;
         for brush in &reference.conditions.brushes {

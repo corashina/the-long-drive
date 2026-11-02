@@ -34,6 +34,7 @@ mod home_cable;
 pub mod hose;
 mod hud;
 mod hum;
+mod humans;
 mod rabbits;
 mod ragdoll;
 mod reach;
@@ -2037,10 +2038,25 @@ impl GarageRuntime {
                 emps: &self.emps,
             },
         );
+        self.creatures
+            .humans
+            .collide(&reference.creatures.human, &self.physics);
+        self.settle_humans(reference);
+        self.place_humans(reference);
+        self.step_humans(reference, dt);
         if self.creatures.place_remove_due(self.simulation_seconds) {
             self.place_remove_rabbits(reference, distances);
+            self.place_remove_humans(reference, distances);
         }
         self.settle_rabbits(reference);
+        let r = &reference.creatures.human;
+        if let Some(audio) = &mut self.audio {
+            let sounds = self
+                .creatures
+                .humans
+                .sounds(r, &self.physics, self.simulation_seconds);
+            audio.humans(r.voice.voice, sounds, &self.stream.origin);
+        }
     }
 
     pub fn sky(&self) -> &crate::sky_traffic::SkyTraffic {

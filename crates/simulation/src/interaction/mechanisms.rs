@@ -836,6 +836,22 @@ impl MechanismState {
                 )
             }
         };
+        self.drive(index, x, y, input.wheel, held, dt);
+    }
+
+    /// Source `newAiScript.Use`: `Rot(amount, amount)` and `Slide(amount, amount, 0)`.
+    pub fn push(&mut self, item: ItemId, amount: f32, dt: f32) {
+        if let Some(&index) = self.items.get(&item)
+            && self.controls[index].enabled
+            && amount.is_finite()
+            && dt > 0.0
+        {
+            self.drive(index, amount, amount, 0.0, true, dt);
+        }
+    }
+
+    /// Source `usablescript.Rot` and `Slide`.
+    fn drive(&mut self, index: usize, x: f32, y: f32, wheel: f32, held: bool, dt: f32) {
         let c = &mut self.controls[index];
         c.audio_active = true;
         c.audio_delta = [x, y];
@@ -859,7 +875,7 @@ impl MechanismState {
         }
         if let Some(s) = &c.reference.slide {
             let previous = c.slide;
-            let values = [x, y, input.wheel * self.scroll_sensitivity];
+            let values = [x, y, wheel * self.scroll_sensitivity];
             let mut sum = 0.0;
             for i in 0..6 {
                 if s.axes[i] {

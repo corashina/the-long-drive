@@ -3875,6 +3875,10 @@ impl WorldStream {
             self.refresh_poles();
         }
     }
+    /// The next human monster placement of the source contents and its `Start` roll.
+    pub fn take_human(&mut self) -> Option<(super::Placement, super::spawn_state::HumanRoll)> {
+        self.contents.take_human()
+    }
     pub fn supports(&self, swept: WorldBounds) -> bool {
         self.support_gap(swept).is_none()
     }

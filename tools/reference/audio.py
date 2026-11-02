@@ -480,6 +480,16 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
     evil = rabbit['evil']
     for field in ('roar_clips', 'idle_clips', 'attack_clips'):
         evil[field] = [clip(source.get(c['file'], c['path_id'])) for c in evil[field]]
+    # newAiScript plays its voice lists on SourceVoice, under the human prefab root.
+    human = manifest['creatures']['human']; voice_record = human['voice']
+    def voice_clip(c):
+        i = clip(source.get(c['file'], c['path_id']))
+        return {'clip': i, 'seconds': audio['clips'][i-1]['source_duration_seconds']}
+    for field in ('idle', 'chase', 'notice', 'attack', 'death'):
+        voice_record[field] = [voice_clip(c) for c in voice_record[field]]
+    sound = car_sound(source.get(voice_record['voice']['file'], voice_record['voice']['path_id']),
+        source.get(human['source']['file'], human['source']['path_id']), None)
+    voice_record['voice'], voice_record['position'] = sound['voice'], sound['position']
     def binding(owner, trigger, pointers, gain, pitch, priority, evidence, route=None, voice_id=None):
         choices = [clip(source.resolve(owner, p)) for p in pointers if p['m_PathID']]
         if not choices: return None

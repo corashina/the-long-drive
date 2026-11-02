@@ -1,4 +1,5 @@
-"""Rabbit prefab (aispawn.AIPrefab) and the stimulscript sources that rabbits sense.
+"""Rabbit prefab (aispawn.AIPrefab), the human monster prefab (newAiScript) and the stimulscript sources
+that rabbits sense.
 
 Directions and positions use the converted space: Unity z is negated. Angles are in degrees.
 """
@@ -9,10 +10,14 @@ from .collision import geometry, step_surface, collider_tag, world_pose
 from .survival import component, managed_evidence, finite_record
 from .acquisition_motion import motion_clips
 from .breakables import breakable
+from .humanoid import humanoid_record, voice_record
+from .menu_figure import relative_pose
 from .library.types import ObjectId
 from .validation import record, array, number, u32, boolean, source as source_shape
 
 RABBIT = ('sharedassets1.assets', 33572)
+# The newAiScript prefab GameObject. Buildings spawn it through the `humanmonster` category.
+HUMAN = ('sharedassets1.assets', 46249)
 # aispawn on the Player GameObject. The copy on the inactive map player (level1 74614) never runs.
 SPAWNER = ('level1', 74613)
 STIMULUS_CLASS = 'stimulscript'
@@ -50,10 +55,17 @@ def prefab_root(source):
     return source.transform_for(prefab)
 
 
+def human_root(source):
+    root = source.transform_for(source.get(*HUMAN))
+    component(source, root, 'newAiScript')
+    return root
+
+
 def prepare_creatures(source, roots):
-    """Export the rabbit prefab as its own asset. Instantiate replaces the root position and rotation."""
+    """Export the rabbit and human prefabs as their own assets. Instantiate replaces the root position and rotation."""
     root = prefab_root(source)
     roots['creature_rabbit'] = [root]
+    roots['creature_human'] = [human_root(source)]
     source.creature_root = key(root)
     # The eye renderers use neither material at start. gltf.py adds them to the rabbit asset.
     nyul = component(source, root, 'nyulscript')
@@ -121,6 +133,43 @@ def senses_record(source, senses, node):
         'fov': [d['fovX'], d['fovY'], d['fovZ']], 'hear_distance': d['hearDistance'], 'min_hear_distance': d['minHearDistance'],
         'min_hear_value': d['minHearValue'], 'hear_modifier': d['hearModifier'], 'stimulus_mask': mask(d['stimulMask']),
         'vision_mask': mask(d['visionMask']), 'rays': rays}
+
+
+def human_ai_record(source, ai, node, matrix, by_reader):
+    """newAiScript AI fields of the human monster. The `sens` triggers are live colliders in their node space."""
+    d = source.read(ai)
+
+    def owner(pptr):
+        component = source.resolve(ai, pptr)
+        return component, by_reader[key(source.transform_for(source.resolve(component, source.read(component)['m_GameObject'])))]
+
+    def sens(pptr):
+        script, record_ = owner(pptr)
+        reader = source.resolve(script, source.read(script)['selfCol'])
+        if reader is None:
+            raise ValueError('Human sens has no selfCol')
+        pose = world_pose(source, record_['reader']); pose['scale'] = [1., 1., 1.]
+        return {'node': node(record_['reader']), **collider_record(source, matrix, reader, record_, pose, True)}
+
+    def capsule(pptr):
+        c = source.read(source.resolve(ai, pptr))
+        return {'height': c['m_Height'], 'center': list(convert_point(vector(c['m_Center'])))}
+
+    return {'sens': [sens(d[f]) for f in ('sensU', 'sensH', 'sensD', 'sensG', 'sensCanGetUp')],
+        'col': node(owner(d['col'])[1]['reader']), 'stand': capsule(d['colStand']), 'duck': capsule(d['colDuck']),
+        'mask': mask(d['lm']), 'fov': d['fov'], 'range': d['range'], 'chase_time': [d['chaseTimeMin'], d['chaseTimeMax']],
+        'walk_dist': d['walkDist'], 'run_dist': d['runDist'], 'target_dist': d['targetDist'], 'target_dist_v': d['targetDistV'],
+        'min_speed': d['minSpeed'], 'max_speed': d['maxSpeed'], 'max_velocity': d['maxVelocity'],
+        'velocity_change': d['velocityChange'], 'rot_speed': d['rotSpeed'], 'jump_velocity': d['jumpVelocity'],
+        'jump_velocity_duck': d['jumpVelocityDuck'], 'duck_debounce_speed_up': d['duckDebounceSpeedUp'],
+        'duck_debounce_speed_down': d['duckDebounceSpeedDown'], 'grounded_vertical_velocity': d['groundedVerticalVelocity'],
+        'avoid_ray_x': d['avoidRayX'], 'avoid_ray_y': d['avoidRayY'], 'avoid_ray_range': d['avoidRayRange'],
+        'avoid_ray_vertical': d['avoidRayVertical'], 'avoid_ray_angle': d['avoidRayAngle'], 'avoid_force': d['avoidForce'],
+        'avoid_lerp': d['avoidLerp'], 'ray_attack_dist_range': d['rayAttackDistRange'],
+        'damage': d['damage'], 'door_speed': d['doorSpeed'],
+        'start_patrol_dist': d['startPatrolDist'], 'patrol_ray_start_dist': d['patrolRayStartDist'],
+        'patrol_iteration': d['patrolIteration'], 'patrol_ray_count': d['patrolRayCount'],
+        'patrol_ray_range': [d['patrolRayRangeMin'], d['patrolRayRangeMax']]}
 
 
 def size_record(source, nyul, node):
@@ -312,8 +361,6 @@ def animator_actions(source, animator, c, names, slots, bind):
 
 
 def recover_creatures(source, manifest, output):
-    from .ragdoll import recover_rig, recover_joints
-    from .actions import recover_pickup
     nodes = {key(source.get(n['source']['file'], n['source']['path_id'])): n for n in manifest['nodes']}
     parents = {n['id']: n['parent'] for n in manifest['nodes']}
     def node(reader):
@@ -330,23 +377,51 @@ def recover_creatures(source, manifest, output):
     ai = component(source, root, 'aiscript')
     move = component(source, root, 'movecreaturescript')
     senses = component(source, root, 'sensoryscript')
-    ragdoll = component(source, root, 'ragdollactivatescript')
     save = component(source, root, 'tosaveitemscript')
-    rd = source.read(ragdoll)
-    if rd['ragdoll'] or rd['dontChangeRagdolCollidersEnabled']:
+    rd = source.read(component(source, root, 'ragdollactivatescript'))
+    if rd['dontChangeRagdolCollidersEnabled']:
         raise ValueError('Rabbit ragdoll start state differs')
+    body, ragdoll, matrix, by_reader, anim_colliders = rig_records(source, root, records, by_node, parents, node, 'Rabbit')
+    clips = [source.resolve(nyul, c) for c in source.read(nyul)['Sdie']]
+    for clip in clips:
+        if clip is None or clip.type.name != 'AudioClip':
+            raise ValueError('Rabbit die clip is not AudioClip')
+    return {'rabbit': {'source': source_id(root), 'asset': asset['id'], 'root': node(root), 'item_id': source.read(save)['id'],
+        'spawner': spawner_record(source), 'brain': brain_record(source, ai), 'motion': motion_record(source, move),
+        'senses': senses_record(source, senses, node), 'size': size_record(source, nyul, node),
+        'damage': damage_record(source, nyul, node), 'body': body, 'ragdoll': ragdoll,
+        'animator': animator_record(source, source.resolve(nyul, source.read(nyul)['anim']), node),
+        'evil': evil_record(source, nyul, node, matrix, by_reader, asset['id']),
+        'electronics': electronics_record(source, records, nyul, anim_colliders, node),
+        # recover_audio replaces these AudioClip identities with clip ids and sets the shared one-shot voice.
+        'die_clips': [source_id(c) for c in clips], 'die_voice': None,
+        'evidence': managed_evidence(source, EVIDENCE)},
+        'human': human_record(source, manifest, nodes, parents),
+        'stimuli': recover_stimuli(source),
+        'player_stimulus': source_id(source.get(*PLAYER_STIMULUS)), 'sound_stimulus': source_id(source.get(*SOUND_STIMULUS)),
+        'hum_stimulus': source_id(source.get(*HUM_STIMULUS))}
+
+
+def rig_records(source, root, records, by_node, parents, node, label):
+    """The live root body and its anim colliders, and the `SetRagdol(true)` bodies, colliders, joints and pickups."""
+    from .ragdoll import recover_rig, recover_joints
+    from .actions import recover_pickup
+    ragdoll = component(source, root, 'ragdollactivatescript')
+    rd = source.read(ragdoll)
+    if rd['ragdoll']:
+        raise ValueError(f'{label} ragdoll start state differs')
     live = source.resolve(ragdoll, rd['RB'])
     live_data = source.read(live)
     if live_data['m_IsKinematic'] or not live_data['m_UseGravity']:
-        raise ValueError('Rabbit live body differs')
-    # SetRagdol(true) makes these bodies dynamic with gravity and enables these colliders.
+        raise ValueError(f'{label} live body differs')
+    # SetRagdol(true) makes these bodies dynamic with gravity and sets these colliders solid or trigger.
     bones = {key(source.resolve(ragdoll, p)) for p in rd['RBs']}
     ragdoll_colliders = {key(source.resolve(ragdoll, p)) for p in rd['ragdollColliders']}
     anim_colliders = [source.resolve(ragdoll, p) for p in rd['animColliders']]
     bodies, colliders, poses = recover_rig(source, root, by_node, parents, lambda c, d: key(c) in bones,
         lambda c: key(c) in ragdoll_colliders, bool(rd['ragdollCollidersTriggerWhenOn']))
     if len(bodies) != len(bones) or len(colliders) != len(ragdoll_colliders):
-        raise ValueError('Rabbit ragdoll records differ')
+        raise ValueError(f'{label} ragdoll records differ')
     joints = recover_joints(source, {n: r for n, r in by_node.items() if n in {b['node'] for b in bodies}}, bodies, poses)
     pickups = {}
     for p in rd['pickupables']:
@@ -355,7 +430,7 @@ def recover_creatures(source, manifest, output):
         # SetRagdol(true) sets cantPickup to false.
         pickups[owner] = {**recover_pickup(source, reader), 'cant_pickup': False}
     if set(pickups) != {b['node'] for b in bodies}:
-        raise ValueError('Rabbit ragdoll pickups differ')
+        raise ValueError(f'{label} ragdoll pickups differ')
     matrix = source.read(next(r for r in source.objects.values() if r.type.name == 'PhysicsManager'))['m_LayerCollisionMatrix']
     by_reader = {key(r['reader']): r for r in records}
     live_colliders = []
@@ -365,28 +440,52 @@ def recover_creatures(source, manifest, output):
         # Collider geometry is in the space of its own node. The runtime moves bone nodes with the animation.
         live_colliders.append({'node': node(owner['reader']),
             **collider_record(source, matrix, c, owner, pose, bool(source.read(c)['m_IsTrigger']))})
-    clips = [source.resolve(nyul, c) for c in source.read(nyul)['Sdie']]
-    for clip in clips:
-        if clip is None or clip.type.name != 'AudioClip':
-            raise ValueError('Rabbit die clip is not AudioClip')
-    return {'rabbit': {'source': source_id(root), 'asset': asset['id'], 'root': node(root), 'item_id': source.read(save)['id'],
-        'spawner': spawner_record(source), 'brain': brain_record(source, ai), 'motion': motion_record(source, move),
-        'senses': senses_record(source, senses, node), 'size': size_record(source, nyul, node),
-        'damage': damage_record(source, nyul, node),
-        'body': {'source': source_id(live), 'mass_kg': live_data['m_Mass'], 'constraints': live_data['m_Constraints'],
-                 'linear_damping': live_data['m_Drag'], 'angular_damping': live_data['m_AngularDrag'],
-                 'colliders': live_colliders},
-        'ragdoll': {'source': source_id(ragdoll), 'bodies': bodies, 'colliders': colliders, 'joints': joints,
-                    'pickups': [pickups[b['node']] for b in bodies]},
-        'animator': animator_record(source, source.resolve(nyul, source.read(nyul)['anim']), node),
-        'evil': evil_record(source, nyul, node, matrix, by_reader, asset['id']),
-        'electronics': electronics_record(source, records, nyul, anim_colliders, node),
-        # recover_audio replaces these AudioClip identities with clip ids and sets the shared one-shot voice.
-        'die_clips': [source_id(c) for c in clips], 'die_voice': None,
-        'evidence': managed_evidence(source, EVIDENCE)},
-        'stimuli': recover_stimuli(source),
-        'player_stimulus': source_id(source.get(*PLAYER_STIMULUS)), 'sound_stimulus': source_id(source.get(*SOUND_STIMULUS)),
-        'hum_stimulus': source_id(source.get(*HUM_STIMULUS))}
+    body = {'source': source_id(live), 'mass_kg': live_data['m_Mass'], 'constraints': live_data['m_Constraints'],
+            'linear_damping': live_data['m_Drag'], 'angular_damping': live_data['m_AngularDrag'],
+            'colliders': live_colliders}
+    ragdoll_record = {'source': source_id(ragdoll), 'bodies': bodies, 'colliders': colliders, 'joints': joints,
+                      'pickups': [pickups[b['node']] for b in bodies]}
+    return body, ragdoll_record, matrix, by_reader, anim_colliders
+
+
+def human_record(source, manifest, nodes, parents):
+    """`newAiScript.Start` inputs, the live body, the ragdoll and the `breakablescript` that `save_newai` saves."""
+    def node(reader):
+        if reader is None or key(reader) not in nodes:
+            raise ValueError('Human link outside retained hierarchy')
+        return nodes[key(reader)]['id']
+    root = human_root(source)
+    asset = next(a for a in manifest['assets'] if a['usage'] == 'creature_prototype' and a['root'] == source_id(root))
+    if nodes[key(root)]['asset'] != asset['id']:
+        raise ValueError('Human asset root')
+    records = source.hierarchy(root, activate_root=True)
+    by_node = {nodes[key(r['reader'])]['id']: r for r in records}
+    ai = component(source, root, 'newAiScript')
+    d = source.read(ai)
+    if d['died'] or d['isChasing'] or d['ladderV']:
+        raise ValueError('newAiScript start state differs')
+    ragdoll = component(source, root, 'ragdollactivatescript')
+    linked = source.resolve(ai, d['ragdol'])
+    if linked is None or key(linked) != key(ragdoll) or source.read(ragdoll)['unparent']:
+        raise ValueError('Human ragdoll link differs')
+    breakable_reader = source.resolve(ai, d['breakable'])
+    if key(breakable_reader) != key(component(source, root, 'breakablescript')):
+        raise ValueError('Human breakable link differs')
+    target = source.resolve(ai, d['target'])
+    if source.resolve(target, source.read(target)['m_Father']) is None:
+        raise ValueError('Human target is not a prefab child')
+    body, ragdoll, matrix, by_reader, _ = rig_records(source, root, records, by_node, parents, node, 'Human')
+    save = source.read(component(source, root, 'tosaveitemscript'))
+    pose = lambda reader, stage: relative_pose(source, reader, stage)
+    return {'source': source_id(root), 'asset': asset['id'], 'root': node(root), 'item_id': save['id'],
+        'start': {'source': source_id(ai), 'sleeping': bool(d['sleeping']), 'start_sleep_chance': d['startSleepChange'],
+                  'first': bool(d['first']), 'voice_pitch': [d['voiceMinPitch'], d['voiceMaxPitch']],
+                  'patrol_time': [d['startPatrolTimeMin'], d['startPatrolTimeMax']]},
+        'head': node(source.resolve(ai, d['head'])),
+        'breakable': breakable(source, breakable_reader, actor=True),
+        'body': body, 'ragdoll': ragdoll, 'ai': human_ai_record(source, ai, node, matrix, by_reader),
+        # recover_audio replaces the voice clip identities and sets the SourceVoice template.
+        'animator': humanoid_record(source, ai, source.resolve(ai, d['anim']), node, pose), 'voice': voice_record(source, ai, node, pose)}
 
 
 def recover_stimuli(source):
@@ -500,6 +599,7 @@ def validate_creatures(c, manifest):
     shots = {v['id'] for v in manifest['audio']['car_voices'] if v['one_shot']}
     if not r['die_clips'] or any(x not in clips for x in r['die_clips']) or r['die_voice'] not in shots:
         raise ValueError('Invalid rabbit die sounds')
+    validate_human(c['human'], manifest)
     for row in c['stimuli']:
         record(row, {'source': source_shape, 'node': source_shape, 'root': source_shape, 'visible': boolean, 'sound': boolean,
             'smell': boolean, 'stimuli': array(lambda v: record(v, {'kind': lambda k: None, 'value': number})),
@@ -517,3 +617,53 @@ def validate_creatures(c, manifest):
     if (hum is None or not hum['sound'] or hum['check_audio_sources'] or hum['audio_sources'] or not hum['stimuli']
             or hum['root'] != player['root']):
         raise ValueError('Hum stimulus differs')
+
+
+def validate_human(h, manifest):
+    nodes = {n['id']: n for n in manifest['nodes']}
+    assets = {a['id']: a for a in manifest['assets']}
+    def local(n):
+        return nodes.get(n, {}).get('asset') == h['asset']
+    pair = array(number, 2)
+    record(h['start'], {'source': source_shape, 'sleeping': boolean, 'start_sleep_chance': number, 'first': boolean,
+        'voice_pitch': pair, 'patrol_time': pair})
+    s = h['start']
+    if any(not 0 <= r[0] <= r[1] for r in (s['voice_pitch'], s['patrol_time'])) or not 0 <= s['start_sleep_chance'] <= 1:
+        raise ValueError('Invalid human start')
+    if assets.get(h['asset'], {}).get('usage') != 'creature_prototype' or nodes.get(h['root'], {}).get('source') != h['source']:
+        raise ValueError('Human asset identity')
+    if not local(h['head']):
+        raise ValueError('Invalid human head')
+    b = h['breakable']
+    if min(b['health'], b['shoot_health'], b['explosion_health']) <= 0:
+        raise ValueError('Invalid human breakable')
+    body = h['body']
+    if body['mass_kg'] <= 0 or not body['colliders'] or not all(local(x['node']) for x in body['colliders']):
+        raise ValueError('Invalid human live body')
+    rag = h['ragdoll']
+    if not rag['bodies'] or [b['id'] for b in rag['bodies']] != list(range(1, len(rag['bodies']) + 1)) or not all(local(b['node']) for b in rag['bodies']):
+        raise ValueError('Invalid human ragdoll bodies')
+    ids = {b['id'] for b in rag['bodies']}
+    if any(x['body'] not in ids for x in rag['colliders']) or any(j['body'] not in ids or j['connected_body'] not in ids for j in rag['joints']):
+        raise ValueError('Invalid human ragdoll links')
+    if len(rag['pickups']) != len(rag['bodies']) or any(p['cant_pickup'] for p in rag['pickups']):
+        raise ValueError('Invalid human ragdoll pickups')
+    ai = h['ai']
+    if len(ai['sens']) != 5 or not all(local(x['node']) and x['sensor'] for x in ai['sens']):
+        raise ValueError('Invalid human sens')
+    if ai['col'] not in {x['node'] for x in body['colliders']} or ai['patrol_ray_count'] < 1:
+        raise ValueError('Invalid human AI')
+    a = h['animator']
+    if (not a['grounded'] or not a['crouching'] or len(a['bones']) != 55 or a['bones'][0] is None
+            or not all(local(b['node']) for b in a['bones'] if b) or not local(a['root'])
+            or not all(local(c['node']) for c in a['copies'])
+            or any(c['clip'] >= len(a['clips']) for c in a['grounded'] + a['crouching'])):
+        raise ValueError('Invalid human animator')
+    v = h['voice']
+    clips = {x['id']: x for x in manifest['audio']['clips']}
+    voices = {x['id'] for x in manifest['audio']['car_voices'] if not x['one_shot']}
+    lists = [v[f] for f in ('idle', 'chase', 'notice', 'attack', 'death')]
+    if (not all(lists) or any(c['clip'] not in clips or c['seconds'] <= 0 for l in lists for c in l)
+            or v['voice'] not in voices or not local(v['mouth'])
+            or any(not 0 <= t[0] <= t[1] for t in (v['idle_time'], v['chase_time'], v['seeing_time']))):
+        raise ValueError('Invalid human voice')
