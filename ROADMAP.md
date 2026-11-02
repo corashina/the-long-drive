@@ -52,7 +52,6 @@ Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix 
 - K4 (browser): First page load can stall at the start of object loading with dependency staging full (7.7/7.8 MiB). A reload clears it.
 - K5 (browser): In game, pause > Load > Load last once stayed on "Loading..." for over 6 minutes, with no console messages. The simulation and the save bridge finish the load (`tp_k5_s1_a_stored_save_starts_the_session_and_its_restore_finishes`), so the hang is in the browser.
 - 32 of 169 ignored simulation tests failed in release. Debug overflows the stack. #KF removed 8 old tests that `roadmap_tests` covers, and changed 4 without a run. The lines below name each open one.
-- W15: `w02_long_trip_keeps_far_edits` is flaky. In 2 of 3 runs, 1 or 2 of 52 revisited building items moved.
 - WD3: `tp_wd3_each_melee_weapon_swings_with_each_key_and_breaks_a_bottle` needs the next export. The exporter now links melee weapons through `pickupable.melee` (#WD3), which adds the katana, fly swatter and leg. The test passes on ee6554d with those records added.
 - WD20: `tp_wd20_a_hard_hit_breaks_a_tumbleweed_with_its_gib_and_it_stays_gone` needs the next export. The exporter now exports gib ParticleSystems (`behavior.gib_particles`, #WD20). The tumbleweed gib is particles only. The test passes on ee6554d with a stand-in particle record.
 - Export field added (#PB): `player.seat_push_force` (source `fpscontroller.seatPushForce`). Export ee6554d lacks it, so re-export before the next run.
@@ -66,7 +65,6 @@ Blocked checks. Each waits for the fix of its bug. Run them in the next build's 
 #### MC2: the Lada does not drive
 
 - CP4: Siphon hose: first check the garage hose spawns clear of the walls. Attach it to the Lada tank and a can. Siphon by height, drain with LMB, coil with R, store it, tear it off by driving.
-- W15: Drop an item, drive about 10 km out and back, save and reload. The item stays where it was dropped.
 
 Prepare once:
 

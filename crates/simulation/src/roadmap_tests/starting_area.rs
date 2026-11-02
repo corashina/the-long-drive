@@ -894,6 +894,18 @@ fn tp_sa7_crosshair_icons_follow_the_looked_target() {
     let (reference, mut run) = load_garage();
     seconds(&mut run, &reference, 1.);
     let home = run.area.player.body_pose(&run.physics);
+    // A player placed inside the start car launches it.
+    let car = {
+        use rapier3d::parry::bounding_volume::BoundingVolume;
+        let world = run.physics.rapier();
+        let chassis = run.physics.chassis_handle(run.vehicle.as_ref().unwrap());
+        let mut aabbs = world.bodies[chassis]
+            .colliders()
+            .iter()
+            .map(|c| world.colliders[*c].compute_aabb());
+        let first = aabbs.next().unwrap();
+        aabbs.fold(first, |a, b| a.merged(&b)).loosened(0.5)
+    };
     let mut seen = std::collections::BTreeMap::<u32, std::collections::BTreeSet<u32>>::new();
     for ring in 0..9 {
         let mut pose = home;
@@ -901,6 +913,10 @@ fn tp_sa7_crosshair_icons_follow_the_looked_target() {
             let a = ring as f32 * std::f32::consts::FRAC_PI_4;
             pose.position[0] += 2.5 * a.cos();
             pose.position[2] += 2.5 * a.sin();
+        }
+        let at = rapier3d::math::Vector::from_array(pose.position);
+        if car.contains_local_point(at.with_y(car.center().y)) {
+            continue;
         }
         run.area.player.recover(pose, &mut run.physics);
         seconds(&mut run, &reference, 0.3);
