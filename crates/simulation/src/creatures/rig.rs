@@ -37,10 +37,39 @@ impl Rig {
         root: NodeId,
         blend: &BlendReference,
     ) -> Result<Self, ReferenceError> {
+        let rig = Self::rest(nodes, root)?;
+        let actions = &blend.actions;
+        if blend
+            .clips
+            .iter()
+            .chain([
+                &blend.overlay.clip,
+                &actions.roar.clip,
+                &actions.attack.clip,
+            ])
+            .flat_map(|c| &c.tracks)
+            .any(|t| !rig.index.contains_key(&NodeId(t.node)))
+        {
+            return Err(ReferenceError("Rabbit track outside the rig".into()));
+        }
+        Ok(Self {
+            lengths: blend
+                .clips
+                .iter()
+                .map(|c| c.stop_time - c.start_time)
+                .collect(),
+            overlay: blend.overlay.clip.stop_time - blend.overlay.clip.start_time,
+            actions: [&actions.roar.clip, &actions.attack.clip].map(|c| c.stop_time - c.start_time),
+            ..rig
+        })
+    }
+
+    /// The asset nodes under `root` without clips: rest and ragdoll poses only.
+    pub fn rest(nodes: &[NodeRecord], root: NodeId) -> Result<Self, ReferenceError> {
         let asset = nodes
             .iter()
             .find(|n| n.id == root)
-            .ok_or_else(|| ReferenceError("Missing rabbit root".into()))?
+            .ok_or_else(|| ReferenceError("Missing creature root".into()))?
             .asset;
         let records: HashMap<_, _> = nodes
             .iter()
@@ -77,32 +106,14 @@ impl Rig {
                 }
             })
             .collect();
-        let actions = &blend.actions;
-        if blend
-            .clips
-            .iter()
-            .chain([
-                &blend.overlay.clip,
-                &actions.roar.clip,
-                &actions.attack.clip,
-            ])
-            .flat_map(|c| &c.tracks)
-            .any(|t| !index.contains_key(&NodeId(t.node)))
-        {
-            return Err(ReferenceError("Rabbit track outside the rig".into()));
-        }
         Ok(Self {
             nodes,
             index,
             parent,
             rest,
-            lengths: blend
-                .clips
-                .iter()
-                .map(|c| c.stop_time - c.start_time)
-                .collect(),
-            overlay: blend.overlay.clip.stop_time - blend.overlay.clip.start_time,
-            actions: [&actions.roar.clip, &actions.attack.clip].map(|c| c.stop_time - c.start_time),
+            lengths: Vec::new(),
+            overlay: 0.,
+            actions: [0.; 2],
         })
     }
 

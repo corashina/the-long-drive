@@ -34,6 +34,7 @@ mod home_cable;
 pub mod hose;
 mod hud;
 mod hum;
+mod humans;
 mod rabbits;
 mod ragdoll;
 mod reach;
@@ -2037,8 +2038,10 @@ impl GarageRuntime {
                 emps: &self.emps,
             },
         );
+        self.place_humans(reference);
         if self.creatures.place_remove_due(self.simulation_seconds) {
             self.place_remove_rabbits(reference, distances);
+            self.place_remove_humans(reference, distances);
         }
         self.settle_rabbits(reference);
     }
