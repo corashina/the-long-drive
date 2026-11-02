@@ -970,8 +970,6 @@ pub enum Change {
     },
     /// The simulation part of a world measurement, as JSON.
     Measurements(String),
-    /// The JSON answer to one sandbox command.
-    Sandbox(String),
     Failure(String),
     /// Renderer credit of the world step for the renderer report of the command.
     Grant(crate::world::PresentationGrant),
@@ -1102,8 +1100,6 @@ pub struct SimCommand {
     pub save: Vec<SaveCommand>,
     /// Camera position of the last rendered frame.
     pub listener: Option<[f32; 3]>,
-    /// Test sandbox commands of the `?sandbox` page. Each entry is one JSON array.
-    pub sandbox: Vec<String>,
 }
 
 /// One save input of the renderer.
@@ -1188,8 +1184,6 @@ impl SimCommand {
         self.measure |= next.measure;
         self.world.merge(next.world);
         self.save.extend(next.save);
-        // A merged command keeps every sandbox batch, so each promise gets its reply.
-        self.sandbox.extend(next.sandbox);
         self.listener = next.listener.or(self.listener);
     }
 }

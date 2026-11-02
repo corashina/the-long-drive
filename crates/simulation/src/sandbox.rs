@@ -1,4 +1,4 @@
-//! Test sandbox. The `?sandbox` page sends these commands; Claude runs the ROADMAP test pass with them.
+//! Test sandbox. Headless tests send these commands through `act` in `world/stream_tests/kit.rs`.
 //! A bad command changes nothing and answers `ok: false`. It never stops the game.
 use crate::interaction::items::ItemLocation;
 use crate::player::SeatOwner;

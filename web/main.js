@@ -96,7 +96,6 @@ import {loadUiAssets} from './ui-layout.js';
 import {createSimulation,installSimulationBridge} from './simulation.js';
 import {createMultiplayer} from './multiplayer.js';
 import {ROLE} from './net.js';
-import {readSandbox,installSandbox} from './sandbox.js';
 import {installGrassBridge} from './grass.js';
 import {configureAssetCatalog,readAsset,worldBootstrapMeasurements,worldInputBytes,worldInputMetadataBytes,setAssetCpuProfile} from './world-assets.js';
 setAssetCpuProfile(cpuProfile);
@@ -139,8 +138,6 @@ window.gameMeasurements=json=>{
   initialStartReadyMs:initialReadyMs,peakFrameIntervalMs:peakFrameMs,bootstrap};
  for(const resolve of measurementWaiters.splice(0))resolve(snapshot);
 };
-const sandbox=readSandbox(location.search);installSandbox(window,sandbox!==null);
-if(sandbox)window.gameSeed=()=>sandbox.seed;
 let input,survival,dead=false,sleeping=false,audio,menu,multiplayer,feedback,failed=false,worldAdmitted=false,actions=0,frame,renderFailure;
 const inventory={selected:0,slots:[0,0,0,0],progress:0};
 window.gameInventory=(selected,a,b,c,d,progress)=>{
@@ -295,7 +292,6 @@ async function load(){
   survival=createSurvival(manifest.ui,manifest.sleep.cooldown_seconds,settings,language,actionIds);survival.setSurvival(settings.values.survival);
  audio=createAudio(manifest.audio);installAudioBridge(window,audio);
  const volume=v=>audio.volume(v.FSound);volume(settings.values);settings.listen(volume);
- if(sandbox?.calendar)window.gameAudioCalendar=()=>sandbox.calendar;
  window.addEventListener('pagehide',()=>audio.dispose());
  const appearance=createAppearance({target:window,document,canvas,edit:outfit,characters:manifest.clothing.characters,language});
  const figure=createMenuFigure({target:window,canvas});

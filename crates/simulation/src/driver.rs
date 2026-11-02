@@ -61,7 +61,6 @@ pub struct SimDriver {
     pub(crate) sent: crate::world::RendererWorld,
     /// Camera position of the last rendered frame.
     listener: Option<[f32; 3]>,
-    sandbox: crate::sandbox::Sandbox,
     /// Multiplayer peers. A load keeps them.
     pub net: crate::net::Net,
 }
@@ -107,7 +106,6 @@ impl SimDriver {
             failed: false,
             save: crate::save_requests::SaveState::new(source),
             listener: None,
-            sandbox: Default::default(),
             net: crate::net::Net::default(),
         };
         driver.reset_look();
@@ -155,11 +153,6 @@ impl SimDriver {
         self.accepted_seq = command.seq;
         self.measure |= command.measure;
         self.world.accept(command.world);
-        // A held command keeps its sandbox batches for the next command that runs.
-        self.sandbox.queued.extend(command.sandbox);
-        if !command.hold {
-            crate::sandbox::run(&mut self.runtime, reference, &mut self.sandbox);
-        }
         if command.hold {
             clear_profile_input();
             self.drop_frame_input();
@@ -399,9 +392,6 @@ impl SimDriver {
         if let Some(grant) = self.grant.take() {
             frame.changes.push(Change::Grant(grant));
         }
-        frame
-            .changes
-            .extend(self.sandbox.replies.drain(..).map(Change::Sandbox));
         if std::mem::take(&mut self.measure) {
             frame.changes.push(Change::Measurements(
                 self.runtime.measurements(reference).to_string(),
