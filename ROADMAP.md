@@ -40,35 +40,6 @@ Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). WebRTC pe
 
 Not planned: VR, stereo 3D, mod events, Steam features.
 
-## Test pass
-
-Run these checks on Tomasz's PC in one run. Passed checks are removed.
-Check F3 in each scenario below. Compare with the frame rate rule.
-Look, listen and F3-only checks are on Tomasz's eyes list (project file `plans/tp-eyes-list.md`), not here.
-
-Headless run on 2026-11-02 (master ebed1d3, export 3fd48db): 174 of 179 ignored simulation tests passed, and 270 of 270 release workspace tests passed. #419 and #422-#425 fix the other 5. Each fix passed on Tomasz's PC before merge. W02 measured 24,128 bytes/km (120.6 MB for 5,000 km).
-
-Open before the next run:
-
-- X06c (browser): Stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
-- The stored key bindings reset once, because the export adds the `voicechat` binding (#M04).
-
-Prepare once:
-
-1. Pull master. Re-export, then make a release build. Old exports and old saves do not load. Only the current save schema loads.
-2. Paste the acquisition hash that the export prints into `CONTRACT_SHA256` if it changed.
-3. Run all ignored tests: `cargo test --release --lib -- --ignored --nocapture`.
-4. In that output, note the `w02_` bytes per km and the 5,000 km estimate. Above 200 MB, compact spawn boundaries.
-5. Claude runs the steps in Chrome with the test sandbox: see `tests/sandbox/README.md`. First check the sandbox itself: `spawn('Bus02Full', 10)` places a bus, and `teleport`, `building`, `spawn`, `hand`, `fill` and `cycle` work. Use `tests/sandbox/buses.js` for More cars steps 16-20.
-
-### Startup
-
-1. K4: Open the game 3 times in a new private window (empty cache). Each first load passes object loading and reaches the garage. The "Dependency staging" row on the loading screen does not stay full.
-
-### Saves
-
-1. K5: In game, pause > Load > Load last. The page reloads within 30 s and the last save loads. "Loading..." does not stay. Do the same with a named save from pause > Load.
-
 ### Multiplayer
 
 Two browsers, host and guest in one room. Check F3 on the host before and after, with about 300 items near.
