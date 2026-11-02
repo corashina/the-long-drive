@@ -133,8 +133,7 @@ def human_ai_record(source, ai, node):
         c = source.read(source.resolve(ai, pptr))
         return {'height': c['m_Height'], 'center': list(convert_point(vector(c['m_Center'])))}
 
-    return {'head': node(source.resolve(ai, d['head'])),
-        'sens': [owner(d[f]) for f in ('sensU', 'sensH', 'sensD', 'sensG', 'sensCanGetUp')],
+    return {'sens': [owner(d[f]) for f in ('sensU', 'sensH', 'sensD', 'sensG', 'sensCanGetUp')],
         'col': owner(d['col']), 'stand': capsule(d['colStand']), 'duck': capsule(d['colDuck']),
         'mask': mask(d['lm']), 'fov': d['fov'], 'range': d['range'], 'chase_time': [d['chaseTimeMin'], d['chaseTimeMax']],
         'walk_dist': d['walkDist'], 'run_dist': d['runDist'], 'target_dist': d['targetDist'], 'target_dist_v': d['targetDistV'],

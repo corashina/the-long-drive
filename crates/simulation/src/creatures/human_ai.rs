@@ -141,7 +141,7 @@ pub struct Frame {
     /// Root pose and Rigidbody velocity.
     pub pose: Pose,
     pub velocity: Vector,
-    /// `head` pose.
+    /// `head` pose. X03g animates it; until then the body pose with a fixed offset.
     pub head: Pose,
     /// `mainscript.M.player`.
     pub player: Option<PlayerView>,
@@ -613,7 +613,6 @@ mod tests {
 
     fn reference() -> HumanAiReference {
         HumanAiReference {
-            head: crate::reference::NodeId(0),
             sens: [crate::reference::NodeId(0); 5],
             col: crate::reference::NodeId(0),
             stand: crate::reference::CapsuleShape {

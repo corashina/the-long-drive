@@ -13,8 +13,6 @@ pub struct CapsuleShape {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HumanAiReference {
-    /// `head` Transform node.
-    pub head: NodeId,
     /// `sensU`, `sensH`, `sensD`, `sensG` and `sensCanGetUp` trigger nodes.
     pub sens: [NodeId; 5],
     /// `col`: the live capsule that lerps from `stand` to `duck`.
