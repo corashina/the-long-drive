@@ -42,6 +42,36 @@ pub struct PlayerInteriorSensorReference {
     pub local_position: [f32; 3],
 }
 
+/// Source `mpplayerscript` of `snTempPlayerSync.playerPrefab`: the body colliders of a remote player.
+/// Positions are in the figure frame.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemotePlayerReference {
+    pub source: SourceId,
+    /// Source `THead`, as the same node of the local player rig.
+    pub head: NodeId,
+    /// Source `TProneHeadPos`.
+    pub prone_head: [f32; 3],
+    pub minimum_radius: f32,
+    pub maximum_radius: f32,
+    /// `HeadCollider` sphere and box, relative to `THead`.
+    pub head_radius: f32,
+    pub head_box_center: [f32; 3],
+    pub head_box_half: [f32; 3],
+    /// `Feet2` sphere.
+    pub feet_center: [f32; 3],
+    pub feet_radius: f32,
+    /// Body and feet material. Unity combines it with the minimum.
+    pub friction: f32,
+    pub mass_kg: f32,
+    /// Layer 0 while standing, layer 10 while seated.
+    pub standing_membership: u32,
+    pub standing_filter: u32,
+    pub seated_membership: u32,
+    pub seated_filter: u32,
+    pub evidence: ManagedEvidence,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlayerClearanceReference {
@@ -192,6 +222,24 @@ impl PlayerReference {
                 && self.interior_sensor.mask == 8192
                 && finite(&self.interior_sensor.local_position),
             "player wall jump and interior sensors",
+        )?;
+        let r = &self.remote;
+        require(
+            same(r.minimum_radius, 0.1)
+                && same(r.maximum_radius, 0.3)
+                && same(r.head_radius, 0.1)
+                && same(r.feet_radius, 0.2)
+                && same(r.mass_kg, 75.0)
+                && same(r.friction, 0.0)
+                && finite(&r.prone_head)
+                && finite(&r.head_box_center)
+                && finite(&r.feet_center)
+                && r.head_box_half.iter().all(|v| same(*v, 0.05))
+                && r.standing_membership == 1
+                && r.standing_filter == 4_039_039_487
+                && r.seated_membership == 1 << 10
+                && r.seated_filter == 4_163_111_112,
+            "remote player body",
         )?;
         let low = p.prone_head.translation;
         let distance = p

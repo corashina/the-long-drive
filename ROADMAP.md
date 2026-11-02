@@ -33,7 +33,6 @@ Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). WebRTC pe
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| M01 | Join and see each other | S | Remote player collision: export the `mpplayerscript` capsule (`minBodyRadius`, `maxBodyRadius`, head and prone head nodes), add a kinematic capsule per figure, 3 s spawn delay and 1 s after standing up. |
 | M03 | Shared items and world | XL | Food, ammo, weapons, push, colors, breakables. License plates and random types need no message: the port draws them from the seed and never changes them. Design: project file `plans/m03-design.md`. |
 | M04 | Everything else | L | After the M03 network keys: host-only creature, Fedo, random stuff and tumbleweed spawns, creature poses to guests, radio controls (`msgType.radio`). The source does not sync sandstorms or sleep. |
 
@@ -53,6 +52,7 @@ Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix 
 - WD3: `tp_wd3_each_melee_weapon_swings_with_each_key_and_breaks_a_bottle` needs the next export. The exporter now links melee weapons through `pickupable.melee` (#WD3), which adds the katana, fly swatter and leg. The test passes on ee6554d with those records added.
 - WD20: `tp_wd20_a_hard_hit_breaks_a_tumbleweed_with_its_gib_and_it_stays_gone` needs the next export. The exporter now exports gib ParticleSystems (`behavior.gib_particles`, #WD20). The tumbleweed gib is particles only. The test passes on ee6554d with a stand-in particle record.
 - Export field added (#PB): `player.seat_push_force` (source `fpscontroller.seatPushForce`). Export ee6554d lacks it, so re-export before the next run.
+- Export field added (#M01): `player.remote` (source `mpplayerscript` of `snTempPlayerSync.playerPrefab`). Export ee6554d lacks it, so re-export before the next run. `tp_mp5_the_other_figure_turns_solid_after_3_s` then checks the remote figure body.
 - Export format changed (#X06c): each world prototype has `probes`, and `vehicle.probe` is gone. Re-export before the next run. Then stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
 - Export field added (#M04): the `voicechat` input binding (source `inputscript.IN.voicechat`). Until the re-export, voice chat has no push-to-talk key. The stored key bindings reset once.
 

@@ -764,6 +764,7 @@ pub struct PlayerReference {
     pub point_range2: f32,
     /// Source `fpscontroller.pointingLayer` bits.
     pub pointing_layer: u32,
+    pub remote: RemotePlayerReference,
 }
 
 /// Source WheelCollider values.

@@ -1,5 +1,6 @@
 //! Multiplayer of the source (`sns`, `snTempPlayerSync`). The browser owns the peers and the session messages.
 //! The simulation sends the local player and poses the remote players.
+pub mod body;
 pub mod car;
 pub mod claim;
 pub mod conditions;
@@ -73,6 +74,10 @@ pub struct Net {
     world: WorldSync,
     objects: ObjectIndex,
     items: ItemSync,
+    /// Bodies of figures that went away. The next frame removes them.
+    dropped: Vec<rapier3d::prelude::RigidBodyHandle>,
+    /// Scratch: the item bodies that one remote player holds.
+    held_bodies: Vec<rapier3d::prelude::RigidBodyHandle>,
     cars: Vec<CarValues>,
     /// The cars carry session state that must clear when the session ends.
     cars_touched: bool,
@@ -95,7 +100,11 @@ impl Net {
         self.slot = slot;
         self.items.slot = slot;
         if role == NetRole::Off {
-            self.remotes.clear();
+            self.dropped.extend(
+                self.remotes
+                    .drain(..)
+                    .filter_map(|r| r.collision.map(|c| c.handle)),
+            );
             self.inbox.clear();
             self.objects.clear();
             self.items.clear();
@@ -120,10 +129,21 @@ impl Net {
     }
     /// A peer left. Its figure goes away.
     pub fn leave(&mut self, slot: u8) {
-        self.remotes.retain(|r| r.slot != slot);
         self.items.claims.leave(slot);
         self.cars.retain(|c| c.slot != slot);
         self.left.push(slot);
+        if let Some(i) = self.remotes.iter().position(|r| r.slot == slot) {
+            let remote = self.remotes.remove(i);
+            self.dropped.extend(remote.collision.map(|c| c.handle));
+        }
+    }
+    /// The collision body of the figure of `slot`.
+    #[cfg(test)]
+    pub(crate) fn remote_body(&self, slot: u8) -> Option<&body::RemoteBody> {
+        self.remotes
+            .iter()
+            .find(|r| r.slot == slot)
+            .and_then(|r| r.collision.as_ref())
     }
     /// Length-prefixed packets for the browser. The next call starts empty.
     pub fn take_outbox(&mut self, out: &mut Vec<u8>) {
@@ -143,6 +163,9 @@ impl Net {
     ) {
         frame.remotes.clear();
         frame.remote_joints.clear();
+        for handle in self.dropped.drain(..) {
+            runtime.physics.remove_body(handle);
+        }
         if let Some(audio) = &mut runtime.audio {
             audio.broadcasts.set_remote(self.role == NetRole::Guest);
         }
@@ -207,9 +230,20 @@ impl Net {
         self.items.requested.clear();
         let origin = &runtime.stream.origin;
         self.figures.clear();
+        let body = &reference.player.remote;
         for remote in &mut self.remotes {
-            let seat = |car, seat| car::seat_pose(reference, runtime, alpha, car, seat);
-            let Some((pose, root)) = remote.step(self.clock, real_dt, origin, seat) else {
+            let seated = remote
+                .smoothing
+                .car()
+                .and_then(|(car, seat)| car::seat_pose(reference, runtime, alpha, car, seat));
+            let Some((pose, root)) = remote.step(
+                self.clock,
+                real_dt,
+                body,
+                origin,
+                &mut runtime.physics,
+                |_, _| seated,
+            ) else {
                 continue;
             };
             self.figures
@@ -226,6 +260,14 @@ impl Net {
                 .extend((0..body.joint_count()).map(|i| PoseRow::new(body.joint_local(i), 0)));
         }
         self.inventory.follow(runtime, &self.figures, real_dt);
+        // Source `UpdItemParent`: a figure ignores the items its player holds.
+        for remote in &mut self.remotes {
+            if let Some(c) = &mut remote.collision {
+                self.inventory
+                    .held_bodies(runtime, remote.slot, &mut self.held_bodies);
+                c.ignore_only(&mut runtime.physics, &self.held_bodies);
+            }
+        }
     }
 
     fn read_inbox(&mut self, reference: &ReferenceManifest, runtime: &mut GarageRuntime) {
