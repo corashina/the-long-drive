@@ -909,7 +909,7 @@ fn creatures(runtime: &GarageRuntime, reference: &ReferenceManifest) -> Vec<Valu
         })
     });
     let anchor = runtime.sky_anchor(reference);
-    let planes = runtime.sky().planes().iter().map(|p| {
+    let planes = runtime.planes().map(|p| {
         json!({
             "kind": "plane",
             "id": p.id,

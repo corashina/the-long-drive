@@ -55,6 +55,31 @@ pub fn compass_north(forward: Vector, north: Vector) -> f32 {
     -signed_angle(flat, Vector::new(north.x, 0., north.z), Vector::Y)
 }
 
+/// `compassscript.GetNorthValue2`: a jammed compass points at the last EMP, then spins.
+/// `spin` keeps the source `jam` turn.
+pub fn compass_value(
+    forward: Vector,
+    north: Vector,
+    position: Vector,
+    electronics: Option<&crate::electronics::Electronics>,
+    spin: &mut f32,
+    dt: f32,
+) -> f32 {
+    let Some(e) = electronics.filter(|e| e.jam >= 0.05) else {
+        return compass_north(forward, north);
+    };
+    if e.jam < 0.75
+        && let Some(emp) = e.last_emp
+    {
+        return -compass_north(forward, emp - position);
+    }
+    *spin -= dt * 360. * e.jam;
+    if *spin < -180. {
+        *spin = 180.;
+    }
+    *spin
+}
+
 /// Source `localEulerAngles` in degrees as a converted rotation.
 pub fn unity_euler(degrees: [f32; 3]) -> [f32; 4] {
     let [x, y, z] = degrees.map(f32::to_radians);
@@ -73,6 +98,24 @@ pub const CLOCK_ADD: f32 = 0.0625;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jammed_compass_points_at_the_emp_then_spins() {
+        let mut e = crate::electronics::Electronics::new(1.);
+        let mut spin = 0.;
+        let (north, at) = (Vector::NEG_Z, Vector::ZERO);
+        let value = |e: &crate::electronics::Electronics, spin: &mut f32| {
+            compass_value(Vector::NEG_Z, north, at, Some(e), spin, 0.5)
+        };
+        assert_eq!(value(&e, &mut spin), 0.);
+        e.jam = 0.5;
+        e.last_emp = Some(Vector::X * 10.);
+        // Source: -SignedAngle(forward, toEmp). The EMP at source +X reads -90.
+        assert!((value(&e, &mut spin) + 90.).abs() < 1e-3);
+        e.jam = 1.;
+        assert_eq!(value(&e, &mut spin), -180.);
+        assert_eq!(value(&e, &mut spin), 180.);
+    }
 
     #[test]
     fn compass_reads_the_signed_heading() {
