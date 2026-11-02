@@ -222,7 +222,7 @@ impl Creatures {
             next_id: 1,
             random: StormRandom(seed ^ 0x7261_6262_6974_0001),
             peaceful: false,
-            humans: human::Humans::new(&c.human, &reference.nodes)?,
+            humans: human::Humans::new(&c.human, &reference.nodes, seed)?,
         })
     }
 
