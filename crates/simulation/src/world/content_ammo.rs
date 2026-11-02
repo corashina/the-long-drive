@@ -108,6 +108,10 @@ impl WorldStream {
             .find(|b| b.item == item)
             .map(|b| b.ammo)
     }
+    /// Each loose ammo or magazine item.
+    pub fn ammo_items(&self) -> impl Iterator<Item = (ItemId, AmmoItem)> + '_ {
+        self.small_items.ammo.iter().map(|b| (b.item, b.ammo))
+    }
     pub fn set_ammo_item(&mut self, item: ItemId, ammo: AmmoItem, items: &mut ItemStore) {
         if let Some(b) = self.small_items.ammo.iter_mut().find(|b| b.item == item) {
             b.ammo = ammo;

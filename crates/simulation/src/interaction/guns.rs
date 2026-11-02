@@ -566,6 +566,23 @@ impl GunState {
         touch(&mut self.changed, item);
         true
     }
+    /// The state of each bound gun.
+    pub fn states(&self) -> impl Iterator<Item = (ItemId, GunSnapshot)> + '_ {
+        self.runtimes.iter().map(|(id, rt)| (*id, rt.snapshot()))
+    }
+    /// Source `UpdFromMulti`: a bound gun takes `state`. False if the gun has no runtime or the
+    /// state is invalid.
+    pub fn set(&mut self, item: ItemId, state: GunSnapshot) -> bool {
+        let Some(rt) = self.runtimes.get_mut(&item) else {
+            return false;
+        };
+        if !rt.restore(&self.guns[rt.gun], &state) {
+            return false;
+        }
+        touch(&mut self.changed, item);
+        touch(&mut self.presented, item);
+        true
+    }
     /// The saved state of a gun item, or `None` at its fresh state.
     pub fn snapshot(&self, item: ItemId) -> Option<GunSnapshot> {
         let rt = self.runtimes.get(&item)?;

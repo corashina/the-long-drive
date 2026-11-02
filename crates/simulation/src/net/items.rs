@@ -2,7 +2,8 @@
 //! other peers move their copy there.
 use super::claim::{ClaimChange, Claims};
 use super::message::{
-    self, ClaimMessage, ItemPoseMessage, Message, RemoveMessage, RequestMessage, VelocityMessage,
+    self, ClaimMessage, ItemPoseMessage, Message, PushMessage, RemoveMessage, RequestMessage,
+    VelocityMessage,
 };
 use super::objects::{NetKey, ObjectIndex};
 use crate::interaction::items::ItemLocation;
@@ -47,6 +48,7 @@ pub struct ItemSync {
     changes: Vec<ClaimChange>,
     fresh: Vec<NetKey>,
     /// Host: requested keys to answer with their state. `Net` clears it after each frame.
+    gone: Vec<NetKey>,
     pub requested: Vec<NetKey>,
     /// Host: the latest pose and velocity of items that it has not loaded.
     pending: HashMap<NetKey, (Option<ItemPoseMessage>, Option<VelocityMessage>)>,
@@ -89,7 +91,12 @@ impl ItemSync {
         out: &mut Vec<u8>,
     ) {
         index.take_fresh(&mut self.fresh);
+        index.take_gone(&mut self.gone);
         if host {
+            // Source `OnDestroy` of a despawned runtime spawn: the host sends the removal.
+            for key in &self.gone {
+                message::push(self.slot, &RemoveMessage { key: key.0 }, out);
+            }
             for key in &self.fresh {
                 let Some((pose, velocity)) = self.pending.remove(key) else {
                     continue;
@@ -388,4 +395,46 @@ mod tests {
         assert!(angle(&[0., 0., 0., 1.], &turned) > SYNC_MIN_ROT);
         assert!(angle(&turned, &turned) <= SYNC_MIN_ROT);
     }
+}
+
+/// Source `SPush`: impulses of the local player on items that another peer owns.
+pub(super) fn send_pushes(
+    runtime: &mut GarageRuntime,
+    index: &ObjectIndex,
+    claims: &Claims,
+    host: bool,
+    out: &mut Out,
+) {
+    let (items, physics) = (&runtime.area.items, &runtime.physics);
+    for (item, impulse, point) in runtime.area.interaction.push.pushes.drain(..) {
+        if claims.owns(item, host) {
+            continue;
+        }
+        let (Some(key), Some(body)) = (index.key(item), items.get(item).and_then(|i| i.body))
+        else {
+            continue;
+        };
+        let local = physics.rapier().bodies[body].position().inverse() * point;
+        out.push(&PushMessage {
+            key: key.0,
+            impulse: impulse.to_array(),
+            point: local.to_array(),
+        });
+    }
+}
+
+/// Source `PushLocal`: the owner applies the impulse of another player.
+pub fn apply_push(runtime: &mut GarageRuntime, item: ItemId, m: &PushMessage) {
+    let impulse = Vector::from_array(m.impulse);
+    let local = Vector::from_array(m.point);
+    let Some(body) = runtime.area.items.get(item).and_then(|i| i.body) else {
+        return;
+    };
+    if !impulse.is_finite() || !local.is_finite() {
+        return;
+    }
+    let point = *runtime.physics.rapier().bodies[body].position() * local;
+    runtime
+        .physics
+        .edit_body(body, |b| b.apply_impulse_at_point(impulse, point, true));
 }

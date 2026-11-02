@@ -34,7 +34,6 @@ Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). WebRTC pe
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
 | M01 | Join and see each other | S | Remote player collision: export the `mpplayerscript` capsule (`minBodyRadius`, `maxBodyRadius`, head and prone head nodes), add a kinematic capsule per figure, 3 s spawn delay and 1 s after standing up. |
-| M03 | Shared items and world | XL | Food, ammo, weapons, push, colors, breakables. License plates and random types need no message: the port draws them from the seed and never changes them. Design: project file `plans/m03-design.md`. |
 | M04 | Everything else | L | After the M03 network keys: host-only creature, Fedo, random stuff and tumbleweed spawns, creature poses to guests, radio controls (`msgType.radio`). The source does not sync sandstorms or sleep. |
 
 Not planned: VR, stereo 3D, mod events, Steam features.
@@ -77,3 +76,4 @@ Two browsers, host and guest in one room. Check F3 on the host before and after,
 7. M03: The guest pours fuel from a canister into the start car and opens its fuel cap. The host sees the canister level drop, the car level rise and the cap open. The host opens a door; it opens on the guest.
 8. M03: The guest takes off the start car hood and a wheel, and takes the tire off the rim. They come off on the host. The guest puts them back; they go back on at the host. The host hitches a trailer; it hitches on the guest.
 9. M03: The guest rides a sled down a dune. The host sees the sled and the guest move together. The host switches a garage light and a building lamp, and opens a bus door; all change on the guest. The guest rusts a part with a crash; the host sees the rust.
+10. M03: The guest eats half a sandwich, fires a gun and reloads it. The host sees the bites and hears the shot; the gun ammo matches on both. The guest pushes a wheelbarrow; it moves on the host. The guest breaks a bottle: the host sees it break and the shards on both match.

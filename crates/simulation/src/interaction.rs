@@ -266,7 +266,7 @@ pub struct InteractionState {
     pub carry: carry::CarryState,
     pub equipment: equipment::EquipmentState,
     pub equipment_input: equipment_input::EquipmentInput,
-    push: push::PushState,
+    pub push: push::PushState,
     player_body: Option<RigidBodyHandle>,
     reach: f32,
     action_masks: ActionMasks,

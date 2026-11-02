@@ -80,6 +80,16 @@ impl GarageRuntime {
                 .set_node_light(&parent, node, intensity.is_some(), intensity.unwrap_or(0.));
         }
         for sound in interaction.guns.take_sounds() {
+            // Source `SWeaponShot`: other players hear the shot.
+            if self.shared_sounds.len() < self.shared_sounds.capacity() {
+                self.shared_sounds.push(crate::net::message::SoundMessage {
+                    position: sound.position,
+                    kind: crate::audio::AudioKind::ItemHit as u32,
+                    clip: sound.clip,
+                    gain: sound.gain,
+                    pitch: sound.pitch,
+                });
+            }
             if let Some(audio) = &mut self.audio {
                 // `PlayClipAtPoint` destroys the copy after the clip length.
                 let seconds = audio
@@ -324,7 +334,7 @@ impl GarageRuntime {
             self.consume_magazine(source);
         }
     }
-    fn set_ammo_item(&mut self, id: ItemId, ammo: AmmoItem) {
+    pub(crate) fn set_ammo_item(&mut self, id: ItemId, ammo: AmmoItem) {
         if self.area.spawned.contains(id) {
             self.area.spawned.set_ammo(id, ammo);
             self.area.items.mark_dirty(id);

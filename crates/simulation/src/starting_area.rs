@@ -760,6 +760,10 @@ pub struct GarageRuntime {
     urine_emission: [f32; 2],
     /// Body sounds of the local player for multiplayer peers (source `SSound`). Net drains it each frame.
     pub shared_sounds: Vec<crate::net::message::SoundMessage>,
+    /// Items that broke on this guest, with the breakable record. Net sends them to the host.
+    pub shared_breaks: Vec<(ItemId, u32)>,
+    /// A multiplayer guest: the host breaks items. Net sets it each frame.
+    pub net_guest: bool,
     heat_haze: crate::heat_haze::OldHeatHaze,
     /// Source `BOldHeatHaze`. The driver sets it.
     pub old_heat_haze: bool,
@@ -950,6 +954,8 @@ impl GarageRuntime {
             urine_reference,
             urine_emission: [0.; 2],
             shared_sounds: Vec::with_capacity(SHARED_SOUNDS),
+            shared_breaks: Vec::with_capacity(SHARED_SOUNDS),
+            net_guest: false,
             heat_haze: crate::heat_haze::OldHeatHaze::new(&reference.small_items.heat_haze),
             old_heat_haze: false,
             ambient: crate::audio::AmbientState::new(&reference.ambient),
@@ -2689,50 +2695,66 @@ impl GarageRuntime {
                     continue;
                 }
             };
-            // Source Break calls pickupable.Drop2 first.
-            if self.area.interaction.held() == Some(item) {
-                self.area
-                    .interaction
-                    .drop_held(&mut self.area.items, &mut self.physics);
-            }
-            let Some((pose, buried)) = self
-                .area
-                .items
-                .get(item)
-                .filter(|s| {
-                    !s.removed && s.location == crate::interaction::items::ItemLocation::World
-                })
-                .map(|s| (s.pose, s.buried))
-            else {
+            // Source `SBroke`: a guest asks the host to break the item.
+            if self.net_guest {
+                if self.shared_breaks.len() < self.shared_breaks.capacity() {
+                    self.shared_breaks.push((item, record as u32));
+                }
                 continue;
-            };
-            self.spawn_gib(reference, rules, pose, buried);
-            if let Some(clip) = self.stream.pick_break_clip(rules)
-                && let Some(audio) = &mut self.audio
-            {
-                let origin = self.area.origin;
-                audio.break_clip(
-                    clip,
-                    std::array::from_fn(|i| origin[i] + f64::from(pose.position[i])),
-                );
             }
-            if !rules.no_destroy && self.area.spawned.contains(item) {
-                // A spawned copy leaves the spawned list, so its save and the tumbleweed list drop it.
-                spawned::despawn(&mut self.area, &mut self.physics, item).expect("spawned copy");
-            } else if !rules.no_destroy {
-                self.stream
-                    .remove_broken_item(
-                        reference,
-                        record,
-                        item,
-                        &mut self.area.items,
-                        &mut self.area.interaction.storage,
-                        &mut self.physics,
-                    )
-                    .expect("bound storage");
-            }
+            self.break_item(reference, record, item);
         }
         self.step_gibs(reference);
+    }
+
+    /// Source Break of item `item` with breakable record `record`: gib, clip and Destroy.
+    pub(crate) fn break_item(
+        &mut self,
+        reference: &ReferenceManifest,
+        record: usize,
+        item: ItemId,
+    ) {
+        let rules = &reference.breakables[record];
+        // Source Break calls pickupable.Drop2 first.
+        if self.area.interaction.held() == Some(item) {
+            self.area
+                .interaction
+                .drop_held(&mut self.area.items, &mut self.physics);
+        }
+        let Some((pose, buried)) = self
+            .area
+            .items
+            .get(item)
+            .filter(|s| !s.removed && s.location == crate::interaction::items::ItemLocation::World)
+            .map(|s| (s.pose, s.buried))
+        else {
+            return;
+        };
+        self.spawn_gib(reference, rules, pose, buried);
+        if let Some(clip) = self.stream.pick_break_clip(rules)
+            && let Some(audio) = &mut self.audio
+        {
+            let origin = self.area.origin;
+            audio.break_clip(
+                clip,
+                std::array::from_fn(|i| origin[i] + f64::from(pose.position[i])),
+            );
+        }
+        if !rules.no_destroy && self.area.spawned.contains(item) {
+            // A spawned copy leaves the spawned list, so its save and the tumbleweed list drop it.
+            spawned::despawn(&mut self.area, &mut self.physics, item).expect("spawned copy");
+        } else if !rules.no_destroy {
+            self.stream
+                .remove_broken_item(
+                    reference,
+                    record,
+                    item,
+                    &mut self.area.items,
+                    &mut self.area.interaction.storage,
+                    &mut self.physics,
+                )
+                .expect("bound storage");
+        }
     }
 
     /// Source Break spawns Gib at the object pose. No reduced-gibs setting exists here.
