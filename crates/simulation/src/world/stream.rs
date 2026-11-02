@@ -420,7 +420,8 @@ pub struct WorldStream {
     /// Prototypes the renderer holds. True when bound. Their bytes are renderer credit.
     prototype_holds: HashMap<SourceId, bool>,
     terrain_ready: [bool; 3],
-    shared_cpu_bytes: Option<usize>,
+    /// The parsed manifest graph. It stays resident for the session, so Asset CPU does not charge it.
+    reference_cpu_bytes: usize,
     publication_available: bool,
     /// The renderer holds the publication slot of this frame.
     publication_lent: bool,
@@ -429,6 +430,8 @@ pub struct WorldStream {
     surface_waits: bool,
     /// Renderer want of the last report above its covered use.
     presentation_want: PresentationAllocation,
+    /// The last grant: renderer want above its covered use, and the fields own work waited for.
+    last_wait: (PresentationAllocation, Reclaim),
     /// Renderer use of the last report above its credit. The grant credits it back.
     presentation_cover: PresentationAllocation,
     /// Renderer use of the last report.
@@ -834,12 +837,7 @@ impl WorldStream {
         distances: super::DrawDistances,
     ) -> Result<Self, ReferenceError> {
         let world = &reference.world;
-        let shared_cpu_bytes = reference.world_retained_cpu_bytes();
-        if shared_cpu_bytes > PROTOTYPE_CPU {
-            return Err(ReferenceError(format!(
-                "Source immutable graph exceeds prototype CPU budget: {shared_cpu_bytes}"
-            )));
-        }
+        let reference_cpu_bytes = reference.world_retained_cpu_bytes();
         let evaluator = super::terrain_evaluator(world, seed);
         let roads = RoadIndex::new(
             RoadSequence::new(world, seed, mode.biome_override())?,
@@ -894,8 +892,8 @@ impl WorldStream {
         let seat_prototypes = content_seats::world_seats(world, &contents.rules)?;
         let road_light = super::source_lights::SourceRoadLight::new(reference, seed)?;
         let cables = super::cables::CableRecipes::new(world, seed)?;
-        if shared_cpu_bytes
-            .saturating_add(road_light.retained_bytes())
+        if road_light
+            .retained_bytes()
             .saturating_add(cables.retained_bytes())
             .saturating_add(contents.rules.retained_bytes())
             .saturating_add(structure_helpers.retained_bytes())
@@ -1099,11 +1097,12 @@ impl WorldStream {
             terrain_execution: TerrainExecution::default(),
             prototype_holds: HashMap::new(),
             terrain_ready: [false; 3],
-            shared_cpu_bytes: Some(shared_cpu_bytes),
+            reference_cpu_bytes,
             publication_available: false,
             publication_lent: false,
             surface_waits: false,
             presentation_want: PresentationAllocation::default(),
+            last_wait: Default::default(),
             presentation_used: PresentationAllocation::default(),
             ramps_wait: false,
             presentation_cover: PresentationAllocation::default(),
@@ -1168,6 +1167,7 @@ impl WorldStream {
     pub fn grant_presentation(&mut self) -> PresentationGrant {
         let reclaim =
             Reclaim::from_bits(self.reclaim.swap(0, std::sync::atomic::Ordering::Relaxed));
+        self.last_wait = (self.presentation_want, reclaim);
         let want = reclaim.keep(std::mem::take(&mut self.presentation_want));
         if self.failure.is_some() {
             return PresentationGrant {
@@ -1575,6 +1575,20 @@ impl WorldStream {
     /// Renderer use of the last report.
     pub fn presentation_used(&self) -> PresentationAllocation {
         self.presentation_used
+    }
+    /// Who holds Asset CPU, and which budgets the renderer and own work wait for.
+    pub fn budget_audit(&self) -> serde_json::Value {
+        let (renderer_want, stream_waits) = self.last_wait;
+        serde_json::json!({
+            "asset_cpu": {
+                "stream": self.metrics().prototype_cpu_bytes - self.presentation.prototype_cpu,
+                "renderer_credit": self.presentation.prototype_cpu,
+                "renderer_used": self.presentation_used.prototype_cpu,
+                "limit": PROTOTYPE_CPU,
+            },
+            "renderer_want": renderer_want,
+            "stream_waits": stream_waits,
+        })
     }
     fn bind_prototype(&mut self, source: &SourceId) -> Result<(), ReferenceError> {
         let bound = self.prototype_holds.get_mut(source).ok_or_else(|| {
@@ -3743,9 +3757,6 @@ impl WorldStream {
         if !self.publication_available || self.failure.is_some() {
             return Ok(());
         }
-        if self.shared_cpu_bytes.is_none() {
-            return Ok(());
-        }
         if self
             .ready
             .as_ref()
@@ -5267,13 +5278,13 @@ impl WorldStream {
                 + self.contents.rules.retained_bytes()
                 + self.building_components.retained_bytes()
                 + self.structure_helpers.retained_bytes()
-                + self.shared_cpu_bytes.unwrap_or(0)
                 + self.presentation.prototype_cpu
                 + self
                     .recipes
                     .values()
                     .map(|recipe| recipe.cpu_bytes)
                     .sum::<usize>(),
+            reference_cpu_bytes: self.reference_cpu_bytes,
             prototype_gpu_bytes: self.presentation.prototype_gpu,
             active_gpu_bytes: self.presentation.active_gpu,
             changed_record_bytes: self.changes.retained_bytes(),

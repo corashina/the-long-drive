@@ -64,6 +64,8 @@ pub struct WorldMetrics {
     pub active_cpu_bytes: usize,
     pub active_gpu_bytes: usize,
     pub prototype_cpu_bytes: usize,
+    /// The parsed manifest graph. Resident for the session and outside Asset CPU.
+    pub reference_cpu_bytes: usize,
     pub prototype_gpu_bytes: usize,
     pub checkpoint_bytes: usize,
     pub changed_record_bytes: usize,
