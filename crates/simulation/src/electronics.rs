@@ -60,6 +60,22 @@ impl Electronics {
             self.jam = (self.jam - JAM_DECREASE * dt).max(0.);
         }
     }
+    /// One frame: decay, then every EMP that holds `at` on collider layer `layer`.
+    pub fn expose(&mut self, emps: &[Emp], at: Vector, layer: u32, dt: f32) {
+        self.update(dt);
+        for emp in emps {
+            emp.jam(at, layer, self, dt);
+        }
+    }
+}
+
+/// An `electronicsscript` on a prototype node.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NodeElectronics {
+    pub node: u32,
+    /// Collider layer of the node.
+    pub layer: u32,
+    pub state: Electronics,
 }
 
 /// Exported `empscript` fields.
