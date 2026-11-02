@@ -1952,6 +1952,7 @@ impl GarageRuntime {
                 important: &important,
                 distances,
                 spawns: !self.net_guest,
+                emps: &self.emps,
             },
         );
         if self.creatures.place_remove_due(self.simulation_seconds) {

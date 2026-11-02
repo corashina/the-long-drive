@@ -12,6 +12,8 @@ pub mod spawner;
 pub mod stimuli;
 
 use crate::damage::{BreakHealth, collision_force, try_break, try_break_shoot};
+use crate::electronics::{Electronics, Emp};
+use crate::player::body::ik::Frame;
 use crate::reference::{
     ColliderId, CreatureDamage, ItemId, NodeId, RabbitReference, ReferenceError, ReferenceManifest,
     StimulusKind, TriggerRole,
@@ -40,6 +42,8 @@ const PLACE_INTERVAL: f64 = 1.;
 const IGNORED_HIT_LAYERS: [u32; 2] = [15, 17];
 /// `SetBasedOnSize` calls `GetEvil(natural: true)` above this size.
 const EVIL_SIZE: f32 = 0.75;
+/// `empscript.makeRabbitsEvil`: the electronics output below this calls `GetEvil(natural: false)`.
+const GREEN_OUTPUT: f32 = 0.2;
 
 /// The rabbit is big enough to get evil.
 pub fn evil_size(size: f32) -> bool {
@@ -64,6 +68,8 @@ pub struct StepInput<'a> {
     pub distances: PlaceDistances,
     /// Source `aispawn.SpawnRoutine` runs only when `isServerOrNoMulti`: false on a multiplayer guest.
     pub spawns: bool,
+    /// Live `empscript`s, advanced this step.
+    pub emps: &'a [Emp],
 }
 
 /// Source `itemPlaceRemoveScript` distances, squared as in `FStart`.
@@ -118,6 +124,9 @@ pub struct Creatures {
     /// `Roar` and `Attack` state timing.
     timings: [ActionTiming; 2],
     eye: usize,
+    /// Rig node of the electronics, the ragdoll body above it, and its rest frame there.
+    head: usize,
+    head_bone: (usize, Frame),
     sources: PlayerStimuli,
     stimuli: Stimuli,
     /// Engine, horn and radio sound stimuli of this step.
@@ -174,7 +183,7 @@ impl Creatures {
                     .position(|child| child.node == node)
             })
             .collect();
-        let bone_nodes = body_nodes
+        let bone_nodes: Vec<usize> = body_nodes
             .iter()
             .map(|node| {
                 rig.index(*node)
@@ -184,6 +193,12 @@ impl Creatures {
         let eye = rig
             .index(r.senses.eyes)
             .ok_or_else(|| ReferenceError("Rabbit eye outside the rig".into()))?;
+        let head = rig
+            .index(r.electronics.node)
+            .ok_or_else(|| ReferenceError("Rabbit electronics outside the rig".into()))?;
+        let head_bone = rig
+            .under_bone(head, &bone_nodes)
+            .ok_or_else(|| ReferenceError("Rabbit electronics outside the bones".into()))?;
         let sources = PlayerStimuli::new(c)
             .ok_or_else(|| ReferenceError("Missing player stimulus sources".into()))?;
         let durations = rig.action_durations();
@@ -208,6 +223,8 @@ impl Creatures {
             touched: Vec::new(),
             timings,
             eye,
+            head,
+            head_bone,
             sources,
             stimuli: Stimuli::new(),
             bound: Vec::with_capacity(32),
@@ -546,6 +563,48 @@ impl Creatures {
             );
         }
         self.attack_rabbits(r, physics, input.dt);
+        self.jam_rabbits(r, physics, input.emps, input.now, input.dt);
+    }
+
+    /// `electronicsscript.Update` of each rabbit, then `empscript.Update` on its colliders.
+    /// `makeRabbitsEvil`: an output below 0.2 calls `GetEvil(natural: false)`.
+    /// `SetRagdol(true)` disables the anim colliders, so a dead rabbit keeps only the others.
+    fn jam_rabbits(
+        &mut self,
+        r: &RabbitReference,
+        physics: &PhysicsWorld,
+        emps: &[Emp],
+        now: f64,
+        dt: f32,
+    ) {
+        let colliders = &r.electronics.colliders;
+        for rabbit in &mut self.rabbits {
+            rabbit.electronics.update(dt);
+            if emps.is_empty() {
+                continue;
+            }
+            let at = if rabbit.alive {
+                let Some(c) = rabbit.colliders.iter().find(|c| c.node == self.head) else {
+                    continue;
+                };
+                (physics.rapier().colliders[c.handle].position() * c.offset.inverse()).translation
+            } else {
+                let (bone, rest) = self.head_bone;
+                let Some(bone) = rabbit.bones.get(bone) else {
+                    continue;
+                };
+                physics.rapier().bodies[bone.body].position() * (rest.position * rabbit.size.scale)
+            };
+            let layers = colliders
+                .iter()
+                .filter(|c| rabbit.alive || !c.anim)
+                .map(|c| c.layer);
+            if jam_electronics(&mut rabbit.electronics, emps, at, layers, dt) && !self.peaceful {
+                rabbit
+                    .evil
+                    .get_evil(&r.evil, &mut rabbit.brain, false, now, &mut self.random);
+            }
+        }
     }
 
     /// `playerdeathtriggerscript.OnTriggerStay` on other rabbits: `TryBreak(damageBreakable * dt)`
@@ -916,6 +975,25 @@ fn root_pose(physics: &PhysicsWorld, rabbit: &Rabbit) -> Pose {
     *physics.rapier().bodies[body].position()
 }
 
+/// `empscript.Update` of each EMP on the colliders of one electronics at `at`, by layer.
+/// True when a `makeRabbitsEvil` EMP finds the output below 0.2.
+fn jam_electronics(
+    e: &mut Electronics,
+    emps: &[Emp],
+    at: Vector,
+    layers: impl Iterator<Item = u32> + Clone,
+    dt: f32,
+) -> bool {
+    let mut green = false;
+    for emp in emps {
+        for layer in layers.clone() {
+            green |=
+                emp.jam(at, layer, e, dt) && emp.make_rabbits_evil && e.output() < GREEN_OUTPUT;
+        }
+    }
+    green
+}
+
 /// What every rabbit step reads.
 struct Shared<'a> {
     rig: &'a Rig,
@@ -1141,6 +1219,62 @@ mod tests {
             shoot_health: 5.,
             explosion_health: 0.,
         }
+    }
+
+    #[test]
+    fn make_rabbits_evil_needs_output_below_two_tenths() {
+        let emp = |evil| {
+            let curve = serde_json::json!({"keys": [
+                {"time": 0., "value": 1., "in_tangent": 0., "out_tangent": 0., "in_weight": 0.,
+                 "out_weight": 0., "weighted_mode": 0},
+                {"time": 1., "value": 1., "in_tangent": 0., "out_tangent": 0., "in_weight": 0.,
+                 "out_weight": 0., "weighted_mode": 0}
+            ], "pre_wrap_mode": 0, "post_wrap_mode": 0});
+            let r = serde_json::from_value(serde_json::json!({
+                "affect_ambient_sound": false, "make_rabbits_evil": evil, "range": 10.,
+                "value": 0.3, "range_spread": 0., "range_speed": 0., "value_spread": 0.,
+                "value_speed": 0., "fall_off": curve, "layers": 1
+            }))
+            .unwrap();
+            Emp::new(&r, Vector::ZERO)
+        };
+        let layers = [0u32, 0];
+        let mut e = Electronics::new(1.);
+        // Two colliders: 0.6 jam per second. Output 1 - jam / 0.3 is 0.2 at jam 0.24.
+        let evil = [emp(true)];
+        assert!(!jam_electronics(
+            &mut e,
+            &evil,
+            Vector::ZERO,
+            layers.iter().copied(),
+            0.39
+        ));
+        assert!(jam_electronics(
+            &mut e,
+            &evil,
+            Vector::ZERO,
+            layers.iter().copied(),
+            0.02
+        ));
+        let mut e = Electronics::new(1.);
+        let plain = [emp(false)];
+        assert!(!jam_electronics(
+            &mut e,
+            &plain,
+            Vector::ZERO,
+            layers.iter().copied(),
+            1.
+        ));
+        assert_eq!(e.output(), 0.);
+        let mut e = Electronics::new(1.);
+        let far = Vector::new(11., 0., 0.);
+        assert!(!jam_electronics(
+            &mut e,
+            &evil,
+            far,
+            layers.iter().copied(),
+            1.
+        ));
     }
 
     #[test]
