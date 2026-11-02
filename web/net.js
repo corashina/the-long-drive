@@ -2,7 +2,9 @@
 // Star like the source: guests talk only to the host. The host forwards guest messages to the other guests.
 // Each guest has a `reliable` connection for the session messages and the save, and a `pose` connection for
 // the simulation packets. A packet is the type byte, the sender slot byte, then a body that only Rust reads.
+// Bit `RELIABLE` of an outbound packet length sends the packet on `reliable` as `{t:'sim',data}`, like source `EP2PSendReliable`.
 // A guest loads the host world for many seconds with a busy page thread, so silence until `ready` uses `LOAD_TIMEOUT_MS`.
+export const RELIABLE=0x8000;
 export const PREFIX='tls-',MAX_PLAYERS=8,TIMEOUT_MS=5000,JOIN_TIMEOUT_MS=15000,LOAD_TIMEOUT_MS=120000,TICK_MS=1000,CHUNK=16384,CHAT_BYTES=200;
 const LETTERS='ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const ROLE={OFF:0,HOST:1,GUEST:2};
@@ -83,15 +85,19 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   else if(m.t==='pong'){g.ping=Math.round(now()-m.at);peers();}
   else if(m.t==='leave')removeGuest(g.id);
   else if(m.t==='ready')g.ready=true;
+  else if(m.t==='sim')hostPose(g,m.data,true);
  }
- function hostPose(g,data){
+ function hostPose(g,data,reliable=false){
   g.seen=now();
   if(!g.welcomed)return;
   const packet=bytes(data).slice();
   if(packet.length<2)return;
   // The host stamps the sender slot, so a guest cannot speak for another.
   packet[1]=g.slot;
-  for(const other of guests.values())if(other!==g&&other.welcomed&&other.pose?.open)other.pose.send(packet);
+  for(const other of guests.values()){
+   if(other===g||!other.welcomed)continue;
+   if(reliable)other.reliable.send({t:'sim',data:packet});else if(other.pose?.open)other.pose.send(packet);
+  }
   emit('packet',packet);
  }
  function accept(conn){
@@ -146,6 +152,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   else if(m.t==='leave'){emit('leave',m.slot);setLook(m.slot,null);}
   else if(m.t==='ping')host.reliable.send({t:'pong',at:m.at});
   else if(m.t==='pong'){host.ping=Math.round(now()-m.at);peers();}
+  else if(m.t==='sim')emit('packet',bytes(m.data));
  }
  return {
   get role(){return role;},
@@ -188,12 +195,17 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
    if(role===ROLE.GUEST&&host?.welcomed)host.reliable.send({t:'leave'});
    stop();
   },
-  // Outbound simulation packets of one frame, each with a u16 length.
+  // Outbound simulation packets of one frame, each with a u16 length. Bit `RELIABLE` of the length picks `reliable`.
   send(packets){
    if(role===ROLE.OFF||!packets.length)return;
    for(let at=0;at+2<=packets.length;){
-    const n=packets[at]|packets[at+1]<<8,packet=packets.subarray(at+2,at+2+n);at+=2+n;
-    if(role===ROLE.HOST){for(const g of guests.values())if(g.welcomed&&g.pose?.open)g.pose.send(packet);}
+    const raw=packets[at]|packets[at+1]<<8,n=raw&~RELIABLE,packet=packets.subarray(at+2,at+2+n);at+=2+n;
+    if(raw&RELIABLE){
+     // A copy: the outbox buffer is reused by the next frame.
+     const message={t:'sim',data:packet.slice()};
+     if(role===ROLE.HOST){for(const g of guests.values())if(g.welcomed)g.reliable.send(message);}
+     else if(host?.welcomed)host.reliable.send(message);
+    }else if(role===ROLE.HOST){for(const g of guests.values())if(g.welcomed&&g.pose?.open)g.pose.send(packet);}
     else if(host?.pose?.open)host.pose.send(packet);
    }
   },

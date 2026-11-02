@@ -33,7 +33,7 @@ pub struct Net {
     body_timer: f32,
     /// Inbound packets, each with a u16 length.
     inbox: Vec<u8>,
-    /// Outbound packets, each with a u16 length.
+    /// Outbound packets, each with a u16 length. Bit `message::RELIABLE` of the length marks a reliable packet.
     outbox: Vec<u8>,
     remotes: Vec<Remote>,
 }
@@ -103,7 +103,8 @@ impl Net {
     fn read_inbox(&mut self, reference: &ReferenceManifest) {
         let mut rest = &self.inbox[..];
         while let [a, b, tail @ ..] = rest {
-            let n = u16::from_le_bytes([*a, *b]) as usize;
+            // The outbox flag is masked, so an outbox reads as an inbox.
+            let n = (u16::from_le_bytes([*a, *b]) & !message::RELIABLE) as usize;
             let Some((packet, tail)) = tail.split_at_checked(n) else {
                 break;
             };
@@ -162,7 +163,10 @@ impl Net {
     }
 
     fn push<M: Message>(&mut self, message: &M) {
-        let n = (message::HEADER + size_of::<M>()) as u16;
+        let mut n = (message::HEADER + size_of::<M>()) as u16;
+        if M::RELIABLE {
+            n |= message::RELIABLE;
+        }
         self.outbox.extend_from_slice(&n.to_le_bytes());
         message.encode(self.slot, &mut self.outbox);
     }
