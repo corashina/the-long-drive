@@ -23,6 +23,7 @@ pub mod heat_haze;
 pub mod horror;
 #[cfg(target_arch = "wasm32")]
 pub mod host;
+pub mod hum;
 pub mod interaction;
 pub mod inventory;
 pub mod light_dither;
