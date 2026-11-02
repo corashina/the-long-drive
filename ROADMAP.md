@@ -30,7 +30,6 @@ The starting area, car parts, world and more cars sections are done. Only their 
 | X03c | Green-eyed evil rabbits | S | Needs X03b. `empscript.makeRabbitsEvil`: rabbit `electronicsscript.nyul` output below 0.2 calls `GetEvil(natural: false)`. `Evil::get_evil` has the `Green` path. Link rabbit electronics and render `EyeGreen`. |
 | X03d | Ground UFO | M | Needs X03b. Find and export the source prefabs that carry `empscript` (also check `sky_ufo`). Place the ground UFO with its model, sounds and EMP. |
 | X03g | Human monster animation and voice | M | Needs X03f. `newAiAnim` animator, look target and hand IK. Voices: idle, notice, chase, attack and death lists with pitch, and the `TVoice` mouth move. |
-| X03h | Human monster attack and death | M | Needs X03f. `Attack`: ray to the player, `survival.DamageInstant(damage * dt)`, both hands hold. `breakablescript.DamageFrom` wakes it and turns its target to the hit. Shot, collision and explosion break it. `Die`: ragdoll and death sound. |
 
 ### Multiplayer
 
