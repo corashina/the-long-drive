@@ -60,6 +60,13 @@ impl GeneratedId {
         }
         hash
     }
+    /// The seed of this key with one more child: `source` with ordinal `ordinal`.
+    pub fn child_seed(&self, source: &SourceId, ordinal: u32) -> u64 {
+        let mut hash = self.seed();
+        mix_source(&mut hash, source);
+        mix(&mut hash, &ordinal.to_le_bytes());
+        hash
+    }
 }
 impl ObjectKey {
     /// Stable 64-bit FNV-1a seed of the key. Each copy of one prototype gets its own seed.
@@ -73,6 +80,12 @@ impl ObjectKey {
             Self::Generated(id) => id.seed(),
         }
     }
+}
+/// Stable seed of a source object, the hash of `ObjectKey::seed`.
+pub fn source_seed(id: &SourceId) -> u64 {
+    let mut hash = FNV_OFFSET;
+    mix_source(&mut hash, id);
+    hash
 }
 /// FNV-1a of `bytes`, the hash of `ObjectKey::seed`.
 pub fn fnv1a(bytes: &[u8]) -> u64 {

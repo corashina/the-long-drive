@@ -122,6 +122,16 @@ impl PartAttachments {
             .map(|s| s.reference.id)
     }
 
+    /// The slot of `owner` whose source has `crate::world::source_seed` `seed`.
+    pub fn slot_of(&self, owner: Option<ItemId>, seed: u64) -> Option<PartSlotId> {
+        self.slots
+            .iter()
+            .find(|s| {
+                s.reference.owner == owner && crate::world::source_seed(&s.reference.source) == seed
+            })
+            .map(|s| s.reference.id)
+    }
+
     pub(super) fn retained_binding_bytes(&self) -> usize {
         use super::memory::{map, strings, vector};
         vector(&self.parts)

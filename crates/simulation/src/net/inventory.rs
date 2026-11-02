@@ -120,15 +120,7 @@ impl InventorySync {
         };
         if flags & (InventoryMessage::PICKED | InventoryMessage::EQUIPPED) != 0 {
             // Source: the other player takes it from this player's hands.
-            let area = &mut runtime.area;
-            if area.interaction.equipment.item() == Some(item) {
-                let _ = area.release_equipped(&mut runtime.physics);
-            }
-            if area.interaction.carry.held() == Some(item) {
-                area.interaction
-                    .drop_held(&mut area.items, &mut runtime.physics);
-            }
-            area.sync_inventory();
+            drop_local(runtime, item);
         }
         if flags == 0 {
             if let Some(held) = self.held.remove(&item) {
@@ -245,6 +237,19 @@ impl InventorySync {
             restore(runtime, item, &held);
         }
     }
+}
+
+/// The local player lets go of `item` if it is in a hand.
+pub(super) fn drop_local(runtime: &mut GarageRuntime, item: ItemId) {
+    let area = &mut runtime.area;
+    if area.interaction.equipment.item() == Some(item) {
+        let _ = area.release_equipped(&mut runtime.physics);
+    }
+    if area.interaction.carry.held() == Some(item) {
+        area.interaction
+            .drop_held(&mut area.items, &mut runtime.physics);
+    }
+    area.sync_inventory();
 }
 
 fn figure(figures: &[(u8, Pose)], slot: u8) -> Pose {

@@ -24,6 +24,14 @@ pub const TIME: u8 = 49;
 pub const REQUEST: u8 = 8;
 /// Source `msgType.inventory`.
 pub const INVENTORY: u8 = 15;
+/// Source `msgType.partcondition`.
+pub const PART_CONDITION: u8 = 20;
+/// Source `msgType.flashlight`.
+pub const FLASHLIGHT: u8 = 30;
+/// Source `msgType.bus`.
+pub const BUS: u8 = 32;
+/// Source `msgType.partslot`.
+pub const PART_SLOT: u8 = 21;
 /// Source `msgType.usable`.
 pub const USABLE: u8 = 22;
 /// Source `msgType.fluid`.
@@ -306,6 +314,69 @@ pub struct UsableMessage {
     pub pad: u32,
 }
 
+/// Source `SPartSlot` and `SAttachable`: where an item is mounted.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct MountMessage {
+    pub key: u64,
+    /// The key of the item that owns the slot, or 0.
+    pub owner: u64,
+    /// `world::source_seed` of the slot or target source.
+    pub seed: u64,
+    /// `LOOSE`, `PART`, `WHEEL`, `TIRE`, `HITCH`.
+    pub kind: u32,
+    pub pad: u32,
+}
+
+impl MountMessage {
+    pub const LOOSE: u32 = 0;
+    /// In a part slot.
+    pub const PART: u32 = 1;
+    /// A rim in a wheel slot.
+    pub const WHEEL: u32 = 2;
+    /// A tire on rim `owner`.
+    pub const TIRE: u32 = 3;
+    /// A trailer grip on a hitch target.
+    pub const HITCH: u32 = 4;
+}
+
+/// Source `SPartCondition`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct ConditionMessage {
+    /// The key of the item that saves the entry, or 0 for a garage surface.
+    pub key: u64,
+    /// The seed of the entry source, or the garage `ConditionId`.
+    pub seed: u64,
+    pub state: u32,
+    pub state2: u32,
+    pub state3: u32,
+    pub pad: u32,
+    pub color: [f32; 4],
+}
+
+/// Source `SFlashlight`: a lamp switch.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct LampMessage {
+    /// The seed of a world lamp object, or 0 for garage switch `control`.
+    pub key: u64,
+    /// Source `Lamp.broken`: bit i is lamp i.
+    pub broken: u64,
+    pub control: u32,
+    pub on: u32,
+}
+
+/// Source `SBus`: bit i is door i.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct BusMessage {
+    /// The seed of the bus.
+    pub key: u64,
+    pub opened: u32,
+    pub signed: u32,
+}
+
 /// Source `SRemoveItem`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -389,6 +460,22 @@ impl Message for RequestMessage {
 }
 impl Message for InventoryMessage {
     const TYPE: u8 = INVENTORY;
+    const RELIABLE: bool = true;
+}
+impl Message for MountMessage {
+    const TYPE: u8 = PART_SLOT;
+    const RELIABLE: bool = true;
+}
+impl Message for ConditionMessage {
+    const TYPE: u8 = PART_CONDITION;
+    const RELIABLE: bool = true;
+}
+impl Message for LampMessage {
+    const TYPE: u8 = FLASHLIGHT;
+    const RELIABLE: bool = true;
+}
+impl Message for BusMessage {
+    const TYPE: u8 = BUS;
     const RELIABLE: bool = true;
 }
 impl Message for RemoveMessage {

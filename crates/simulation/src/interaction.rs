@@ -931,6 +931,13 @@ impl InteractionState {
             .find(|(_, r)| r.owner == Some(owner) && &r.source == source)
             .map(|(id, _)| *id)
     }
+    /// The wheel slot of `owner` whose source has `crate::world::source_seed` `seed`.
+    pub fn wheel_slot_of(&self, owner: Option<ItemId>, seed: u64) -> Option<WheelSlotId> {
+        self.wheel_slots
+            .iter()
+            .find(|(_, r)| r.owner == owner && crate::world::source_seed(&r.source) == seed)
+            .map(|(id, _)| *id)
+    }
     pub fn register_generated_wheel(
         &mut self,
         rule: &crate::reference::WheelPartReference,
@@ -1766,11 +1773,8 @@ impl InteractionState {
                     }
                     SlotTarget::Part(slot) => {
                         self.drop_held(items, physics);
-                        self.parts
-                            .install(held, slot, items, physics)
+                        self.install_part(held, slot, items, physics)
                             .expect("validated part installation");
-                        self.parts.mount_mechanism(held, &mut self.mechanisms);
-                        self.sync_parts(items, physics).expect("bound parts");
                         action = Some(InteractionAction::PartInstall(held));
                         self.sound(InteractionSound::Action(InteractionAction::PartInstall(
                             held,
@@ -1796,9 +1800,8 @@ impl InteractionState {
                         self.parts
                             .remove(target.item, items, physics)
                             .expect("validated removal");
-                        self.parts
-                            .detach_mechanism(target.item, &mut self.mechanisms, physics);
-                        self.sync_parts(items, physics).expect("bound parts");
+                        self.unmount_part(target.item, items, physics)
+                            .expect("bound parts");
                         self.carry
                             .pickup(target.item, target.point, player, items, physics)
                             .expect("validated carry acquisition");
@@ -2214,6 +2217,39 @@ impl InteractionState {
         }
     }
 
+    /// Source `partslotscript.Craft`: the part, its mechanism and its assembly mount.
+    pub fn install_part(
+        &mut self,
+        item: ItemId,
+        slot: PartSlotId,
+        items: &mut ItemStore,
+        physics: &mut PhysicsWorld,
+    ) -> Result<(), ReferenceError> {
+        self.parts.install(item, slot, items, physics)?;
+        self.parts.mount_mechanism(item, &mut self.mechanisms);
+        self.sync_parts(items, physics)
+    }
+    /// Source `partslotscript.UnCraft(_fallOff: true)`.
+    pub fn fall_off_part(
+        &mut self,
+        item: ItemId,
+        items: &mut ItemStore,
+        physics: &mut PhysicsWorld,
+    ) -> Result<(), ReferenceError> {
+        self.parts.fall_off(item, items, physics)?;
+        self.unmount_part(item, items, physics)
+    }
+    /// The mechanism and assembly of a part that left its slot.
+    fn unmount_part(
+        &mut self,
+        item: ItemId,
+        items: &mut ItemStore,
+        physics: &mut PhysicsWorld,
+    ) -> Result<(), ReferenceError> {
+        self.parts
+            .detach_mechanism(item, &mut self.mechanisms, physics);
+        self.sync_parts(items, physics)
+    }
     pub fn sync_parts(
         &mut self,
         items: &mut ItemStore,

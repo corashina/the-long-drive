@@ -3,9 +3,12 @@
 pub mod body;
 pub mod car;
 pub mod claim;
+pub mod conditions;
 pub mod inventory;
 pub mod items;
+pub mod lamps;
 pub mod message;
+pub mod mounts;
 pub mod objects;
 pub mod remote;
 pub mod state;
@@ -16,13 +19,17 @@ use crate::player::body::BodyState;
 use crate::reference::ReferenceManifest;
 use crate::starting_area::GarageRuntime;
 use car::CarFloats;
+use conditions::ConditionSync;
 use inventory::InventorySync;
 use items::ItemSync;
+use lamps::LampSync;
 use message::{
-    BodyMessage, CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage,
-    ClaimMessage, FluidMessage, InventoryMessage, ItemPoseMessage, Message, PoseMessage,
-    RemoveMessage, RequestMessage, TankCapMessage, UsableMessage, VelocityMessage,
+    BodyMessage, BusMessage, CarFloatsMessage, CarGearMessage, CarHandbrakeMessage,
+    CarIgnitionMessage, ClaimMessage, ConditionMessage, FluidMessage, InventoryMessage,
+    ItemPoseMessage, LampMessage, Message, MountMessage, PoseMessage, RemoveMessage,
+    RequestMessage, TankCapMessage, UsableMessage, VelocityMessage,
 };
+use mounts::MountSync;
 use objects::{NetKey, ObjectIndex};
 use remote::Remote;
 use state::StateSync;
@@ -76,6 +83,9 @@ pub struct Net {
     cars_touched: bool,
     inventory: InventorySync,
     state: StateSync,
+    mounts: MountSync,
+    conditions: ConditionSync,
+    lamps: LampSync,
     /// Remote figure poses of this frame, in stream space.
     figures: Vec<(u8, rapier3d::math::Pose)>,
     /// Peers that left since the last frame.
@@ -99,6 +109,9 @@ impl Net {
             self.objects.clear();
             self.items.clear();
             self.state.clear();
+            self.mounts.clear();
+            self.conditions.clear();
+            self.lamps.clear();
             self.cars.clear();
         }
     }
@@ -209,6 +222,11 @@ impl Net {
         self.inventory.send(runtime, &self.objects, out);
         self.state
             .send(runtime, &self.objects, &self.items.requested, real_dt, out);
+        self.mounts
+            .send(runtime, &self.objects, &self.items.requested, real_dt, out);
+        self.conditions
+            .send(runtime, &self.objects, &self.items.requested, real_dt, out);
+        self.lamps.send(reference, runtime, real_dt, out);
         self.items.requested.clear();
         let origin = &runtime.stream.origin;
         self.figures.clear();
@@ -349,6 +367,22 @@ impl Net {
         } else if let Ok((slot, m)) = UsableMessage::decode(packet) {
             if let Some(id) = item(slot, m.key) {
                 self.state.got_usable(runtime, id, &m);
+            }
+        } else if let Ok((slot, m)) = ConditionMessage::decode(packet) {
+            if slot != mine {
+                self.conditions.got(runtime, &self.objects, &m);
+            }
+        } else if let Ok((slot, m)) = LampMessage::decode(packet) {
+            if slot != mine {
+                self.lamps.got_lamp(reference, runtime, &m);
+            }
+        } else if let Ok((slot, m)) = BusMessage::decode(packet) {
+            if slot != mine {
+                self.lamps.got_bus(runtime, &m);
+            }
+        } else if let Ok((slot, m)) = MountMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                self.mounts.got(runtime, &self.objects, id, &m);
             }
         } else if let Ok((slot, m)) = ClaimMessage::decode(packet) {
             if let Some(id) = item(slot, m.key) {

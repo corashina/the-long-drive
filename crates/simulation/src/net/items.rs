@@ -6,6 +6,7 @@ use super::message::{
 };
 use super::objects::{NetKey, ObjectIndex};
 use crate::interaction::items::ItemLocation;
+use crate::player::SeatOwner;
 use crate::reference::ItemId;
 use crate::starting_area::GarageRuntime;
 use crate::vehicle::{VehiclePose, to_rapier};
@@ -135,6 +136,11 @@ impl ItemSync {
         };
         let interaction = &runtime.area.interaction;
         let slots = runtime.area.inventory.slots;
+        // Source: an item seat sends the world pose of its item.
+        let seat = match runtime.area.player.seat_owner() {
+            Some(SeatOwner::Item(key)) => runtime.area.items.resolve_key(key),
+            _ => None,
+        };
         self.claims.observe(
             [
                 interaction.carry.held(),
@@ -143,6 +149,7 @@ impl ItemSync {
                 slots[1],
                 slots[2],
                 slots[3],
+                seat,
             ],
             clock,
             &mut self.changes,

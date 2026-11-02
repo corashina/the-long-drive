@@ -379,6 +379,36 @@ impl ConditionStore {
             }
         }
     }
+    /// Saved world entries: id, owner item, source, state and spawn state.
+    pub fn world_entries(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            ConditionId,
+            ItemId,
+            &SourceKey,
+            &ConditionState,
+            &ConditionState,
+        ),
+    > {
+        let first = self.records.len();
+        self.saves.iter().enumerate().filter_map(move |(i, s)| {
+            let s = s.as_ref()?;
+            let id = self.id(first + i);
+            Some((id, s.item, &s.source, &self.states[first + i], &s.spawn))
+        })
+    }
+    /// Source `PartConditionUpd`: sets the state and color, keeps the repair progress, and refreshes
+    /// the children.
+    pub fn set_shared(&mut self, id: ConditionId, state: ConditionState) {
+        let i = self.index(id);
+        let v = &mut self.states[i];
+        v.state = state.state;
+        v.state2 = state.state2;
+        v.state3 = state.state3;
+        v.color = state.color;
+        self.refresh(id);
+    }
     /// Garage surfaces only.
     pub fn iter(&self) -> impl Iterator<Item = (ConditionId, &ConditionState)> {
         self.records.iter().map(|r| r.id).zip(&self.states)
