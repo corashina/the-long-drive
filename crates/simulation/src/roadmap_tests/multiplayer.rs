@@ -467,6 +467,11 @@ fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
     // The nearest loose item can be one that the hand cannot carry: take a light garage item.
     let copy = find(&guest, "OilCan");
     let item = same(&guest, &run, copy);
+    // The host figure of the guest moves after source `readyToMove` (1 s), and a held item rides
+    // on it at `smoothMoveSpeed`. The guest walks to the item first, so the figure is there.
+    let point = guest.area.items.get(copy).unwrap().pose.position;
+    stand_near(&mut guest, &reference, point, 1.);
+    pair.run(&reference, &mut run, &mut guest, 1.);
     pick_up(&mut guest, &reference, copy);
     pair.run(&reference, &mut run, &mut guest, 0.5);
     assert!(pair.guest.claims().claimed(copy), "the guest claims it");
