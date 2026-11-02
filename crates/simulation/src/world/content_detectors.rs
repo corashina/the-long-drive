@@ -5,8 +5,7 @@ use super::content_index::ContentSlot;
 use crate::interaction::items::ItemStore;
 use crate::interaction::{InteractionState, Knob};
 use crate::reference::{
-    COLLIDER_TAGS, ColliderId, CurveKey, ItemId, ReferenceError, SourceId, TorqueCurve, Transform,
-    WorldValue,
+    COLLIDER_TAGS, ColliderId, CurveKey, ItemId, ReferenceError, SourceId, Transform, WorldValue,
 };
 use crate::simulation::dials::{inverse_lerp, lerp, unity_euler};
 use crate::simulation::metal_detector::{DetectorRules, MetalDetector};
@@ -55,35 +54,6 @@ impl DetectorBinding {
             + self.rules.tags.capacity() * std::mem::size_of::<crate::reference::ColliderTag>()
             + self.hits.capacity() * std::mem::size_of::<(f32, u128)>()
     }
-}
-
-/// An unweighted source AnimationCurve.
-fn curve<'a>(f: impl FieldAccess<'a>, name: &str) -> Result<TorqueCurve, ReferenceError> {
-    let c = fields(value(f, name)?)?;
-    let mut keys = Vec::new();
-    for k in array(c, "m_Curve")? {
-        let k = fields(k)?;
-        if integer(k, "weightedMode")? != 0 {
-            return Err(ReferenceError(format!("Weighted detector curve {name}")));
-        }
-        keys.push(CurveKey {
-            time: number(k, "time")?,
-            value: number(k, "value")?,
-            in_tangent: number(k, "inSlope")?,
-            out_tangent: number(k, "outSlope")?,
-            in_weight: number(k, "inWeight")?,
-            out_weight: number(k, "outWeight")?,
-            weighted_mode: 0,
-        });
-    }
-    if keys.is_empty() {
-        return Err(ReferenceError(format!("Empty detector curve {name}")));
-    }
-    Ok(TorqueCurve {
-        keys,
-        pre_wrap_mode: integer(c, "m_PreInfinity")?,
-        post_wrap_mode: integer(c, "m_PostInfinity")?,
-    })
 }
 
 impl WorldStream {
