@@ -15,6 +15,8 @@ pub struct Plane {
     pub heading: Rotation,
     /// Source planetrail. It simulates in the anchor space: its positions are anchor offsets.
     pub contrail: Option<ParticleState>,
+    /// fedoscript `seat.inUse`: the `seatedObj` shows.
+    pub seated: bool,
 }
 
 pub struct SkyTraffic {
@@ -75,6 +77,7 @@ impl SkyTraffic {
                 .get(prefab)
                 .and_then(|p| p.contrail.as_ref())
                 .map(|c| ParticleState::new(c, self.seed.wrapping_add(u64::from(self.next_id)))),
+            seated: false,
         });
         self.next_id += 1;
     }

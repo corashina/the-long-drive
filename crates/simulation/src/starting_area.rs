@@ -775,6 +775,8 @@ pub struct GarageRuntime {
     weather_bindings: weather::WeatherBindings,
     sky: crate::sky_traffic::SkyTraffic,
     ground_ufos: crate::ground_ufo::GroundUfos,
+    /// `PlayerInput` values of this step for a seated UFO.
+    ufo_pilot: crate::ground_ufo::UfoPilot,
     pub flyers: crate::flyers::Flyers,
     pub creatures: crate::creatures::Creatures,
     /// Live `empscript` sources in physics space. `sync_emps` adds, moves and removes them.
@@ -1011,7 +1013,12 @@ impl GarageRuntime {
             weather: crate::weather::WeatherState::new(&reference.weather, seed as u64),
             weather_bindings,
             sky: crate::sky_traffic::SkyTraffic::new(&reference.sky, seed as u64),
-            ground_ufos: crate::ground_ufo::GroundUfos::new(&reference.sky.ground_ufo, seed as u64),
+            ground_ufos: crate::ground_ufo::GroundUfos::new(
+                &reference.sky.ground_ufo,
+                &reference.creatures,
+                seed as u64,
+            ),
+            ufo_pilot: crate::ground_ufo::UfoPilot::default(),
             flyers: crate::flyers::Flyers::new(seed as u64),
             creatures: crate::creatures::Creatures::new(reference, seed as u64, 0.)?,
             emps: Vec::with_capacity(EMP_CAPACITY),
@@ -1461,6 +1468,9 @@ impl GarageRuntime {
             Some(InteractionAction::Crank(knob, look)) => {
                 self.stream.crank_music_box(knob, look);
             }
+            Some(InteractionAction::Ufo(target, value)) => {
+                self.ground_ufos.use_control(target, value);
+            }
             Some(InteractionAction::Wheel(action)) => {
                 if let Some(notice) = self.area.interaction.complete_wheel_action(
                     action,
@@ -1600,6 +1610,14 @@ impl GarageRuntime {
             car,
             self.driving_assists.automatic_gears,
         );
+        let controls = driving_output.controls;
+        self.ufo_pilot = crate::ground_ufo::UfoPilot {
+            throttle: controls.throttle,
+            brake: controls.brake,
+            steer: controls.steer,
+            up: vehicle_input.held & keys::JUMP != 0,
+            down: vehicle_input.held & keys::CROUCH != 0,
+        };
         // Source `carscript` cycles off, low, high.
         if (driving || self.area.player.driving2())
             && input.pressed & keys::LIGHTS != 0
@@ -1908,16 +1926,32 @@ impl GarageRuntime {
             .stream
             .origin
             .absolute(self.area.player.body_pose(&self.physics).position);
+        let seated = match self.area.player.seat_owner() {
+            Some(crate::player::SeatOwner::Ufo(id)) => Some((*id, self.ufo_pilot)),
+            _ => None,
+        };
         let stream = &self.stream;
-        self.ground_ufos.advance(
-            &reference.sky.ground_ufo,
-            self.lighting.cycle.output().phase,
-            player,
-            !self.net_guest,
-            dt,
-            |position, above| stream.road_point(position, above),
-        );
-        self.ground_ufos.place(&reference.sky.ground_ufo, anchor);
+        let mut world = crate::ground_ufo::UfoWorld {
+            physics: &mut self.physics,
+            interaction: &mut self.area.interaction,
+            items: &mut self.area.items,
+            origin: &stream.origin,
+        };
+        self.ground_ufos
+            .advance(
+                &reference.sky,
+                self.lighting.cycle.output().phase,
+                player,
+                seated,
+                !self.net_guest,
+                self.simulation_seconds,
+                dt,
+                &mut world,
+                |position, above| stream.road_point(position, above),
+            )
+            .expect("validated ground UFO colliders");
+        self.ground_ufos
+            .place(&reference.sky.ground_ufo, anchor, &world);
         self.sync_emps(reference, anchor);
         if let Some(audio) = &mut self.audio {
             audio.sky(
@@ -2036,6 +2070,7 @@ impl GarageRuntime {
                 distances,
                 spawns: !self.net_guest,
                 emps: &self.emps,
+                bodies: self.ground_ufos.stimuli(),
             },
         );
         self.creatures

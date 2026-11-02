@@ -74,6 +74,8 @@ pub struct StepInput<'a> {
     pub spawns: bool,
     /// Live `empscript`s, advanced this step.
     pub emps: &'a [Emp],
+    /// Fixed stimuli on live bodies, such as the ground UFOs.
+    pub bodies: &'a [stimuli::Stimulus],
 }
 
 /// Source `itemPlaceRemoveScript` distances, squared as in `FStart`.
@@ -454,6 +456,7 @@ impl Creatures {
             input.head,
             input.hum,
             &self.bound,
+            input.bodies,
             now,
             |p| Vector::from_array(origin.local(p)),
         );

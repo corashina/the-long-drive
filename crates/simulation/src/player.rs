@@ -102,6 +102,8 @@ impl ExitReference {
 pub enum SeatOwner {
     Vehicle(crate::world::ObjectKey),
     Item(crate::world::ObjectKey),
+    /// A ground UFO by its plane id. It is not saved.
+    Ufo(u32),
 }
 
 /// Seat values the player keeps while seated.
@@ -371,9 +373,11 @@ impl PlayerState {
             pose: crate::save::AbsolutePose { position, rotation },
             yaw: self.yaw,
             pitch: self.pitch,
+            // The source does not save the UFO, so its seat is not saved.
             seat: self
                 .occupancy
                 .as_ref()
+                .filter(|seat| !matches!(seat.owner, SeatOwner::Ufo(_)))
                 .map(|seat| {
                     let (owner, source) = match &seat.owner {
                         SeatOwner::Vehicle(vehicle) => (
@@ -396,6 +400,7 @@ impl PlayerState {
                                     crate::save::SaveError::InvalidLinks("Item seat source".into())
                                 })?,
                         ),
+                        SeatOwner::Ufo(_) => unreachable!("filtered UFO seat"),
                     };
                     Ok::<_, crate::save::SaveError>(crate::save::SeatSnapshot {
                         owner,
@@ -1055,7 +1060,7 @@ impl PlayerState {
     pub fn seat_vehicle(&self) -> Option<&crate::world::ObjectKey> {
         match self.seat_owner()? {
             SeatOwner::Vehicle(vehicle) => Some(vehicle),
-            SeatOwner::Item(_) => None,
+            SeatOwner::Item(_) | SeatOwner::Ufo(_) => None,
         }
     }
     /// Source `CarCamParent` anchors of the occupied seat: `seat.transform.position + up` (or the root
@@ -1088,7 +1093,7 @@ impl PlayerState {
     pub fn item_seat_body(&self) -> Option<RigidBodyHandle> {
         self.occupancy
             .as_ref()
-            .filter(|seat| matches!(seat.owner, SeatOwner::Item(_)))
+            .filter(|seat| matches!(seat.owner, SeatOwner::Item(_) | SeatOwner::Ufo(_)))
             .map(|seat| seat.body)
     }
     /// The main seatscript of the occupied seat.

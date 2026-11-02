@@ -81,13 +81,15 @@ impl Stimuli {
     }
     /// Rebuilds the list. `head` is the player head stimulus and its body. `hum` is the
     /// `humStimul.SetAudioValue` volume. `bound` holds the live bound stimuli: their values
-    /// refresh each `CHECK_INTERVAL`, their positions each step.
+    /// refresh each `CHECK_INTERVAL`, their positions each step. `bodies` are fixed stimuli.
+    #[allow(clippy::too_many_arguments)]
     pub fn rebuild(
         &mut self,
         sources: &PlayerStimuli,
         head: (Vector, RigidBodyHandle),
         hum: f32,
         bound: &[SoundStimulus],
+        bodies: &[Stimulus],
         now: f64,
         local: impl Fn([f64; 3]) -> Vector,
     ) {
@@ -98,6 +100,7 @@ impl Stimuli {
             self.held.extend(bound.iter().map(|s| (s.key, s.value)));
         }
         self.list.clear();
+        self.list.extend_from_slice(bodies);
         for v in &sources.head.stimuli {
             self.list.push(Stimulus {
                 position: head.0,
