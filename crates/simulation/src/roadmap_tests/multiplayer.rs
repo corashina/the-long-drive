@@ -179,6 +179,11 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
         (figure - Vector::new(at.x, at.y, at.z)).length() < 3.,
         "the guest figure sits in the host copy"
     );
+    // The seated guest AutoShift would pick its own gear: the guest shifts by hand.
+    guest.driving_assists = crate::reference::DrivingAssists {
+        automatic_clutch: false,
+        automatic_gears: false,
+    };
     let vehicle = guest.vehicles.get_mut(&key).unwrap();
     vehicle.handbrake = !vehicle.handbrake;
     vehicle.ignition.ignition = !vehicle.ignition.ignition;
@@ -377,6 +382,24 @@ fn same(from: &GarageRuntime, to: &GarageRuntime, item: ItemId) -> ItemId {
         .expect("the item is on both peers")
 }
 
+/// The host item pose packet of runtime spawn `serial` in an outbox.
+fn spawn_pose(packets: &[u8], serial: u32) -> Option<crate::net::message::ItemPoseMessage> {
+    use crate::net::message::{ItemPoseMessage, Message, RELIABLE};
+    let mut rest = packets;
+    while let [a, b, tail @ ..] = rest {
+        let n = (u16::from_le_bytes([*a, *b]) & !RELIABLE) as usize;
+        let (packet, tail) = tail.split_at_checked(n)?;
+        rest = tail;
+        if let Ok((_, m)) = ItemPoseMessage::decode(packet)
+            && m.spawn[0] != 0
+            && m.spawn[1] == serial
+        {
+            return Some(m);
+        }
+    }
+    None
+}
+
 fn absolute(run: &GarageRuntime, item: ItemId) -> [f64; 3] {
     run.stream
         .origin
@@ -447,6 +470,11 @@ fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
     // The nearest loose item can be one that the hand cannot carry: take a light garage item.
     let copy = find(&guest, "OilCan");
     let item = same(&guest, &run, copy);
+    // The host figure of the guest moves after source `readyToMove` (1 s), and a held item rides
+    // on it at `smoothMoveSpeed`. The guest walks to the item first, so the figure is there.
+    let point = guest.area.items.get(copy).unwrap().pose.position;
+    stand_near(&mut guest, &reference, point, 1.);
+    pair.run(&reference, &mut run, &mut guest, 1.);
     pick_up(&mut guest, &reference, copy);
     pair.run(&reference, &mut run, &mut guest, 0.5);
     assert!(pair.guest.claims().claimed(copy), "the guest claims it");
@@ -461,7 +489,21 @@ fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
         run.physics.rapier().bodies[body].is_kinematic(),
         "source UpdInventory: the host copy rides on the guest"
     );
-    pair.run(&reference, &mut run, &mut guest, 1.2);
+    for _ in 0..6 {
+        pair.run(&reference, &mut run, &mut guest, 0.2);
+        let figure = pair.host.remote_body(1).map(|b| b.position(&run.physics));
+        let guest_body = guest
+            .stream
+            .origin
+            .absolute(body_position(&guest).to_array());
+        eprintln!(
+            "m03 pickup: host item {:?}, guest item {:?}, apart {:.3}, host figure of the guest {:?}, guest body {guest_body:?}",
+            absolute(&run, item),
+            absolute(&guest, copy),
+            apart(absolute(&run, item), absolute(&guest, copy)),
+            figure.map(|f| run.stream.origin.absolute(f.to_array())),
+        );
+    }
     assert!(
         apart(absolute(&run, item), absolute(&guest, copy)) < 0.2,
         "the host item follows the held item"
@@ -518,14 +560,59 @@ fn tp_m03_a_host_spawn_appears_on_the_guest() {
     .unwrap();
     let serial = run.area.spawned.get(ids[0]).unwrap().serial;
     // The last host pose of the 1 s checks comes after the shovel lies still.
-    pair.run(&reference, &mut run, &mut guest, 2.2);
-    let copy = guest
+    let mut sent = None;
+    for _ in 0..(2.2 / FIXED_DT).ceil() as usize {
+        frame(&mut run, &reference);
+        pair.host
+            .fill(&reference, &mut run, FIXED_DT, 1., &mut pair.frame);
+        pair.host.take_outbox(&mut pair.packets);
+        sent = sent.or_else(|| spawn_pose(&pair.packets, serial));
+        pair.guest.receive(&pair.packets);
+        frame(&mut guest, &reference);
+        pair.guest
+            .fill(&reference, &mut guest, FIXED_DT, 1., &mut pair.frame);
+        pair.guest.take_outbox(&mut pair.packets);
+        pair.host.receive(&pair.packets);
+    }
+    let found = guest
         .area
         .spawned
         .iter()
         .find(|s| s.serial == serial && s.prototype == prototype)
-        .expect("the guest spawns it")
-        .id;
+        .map(|s| s.id);
+    if found.is_none() {
+        let state = run.area.items.get(ids[0]);
+        eprintln!(
+            "m03 spawn: serial {serial}, prototype {prototype}, host item removed {:?} location {:?} \
+             body {:?} inactive {:?}, host sent {sent:?}, guest serials {:?}",
+            state.map(|s| s.removed),
+            state.map(|s| s.location),
+            state.and_then(|s| s.body),
+            state.map(|s| s.inactive_pose.is_some()),
+            guest
+                .area
+                .spawned
+                .iter()
+                .map(|s| s.serial)
+                .collect::<Vec<_>>(),
+        );
+        if let Some(m) = &sent {
+            let spawned = crate::starting_area::spawned::spawn_body(
+                &reference,
+                &mut guest.area,
+                &mut guest.physics,
+                prototype,
+                m.spawn[2] as usize,
+                crate::vehicle::VehiclePose {
+                    position: guest.stream.origin.local(m.position),
+                    rotation: m.rotation,
+                },
+                serial,
+            );
+            eprintln!("m03 spawn: a direct guest spawn gives {spawned:?}");
+        }
+    }
+    let copy = found.expect("the guest spawns it");
     assert!(apart(absolute(&run, ids[0]), absolute(&guest, copy)) < 0.2);
 }
 
@@ -697,6 +784,8 @@ fn tp_m03_a_host_bite_reaches_the_guest() {
 fn tp_mp_m04c_host_rabbits_appear_on_the_guest() {
     let (reference, mut host_run) = super::creatures::outdoors();
     let mut guest_run = save_load(&host_run, &reference);
+    // `Driver::advance` marks a guest runtime before each step, also the first after the load.
+    guest_run.net_guest = true;
     let (mut host, mut guest) = (Net::default(), Net::default());
     host.set_session(NetRole::Host, 0);
     guest.set_session(NetRole::Guest, 1);
