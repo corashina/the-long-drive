@@ -7,6 +7,8 @@ pub const POSE: u8 = 10;
 /// Source `msgType.playerAnimUpd`.
 pub const BODY: u8 = 13;
 pub const HEADER: usize = 2;
+/// Outbox length prefix bit: `web/net.js` sends the packet on the reliable connection.
+pub const RELIABLE: u16 = 0x8000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NetError;
@@ -37,6 +39,8 @@ pub struct BodyMessage {
 
 pub trait Message: Pod {
     const TYPE: u8;
+    /// Source `EP2PSendReliable`. Other messages can drop.
+    const RELIABLE: bool = false;
     /// Appends the packet to `out`.
     fn encode(&self, slot: u8, out: &mut Vec<u8>) {
         out.extend_from_slice(&[Self::TYPE, slot]);

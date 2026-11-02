@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createNet,ROLE,STATUS,PREFIX,TIMEOUT_MS,TICK_MS} from '../../web/net.js';
+import {createNet,ROLE,STATUS,PREFIX,TIMEOUT_MS,TICK_MS,RELIABLE} from '../../web/net.js';
 import {joinPackets} from '../../web/simulation.js';
 
 // A PeerJS stand-in: peers meet in one in-memory broker. Messages pass at once.
@@ -56,6 +56,21 @@ test('the host forwards guest packets to the other guests and not back',async()=
  a.net.chat('hi');
  assert.deepEqual(b.events.chat,[{name:'A',text:'hi'}]);
  assert.deepEqual(host.events.chat,[{name:'A',text:'hi'}]);
+});
+
+test('reliable packets ride the reliable connection and the host forwards them',async()=>{
+ const {Peer}=broker(),clock={t:0};
+ const host=setup(Peer,clock),a=setup(Peer,clock),b=setup(Peer,clock);
+ const code=await host.net.host({name:'H'});
+ a.net.join({code,name:'A'});b.net.join({code,name:'B'});
+ for(let i=0;i<10;i++)await tick();
+ const reliable=bytes=>{const out=joinPackets([new Uint8Array(bytes)]);out[1]|=RELIABLE>>8;return out;};
+ a.net.send(reliable([29,5,1]));
+ assert.deepEqual(host.events.packets,[[29,1,1]]);
+ assert.deepEqual(b.events.packets,[[29,1,1]]);
+ host.net.send(reliable([28,0,3]));
+ assert.deepEqual(a.events.packets,[[28,0,3]]);
+ assert.deepEqual(b.events.packets,[[29,1,1],[28,0,3]]);
 });
 
 test('a silent guest times out and the others see it leave',async()=>{
