@@ -1,6 +1,8 @@
 //! Source `newAiScript` human monster: the live body, `Start`, `Die`, `save_newai`, the
 //! `newAiAnim` Animator and the voice. Buildings spawn it through the `humanmonster` category.
 //! The world placement key names it.
+mod damage;
+
 use super::human_ai::{Frame, Hit, HumanAi, Owned, PlayerView, Touch, Usable, World};
 use super::human_voice::{Voice, VoiceInput, VoicePlay};
 use super::ragdoll::{self, Bone};
@@ -77,6 +79,10 @@ pub struct Humans {
     far: Vec<HumanSnapshot>,
     /// Live collider poses under the prefab root, in `body.colliders` order.
     colliders: Vec<Pose>,
+    /// Per live collider: its `breakchilds` index in `breakable.children`.
+    children: Vec<Option<usize>>,
+    /// Humans that `breakablescript.Break` kills this step. `Die(true)` plays the death sound.
+    deaths: Vec<u32>,
     /// `sens` trigger shapes under the prefab root and their layer groups.
     sens: Vec<(Pose, SharedShape, InteractionGroups)>,
     /// Index of `col` in `body.colliders`, its capsule axis and radius.
@@ -129,6 +135,7 @@ impl Humans {
             .iter()
             .map(|c| model_pose(nodes, r.root, c.node))
             .collect::<Result<_, _>>()?;
+        let children = damage::children(r, nodes);
         let ai = &r.ai;
         let sens = ai
             .sens
@@ -160,6 +167,8 @@ impl Humans {
             humans: Vec::new(),
             far: Vec::new(),
             colliders,
+            children,
+            deaths: Vec::new(),
             sens,
             col: (index, axis, radius),
             random: StormRandom(seed ^ 0x6875_6d61_6e00_0001),
@@ -266,16 +275,23 @@ impl Humans {
     }
 
     /// `newAiScript.Update` of each live human, with the `sens` and `ladderscript` trigger stays
-    /// of this fixed step. Pushes the `Use` doors to `doors`.
+    /// of this fixed step. Pushes the `Use` doors to `doors`. Returns the `Attack` damage to the
+    /// player.
     pub fn step_ai(
         &mut self,
         r: &HumanReference,
         physics: &mut PhysicsWorld,
         input: &AiInput,
         doors: &mut Vec<Usable>,
-    ) {
+    ) -> f32 {
         let ai = &r.ai;
-        for h in self.humans.iter_mut().filter(|h| !h.died) {
+        let mut damage = 0.;
+        let deaths = &self.deaths;
+        for h in self
+            .humans
+            .iter_mut()
+            .filter(|h| !h.died && !deaths.contains(&h.id))
+        {
             let body = &physics.rapier().bodies[h.body];
             let pose = *body.position();
             let velocity = body.linvel();
@@ -367,7 +383,9 @@ impl Humans {
                 });
             }
             doors.extend(out.door);
+            damage += out.damage;
         }
+        damage
     }
 
     /// The voice block of `newAiScript.Update`. It runs before the AI and reads the flags of the
@@ -411,7 +429,7 @@ impl Humans {
                     target_turn: anim.turn,
                     crouch: anim.duck,
                     look: h.target,
-                    holds: [anim.hold, None],
+                    holds: anim.hold,
                     mouth: h.voice.mouth,
                 },
             );

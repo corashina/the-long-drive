@@ -49,7 +49,7 @@ impl GarageRuntime {
         let r = &reference.creatures.human;
         let now = self.simulation_seconds;
         self.creatures.humans.voice_block(r, now, dt);
-        self.creatures.humans.step_ai(
+        let damage = self.creatures.humans.step_ai(
             r,
             &mut self.physics,
             &crate::creatures::human::AiInput {
@@ -62,12 +62,30 @@ impl GarageRuntime {
             },
             &mut doors,
         );
+        // `Attack`: `currentPlayer.survival.DamageInstant(damage * dt, show: true)`.
+        if damage > 0. {
+            self.survival.damage_instant(&reference.survival, damage);
+            self.announce_death(reference);
+        }
         self.creatures.humans.animate(r, &self.physics, now, dt);
         for door in doors {
             self.area
                 .interaction
                 .mechanisms
                 .push(door.item, r.ai.door_speed * dt, dt);
+        }
+    }
+
+    /// `breakablescript.Break` of the humans that broke this step: `Die(_playSound: true)`.
+    pub(crate) fn settle_humans(&mut self, reference: &ReferenceManifest) {
+        while let Some(id) = self.creatures.humans.take_death() {
+            if self.kill_human(reference, id, None).is_err() {
+                self.notice = "Cannot drop the human ragdoll.";
+            }
+            let r = &reference.creatures.human;
+            self.creatures
+                .humans
+                .death_voice(r, id, self.simulation_seconds);
         }
     }
 
