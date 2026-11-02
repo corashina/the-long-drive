@@ -85,11 +85,14 @@
 </aside>
 <p id="autosave-notice" role="status" hidden></p>
 <section id="loading-details" aria-labelledby="loading-phase">
-<h2 id="loading-phase">Loading the game...</h2>
-<progress id="loading-progress" aria-label="Current loading stage"></progress>
-<p id="loading-count"></p><p id="loading-elapsed"></p>
+<h2 id="loading-phase">Loading 0%</h2>
+<progress id="loading-progress" max="100" value="0" aria-label="Total loading progress"></progress>
+<ol id="loading-steps" aria-label="Loading steps"></ol>
+<p id="loading-elapsed"></p>
+<details id="loading-resources" hidden><summary>Resource budgets</summary>
 <dl id="loading-budgets" aria-label="Game resource budgets"></dl>
-<p id="loading-budget-note" hidden>Reserved game resources. These values do not show total PC memory use.</p>
+<p id="loading-budget-note">Reserved game resources. These values do not show total PC memory use.</p>
+</details>
 </section>
 <p id="runtime-error" role="alert" hidden></p><noscript>Enable JavaScript to load the game.</noscript>
 </main><script src="./vendor/peerjs.min.js"></script><script type="module" src="./main.js"></script></body></html>

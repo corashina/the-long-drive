@@ -287,6 +287,28 @@ impl SourceFixedAssets {
     pub fn descriptors_ready(&self) -> bool {
         self.roots.iter().all(|r| r.state.plan().is_some())
     }
+    /// Fixed models, image rows, shaders and the three single uploads: (ready, total).
+    pub fn progress(&self) -> (u32, u32) {
+        let roots = self
+            .roots
+            .iter()
+            .filter(|r| matches!(r.state, RootState::Ready(_)))
+            .count();
+        let rows = self
+            .rows
+            .iter()
+            .filter(|r| r.image.is_some() && r.receipt.completed())
+            .count();
+        let shaders = self.shaders.iter().filter(|s| s.done).count();
+        let singles = [
+            self.cloud_done,
+            self.dither_done,
+            self.cookie_receipt.completed(),
+        ];
+        let ready = roots + rows + shaders + singles.iter().filter(|done| **done).count();
+        let total = self.roots.len() + self.rows.len() + self.shaders.len() + singles.len();
+        (ready as u32, total as u32)
+    }
     pub fn payloads_ready(&self) -> bool {
         self.admitted
             && self.failure.is_none()
