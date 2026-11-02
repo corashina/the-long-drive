@@ -381,6 +381,7 @@ impl SimDriver {
             reference,
             &mut self.runtime,
             self.delta_seconds as f32,
+            alpha,
             frame,
         );
         if self.input.held & keys::GRAB != 0 {
