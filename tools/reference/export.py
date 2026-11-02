@@ -4,6 +4,8 @@ import hashlib
 import json
 import re
 import subprocess
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from .library.types import Snapshot, LibraryReceipt
 from .plates import plate_resources
@@ -11,7 +13,15 @@ from .plates import plate_resources
 APP_ID = 1017180
 BUILD_ID = 11140890
 SOURCE_WORK_ROOT = Path('.cache/reference-library')
+LIBRARY_STAMP = SOURCE_WORK_ROOT / 'library-verified.json'
 NATIVE_ENGINE_SHA256 = '553c1e7560e1b42bd4638c53d0168dcd1b4b9eb5b9df324b0a44f14b3f18bc86'
+
+
+@contextmanager
+def timed(stage: str):
+    start = time.perf_counter()
+    yield
+    print(f'{stage}: {time.perf_counter() - start:.0f} s', flush=True)
 
 
 def native_engine_evidence(steam_root: Path):
@@ -54,10 +64,13 @@ def derive_reference(snapshot: Snapshot, library: LibraryReceipt, output: Path) 
     output.parent.mkdir(parents=True, exist_ok=True)
     staged = Path(tempfile.mkdtemp(prefix='runtime-', dir=target.parent))
     try:
-        _export_selected(LibrarySource(reader), staged, reader, snapshot)
-        verify_reference(staged, library)
+        with timed('Runtime derivation'):
+            _export_selected(LibrarySource(reader), staged, reader, snapshot)
+        with timed('Runtime verification'):
+            verify_reference(staged, library)
         from .runtime_package import publish_package
-        publish_package(staged, output.parent)
+        with timed('Runtime package'):
+            publish_package(staged, output.parent)
     except BaseException:
         import shutil
         shutil.rmtree(staged)
@@ -154,20 +167,40 @@ def validate_runtime_paths(manifest):
         paths.add(expected)
 
 
-def validate_runtime_manifest(content: bytes) -> None:
-    """Use the game's contract before accepting runtime output."""
+def contract_command(cargo: str) -> list[str]:
+    """Run one cargo command for the game's contract binary in the project toolchain image."""
     root = Path(__file__).resolve().parents[2]
     namespace = hashlib.sha256(str(root.resolve()).rstrip('\\/').lower().encode()).hexdigest()
-    command = ['docker', 'run', '--rm', '--pull=never', '-i',
+    return ['docker', 'run', '--rm', '--pull=never', '-i',
         '--mount', f'type=bind,source={root},target=/workspace,readonly',
         '--mount', 'type=volume,source=tld-wasm-cargo,target=/cargo',
         '--mount', 'type=volume,source=tld-wasm-target,target=/target',
         '--env', f'CARGO_TARGET_DIR=/target/{namespace}',
-        '--env', 'CARGO_BUILD_JOBS=2',
-        'the-long-slop-toolchain', 'cargo', 'run', '--quiet', '--locked',
+        'the-long-slop-toolchain', 'cargo', cargo, '--quiet', '--locked',
         '--bin', 'validate-reference']
+
+
+@contextmanager
+def contract_build():
+    """Compile the contract binary while runtime derivation runs.
+
+    The later cargo run waits on the cargo target lock until this build ends.
+    """
     try:
-        result = subprocess.run(command, input=content, capture_output=True, check=False)
+        build = subprocess.Popen(contract_command('build'), stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as error:
+        raise ValueError('Runtime manifest contract validation needs Docker and the project toolchain image') from error
+    try:
+        yield
+    finally:
+        build.wait()
+
+
+def validate_runtime_manifest(content: bytes) -> None:
+    """Use the game's contract before accepting runtime output."""
+    try:
+        result = subprocess.run(contract_command('run'), input=content, capture_output=True, check=False)
     except OSError as error:
         raise ValueError('Runtime manifest contract validation needs Docker and the project toolchain image') from error
     if result.returncode:
@@ -628,6 +661,8 @@ def stage_library(steam_root: Path | None, output: Path, verify: bool = False):
     exports = assemble_library(snapshot, stages, pending)
     print(f'Assembled library: {len(exports):,} owners', flush=True)
     receipt = publish_library(snapshot, catalog, exports, pending, library)
+    from .library.validation import stamp_library
+    stamp_library(library, LIBRARY_STAMP)
     print(f'Published library: {len(exports):,} owners; {receipt.manifest_sha256}', flush=True)
     return receipt
 
@@ -654,18 +689,23 @@ def main(argv=None):
     elif arguments.stage == 'library':
         stage_library(arguments.steam_root, arguments.output, verify=arguments.verify)
     else:
+        from .library.validation import accepted_library, verify_library
         if arguments.library_root:
-            from .library.validation import verify_library
             root=arguments.library_root.resolve()
             header=json.loads((root/'manifest.json').read_bytes())
             records=(root/header['records_root']).resolve()
-            receipt=verify_library(root,records.parent/'source')
             source_work=records.parent
         else:
-            library_path = arguments.output.parent / 'library/manifest.json'
-            receipt = stage_library(arguments.steam_root, arguments.output,
-                                    verify=arguments.verify or library_path.is_file())
+            root=arguments.output.parent/'library'
             source_work=SOURCE_WORK_ROOT
+        with timed('Library check'):
+            if arguments.verify:
+                receipt = (verify_library(root, source_work/'source') if arguments.library_root
+                           else stage_library(arguments.steam_root, arguments.output, verify=True))
+            elif arguments.library_root or (root/'manifest.json').is_file():
+                receipt = accepted_library(root, source_work/'source', LIBRARY_STAMP)
+            else:
+                receipt = stage_library(arguments.steam_root, arguments.output)
         if arguments.verify:
             verify_reference(arguments.output, receipt)
             from .runtime_package import verify_package, package_id
@@ -673,7 +713,8 @@ def main(argv=None):
             verify_package(manifest, arguments.output.parent / 'runtime' / package_id(manifest))
         else:
             from .library.archive import load_snapshot
-            derive_reference(load_snapshot(source_work), receipt, arguments.output)
+            with timed('Runtime export'), contract_build():
+                derive_reference(load_snapshot(source_work), receipt, arguments.output)
 
 
 if __name__ == '__main__':

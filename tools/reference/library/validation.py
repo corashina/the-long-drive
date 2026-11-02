@@ -578,3 +578,47 @@ def assemble_library(snapshot, exports_by_root, work):
             for entry in json.loads((root / name).read_bytes())['files']:
                 copy(root, FileRecord(**entry['output']))
     return tuple(sorted(exports, key=lambda e: e.source))
+
+
+def _verifier_sha256():
+    """Hash the verifier code and converter versions that a full library check depends on."""
+    root = Path(__file__).resolve().parents[1]
+    digest = hashlib.sha256()
+    for path in sorted([*(root / 'library').glob('*.py'), root / 'gltf.py', root / 'source.py']):
+        digest.update(path.relative_to(root).as_posix().encode() + b'\0' + path.read_bytes() + b'\0')
+    digest.update(_json({name: version(name) for name in ('UnityPy', 'Pillow', 'pygltflib')}))
+    return digest.hexdigest()
+
+
+def _stamp_key(output: Path):
+    return {'library': output.resolve().as_posix(), 'manifest_sha256': sha256(output / 'manifest.json'),
+            'verifier_sha256': _verifier_sha256()}
+
+
+def stamp_library(output: Path, stamp: Path) -> None:
+    """Record a passed full check of this library manifest by this verifier."""
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_bytes(_json(_stamp_key(output)))
+
+
+def accepted_library(output: Path, source_root: Path, stamp: Path) -> LibraryReceipt:
+    """Run the full library check once per library manifest and verifier.
+
+    Later runs check only the receipt chain here. The library reader checks
+    each file hash when runtime derivation reads it.
+    """
+    output = output.resolve()
+    key = _stamp_key(output)
+    if not stamp.is_file() or json.loads(stamp.read_bytes()) != key:
+        stamp.unlink(missing_ok=True)
+        receipt = verify_library(output, source_root)
+        stamp_library(output, stamp)
+        return receipt
+    snapshot = load_snapshot(source_root.resolve().parent)
+    manifest = json.loads((output / 'manifest.json').read_bytes())
+    if manifest.get('schema_version') != SCHEMA_VERSION or manifest['source_manifest_sha256'] != snapshot.manifest_sha256:
+        raise ValueError('Library source or schema differs from the verified library')
+    exports = tuple(sorted((e for item in manifest['category_indexes'] for e in load_exports(output / item['file'])),
+                           key=lambda e: e.source))
+    return LibraryReceipt(output / 'manifest.json', key['manifest_sha256'], manifest['catalog_sha256'],
+                          snapshot.manifest_sha256, exports)

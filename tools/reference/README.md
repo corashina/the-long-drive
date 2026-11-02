@@ -48,6 +48,7 @@ It does not read game assemblies or write analysis output.
 Runtime derivation and `--stage runtime --verify` require Docker and the project toolchain image.
 Build the image with `docker build --tag the-long-slop-toolchain --file tools/Dockerfile .`.
 Runtime verification sends manifest bytes to the native `validate-reference` command through stdin.
+The export compiles that command in the background while runtime derivation runs.
 It uses the game's `ReferenceManifest` contract, the existing Cargo volumes, and a read-only checkout mount.
 Missing Docker, failed validation, or an unavailable image stops acceptance before promotion.
 Library-only verification does not use Docker.
@@ -108,6 +109,11 @@ An older partial managed stage fails verification until you rebuild that stage.
 
 Run commands from the repository root. Use one current schema; obsolete schemas fail validation.
 The default stage is `runtime`. It runs missing prerequisites and verifies an existing library before derivation.
+The full library check runs once for each library manifest and verifier code.
+`.cache/reference-library/library-verified.json` records the passed check.
+Later runs check only the receipt chain. The reader checks each file hash when derivation reads it.
+`--verify` always runs the full check.
+The export prints the time of each stage.
 `--output` sets the selected runtime directory. Its sibling `library` directory stores development assets.
 `--verify` checks accepted files without changing them.
 
