@@ -765,6 +765,8 @@ pub struct GarageRuntime {
     pub hearing: crate::hearing::HearingState,
     pub sleep: crate::sleep::SleepState,
     ambient: crate::audio::AmbientState,
+    /// The player `electronicsscript` that ambient EMPs read.
+    player_electronics: crate::electronics::Electronics,
     horror: crate::horror::HorrorSound,
     hum: crate::hum::Hum,
     pub food_particles: crate::food_particles::FoodParticles,
@@ -989,6 +991,13 @@ impl GarageRuntime {
             heat_haze: crate::heat_haze::OldHeatHaze::new(&reference.small_items.heat_haze),
             old_heat_haze: false,
             ambient: crate::audio::AmbientState::new(&reference.ambient),
+            player_electronics: {
+                let r = &reference.ambient.player_electronics;
+                crate::electronics::Electronics {
+                    override_max_jam: r.override_max_jam,
+                    ..crate::electronics::Electronics::new(r.max_output)
+                }
+            },
             horror: crate::horror::HorrorSound::new(seed as u64),
             hum: crate::hum::Hum::new(&reference.survival.hum, &audio_gameplay),
             food_particles: crate::food_particles::FoodParticles::new(
@@ -1612,7 +1621,7 @@ impl GarageRuntime {
                 self.reach_seated_car(reference, &key, crate::simulation::reach::handbrake);
             }
         }
-        self.advance_electronics(FIXED_DT);
+        self.advance_electronics(reference, FIXED_DT);
         self.refresh_powertrains();
         // Taking the map lets each car step borrow the runtime without allocation.
         let mut vehicles = std::mem::take(&mut self.vehicles);
@@ -2026,6 +2035,7 @@ impl GarageRuntime {
                 important: &important,
                 distances,
                 spawns: !self.net_guest,
+                emps: &self.emps,
             },
         );
         self.place_humans(reference);
