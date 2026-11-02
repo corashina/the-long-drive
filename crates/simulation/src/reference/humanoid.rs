@@ -67,12 +67,12 @@ pub struct HumanoidClip {
 }
 
 /// `eye.L` and `eye.R` (`newAiScript.bones`) copy `LEyeT` and `REyeT` (`bonesTarget`) in `LateUpdate`.
+/// Both are under the Animator Transform.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HumanoidCopy {
     pub node: NodeId,
-    /// Target pose under the Animator Transform. Its parents are not animated.
-    pub target: Transform,
+    pub target: NodeId,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -185,7 +185,11 @@ impl HumanoidReference {
         {
             return fail("blend trees");
         }
-        if self.copies.iter().any(|c| !known(c.node)) {
+        if self
+            .copies
+            .iter()
+            .any(|c| !known(c.node) || !known(c.target))
+        {
             return fail("bone copies");
         }
         Ok(())
