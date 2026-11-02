@@ -24,6 +24,12 @@ pub const TIME: u8 = 49;
 pub const REQUEST: u8 = 8;
 /// Source `msgType.inventory`.
 pub const INVENTORY: u8 = 15;
+/// Source `msgType.usable`.
+pub const USABLE: u8 = 22;
+/// Source `msgType.fluid`.
+pub const FLUID: u8 = 23;
+/// Source `msgType.tankcap`.
+pub const TANK_CAP: u8 = 24;
 /// Source `msgType.itemPosUpd`.
 pub const ITEM_POSE: u8 = 16;
 /// Source `msgType.claim`.
@@ -268,6 +274,38 @@ impl InventoryMessage {
     pub const PICKED: u32 = 4;
 }
 
+/// Source `STank`: the fluids of a tank, in mix order.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct FluidMessage {
+    pub key: u64,
+    pub types: [u32; 6],
+    pub amounts: [f32; 6],
+    pub count: u32,
+    pub pad: u32,
+}
+
+/// Source `STankCap`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct TankCapMessage {
+    pub key: u64,
+    pub valve: f32,
+    pub pad: u32,
+}
+
+/// Source `SUsable`: a door, lid, lever or switch.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct UsableMessage {
+    pub key: u64,
+    pub degrees: [f32; 2],
+    pub slide: f32,
+    pub enabled: u32,
+    pub turn_state: u32,
+    pub pad: u32,
+}
+
 /// Source `SRemoveItem`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -331,6 +369,18 @@ impl Message for VelocityMessage {
 }
 impl Message for ClaimMessage {
     const TYPE: u8 = CLAIM;
+    const RELIABLE: bool = true;
+}
+impl Message for FluidMessage {
+    const TYPE: u8 = FLUID;
+    const RELIABLE: bool = true;
+}
+impl Message for TankCapMessage {
+    const TYPE: u8 = TANK_CAP;
+    const RELIABLE: bool = true;
+}
+impl Message for UsableMessage {
+    const TYPE: u8 = USABLE;
     const RELIABLE: bool = true;
 }
 impl Message for RequestMessage {

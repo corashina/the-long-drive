@@ -45,8 +45,8 @@ pub struct ItemSync {
     removed: HashSet<ItemId>,
     changes: Vec<ClaimChange>,
     fresh: Vec<NetKey>,
-    /// Host: requested keys to answer with their state.
-    requested: Vec<NetKey>,
+    /// Host: requested keys to answer with their state. `Net` clears it after each frame.
+    pub requested: Vec<NetKey>,
     /// Host: the latest pose and velocity of items that it has not loaded.
     pending: HashMap<NetKey, (Option<ItemPoseMessage>, Option<VelocityMessage>)>,
 }
@@ -173,13 +173,15 @@ impl ItemSync {
             }
         }
         // Source `SSendAllData`.
-        for key in std::mem::take(&mut self.requested) {
+        let requested = std::mem::take(&mut self.requested);
+        for &key in &requested {
             if let Some(item) = index.item(key)
                 && self.claims.owns(item, host)
             {
                 self.send_pose(runtime, item, key, out);
             }
         }
+        self.requested = requested;
         let step = CHECK_INTERVAL / f32::from(MORE_COUNT + 1);
         let mut i = 0;
         while i < self.more.len() {

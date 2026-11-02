@@ -1177,6 +1177,10 @@ impl InteractionState {
     pub fn generated_opening(&self, cap: ItemId) -> Option<OpeningId> {
         self.generated_cap(cap).map(|o| o.reference.id)
     }
+    /// Source `tankcapscript.valve` of each cap.
+    pub fn valves(&self) -> impl Iterator<Item = (ItemId, f32)> + '_ {
+        self.openings.iter().map(|o| (o.reference.cap, o.valve))
+    }
     pub fn generated_valve(&self, cap: ItemId) -> Option<f32> {
         self.generated_cap(cap).map(|opening| opening.valve)
     }
