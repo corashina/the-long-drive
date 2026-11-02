@@ -721,6 +721,7 @@ fn select_world_views(
             required,
             &reference.0.render_lighting.probes,
             &views.probe_position,
+            &views.probe_near,
             &views.probe_enabled,
             origin,
             forward,

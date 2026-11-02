@@ -11,7 +11,6 @@ from .lighting import vehicle_light_links, vehicle_states
 from .particles import recover_coolant_steam,recover_exhaust
 from .wheel_effects import recover_wheel_effects, effect_gains
 from .plates import prototype_plates
-from .render_lighting import probe_settings
 
 ENGINE_FIELDS = {'start_chance':'startChance','starter_rpm':'starterRpm','starter_rpm_lerp':'starterRpmLerp',
     'idle_rpm':'alapRpm','max_rpm':'maxRpm','shutdown_rpm':'shutdownRpm','max_torque_nm':'maxNm',
@@ -321,15 +320,6 @@ def light_records(source, proto, car_reader, car, asset, material_indices):
     return controllers,switch
 
 
-def probe_record(source, proto):
-    """The car's realtime ReflectionProbe, or None. Its node is a prototype node index."""
-    probes=[(i,c) for i,n in enumerate(proto.hierarchy) for c in n['components'] if c.type.name=='ReflectionProbe']
-    if len(probes)>1:raise ValueError(f'{key(proto.hierarchy[0]["reader"])} has more than one reflection probe')
-    if not probes:return None
-    node,reader=probes[0]
-    return {'source':source_id(reader),'node':node,**probe_settings(key(reader),source.read(reader))}
-
-
 def mirror_records(source, proto, asset, material_indices):
     """Live mirrors: each mirrorscript with a renderer and a camera. Nodes are prototype node indices."""
     main=source.get('level1',64919)
@@ -430,6 +420,6 @@ def vehicle_record(source, hierarchy, bodies, colliders, asset, material_indices
         'no_gas_while_pedaling':bool(car['noGasWhilePedaling']),'drive_frames':{n:proto.link(car_reader,car[f]) for n,f in DRIVE_FRAMES},
         'reach':reach_record(proto,car_reader,car),'lights':lights,'light_switch':light_switch,'instruments':instruments,
         'gauge_limits':gauge_limits(source,car_reader),'kmh_meters':kmh_meters(source,proto,car_reader,car),
-        'plates':prototype_plates(source,proto),'probe':probe_record(source,proto),
+        'plates':prototype_plates(source,proto),
         'mirrors':mirror_records(source,proto,asset,material_indices),
         'high_beams':[i for i,lamp in enumerate(instruments['lamps']) if lamp['signal']=='headlight2'] if instruments else []}

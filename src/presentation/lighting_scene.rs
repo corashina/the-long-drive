@@ -16,12 +16,13 @@ use simulation::boundary::SimFrame;
 
 pub const PROBE_COUNT: usize = crate::render_readiness::PROBE_COUNT;
 
-/// One car probe in a slot: probe node entity, box size and box offset.
+/// One probe in a slot: probe node entity, box size, box offset and capture near clip.
 #[derive(Clone, Copy, PartialEq)]
 pub struct ProbeSource {
     entity: Entity,
     size: [f32; 3],
     offset: [f32; 3],
+    near: f32,
 }
 #[derive(Resource)]
 pub struct ProbeActivation {
@@ -56,7 +57,8 @@ impl Default for ProbeActivation {
     }
 }
 impl ProbeActivation {
-    /// ReflectionDisableDistance: the nearest car probes within 50 m take the slots.
+    /// ReflectionDisableDistance: the nearest active probes within 50 m take the slots.
+    /// Cars, trailers and buildings register them through `reflectionsscript`.
     fn check(
         &mut self,
         on: bool,
@@ -64,32 +66,33 @@ impl ProbeActivation {
         clock: &mut super::view_frame::SourceViewClock,
         reference: &RuntimeReference,
         instances: Option<&super::world::instances::SourceInstances>,
-        transforms: &Query<&GlobalTransform>,
+        probes: &Query<(&GlobalTransform, &InheritedVisibility)>,
     ) {
         self.candidates.clear();
         if on && let Some(instances) = instances {
             for (_, _, prototype, nodes) in instances.shown() {
                 let prototype = &reference.0.world.prototypes[prototype];
-                let Some(probe) = prototype.vehicle.as_ref().and_then(|v| v.probe.as_ref()) else {
-                    continue;
-                };
-                let node = prototype.nodes[probe.node as usize].gltf_node as usize;
-                let Some(entity) = nodes.get(node).copied().flatten() else {
-                    continue;
-                };
-                let Ok(transform) = transforms.get(entity) else {
-                    continue;
-                };
-                let distance = player.distance_squared(transform.translation());
-                if distance < PROBE_DISABLE_DISTANCE_SQUARED {
-                    self.candidates.push((
-                        distance,
-                        ProbeSource {
-                            entity,
-                            size: probe.bounds_size,
-                            offset: probe.bounds_offset,
-                        },
-                    ));
+                for probe in &prototype.probes {
+                    let node = prototype.nodes[probe.node as usize].gltf_node as usize;
+                    let Some(entity) = nodes.get(node).copied().flatten() else {
+                        continue;
+                    };
+                    // A probe on an inactive node never registers.
+                    let Ok((transform, visible)) = probes.get(entity) else {
+                        continue;
+                    };
+                    let distance = player.distance_squared(transform.translation());
+                    if visible.get() && distance < PROBE_DISABLE_DISTANCE_SQUARED {
+                        self.candidates.push((
+                            distance,
+                            ProbeSource {
+                                entity,
+                                size: probe.bounds_size,
+                                offset: probe.bounds_offset,
+                                near: probe.near,
+                            },
+                        ));
+                    }
                 }
             }
         }
@@ -120,6 +123,7 @@ pub struct SceneLighting {
     pub cookie_from_world: Mat4,
     pub fog_color_density: Vec4,
     pub probe_position: [Vec3; PROBE_COUNT],
+    pub probe_near: [f32; PROBE_COUNT],
     pub probe_center: [Vec4; PROBE_COUNT],
     pub probe_extents: [Vec4; PROBE_COUNT],
     pub source_time: Vec4,
@@ -169,6 +173,7 @@ pub(crate) fn sync_lighting(
     mut clock: ResMut<super::view_frame::SourceViewClock>,
     epoch: Res<super::view_frame::SourceSceneEpoch>,
     transforms: Query<&GlobalTransform>,
+    probes: Query<(&GlobalTransform, &InheritedVisibility)>,
     mut scene: ResMut<SourceSceneLighting>,
     status: Res<RendererStateHandle>,
     instances: Option<Res<super::world::instances::SourceInstances>>,
@@ -198,8 +203,8 @@ pub(crate) fn sync_lighting(
         activation.checks = 0;
     }
     activation.elapsed += sim.state.perf.frame_seconds();
-    // Checks run every five seconds. Scene start, the setting, and new cars with no probe in a
-    // slot check at once.
+    // Checks run every five seconds. Scene start, the setting, and new instances with no probe
+    // in a slot check at once.
     if activation.checks == 0
         || reflections.is_changed()
         || activation.elapsed - activation.last_check >= 5.
@@ -213,14 +218,16 @@ pub(crate) fn sync_lighting(
             &mut clock,
             &reference,
             instances.as_deref(),
-            &transforms,
+            &probes,
         );
     }
-    // The probes follow their cars. A probe without its car turns off until the next check.
+    // The probes follow their nodes. A probe without its node, or on an inactive node, turns off
+    // until the next check.
     for index in 0..PROBE_COUNT {
         let position = activation.slots[index]
-            .and_then(|source| transforms.get(source.entity).ok())
-            .map(GlobalTransform::translation);
+            .and_then(|source| probes.get(source.entity).ok())
+            .filter(|(_, visible)| visible.get())
+            .map(|(transform, _)| transform.translation());
         if let Some(position) = position {
             activation.position[index] = position;
         }
@@ -257,8 +264,10 @@ fn scene_value(
     }
     let mut centers = [Vec4::ZERO; PROBE_COUNT];
     let mut sizes = [Vec4::ZERO; PROBE_COUNT];
+    let mut near = [assets.record.probes[0].near; PROBE_COUNT];
     for (index, source) in activation.slots.iter().enumerate() {
         let Some(source) = source else { continue };
+        near[index] = source.near;
         let position = activation.position[index];
         if !position.is_finite() {
             return Err("Nonfinite probe world position".into());
@@ -320,6 +329,7 @@ fn scene_value(
             .truncate()
             .extend(master.uniform.ambient.w),
         probe_position: activation.position,
+        probe_near: near,
         probe_center: centers,
         probe_extents: sizes,
         source_time: Vec4::new(time * 0.05, time, time * 2., time * 3.),

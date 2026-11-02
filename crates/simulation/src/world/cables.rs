@@ -673,6 +673,7 @@ mod tests {
             followers: None,
             hitches: Vec::new(),
             help_texts: Vec::new(),
+            probes: Vec::new(),
             pushes: Vec::new(),
         };
         let pole = RoadPole {

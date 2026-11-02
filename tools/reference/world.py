@@ -14,6 +14,7 @@ from .sled import centers_of_mass, recover_sled
 from .actions import recover_world_pushes
 from .towing import recover_hitches, recover_trailer
 from .followers import recover_followers
+from .render_lighting import probe_records
 
 # Unity Random state before and after the garage startup draws, captured once from the source game
 # with the clock frozen at 2026-10-12T09:00:00 local.
@@ -866,7 +867,8 @@ def export_world_prototypes(source,reader,selected,output,roots,roles,scope_cach
             'deferred_materials':report['deferred_materials'],'excluded_actions':scope_cache.get(identity,('',[]))[1],'skins':skins,'bodies':bodies,'colliders':colliders,'prefab_pose':converted_transform(source.read(root)),
             'asset_record':{'id':index,'mesh_count':report['mesh_count'],'material_count':report['material_count'],'usage':'world_prototype','path':f'reference/{name}.gltf','sha256':report['sha256'],'root':source_id(root),'dependencies':report['dependencies']},
             'materials':[dict(material,asset=index) for material in report['materials']],'sled':sled,'pushes':pushes,
-            'trailer':trailer,'hitches':recover_hitches(source,hierarchy,mapping,colliders),'help_texts':recover_help_texts(source,hierarchy,mapping)}
+            'trailer':trailer,'hitches':recover_hitches(source,hierarchy,mapping,colliders),'help_texts':recover_help_texts(source,hierarchy,mapping),
+            'probes':probe_records(source,hierarchy)}
         from .vehicles import vehicle_record, part_records
         vehicle=vehicle_record(source,hierarchy,bodies,colliders,index,report['material_indices'],output)
         if vehicle:prototype['vehicle']=vehicle

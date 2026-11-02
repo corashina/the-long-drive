@@ -150,6 +150,9 @@ pub struct WorldPrototypeReference {
     pub prefab_pose: Transform,
     #[serde(default, deserialize_with = "compact_vec")]
     pub interiors: Vec<WorldInteriorReference>,
+    /// Realtime reflection probes of cars, trailers and buildings.
+    #[serde(default, deserialize_with = "compact_vec")]
+    pub probes: Vec<super::render_lighting::WorldProbeReference>,
     /// Car prototypes only.
     #[serde(default)]
     pub vehicle: Option<WorldVehicleReference>,
@@ -1915,19 +1918,17 @@ impl WorldReference {
             }),
             &format!("{f} plate font/material"),
         )?;
-        // The capture settings of the car probe are the shared probe record. Bounds are per car.
+        // The car probe record holds the shared capture settings. Bounds and near are per probe.
         require(
-            p.vehicle
-                .iter()
-                .filter_map(|v| v.probe.as_ref())
-                .all(|probe| {
-                    manifest
+            p.probes.iter().all(|probe| {
+                (probe.node as usize) < p.nodes.len()
+                    && manifest
                         .render_lighting
                         .probes
                         .iter()
                         .all(|s| probe.matches(s))
-                }),
-            &format!("{f} reflection probe"),
+            }),
+            &format!("{f} reflection probes"),
         )
     }
 }
