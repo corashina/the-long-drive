@@ -755,6 +755,8 @@ pub struct GarageRuntime {
     sky: crate::sky_traffic::SkyTraffic,
     pub flyers: crate::flyers::Flyers,
     pub creatures: crate::creatures::Creatures,
+    /// Live `empscript` sources in physics space. Their placements add and remove them.
+    pub emps: Vec<crate::electronics::Emp>,
     pub urine: crate::interaction::fluid_contact::FluidContact,
     urine_reference: crate::reference::FluidParticleReference,
     urine_emission: [f32; 2],
@@ -977,6 +979,7 @@ impl GarageRuntime {
             sky: crate::sky_traffic::SkyTraffic::new(&reference.sky, seed as u64),
             flyers: crate::flyers::Flyers::new(seed as u64),
             creatures: crate::creatures::Creatures::new(reference, seed as u64, 0.)?,
+            emps: Vec::new(),
             survival: crate::survival::SurvivalState::new(&reference.survival),
             hearing: crate::hearing::HearingState::new(reference)?,
             sleep: crate::sleep::SleepState::new(&reference.sleep),
@@ -1630,6 +1633,9 @@ impl GarageRuntime {
         self.stream.step_trailers(&mut self.physics);
         self.stream.step_followers(&self.physics);
         self.advance_urine(reference, FIXED_DT);
+        for emp in &mut self.emps {
+            emp.advance(FIXED_DT);
+        }
         self.advance_ambient(reference, FIXED_DT);
         self.advance_weather(reference, FIXED_DT);
         self.advance_sky(reference, FIXED_DT);

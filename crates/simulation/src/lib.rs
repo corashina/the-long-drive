@@ -14,6 +14,7 @@ pub mod creatures;
 pub mod damage;
 pub mod depth_of_field;
 pub mod driver;
+pub mod electronics;
 pub mod exhaust;
 pub mod fluids;
 pub mod flyers;
