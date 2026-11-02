@@ -259,6 +259,9 @@ impl PhysicsWorld {
                 rapier3d::prelude::RigidBodyActivation::default_normalized_linear_threshold(),
         };
         physics.physics.integration_parameters.dt = FIXED_DT;
+        // A recycled contact keeps its fixed-collider points in world space. The origin rebase
+        // moves fixed colliders, so a recycled contact would push against the old surface.
+        physics.physics.integration_parameters.contact_recycling = false;
         physics
     }
 }
