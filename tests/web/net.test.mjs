@@ -25,17 +25,25 @@ function broker(){
    queueMicrotask(()=>{target.fire('connection',theirs);mine.fire('open');});
    return mine;
   }
+  // A media call: the callee answers, then the caller stream arrives at the callee.
+  call(id,stream,{metadata}={}){
+   const target=peers.get(id),a=handlers(),b=handlers();
+   const mine={...a,peer:id,metadata,close(){if(this.open){this.open=false;mine.fire('close');theirs.fire('close');}},open:true};
+   const theirs={...b,peer:this.id,metadata,open:true,close:()=>mine.close(),answer(){queueMicrotask(()=>{if(mine.open)theirs.fire('stream',stream);});}};
+   if(target)queueMicrotask(()=>target.fire('call',theirs));
+   return mine;
+  }
   destroy(){peers.delete(this.id);}
  }
  return {Peer,peers,muted};
 }
 const tick=()=>new Promise(r=>setTimeout(r,0));
 function setup(Peer,clock,extra={}){
- const events={packets:[],leaves:[],status:[],chat:[],saves:[],sessions:[],looks:[]};let timer=null;
+ const events={packets:[],leaves:[],status:[],chat:[],saves:[],sessions:[],looks:[],voices:[]};let timer=null;
  const net=createNet({Peer,buildId:'b1',exportHash:'h1',capture:async()=>'{"world":1}',now:()=>clock.t,
   setTimer:fn=>{timer=fn;return 1;},clearTimer:()=>{timer=null;},...extra,
   on:{packet:p=>events.packets.push([...p]),leave:s=>events.leaves.push(s),status:s=>events.status.push(s),chat:c=>events.chat.push(c),
-   save:b=>events.saves.push(new TextDecoder().decode(b)),session:(r,s)=>events.sessions.push([r,s]),looks:l=>events.looks.push(l)}});
+   save:b=>events.saves.push(new TextDecoder().decode(b)),session:(r,s)=>events.sessions.push([r,s]),looks:l=>events.looks.push(l),voice:(slot,stream)=>events.voices.push([slot,stream])}});
  return {net,events,run:()=>timer?.()};
 }
 
@@ -149,4 +157,25 @@ test('tp_mp5_an_outfit_change_reaches_the_other_peers',async()=>{
  for(const peer of [a,b])assert.deepEqual(last(peer).get(0),{name:'H',outfit:{model:4}});
  // The other figures keep their own outfits.
  assert.deepEqual(last(a).get(2),{name:'B',outfit:{model:2}});
+});
+
+test('voice: each peer hears the others through the host, and a leave ends that voice',async()=>{
+ const {Peer}=broker(),clock={t:0};
+ const host=setup(Peer,clock),a=setup(Peer,clock),b=setup(Peer,clock);
+ const code=await host.net.host({name:'H'});
+ host.net.voice('mic-h');
+ a.net.voice('mic-a');
+ a.net.join({code,name:'A'});
+ for(let i=0;i<10;i++)await tick();
+ b.net.voice('mic-b');
+ b.net.join({code,name:'B'});
+ for(let i=0;i<20;i++)await tick();
+ const heard=e=>Object.fromEntries(e.voices.filter(([,s])=>s));
+ assert.deepEqual(heard(host.events),{1:'mic-a',2:'mic-b'});
+ assert.deepEqual(heard(a.events),{0:'mic-h',2:'mic-b'});
+ assert.deepEqual(heard(b.events),{0:'mic-h',1:'mic-a'});
+ a.net.leave();
+ for(let i=0;i<10;i++)await tick();
+ assert.deepEqual(b.events.voices.at(-1),[1,null]);
+ assert.deepEqual(host.events.voices.at(-1),[1,null]);
 });

@@ -2,6 +2,9 @@
 use crate::reference::ItemId;
 use std::collections::{HashMap, HashSet};
 
+/// Items this player holds: the carried item, the right-hand item and the 4 inventory slots.
+pub const HELD: usize = 6;
+
 /// Source `tosaveitemscript.unClaim` real-time wait.
 pub const UNCLAIM_DELAY: f64 = 0.05;
 
@@ -11,7 +14,7 @@ pub struct Claims {
     mine: HashSet<ItemId>,
     /// Source `otherClaimed`, with the slot of the owner.
     others: HashMap<ItemId, u8>,
-    held: [Option<ItemId>; 2],
+    held: [Option<ItemId>; HELD],
     releasing: Vec<(ItemId, f64)>,
 }
 
@@ -37,7 +40,7 @@ impl Claims {
 
     /// Source `pickupable.Pick` claims, `Drop` releases after `UNCLAIM_DELAY`.
     /// `held`: the carried item and the right-hand item of this player.
-    pub fn observe(&mut self, held: [Option<ItemId>; 2], now: f64, out: &mut Vec<ClaimChange>) {
+    pub fn observe(&mut self, held: [Option<ItemId>; HELD], now: f64, out: &mut Vec<ClaimChange>) {
         for item in self.held.into_iter().flatten() {
             if !held.contains(&Some(item)) && self.mine.contains(&item) {
                 self.releasing.push((item, now + UNCLAIM_DELAY));
@@ -93,18 +96,22 @@ impl Claims {
 mod tests {
     use super::*;
 
+    fn held(carried: Option<ItemId>, hand: Option<ItemId>) -> [Option<ItemId>; HELD] {
+        [carried, hand, None, None, None, None]
+    }
+
     #[test]
     fn pick_claims_and_drop_releases_after_the_delay() {
         let (mut claims, mut out, item) = (Claims::default(), Vec::new(), ItemId(4));
-        claims.observe([Some(item), None], 0., &mut out);
+        claims.observe(held(Some(item), None), 0., &mut out);
         assert_eq!(out, [ClaimChange::Claim(item)]);
         assert!(claims.owns(item, false));
         out.clear();
-        claims.observe([None, None], 1., &mut out);
+        claims.observe(held(None, None), 1., &mut out);
         assert!(out.is_empty(), "the release waits");
-        claims.observe([None, None], 1.04, &mut out);
+        claims.observe(held(None, None), 1.04, &mut out);
         assert!(out.is_empty());
-        claims.observe([None, None], 1.06, &mut out);
+        claims.observe(held(None, None), 1.06, &mut out);
         assert_eq!(out, [ClaimChange::Release(item)]);
         assert!(!claims.owns(item, false));
         assert!(claims.owns(item, true), "the host owns unclaimed items");
@@ -113,22 +120,22 @@ mod tests {
     #[test]
     fn a_pick_before_the_delay_keeps_the_claim() {
         let (mut claims, mut out, item) = (Claims::default(), Vec::new(), ItemId(4));
-        claims.observe([Some(item), None], 0., &mut out);
-        claims.observe([None, None], 1., &mut out);
-        claims.observe([None, Some(item)], 1.01, &mut out);
-        claims.observe([None, Some(item)], 2., &mut out);
+        claims.observe(held(Some(item), None), 0., &mut out);
+        claims.observe(held(None, None), 1., &mut out);
+        claims.observe(held(None, Some(item)), 1.01, &mut out);
+        claims.observe(held(None, Some(item)), 2., &mut out);
         assert_eq!(out, [ClaimChange::Claim(item)]);
     }
 
     #[test]
     fn another_claim_takes_the_item() {
         let (mut claims, mut out, item) = (Claims::default(), Vec::new(), ItemId(4));
-        claims.observe([Some(item), None], 0., &mut out);
+        claims.observe(held(Some(item), None), 0., &mut out);
         claims.got(item, 2, true);
         assert!(!claims.owns(item, true), "not even the host owns it");
         assert_eq!(claims.other(item), Some(2));
         out.clear();
-        claims.observe([Some(item), None], 1., &mut out);
+        claims.observe(held(Some(item), None), 1., &mut out);
         assert!(out.is_empty(), "a held item does not claim again");
         claims.got(item, 3, false);
         assert_eq!(claims.other(item), Some(2), "only the owner releases");

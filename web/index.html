@@ -70,13 +70,14 @@
 <label for="net-password"><span data-w="xpassword">Password</span> <input id="net-password" type="password" autocomplete="off"></label>
 <fieldset id="net-host"><legend>Host</legend><label for="net-max"><span data-w="xmaxplayers">Max players</span> <input id="net-max" type="number" min="2" max="8" value="8"></label><button id="net-host-start" data-w="xcreate" type="button">Host game</button><p>Room code: <strong id="net-code">-</strong></p></fieldset>
 <fieldset id="net-join"><legend><span data-w="xjoin">Join</span></legend><label for="net-room">Room code <input id="net-room" type="text" maxlength="6" autocomplete="off" spellcheck="false"></label><button id="net-join-start" data-w="xjoin" type="button">Join game</button></fieldset>
+<fieldset id="net-voice-chat"><legend><span data-w="xvoicechat">Voice chat</span></legend><label for="net-voice"><input id="net-voice" type="checkbox"> <span data-w="xvoicechat">Voice chat</span></label><label for="net-voice-mode">Mode <select id="net-voice-mode"><option value="pushToTalk">Push to talk</option><option value="toggle">Toggle</option><option value="continous">Continuous</option></select></label></fieldset>
 <button id="net-leave" data-w="xdisconnect" type="button" hidden>Leave</button>
 <p id="net-status" role="status"></p>
 <ul id="net-players" aria-label="Players"></ul>
 </div>
 <div class="display-controls"><button id="multiplayer-back" data-w="mback" type="button">Back</button></div></section></section>
 <aside id="net-chat" aria-label="Chat"><ul id="net-chat-log"></ul><input id="net-chat-line" type="text" maxlength="200" autocomplete="off" spellcheck="false" aria-label="Chat message" hidden></aside>
-<div id="net-labels" aria-hidden="true"></div>
+<div id="net-labels" aria-hidden="true"></div><div id="net-mic" aria-label="Microphone" hidden>🎤</div>
 <aside id="hud" aria-label="Interaction feedback" hidden>
 <p id="driving-gear" hidden></p>
 <div id="crosshair" aria-hidden="true"></div>

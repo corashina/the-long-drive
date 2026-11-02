@@ -112,6 +112,8 @@ pub(crate) fn sync(
             commands.entity(*entity).despawn();
             #[cfg(target_arch = "wasm32")]
             crate::browser::game_remote_label(*slot, -1., -1.);
+            #[cfg(target_arch = "wasm32")]
+            crate::browser::game_remote_voice(*slot, 0., 0., 0., false);
         }
         kept
     });
@@ -194,16 +196,18 @@ pub(crate) fn sync(
             joints,
             outfit.character,
         );
+        // The voice plays at the label point above the head (source `mpplayerscript.SVoice`).
+        let head = Vec3::from_array(pose.position) + Vec3::Y * LABEL_HEIGHT;
         let label = camera
             .filter(|_| visible)
-            .and_then(|(camera, transform)| {
-                let head = Vec3::from_array(pose.position) + Vec3::Y * LABEL_HEIGHT;
-                camera.world_to_viewport(transform, head).ok()
-            })
+            .and_then(|(camera, transform)| camera.world_to_viewport(transform, head).ok())
             .unwrap_or(Vec2::splat(-1.));
         #[cfg(target_arch = "wasm32")]
-        crate::browser::game_remote_label(row.slot, label.x, label.y);
+        {
+            crate::browser::game_remote_label(row.slot, label.x, label.y);
+            crate::browser::game_remote_voice(row.slot, head.x, head.y, head.z, true);
+        }
         #[cfg(not(target_arch = "wasm32"))]
-        let _ = label;
+        let _ = (label, head);
     }
 }

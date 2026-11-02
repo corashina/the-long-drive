@@ -10,10 +10,11 @@ pub const MAX_WHEELS: usize = 8;
 /// Source `mainscript.minWheelMotorTorque`.
 const MIN_WHEEL_MOTOR_TORQUE: f32 = 0.;
 
-/// Source `multiGas` is multiplayer only. It is 0, so `gas < multiGas` never applies.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PedalState {
     pub gas: f32,
+    /// Source `multiGas`: the pedal gas of a remote driver for one step.
+    pub multi_gas: f32,
     pub debounce: f32,
     pub rpm: f32,
     pub output: f32,
@@ -56,6 +57,10 @@ pub fn step(
     if !disabled && reference.player_use && seated && throttle > 0. {
         state.gas = reference.gas_tap * throttle;
         state.debounce = reference.input_debounce;
+    }
+    if state.gas < state.multi_gas {
+        state.gas = state.multi_gas;
+        state.multi_gas = 0.;
     }
     state.rpm = lerp(0., pedaling_rpm, state.gas);
     if state.rpm > wrpm {

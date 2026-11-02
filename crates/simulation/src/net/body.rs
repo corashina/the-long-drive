@@ -49,6 +49,8 @@ pub struct RemoteBody {
     enable_at: f64,
     enabled: bool,
     seated: bool,
+    /// Bodies that this body ignores: the items its player holds.
+    ignored: Vec<RigidBodyHandle>,
 }
 
 fn groups(membership: u32, filter: u32) -> InteractionGroups {
@@ -109,6 +111,7 @@ impl RemoteBody {
             enable_at: now + SPAWN_DELAY,
             enabled: true,
             seated: false,
+            ignored: Vec::new(),
         };
         body.set_enabled(physics, false);
         body.set_shapes(physics, shapes);
@@ -146,6 +149,7 @@ impl RemoteBody {
                 physics.edit_collider(c, |c| c.set_collision_groups(groups(membership, filter)));
             }
             self.seated = seated;
+            self.apply(physics);
         }
         if !seated {
             physics.edit_body(self.handle, |b| {
@@ -187,10 +191,38 @@ impl RemoteBody {
         });
     }
 
+    /// Source `Physics.IgnoreCollision` with each item of `items`, and with no other body.
+    pub fn ignore_only(&mut self, physics: &mut PhysicsWorld, items: &[RigidBodyHandle]) {
+        for &b in &self.ignored {
+            if !items.contains(&b) {
+                physics.ignore_pair(self.handle, b, false);
+            }
+        }
+        for &b in items {
+            if !self.ignored.contains(&b) {
+                physics.ignore_pair(self.handle, b, true);
+            }
+        }
+        self.ignored.clear();
+        self.ignored.extend_from_slice(items);
+    }
+
     fn set_enabled(&mut self, physics: &mut PhysicsWorld, enabled: bool) {
         self.enabled = enabled;
+        self.apply(physics);
+    }
+
+    /// In the source a seated figure's colliders join the car. The port keeps them for queries only,
+    /// so the kinematic body does not push the car it sits in.
+    fn apply(&self, physics: &mut PhysicsWorld) {
+        let solid = self.enabled && !self.seated;
         for c in self.colliders {
-            physics.edit_collider(c, |c| set_collider_enabled(c, enabled));
+            physics.edit_collider(c, |c| {
+                set_collider_enabled(c, self.enabled);
+                if !solid {
+                    c.set_solver_groups(InteractionGroups::none());
+                }
+            });
         }
     }
 
@@ -269,6 +301,12 @@ mod tests {
             |physics: &PhysicsWorld| physics.rapier().colliders[capsule].collision_groups();
         body.update(&r, shapes, true, 14., &mut physics);
         assert!(body.enabled(), "sitting down keeps the colliders");
+        let solver = physics.rapier().colliders[capsule].solver_groups();
+        assert_eq!(
+            solver,
+            InteractionGroups::none(),
+            "a seated figure does not push its car"
+        );
         assert!(physics.rapier().bodies[body.handle].is_kinematic());
         assert_eq!(groups(&physics).memberships.bits(), 1 << 10);
         body.update(&r, shapes, false, 20., &mut physics);

@@ -5,8 +5,8 @@ from .source import key, source_id
 
 ASSEMBLY_SHA256 = '9919a9eeddcce23bb4ff86e890437f32b4a3ef3c10af2efe3b8d889d894dd62e'
 DECOMPILED_SHA256 = '22ddc62b91954205d90ff513232f39becebbc58a71b718685075f91f64b1f3ee'
-# inputscript.IN actions the port leaves out: 3D screenshots, VR, multiplayer and voice chat.
-LEFT_OUT = {'screenshot3D', 'screenshot360', 'camera360', 'vrrecenter', 'multiplayerchat', 'voicechat'}
+# inputscript.IN actions the port leaves out: 3D screenshots, VR and the multiplayer chat key (Enter opens the chat).
+LEFT_OUT = {'screenshot3D', 'screenshot360', 'camera360', 'vrrecenter', 'multiplayerchat'}
 KEY_NAMES = {'LeftControl':'ControlLeft', 'RightControl':'ControlRight', 'LeftShift':'ShiftLeft', 'RightShift':'ShiftRight',
     'LeftAlt':'AltLeft', 'RightAlt':'AltRight', 'UpArrow':'ArrowUp', 'DownArrow':'ArrowDown', 'LeftArrow':'ArrowLeft',
     'RightArrow':'ArrowRight', 'KeypadPlus':'NumpadAdd', 'KeypadMinus':'NumpadSubtract', 'Space':'Space', 'Tab':'Tab',

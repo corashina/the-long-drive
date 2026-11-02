@@ -56,6 +56,7 @@ impl Remote {
 
     /// Source `UpdPos`, the IK, then `UpdCollider` after each received pose.
     /// Returns the figure pose in stream space and `CharacterRoot`.
+    /// `car`: the shown world pose of a car by key and seat index, `None` when the car is not here.
     pub fn step(
         &mut self,
         now: f64,
@@ -63,6 +64,7 @@ impl Remote {
         reference: &RemotePlayerReference,
         origin: &WorldOrigin,
         physics: &mut PhysicsWorld,
+        car: impl FnOnce(u64, u32) -> Option<(DVec3, DQuat)>,
     ) -> Option<(VehiclePose, VehiclePose)> {
         let targets = self.targets?;
         // Contacts move a standing figure between writes, like the source rigidbody moves `T`.
@@ -72,7 +74,7 @@ impl Remote {
             let at = origin.absolute(c.position(physics).to_array());
             self.smoothing.shown.position += DVec3::from_array(at) - self.written;
         }
-        let shown = self.smoothing.update(now, dt)?;
+        let shown = self.smoothing.update(now, dt, car)?;
         self.body.pose_remote(self.smoothing.duck, &targets);
         let pose = VehiclePose {
             position: origin.local(shown.position.to_array()),
@@ -108,6 +110,8 @@ pub struct Smoothing {
     /// Figure Transform `T`.
     shown: Sample,
     seated: bool,
+    /// Source `seatId` and `seatId2` of a car seat. `last` is then relative to the car.
+    car: Option<(u64, u32)>,
     pub duck: f32,
     start: Option<f64>,
     /// A pose came since the last `UpdCollider`.
@@ -130,6 +134,7 @@ impl Smoothing {
                 next_time: now,
                 shown: sample,
                 seated,
+                car: None,
                 duck: m.duck,
                 start: Some(now),
                 fresh: true,
@@ -138,6 +143,7 @@ impl Smoothing {
         let was_seated = self.seated;
         self.seated = seated;
         self.fresh = true;
+        self.car = (m.flags & PoseMessage::IN_CAR != 0).then_some((m.car, m.seat));
         self.duck = m.duck;
         self.old = self.last;
         self.old_time = self.last_time;
@@ -160,15 +166,39 @@ impl Smoothing {
         self.next_time = now + (self.last_time - self.old_time);
     }
 
+    /// The car key and seat of a figure in a car.
+    pub fn car(&self) -> Option<(u64, u32)> {
+        self.car
+    }
+
     /// Source `UpdPos`. `None` before the first pose.
-    fn update(&mut self, now: f64, dt: f32) -> Option<Sample> {
+    fn update(
+        &mut self,
+        now: f64,
+        dt: f32,
+        car: impl FnOnce(u64, u32) -> Option<(DVec3, DQuat)>,
+    ) -> Option<Sample> {
         let start = self.start?;
-        if now - start <= READY_DELAY {
+        // Source waits `readyToMove` here also in a car. The port seats the figure at once,
+        // so a first pose relative to the car does not show at the world origin.
+        if now - start <= READY_DELAY && self.car.is_none() {
             return Some(self.shown);
         }
         if self.seated {
-            // Seats are not shared yet: the figure takes the sent world pose.
-            self.shown = self.last;
+            match self.car {
+                // Source: the figure sits at `TransformPoint(lastPos)` of the car. A car that is
+                // not here leaves the figure where it is.
+                Some((key, seat)) => {
+                    if let Some((position, rotation)) = car(key, seat) {
+                        self.shown = Sample {
+                            position: position + rotation * self.last.position,
+                            rotation: rotation * self.last.rotation,
+                        };
+                    }
+                }
+                // An item seat: the figure takes the sent world pose.
+                None => self.shown = self.last,
+            }
             return Some(self.shown);
         }
         let span = self.next_time - self.last_time;
@@ -211,8 +241,40 @@ mod tests {
             position: [x, 0., 0.],
             rotation: [0., 0., 0., 1.],
             duck: 1.,
-            flags: 0,
+            ..PoseMessage::default()
         }
+    }
+
+    impl Smoothing {
+        fn update_free(&mut self, now: f64, dt: f32) -> Option<Sample> {
+            self.update(now, dt, |_, _| None)
+        }
+    }
+
+    #[test]
+    fn a_car_seat_follows_the_car() {
+        let mut s = Smoothing::default();
+        s.got_pose(&pose(0.), 0.);
+        s.got_pose(
+            &PoseMessage {
+                flags: PoseMessage::SEATED | PoseMessage::IN_CAR,
+                car: 7,
+                seat: 1,
+                ..pose(1.)
+            },
+            2.,
+        );
+        let turn = DQuat::from_rotation_y(std::f64::consts::FRAC_PI_2);
+        let car = |key, seat| (key == 7 && seat == 1).then_some((DVec3::new(10., 0., 0.), turn));
+        let shown = s.update(2.1, 0.01, car).unwrap();
+        // Local x 1 turned a quarter about y is world -z.
+        assert!(shown.position.abs_diff_eq(DVec3::new(10., 0., -1.), 1e-9));
+        assert!(shown.rotation.abs_diff_eq(turn, 1e-9));
+        // A car that is not here keeps the figure.
+        assert_eq!(
+            s.update(2.2, 0.01, |_, _| None).unwrap().position,
+            shown.position
+        );
     }
 
     #[test]
@@ -225,13 +287,13 @@ mod tests {
         assert_eq!(s.next.position.x, 3.);
         assert!((s.next_time - 0.45).abs() < 1e-12);
         // Before `readyToMove` the figure stays at the first pose.
-        assert_eq!(s.update(0.5, 1. / 60.).unwrap().position.x, 0.);
+        assert_eq!(s.update_free(0.5, 1. / 60.).unwrap().position.x, 0.);
         // Later it moves toward the blend at `nextTime`: (2 + 2) / 2 lerps to 3.
         let mut s2 = Smoothing::default();
         s2.got_pose(&pose(0.), 0.);
         s2.got_pose(&pose(1.), 1.2);
         s2.got_pose(&pose(2.), 1.35);
-        let shown = s2.update(1.5, 1.).unwrap();
+        let shown = s2.update_free(1.5, 1.).unwrap();
         assert!((shown.position.x - 3.).abs() < 1e-9);
     }
 
@@ -246,9 +308,9 @@ mod tests {
             },
             2.,
         );
-        assert_eq!(s.update(2.1, 0.01).unwrap().position.x, 5.);
+        assert_eq!(s.update_free(2.1, 0.01).unwrap().position.x, 5.);
         s.got_pose(&pose(9.), 2.15);
-        assert_eq!(s.update(2.2, 0.01).unwrap().position.x, 9.);
+        assert_eq!(s.update_free(2.2, 0.01).unwrap().position.x, 9.);
     }
 
     #[test]

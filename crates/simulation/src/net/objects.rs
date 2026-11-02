@@ -26,6 +26,9 @@ pub struct ObjectIndex {
     revision: Option<u64>,
     items: HashMap<NetKey, ItemId>,
     keys: HashMap<ItemId, NetKey>,
+    previous: HashMap<NetKey, ItemId>,
+    /// Keys that bound since the last `take_fresh`.
+    fresh: Vec<NetKey>,
 }
 
 impl ObjectIndex {
@@ -34,6 +37,7 @@ impl ObjectIndex {
             return;
         }
         self.revision = Some(items.membership_revision());
+        std::mem::swap(&mut self.items, &mut self.previous);
         self.items.clear();
         self.keys.clear();
         for (id, state) in items.generated_bindings() {
@@ -49,6 +53,16 @@ impl ObjectIndex {
                 self.insert(NetKey(ObjectKey::Imported(state.id).seed()), state.id);
             }
         }
+        for (key, item) in &self.items {
+            if self.previous.get(key) != Some(item) {
+                self.fresh.push(*key);
+            }
+        }
+    }
+    /// Keys that bound since the last call.
+    pub fn take_fresh(&mut self, out: &mut Vec<NetKey>) {
+        out.clear();
+        std::mem::swap(out, &mut self.fresh);
     }
     fn insert(&mut self, key: NetKey, item: ItemId) {
         self.items.insert(key, item);
@@ -65,6 +79,8 @@ impl ObjectIndex {
         self.revision = None;
         self.items.clear();
         self.keys.clear();
+        self.previous.clear();
+        self.fresh.clear();
     }
 }
 

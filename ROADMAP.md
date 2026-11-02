@@ -33,9 +33,8 @@ Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). WebRTC pe
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| M02 | Shared cars | L | Driver input sync (`carfloats`, gears, ignition, lamps, handbrake), passengers. Seated figures follow the seat of the car by save id (source `UpdPos` sitting). |
-| M03 | Shared items and world | XL | Inventory and remote held items, `localPos`, `requestData` on load, host keeps changes of items it has not loaded, spawned items, tanks and caps, parts, usables, attachables, lamps, food, weapons. Design: project file `plans/m03-design.md`. |
-| M04 | Everything else | XL | Voice chat (M04b). After the M03 network keys: host-only creature, Fedo, random stuff and tumbleweed spawns, creature poses to guests, radio controls (`msgType.radio`). The source does not sync sandstorms or sleep. |
+| M03 | Shared items and world | XL | Item seats (sleds and chairs send the world pose), tanks and caps, parts, usables, attachables, lamps, food, weapons. Design: project file `plans/m03-design.md`. |
+| M04 | Everything else | L | After the M03 network keys: host-only creature, Fedo, random stuff and tumbleweed spawns, creature poses to guests, radio controls (`msgType.radio`). The source does not sync sandstorms or sleep. |
 
 Not planned: VR, stereo 3D, mod events, Steam features.
 
@@ -53,8 +52,9 @@ Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix 
 - WD3: `tp_wd3_each_melee_weapon_swings_with_each_key_and_breaks_a_bottle` needs the next export. The exporter now links melee weapons through `pickupable.melee` (#WD3), which adds the katana, fly swatter and leg. The test passes on ee6554d with those records added.
 - WD20: `tp_wd20_a_hard_hit_breaks_a_tumbleweed_with_its_gib_and_it_stays_gone` needs the next export. The exporter now exports gib ParticleSystems (`behavior.gib_particles`, #WD20). The tumbleweed gib is particles only. The test passes on ee6554d with a stand-in particle record.
 - Export field added (#PB): `player.seat_push_force` (source `fpscontroller.seatPushForce`). Export ee6554d lacks it, so re-export before the next run.
-- Export field added (#M01): `player.remote` (source `mpplayerscript` of `snTempPlayerSync.playerPrefab`). Export ee6554d lacks it, so re-export before the next run. `tp_mp4_the_other_figure_turns_solid_after_3_s` then checks the remote figure body.
+- Export field added (#M01): `player.remote` (source `mpplayerscript` of `snTempPlayerSync.playerPrefab`). Export ee6554d lacks it, so re-export before the next run. `tp_mp5_the_other_figure_turns_solid_after_3_s` then checks the remote figure body.
 - Export format changed (#X06c): each world prototype has `probes`, and `vehicle.probe` is gone. Re-export before the next run. Then stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
+- Export field added (#M04): the `voicechat` input binding (source `inputscript.IN.voicechat`). Until the re-export, voice chat has no push-to-talk key. The stored key bindings reset once.
 
 Prepare once:
 
@@ -70,3 +70,7 @@ Two browsers, host and guest in one room. Check F3 on the host before and after,
 
 1. M03: The host kicks a loose can. It moves on the guest within 1 s and lands at the same place.
 2. M03: The guest picks up a can and walks. The host sees the can move with the guest. The guest throws it. On both screens it lands at the same place.
+3. M02: The guest drives the start car. The host copy steers, shifts and honks with it. The handbrake and ignition follow.
+4. M02: Both see each passenger in their car seat, also at speed.
+5. M03: The guest puts the can in the inventory. It goes away on the host. The guest takes it in the right hand. It shows in the guest hand on the host.
+6. M03: The host walks 2 km away. The guest picks up a can there, drops it in another place and walks away too. The host comes back: the can is where the guest left it.
