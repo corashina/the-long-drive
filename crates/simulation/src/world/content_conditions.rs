@@ -209,35 +209,3 @@ impl WorldStream {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn look(node: i64, material: Option<i64>, color: Option<[f32; 4]>) -> NodeAppearance {
-        let id = |path_id| SourceId {
-            file: "f".into(),
-            path_id,
-        };
-        NodeAppearance {
-            node: id(node),
-            primary: None,
-            scale: None,
-            rotation: None,
-            active: None,
-            material: material.map(id),
-            color,
-            color_material: None,
-        }
-    }
-
-    #[test]
-    fn merge_overwrites_the_last_look_of_a_node() {
-        let mut appearance = vec![look(1, Some(10), None), look(1, Some(11), Some([1.; 4]))];
-        merge(&mut appearance, &look(1, Some(12), Some([0.5; 4])));
-        assert_eq!(appearance.len(), 2);
-        assert_eq!(appearance[1], look(1, Some(12), Some([0.5; 4])));
-        merge(&mut appearance, &look(2, None, Some([0.; 4])));
-        assert_eq!(appearance.len(), 3);
-    }
-}

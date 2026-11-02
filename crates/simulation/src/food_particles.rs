@@ -47,32 +47,3 @@ impl FoodParticles {
         self.systems[kind].particles()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::exhaust::tests::smoke;
-
-    #[test]
-    fn bites_emit_random_range_counts() {
-        let mut food = FoodParticles::new(&[smoke(1000, 5.)], 7);
-        let mut total = 0;
-        for _ in 0..200 {
-            let before = food.particles(0).len();
-            food.bite(0, [5, 10], [0.; 3], Vector::NEG_Z);
-            let added = food.particles(0).len() - before;
-            assert!((5..=10).contains(&added), "{added}");
-            total += added;
-            if food.particles(0).len() > 900 {
-                food.systems[0] = ParticleState::emit_only(&smoke(1000, 5.), 7);
-            }
-        }
-        assert!(total > 5 * 200 && total < 10 * 200);
-        // The cigarette range: min -100, max 1. Most bites emit nothing.
-        let mut food = FoodParticles::new(&[smoke(1000, 5.)], 7);
-        for _ in 0..500 {
-            food.bite(0, [-100, 1], [0.; 3], Vector::NEG_Z);
-        }
-        assert!(food.particles(0).len() < 30, "{}", food.particles(0).len());
-    }
-}

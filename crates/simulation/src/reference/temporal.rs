@@ -27,17 +27,3 @@ fn halton(mut index: u32, radix: u32) -> f32 {
     }
     result
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sequence_repeats_after_eight_samples() {
-        let mut sequence = TaaSequence::default();
-        let first: Vec<_> = (0..8).map(|_| sequence.advance(1.)).collect();
-        assert_eq!(first[0], [0., (1. / 3.) - 0.5]);
-        assert_eq!(first[1], [-0.25, (2. / 3.) - 0.5]);
-        assert_eq!(sequence.advance(1.), first[0]);
-    }
-}

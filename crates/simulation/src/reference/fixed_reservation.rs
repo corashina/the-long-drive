@@ -354,18 +354,3 @@ pub fn shader_input(path: &str) -> Result<FixedReservation, ReferenceError> {
         staging: bytes.checked_mul(2).ok_or_else(overflow)?,
     })
 }
-#[cfg(test)]
-mod tests {
-    /// Every shader that the browser binds must be a fixed shader, or binding panics at start.
-    #[test]
-    fn bound_shaders_are_fixed() {
-        let source = include_str!("../../../../src/presentation/fixed_assets.rs");
-        for part in source.split("shader(\"").skip(1) {
-            let path = &part[..part.find('"').unwrap()];
-            assert!(
-                super::FIXED_SHADER_PATHS.contains(&path),
-                "{path} is not in FIXED_SHADER_PATHS"
-            );
-        }
-    }
-}

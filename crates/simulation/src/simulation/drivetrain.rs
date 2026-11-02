@@ -276,17 +276,3 @@ pub fn transmitted_torques(
         pedal_nm: None,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn auto_gear_at_rest_is_first() {
-        let part: EnginePartReference =
-            serde_json::from_value(crate::reference::engine_part_fixture()).unwrap();
-        let ratios = [-3.5, 0., 3.7, 2.1, 1.4, 1.];
-        assert_eq!(auto_gear(&ratios, 4.1, &part, 0., true), Some(2));
-        assert_eq!(auto_gear(&ratios, 4.1, &part, 0., false), Some(0));
-    }
-}

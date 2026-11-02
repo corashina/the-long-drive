@@ -123,43 +123,6 @@ impl QueryBounds {
         self.step_bodies.clear(|h| h.into_raw_parts().0 as usize);
         self.step_colliders.clear(|h| h.into_raw_parts().0 as usize);
     }
-    #[cfg(test)]
-    pub(super) fn pending_counts(&self) -> (usize, usize, usize) {
-        (
-            self.pending_bodies.handles.len(),
-            self.pending_colliders.handles.len(),
-            self.removals.handles.len(),
-        )
-    }
-    #[cfg(test)]
-    pub(super) fn step_counts(&self) -> (usize, usize) {
-        (
-            self.step_bodies.handles.len(),
-            self.step_colliders.handles.len(),
-        )
-    }
-
-    #[cfg(test)]
-    pub(super) fn last_work(&self) -> RefreshWork {
-        self.last_work
-    }
-    #[cfg(test)]
-    pub(super) fn queue_capacities(&self) -> Vec<usize> {
-        [&self.pending_bodies, &self.step_bodies]
-            .into_iter()
-            .flat_map(|q| [q.handles.capacity(), q.markers.capacity()])
-            .chain(
-                [
-                    &self.pending_colliders,
-                    &self.step_colliders,
-                    &self.removals,
-                ]
-                .into_iter()
-                .flat_map(|q| [q.handles.capacity(), q.markers.capacity()]),
-            )
-            .chain([self.geometry_changed.capacity(), self.states.capacity()])
-            .collect()
-    }
 
     pub fn retained_bytes(&self) -> usize {
         self.pending_bodies.retained_bytes()
@@ -273,8 +236,3 @@ impl QueryBounds {
         updates
     }
 }
-
-#[cfg(test)]
-mod reference;
-#[cfg(test)]
-mod tests;

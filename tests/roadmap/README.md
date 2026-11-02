@@ -10,11 +10,9 @@ They use the `?sandbox` helpers of `tests/sandbox/`. One run loads the page once
 3. Run a section, or some rows of it:
 
 ```
-node tests/roadmap/run.mjs creatures
-node tests/roadmap/run.mjs creatures 3 9
-node tests/roadmap/run.mjs car-camera
-node tests/roadmap/run.mjs more-cars
-node tests/roadmap/run.mjs saves --url=http://127.0.0.1:4173/?sandbox
+node tests/roadmap/run.mjs saves
+node tests/roadmap/run.mjs saves 1
+node tests/roadmap/run.mjs multiplayer --url=http://127.0.0.1:4173/?sandbox
 ```
 
 `--chrome=PATH` uses another Chrome executable. Do not use the mouse or keyboard in the window during a run.
