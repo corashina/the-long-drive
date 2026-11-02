@@ -404,6 +404,8 @@ pub struct HumanReference {
     pub body: CreatureBody,
     pub ragdoll: CreatureRagdoll,
     pub ai: HumanAiReference,
+    pub animator: HumanoidReference,
+    pub voice: HumanVoiceReference,
 }
 
 impl HumanReference {
@@ -455,7 +457,33 @@ impl HumanReference {
                 && self.body.colliders.iter().any(|c| c.node == self.ai.col),
             "human AI",
         )?;
-        validate_ragdoll(&self.ragdoll, |n| self.local(m, n), "human ragdoll")
+        validate_ragdoll(&self.ragdoll, |n| self.local(m, n), "human ragdoll")?;
+        self.animator.validate(&m.nodes)?;
+        let v = &self.voice;
+        let clips = m.audio["clips"].as_array();
+        let clip = |c: &HumanVoiceClip| {
+            c.seconds > 0.
+                && clips.is_some_and(|l| {
+                    l.iter()
+                        .any(|x| x["id"].as_u64() == Some(u64::from(c.clip)))
+                })
+        };
+        require(
+            [&v.idle, &v.chase, &v.notice, &v.attack, &v.death]
+                .iter()
+                .all(|l| !l.is_empty() && l.len() <= usize::from(u8::MAX) && l.iter().all(clip))
+                && range(&v.idle_time)
+                && range(&v.chase_time)
+                && range(&v.seeing_time)
+                && finite(&v.position)
+                && self.local(m, v.mouth)
+                && m.audio["car_voices"].as_array().is_some_and(|l| {
+                    l.iter().any(|x| {
+                        x["id"].as_u64() == Some(u64::from(v.voice)) && x["one_shot"] == false
+                    })
+                }),
+            "human voice",
+        )
     }
 }
 

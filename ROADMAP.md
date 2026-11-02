@@ -29,7 +29,6 @@ The starting area, car parts, world and more cars sections are done. Only their 
 | X03b | EMP jamming | L | Live `electronicsscript.jamValue` (`mainscript.jamIncrease` 0.3, `jamDecrease` 0.1, `maxJamValue` 0.3, `TLastEmp`). Source `empscript`: `OverlapSphere`, Perlin range and value noise, `fallOff`, `ambientSoundModifier`. Jam dims car, headlights, flashlights, street lamps and bus doors, and affects compass, radio and metal detector. Today each output is fixed at spawn. |
 | X03c | Green-eyed evil rabbits | S | Needs X03b. `empscript.makeRabbitsEvil`: rabbit `electronicsscript.nyul` output below 0.2 calls `GetEvil(natural: false)`. `Evil::get_evil` has the `Green` path. Link rabbit electronics and render `EyeGreen`. |
 | X03d | Ground UFO | M | Needs X03b. Find and export the source prefabs that carry `empscript` (also check `sky_ufo`). Place the ground UFO with its model, sounds and EMP. |
-| X03g | Human monster animation and voice | M | Needs X03f. `newAiAnim` animator, look target and hand IK. Voices: idle, notice, chase, attack and death lists with pitch, and the `TVoice` mouth move. |
 
 ### Multiplayer
 
@@ -51,6 +50,7 @@ Open before the next run:
 - The stored key bindings reset once, because the export adds the `voicechat` binding (#M04).
 - X03e (browser): Enter an old house, a mansion or the Vizmu building with human spawns. Some have a human monster in its rest pose. It does not move before X03f. Saves keep it, and a placement does not spawn a second one.
 - X03f (browser): A human monster that sees the player chases them. It ducks and jumps over low walls, pushes doors open and climbs ladders. Out of sight it patrols. Peaceful mode stops it. Export check: `human.ai.col` is a capsule live collider and the five `sens` triggers export.
+- X03g (browser): A live human monster walks, runs, turns and crouches with its Animator clips, looks at its target, and holds a door with its left hand. Feet stay on the ground. Export check: `human.animator` has 15 `grounded` and 4 `crouching` children, and `human.voice` has five clip lists. Port choices to check against the source: blend tree child speed is `1 / m_Duration` (crouch walks play twice as fast), clip foot IK goals and twist spreading are not used.
 
 Prepare once:
 
