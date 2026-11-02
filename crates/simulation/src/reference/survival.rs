@@ -119,6 +119,20 @@ pub struct ToiletReference {
     pub force_color: [f32; 4],
     pub force_color_m: f32,
 }
+/// Source `fpscontroller` hum fields. The audio row of kind 25 holds `humStartClips`, then
+/// `humClips`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HumReference {
+    pub lerp: f32,
+    pub pitch_sensitivity: f32,
+    pub volume_sensitivity: f32,
+    pub max_volume: f32,
+    /// `minHumNote` and `maxHumNote` in semitones.
+    pub note: [f32; 2],
+    /// `humStimulValues`, one for each tune.
+    pub stimulus_values: Vec<f32>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SurvivalReference {
@@ -141,6 +155,7 @@ pub struct SurvivalReference {
     pub starter_pose: Transform,
     pub evidence: ManagedEvidence,
     pub toilet: ToiletReference,
+    pub hum: HumReference,
     pub inputs: Vec<SourceInput>,
     pub drink_modifier: f32,
     pub death_velocity_change: f32,
@@ -399,6 +414,26 @@ impl SurvivalReference {
                 && t.min_burp_pitch > 0.
                 && t.max_burp_pitch >= t.min_burp_pitch,
             "toilet rules",
+        )?;
+        let h = &self.hum;
+        let tunes = AudioGameplayReference::from_value(&m.audio)?
+            .binding(crate::audio::AudioKind::Hum as u32)
+            .clips
+            .len();
+        require(
+            finite(&[
+                h.lerp,
+                h.pitch_sensitivity,
+                h.volume_sensitivity,
+                h.max_volume,
+            ]) && finite(&h.note)
+                && finite(&h.stimulus_values)
+                && h.lerp > 0.
+                && h.max_volume > 0.
+                && h.note[0] <= h.note[1]
+                && !h.stimulus_values.is_empty()
+                && tunes == 2 * h.stimulus_values.len(),
+            "hum rules",
         )?;
         require(
             self.inputs.len() == 4
