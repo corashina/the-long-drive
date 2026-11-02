@@ -25,7 +25,14 @@ The starting area, car parts, world and more cars sections are done. Only their 
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| X03 | Creatures | XL | Ground UFO, EMP and green-eyed evil rabbits, human monster (attacks hurt the player), breakablescript `DamageFrom` for AI. Rabbits do not yet sense the player hum. |
+| X03a | Player hum | M | Source `fpscontroller` hum on `IN.hum`: start and loop clips, scroll selects the tune, mouse sets volume and pitch. `humStimul.SetAudioValue(volume * humStimulValues[tune])` lets rabbits hear it. Export the clips, values and key binding. |
+| X03b | EMP jamming | L | Live `electronicsscript.jamValue` (`mainscript.jamIncrease` 0.3, `jamDecrease` 0.1, `maxJamValue` 0.3, `TLastEmp`). Source `empscript`: `OverlapSphere`, Perlin range and value noise, `fallOff`, `ambientSoundModifier`. Jam dims car, headlights, flashlights, street lamps and bus doors, and affects compass, radio and metal detector. Today each output is fixed at spawn. |
+| X03c | Green-eyed evil rabbits | S | Needs X03b. `empscript.makeRabbitsEvil`: rabbit `electronicsscript.nyul` output below 0.2 calls `GetEvil(natural: false)`. `Evil::get_evil` has the `Green` path. Link rabbit electronics and render `EyeGreen`. |
+| X03d | Ground UFO | M | Needs X03b. Find and export the source prefabs that carry `empscript` (also check `sky_ufo`). Place the ground UFO with its model, sounds and EMP. |
+| X03e | Human monster body and save | M | Export the `newAiScript` prefab (`world_spawn.py` excludes it as an actor) and spawn it. `Start`: `startSleepChange`, voice pitch, patrol time. Ragdoll and `breakablescript` health. Save `save_newai`: `died`, `sleeping`, `first`, `health`, `shootHealth`, `explosionHealth`. Host-only, as rabbits (#M04). |
+| X03f | Human monster AI | L | Needs X03e. `newAiScript.Update`: sight by `fov` and ray, chase time, patrol (`GetNewPatrolPos`), rigidbody move, `AvoidWalls`, jump when stuck, ladders (`ladderV`), doors (`Use`), `peacefulEnemies`, `rizseshusi` target. |
+| X03g | Human monster animation and voice | M | Needs X03f. `newAiAnim` animator, look target and hand IK. Voices: idle, notice, chase, attack and death lists with pitch, and the `TVoice` mouth move. |
+| X03h | Human monster attack and death | M | Needs X03f. `Attack`: ray to the player, `survival.DamageInstant(damage * dt)`, both hands hold. `breakablescript.DamageFrom` wakes it and turns its target to the hit. Shot, collision and explosion break it. `Die`: ragdoll and death sound. |
 
 ### Multiplayer
 
@@ -39,20 +46,12 @@ Run these checks on Tomasz's PC in one run. Passed checks are removed.
 Check F3 in each scenario below. Compare with the frame rate rule.
 Look, listen and F3-only checks are on Tomasz's eyes list (project file `plans/tp-eyes-list.md`), not here.
 
-Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix before the next run:
+Headless run on 2026-11-02 (master ebed1d3, export 3fd48db): 174 of 179 ignored simulation tests passed, and 270 of 270 release workspace tests passed. #419 and #422-#425 fix the other 5. Each fix passed on Tomasz's PC before merge. W02 measured 24,128 bytes/km (120.6 MB for 5,000 km).
 
-- K5 (browser): In game, pause > Load > Load last once stayed on "Loading..." for over 6 minutes, with no console messages. The simulation and the save bridge finish the load (`tp_k5_s1_a_stored_save_starts_the_session_and_its_restore_finishes`), so the hang is in the browser.
-- 32 of 169 ignored simulation tests failed in release. Debug overflows the stack. #KF removed 8 old tests that `roadmap_tests` covers, and changed 4 without a run. The lines below name each open one.
-- WD3: `tp_wd3_each_melee_weapon_swings_with_each_key_and_breaks_a_bottle` needs the next export. The exporter now links melee weapons through `pickupable.melee` (#WD3), which adds the katana, fly swatter and leg. The test passes on ee6554d with those records added.
-- WD20: `tp_wd20_a_hard_hit_breaks_a_tumbleweed_with_its_gib_and_it_stays_gone` needs the next export. The exporter now exports gib ParticleSystems (`behavior.gib_particles`, #WD20). The tumbleweed gib is particles only. The test passes on ee6554d with a stand-in particle record.
-- MP (29e693f run): `tp_m03_a_host_spawn_appears_on_the_guest` fails at "the guest spawns it". The test prints its state ("m03 spawn:") for the fix.
-- CR2: `tp_cr2_halloween_bats_near_buildings` was flaky: load time depends on the machine, and the one tracked bat could break before it squeaked. It now collects bats from the first frame of each visit and checks squeaks, flight and save over all bats of the building (#TP CR2). Changed without a run.
-- Export field added (#PB): `player.seat_push_force` (source `fpscontroller.seatPushForce`). Export ee6554d lacks it, so re-export before the next run.
-- Export field added (#M01): `player.remote` (source `mpplayerscript` of `snTempPlayerSync.playerPrefab`). Export ee6554d lacks it, so re-export before the next run. `tp_mp5_the_other_figure_turns_solid_after_3_s` then checks the remote figure body.
-- Export format changed (#X06c): each world prototype has `probes`, and `vehicle.probe` is gone. Re-export before the next run. Then stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
-- Export field added (#M04): the `voicechat` input binding (source `inputscript.IN.voicechat`). Until the re-export, voice chat has no push-to-talk key. The stored key bindings reset once.
-- Save schema 41 (#M04): rabbits keep their id (`RabbitSnapshot.id`). Old saves do not load.
-- Save schema 42 (#TP W02): spawn boundaries are compact. They store sources, contexts and pool states once in tables, and each parent as a compact key. Old saves do not load. The 3fd48db run measured 158,021 bytes/km (790 MB for 5,000 km). On 6fae264 it measured 24,128 bytes/km (120.6 MB), below the 200 MB limit.
+Open before the next run:
+
+- X06c (browser): Stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
+- The stored key bindings reset once, because the export adds the `voicechat` binding (#M04).
 
 Prepare once:
 
@@ -65,6 +64,10 @@ Prepare once:
 ### Startup
 
 1. K4: Open the game 3 times in a new private window (empty cache). Each first load passes object loading and reaches the garage. The "Dependency staging" row on the loading screen does not stay full.
+
+### Saves
+
+1. K5: In game, pause > Load > Load last. The page reloads within 30 s and the last save loads. "Loading..." does not stay. Do the same with a named save from pause > Load.
 
 ### Multiplayer
 

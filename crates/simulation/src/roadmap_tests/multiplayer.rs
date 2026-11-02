@@ -360,17 +360,28 @@ impl Pair {
         seconds: f32,
     ) {
         for _ in 0..(seconds / FIXED_DT).ceil() as usize {
-            frame(host, reference);
-            self.host
-                .fill(reference, host, FIXED_DT, 1., &mut self.frame);
-            self.host.take_outbox(&mut self.packets);
-            self.guest.receive(&self.packets);
-            frame(guest, reference);
-            self.guest
-                .fill(reference, guest, FIXED_DT, 1., &mut self.frame);
-            self.guest.take_outbox(&mut self.packets);
-            self.host.receive(&self.packets);
+            self.step(reference, host, guest);
         }
+    }
+    /// One frame of each peer, marked like `Driver::advance`.
+    fn step(
+        &mut self,
+        reference: &crate::reference::ReferenceManifest,
+        host: &mut GarageRuntime,
+        guest: &mut GarageRuntime,
+    ) {
+        self.host.prepare(host);
+        frame(host, reference);
+        self.host
+            .fill(reference, host, FIXED_DT, 1., &mut self.frame);
+        self.host.take_outbox(&mut self.packets);
+        self.guest.receive(&self.packets);
+        self.guest.prepare(guest);
+        frame(guest, reference);
+        self.guest
+            .fill(reference, guest, FIXED_DT, 1., &mut self.frame);
+        self.guest.take_outbox(&mut self.packets);
+        self.host.receive(&self.packets);
     }
 }
 
@@ -380,24 +391,6 @@ fn same(from: &GarageRuntime, to: &GarageRuntime, item: ItemId) -> ItemId {
         .items
         .resolve_key(&from.area.items.object_key(item))
         .expect("the item is on both peers")
-}
-
-/// The host item pose packet of runtime spawn `serial` in an outbox.
-fn spawn_pose(packets: &[u8], serial: u32) -> Option<crate::net::message::ItemPoseMessage> {
-    use crate::net::message::{ItemPoseMessage, Message, RELIABLE};
-    let mut rest = packets;
-    while let [a, b, tail @ ..] = rest {
-        let n = (u16::from_le_bytes([*a, *b]) & !RELIABLE) as usize;
-        let (packet, tail) = tail.split_at_checked(n)?;
-        rest = tail;
-        if let Ok((_, m)) = ItemPoseMessage::decode(packet)
-            && m.spawn[0] != 0
-            && m.spawn[1] == serial
-        {
-            return Some(m);
-        }
-    }
-    None
 }
 
 fn absolute(run: &GarageRuntime, item: ItemId) -> [f64; 3] {
@@ -560,59 +553,15 @@ fn tp_m03_a_host_spawn_appears_on_the_guest() {
     .unwrap();
     let serial = run.area.spawned.get(ids[0]).unwrap().serial;
     // The last host pose of the 1 s checks comes after the shovel lies still.
-    let mut sent = None;
-    for _ in 0..(2.2 / FIXED_DT).ceil() as usize {
-        frame(&mut run, &reference);
-        pair.host
-            .fill(&reference, &mut run, FIXED_DT, 1., &mut pair.frame);
-        pair.host.take_outbox(&mut pair.packets);
-        sent = sent.or_else(|| spawn_pose(&pair.packets, serial));
-        pair.guest.receive(&pair.packets);
-        frame(&mut guest, &reference);
-        pair.guest
-            .fill(&reference, &mut guest, FIXED_DT, 1., &mut pair.frame);
-        pair.guest.take_outbox(&mut pair.packets);
-        pair.host.receive(&pair.packets);
-    }
-    let found = guest
+    pair.run(&reference, &mut run, &mut guest, 2.2);
+    let serials: Vec<u32> = guest.area.spawned.iter().map(|s| s.serial).collect();
+    let copy = guest
         .area
         .spawned
         .iter()
         .find(|s| s.serial == serial && s.prototype == prototype)
-        .map(|s| s.id);
-    if found.is_none() {
-        let state = run.area.items.get(ids[0]);
-        eprintln!(
-            "m03 spawn: serial {serial}, prototype {prototype}, host item removed {:?} location {:?} \
-             body {:?} inactive {:?}, host sent {sent:?}, guest serials {:?}",
-            state.map(|s| s.removed),
-            state.map(|s| s.location),
-            state.and_then(|s| s.body),
-            state.map(|s| s.inactive_pose.is_some()),
-            guest
-                .area
-                .spawned
-                .iter()
-                .map(|s| s.serial)
-                .collect::<Vec<_>>(),
-        );
-        if let Some(m) = &sent {
-            let spawned = crate::starting_area::spawned::spawn_body(
-                &reference,
-                &mut guest.area,
-                &mut guest.physics,
-                prototype,
-                m.spawn[2] as usize,
-                crate::vehicle::VehiclePose {
-                    position: guest.stream.origin.local(m.position),
-                    rotation: m.rotation,
-                },
-                serial,
-            );
-            eprintln!("m03 spawn: a direct guest spawn gives {spawned:?}");
-        }
-    }
-    let copy = found.expect("the guest spawns it");
+        .unwrap_or_else(|| panic!("the guest spawns serial {serial}: guest serials {serials:?}"))
+        .id;
     assert!(apart(absolute(&run, ids[0]), absolute(&guest, copy)) < 0.2);
 }
 
@@ -784,11 +733,11 @@ fn tp_m03_a_host_bite_reaches_the_guest() {
 fn tp_mp_m04c_host_rabbits_appear_on_the_guest() {
     let (reference, mut host_run) = super::creatures::outdoors();
     let mut guest_run = save_load(&host_run, &reference);
-    // `Driver::advance` marks a guest runtime before each step, also the first after the load.
-    guest_run.net_guest = true;
     let (mut host, mut guest) = (Net::default(), Net::default());
     host.set_session(NetRole::Host, 0);
     guest.set_session(NetRole::Guest, 1);
+    // `Driver::advance` marks a guest runtime before each step, also the first after the load.
+    guest.prepare(&mut guest_run);
     let mut frame = SimFrame::default();
     let id = act(
         &mut host_run,

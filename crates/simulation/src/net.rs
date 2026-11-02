@@ -97,8 +97,6 @@ pub struct Net {
     figures: Vec<(u8, rapier3d::math::Pose)>,
     /// Peers that left since the last frame.
     left: Vec<u8>,
-    /// Guest spawn serials start at `slot << 24`.
-    serials_reserved: bool,
 }
 
 impl Net {
@@ -121,6 +119,18 @@ impl Net {
             self.lamps.clear();
             self.consumables.clear();
             self.cars.clear();
+        }
+    }
+    /// Marks `runtime` for the role before each step, also the first after a load. Source
+    /// `isServerOrNoMulti`: a guest spawns no rabbits or weeds. Guest spawn serials start at
+    /// `slot << 24`, so a host spawn never takes the serial of a guest spawn.
+    pub fn prepare(&self, runtime: &mut GarageRuntime) {
+        runtime.net_guest = self.role == NetRole::Guest;
+        if runtime.net_guest {
+            runtime
+                .area
+                .spawned
+                .reserve_serials(u32::from(self.slot) << 24);
         }
     }
     pub fn role(&self) -> NetRole {
@@ -177,7 +187,7 @@ impl Net {
         if let Some(audio) = &mut runtime.audio {
             audio.broadcasts.set_remote(self.role == NetRole::Guest);
         }
-        runtime.net_guest = self.role == NetRole::Guest;
+        self.prepare(runtime);
         if self.role == NetRole::Off {
             runtime.shared_sounds.clear();
             runtime.shared_breaks.clear();
@@ -189,18 +199,11 @@ impl Net {
                 }
             }
             self.inventory.clear(runtime);
-            self.serials_reserved = false;
             return;
         }
         self.cars_touched = true;
         for slot in std::mem::take(&mut self.left) {
             self.inventory.leave(runtime, slot);
-        }
-        if self.role == NetRole::Guest && !std::mem::replace(&mut self.serials_reserved, true) {
-            runtime
-                .area
-                .spawned
-                .reserve_serials(u32::from(self.slot) << 24);
         }
         self.clock += real_dt as f64;
         self.objects
