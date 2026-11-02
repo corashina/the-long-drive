@@ -626,6 +626,43 @@ fn bats(
         .collect()
 }
 
+/// Teleports near the building at `at`, then frames until the area loads and 3 s more.
+/// Returns each bat seen near it, or None when the area does not load.
+/// Source `breakablescript.OnCollisionEnter`: a bat that hits a wall can break. Load time
+/// depends on the machine, so collect from the first frame.
+fn visit(
+    run: &mut GarageRuntime,
+    reference: &ReferenceManifest,
+    at: [f64; 3],
+) -> Option<Vec<crate::reference::ItemId>> {
+    act(
+        run,
+        reference,
+        &json!({"action": "teleport", "x": at[0], "z": at[2] + 25.}).to_string(),
+    );
+    let mut seen = Vec::new();
+    let mut collect = |run: &mut GarageRuntime| {
+        frame(run, reference);
+        for bat in bats(run, reference, at) {
+            if !seen.contains(&bat) {
+                seen.push(bat);
+            }
+        }
+    };
+    let mut frames = 0;
+    while !(run.world_supported() && run.stream.required_ready()) {
+        if frames == 3000 {
+            return None;
+        }
+        collect(run);
+        frames += 1;
+    }
+    for _ in 0..steps(3.) {
+        collect(run);
+    }
+    Some(seen)
+}
+
 /// Visits the road buildings. Returns the bats seen near each loaded building.
 fn bat_tour(
     run: &mut GarageRuntime,
@@ -647,26 +684,9 @@ fn bat_tour(
             continue;
         }
         let at = placement.pose.position;
-        act(
-            run,
-            reference,
-            &json!({"action": "teleport", "x": at[0], "z": at[2] + 25.}).to_string(),
-        );
-        if !super::world::loads(run, reference) {
-            continue;
+        if let Some(seen) = visit(run, reference, at) {
+            found.push((at, seen));
         }
-        // Source `breakablescript.OnCollisionEnter`: a bat that hits a wall can break, so
-        // collect each bat seen in the first 3 s.
-        let mut seen = Vec::new();
-        for _ in 0..steps(3.) {
-            frame(run, reference);
-            for bat in bats(run, reference, at) {
-                if !seen.contains(&bat) {
-                    seen.push(bat);
-                }
-            }
-        }
-        found.push((at, seen));
     }
     found
 }
@@ -685,19 +705,15 @@ fn tp_cr2_halloween_bats_near_buildings() {
     for (_, b) in &with {
         assert!((5..30).contains(&b.len()), "{} bats", b.len());
     }
-    // Go back to the last building with bats.
+    // Go back to the last building with bats. Some bats can break, so check them all.
     let at = with.last().unwrap().0;
-    act(
-        &mut run,
-        &reference,
-        &json!({"action": "teleport", "x": at[0], "z": at[2] + 25.}).to_string(),
-    );
-    wait_loaded(&mut run, &reference);
-    seconds(&mut run, &reference, 3.);
-    let bat = *bats(&run, &reference, at)
-        .first()
+    let near = visit(&mut run, &reference, at).expect("the area loads again");
+    let position = |run: &GarageRuntime, bat| run.area.items.get(bat).map(|i| i.pose.position);
+    let bat = *near
+        .iter()
+        .find(|b| position(&run, **b).is_some())
         .expect("the bats are still there");
-    let point = run.area.items.get(bat).unwrap().pose.position;
+    let point = position(&run, bat).unwrap();
     assert!(
         run.area
             .interaction
@@ -712,6 +728,8 @@ fn tp_cr2_halloween_bats_near_buildings() {
         "a bat cannot be carried"
     );
     // Source `NextSound`: a bat squeaks 10 to 60 s after the last squeak.
+    let start: Vec<_> = near.iter().map(|b| position(&run, *b)).collect();
+    let mut last = start.clone();
     let mut squeaks = 0;
     for _ in 0..steps(61.) {
         frame(&mut run, &reference);
@@ -719,20 +737,35 @@ fn tp_cr2_halloween_bats_near_buildings() {
             .flyers
             .squeaks()
             .iter()
-            .filter(|s| s.item == bat)
+            .filter(|s| near.contains(&s.item))
             .count();
+        for (bat, last) in near.iter().zip(&mut last) {
+            if let Some(p) = position(&run, *bat) {
+                *last = Some(p);
+            }
+        }
     }
-    assert!(squeaks > 0, "a bat squeaks");
-    let flown = run.area.items.get(bat).unwrap().pose.position;
-    let distance = (0..3)
-        .map(|i| (flown[i] - point[i]).powi(2))
-        .sum::<f32>()
-        .sqrt();
-    assert!(distance > 0.5, "a bat flies: {point:?} -> {flown:?}");
+    assert!(squeaks > 0, "a bat squeaks: {} bats", near.len());
+    let flown = start
+        .iter()
+        .zip(&last)
+        .filter_map(|(p, q)| Some((p.as_ref()?, q.as_ref()?)))
+        .map(|(p, q)| (0..3).map(|i| (q[i] - p[i]).powi(2)).sum::<f32>().sqrt())
+        .fold(0_f32, f32::max);
+    assert!(flown > 0.5, "a bat flies: {flown} m");
+    // A bat syncs as a flyer before its first physics step, so count each flyer seen.
     let before = run.flyers.flyers().len();
     let mut loaded = save_load(&run, &reference);
-    seconds(&mut loaded, &reference, 2.);
-    assert_eq!(loaded.flyers.flyers().len(), before, "bats save and load");
+    let mut flyers = Vec::new();
+    for _ in 0..steps(2.) {
+        frame(&mut loaded, &reference);
+        for f in loaded.flyers.flyers() {
+            if !flyers.contains(&f.item) {
+                flyers.push(f.item);
+            }
+        }
+    }
+    assert_eq!(flyers.len(), before, "bats save and load");
 
     // Outside the window no building has bats.
     let (reference, mut run) = load_on([2026, 6, 1]);
