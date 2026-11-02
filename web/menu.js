@@ -78,10 +78,9 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
    const row=layoutBox(ui.layouts.continue,innerWidth,innerHeight),gap=Math.min(16,row.height*.25),top=innerHeight-16-pauseNodes.length*row.height-(pauseNodes.length-1)*gap;
    pauseNodes.forEach(([selector],index)=>Object.assign(document.querySelector(selector).style,{left:row.x+'px',top:(top+index*(row.height+gap))+'px',width:row.width+'px',height:row.height+'px'}));
    const load=document.querySelector('#start-load'),start=layoutBox(ui.layouts.start,innerWidth,innerHeight);load.style.left=((innerWidth-start.width)/2)+'px';
-   const mode=document.querySelector('#start-game-mode'),modeBox=layoutBox(ui.layouts['start-controls'],innerWidth,innerHeight),modeGap=Math.min(16,modeBox.height*.25),modeTop=start.y-modeBox.height-modeGap;Object.assign(mode.style,{left:((innerWidth-modeBox.width)/2)+'px',top:modeTop+'px'});
-   Object.assign(startLast.style,{left:((innerWidth-modeBox.width)/2)+'px',top:(modeTop-modeBox.height-modeGap)+'px'});
-   Object.assign(document.querySelector('#start-appearance').style,{left:((innerWidth-modeBox.width)/2)+'px',top:(modeTop-2*(modeBox.height+modeGap))+'px'});
-   Object.assign(document.querySelector('#start-multiplayer').style,{left:((innerWidth-modeBox.width)/2)+'px',top:(modeTop-3*(modeBox.height+modeGap))+'px'});
+   // Port buttons stack above Settings. The source figure stands left of the center, so this column keeps it clear.
+   const column=layoutBox(ui.layouts['start-controls'],innerWidth,innerHeight),columnGap=Math.min(16,column.height*.25);
+   ['#start-game-mode','#start-appearance','#start-multiplayer','#start-load-last'].forEach((selector,index)=>Object.assign(document.querySelector(selector).style,{left:column.x+'px',top:(column.y-(index+1)*(column.height+columnGap))+'px'}));
   }
  }
  function paint(){
