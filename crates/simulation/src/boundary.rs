@@ -780,7 +780,8 @@ pub struct CreatureBoneRow {
     pub rotation: [f32; 4],
 }
 
-/// One human monster in physics space. A dead one takes its bone rows in `SimFrame::human_bones`.
+/// One human monster in physics space, with its bone rows in `SimFrame::human_bones`: the
+/// ragdoll bones of a dead one, or the Animator nodes of a live one.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct HumanRow {

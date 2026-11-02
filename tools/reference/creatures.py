@@ -10,6 +10,8 @@ from .collision import geometry, step_surface, collider_tag, world_pose
 from .survival import component, managed_evidence, finite_record
 from .acquisition_motion import motion_clips
 from .breakables import breakable
+from .humanoid import humanoid_record, voice_record
+from .menu_figure import relative_pose
 from .library.types import ObjectId
 from .validation import record, array, number, u32, boolean, source as source_shape
 
@@ -473,13 +475,16 @@ def human_record(source, manifest, nodes, parents):
         raise ValueError('Human target is not a prefab child')
     body, ragdoll, matrix, by_reader, _ = rig_records(source, root, records, by_node, parents, node, 'Human')
     save = source.read(component(source, root, 'tosaveitemscript'))
+    pose = lambda reader, stage: relative_pose(source, reader, stage)
     return {'source': source_id(root), 'asset': asset['id'], 'root': node(root), 'item_id': save['id'],
         'start': {'source': source_id(ai), 'sleeping': bool(d['sleeping']), 'start_sleep_chance': d['startSleepChange'],
                   'first': bool(d['first']), 'voice_pitch': [d['voiceMinPitch'], d['voiceMaxPitch']],
                   'patrol_time': [d['startPatrolTimeMin'], d['startPatrolTimeMax']]},
         'head': node(source.resolve(ai, d['head'])),
         'breakable': breakable(source, breakable_reader, actor=True),
-        'body': body, 'ragdoll': ragdoll, 'ai': human_ai_record(source, ai, node, matrix, by_reader)}
+        'body': body, 'ragdoll': ragdoll, 'ai': human_ai_record(source, ai, node, matrix, by_reader),
+        # recover_audio replaces the voice clip identities and sets the SourceVoice template.
+        'animator': humanoid_record(source, ai, source.resolve(ai, d['anim']), node, pose), 'voice': voice_record(source, ai, node, pose)}
 
 
 def recover_stimuli(source):
@@ -647,3 +652,17 @@ def validate_human(h, manifest):
         raise ValueError('Invalid human sens')
     if ai['col'] not in {x['node'] for x in body['colliders']} or ai['patrol_ray_count'] < 1:
         raise ValueError('Invalid human AI')
+    a = h['animator']
+    if (not a['grounded'] or not a['crouching'] or len(a['bones']) != 55 or a['bones'][0] is None
+            or not all(local(b['node']) for b in a['bones'] if b) or not local(a['root'])
+            or not all(local(c['node']) for c in a['copies'])
+            or any(c['clip'] >= len(a['clips']) for c in a['grounded'] + a['crouching'])):
+        raise ValueError('Invalid human animator')
+    v = h['voice']
+    clips = {x['id']: x for x in manifest['audio']['clips']}
+    voices = {x['id'] for x in manifest['audio']['car_voices'] if not x['one_shot']}
+    lists = [v[f] for f in ('idle', 'chase', 'notice', 'attack', 'death')]
+    if (not all(lists) or any(c['clip'] not in clips or c['seconds'] <= 0 for l in lists for c in l)
+            or v['voice'] not in voices or not local(v['mouth'])
+            or any(not 0 <= t[0] <= t[1] for t in (v['idle_time'], v['chase_time'], v['seeing_time']))):
+        raise ValueError('Invalid human voice')

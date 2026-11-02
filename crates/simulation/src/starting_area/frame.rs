@@ -272,6 +272,14 @@ impl GarageRuntime {
                             rotation: pose.rotation.to_array(),
                         });
                     });
+            } else {
+                self.creatures.humans.each_animated(v.id, |node, pose| {
+                    frame.human_bones.push(CreatureBoneRow {
+                        node: node.0,
+                        position: pose.translation.to_array(),
+                        rotation: pose.rotation.to_array(),
+                    });
+                });
             }
             frame.humans.push(HumanRow {
                 id: v.id,

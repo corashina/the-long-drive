@@ -6,6 +6,7 @@ pub mod brain;
 pub mod evil;
 pub mod human;
 pub mod human_ai;
+pub mod human_voice;
 pub mod motion;
 pub mod rabbit;
 pub mod ragdoll;

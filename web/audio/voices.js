@@ -32,9 +32,9 @@ export class VoiceBank {
   const loop=action===1;let s=loop?this.effects.find(s=>s.survivalKey===key&&s.playing):null;
   // A loop that changes its clip restarts with the new clip.
   if(s&&s.clip!==clip){this.stop(s,false);s=null;}
-  // An update of a one-shot only moves its playing instance.
+  // An update of a one-shot only moves its playing instance. A start stops the clip of the same AudioSource instance.
   if(loop&&!s&&record.one_shot)return;
-  if(!loop&&!record.one_shot)for(const old of this.effects)if(old.playing&&old.record.channel===record.channel)this.stop(old,false);
+  if(!loop&&!record.one_shot)for(const old of this.effects)if(old.playing&&old.record.channel===record.channel&&old.survivalKey%0x1000000===instance)this.stop(old,false);
   if(!s){s=this.effects.find(s=>!s.playing);if(!s){s=this.effects.reduce((a,b)=>a.priority>b.priority?a:b);if(s.priority<=record.priority)return;}this.stop(s,false);s.record=record;s.rate=record.mixer_pitch;s.emitter=record.emitter;s.binding=0x40000000+kind;s.clip=clip;s.buffer=null;s.survivalKey=key;s.survivalLoop=loop;s.looping=loop;s.priority=record.priority;s.destroyAfter=record.one_shot?this.raw.clips.find(c=>c.id===clip).source_duration_seconds:0;s.spatialEmitter=instance===0&&[1,2,5,9].includes(kind)?record.emitter:0;s.previousPosition[0]=x;s.previousPosition[1]=y;s.previousPosition[2]=z;s.motionFrame=this.frame;}
   s.seen=this.frame;s.position[0]=x;s.position[1]=y;s.position[2]=z;s.volume=record.one_shot?Math.min(1,gain):gain;s.distanceScale=record.one_shot&&gain>1?gain-1:1;s.pitch=pitch;s.playing=true;this.connect(s,kind===12?this.routes.get(0x50000000+instance)??record.mixer:kind>=CAR_KIND&&kind<VOICE_KIND?this.routes.get(CAR_ROUTE+instance)??record.mixer:record.mixer);this.load(s);this.parameters(s);
  }

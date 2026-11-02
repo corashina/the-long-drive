@@ -1,7 +1,10 @@
-//! Source `newAiScript` human monster: the live body, `Start`, `Die` and `save_newai`.
-//! Buildings spawn it through the `humanmonster` category. The world placement key names it.
+//! Source `newAiScript` human monster: the live body, `Start`, `Die`, `save_newai`, the
+//! `newAiAnim` Animator and the voice. Buildings spawn it through the `humanmonster` category.
+//! The world placement key names it.
 use super::human_ai::{Frame, Hit, HumanAi, Owned, PlayerView, Touch, Usable, World};
+use super::human_voice::{Voice, VoiceInput, VoicePlay};
 use super::ragdoll::{self, Bone};
+use crate::animation::humanoid::{Humanoid, HumanoidInput, HumanoidPose};
 use crate::damage::BreakHealth;
 use crate::reference::TriggerRole;
 use crate::reference::{
@@ -45,6 +48,19 @@ pub struct Human {
     /// Ragdoll bones after `Die`, in body order.
     pub bones: Vec<Bone>,
     pub ai: HumanAi,
+    pub animation: HumanoidPose,
+    pub voice: Voice,
+    /// `SourceVoice` played a new clip this step.
+    pub voice_started: bool,
+}
+
+/// A live human voice for audio: the clip that plays and the `SourceVoice` position.
+#[derive(Clone, Copy, Debug)]
+pub struct HumanSound {
+    pub id: u32,
+    pub play: VoicePlay,
+    pub started: bool,
+    pub position: Vector,
 }
 
 /// One human for the renderer.
@@ -63,12 +79,13 @@ pub struct Humans {
     colliders: Vec<Pose>,
     /// `sens` trigger shapes under the prefab root and their layer groups.
     sens: Vec<(Pose, SharedShape, InteractionGroups)>,
-    /// `head` under the prefab root. X03g animates it.
-    head: Pose,
     /// Index of `col` in `body.colliders`, its capsule axis and radius.
     col: (usize, Vector, f32),
     random: StormRandom,
     next_id: u32,
+    rig: Humanoid,
+    /// The Animator Transform under the prefab root.
+    animator: Pose,
 }
 
 /// Pose of `node` under the prefab `root`, from the rest transforms. Parent scales move the
@@ -144,10 +161,11 @@ impl Humans {
             far: Vec::new(),
             colliders,
             sens,
-            head: model_pose(nodes, r.root, r.head)?,
             col: (index, axis, radius),
             random: StormRandom(seed ^ 0x6875_6d61_6e00_0001),
             next_id: 1,
+            rig: Humanoid::new(nodes, r)?,
+            animator: model_pose(nodes, r.root, r.animator.root)?,
         })
     }
 
@@ -199,6 +217,9 @@ impl Humans {
             health: BreakHealth::new(&r.breakable),
             bones: Vec::new(),
             ai: HumanAi::new(),
+            animation: self.rig.pose(),
+            voice: Voice::new(roll.voice_pitch, &r.voice),
+            voice_started: false,
         });
         Ok(id)
     }
@@ -305,7 +326,7 @@ impl Humans {
                 dt: input.dt,
                 pose,
                 velocity,
-                head: pose * self.head,
+                head: pose * self.animator * self.rig.head(&h.animation),
                 player: input.player.map(|(_, view)| view),
                 peaceful: input.peaceful,
                 debug_target: None,
@@ -346,6 +367,94 @@ impl Humans {
                 });
             }
             doors.extend(out.door);
+        }
+    }
+
+    /// The voice block of `newAiScript.Update`. It runs before the AI and reads the flags of the
+    /// previous step.
+    pub fn voice_block(&mut self, r: &HumanReference, now: f64, dt: f32) {
+        for h in &mut self.humans {
+            h.voice_started = false;
+            if h.died {
+                continue;
+            }
+            let input = VoiceInput {
+                died: false,
+                sleeping: h.sleeping,
+                chasing: h.ai.is_chasing,
+                seeing: h.ai.is_seeing,
+                attacking: h.ai.is_attacking,
+            };
+            h.voice_started = h
+                .voice
+                .update(&r.voice, input, now, dt, &mut self.random)
+                .is_some();
+        }
+    }
+
+    /// After the AI: `SoundNotice`, `newAiAnim.Update`, the Animator and `LateUpdate`. Dead
+    /// humans keep their ragdoll.
+    pub fn animate(&mut self, r: &HumanReference, physics: &PhysicsWorld, now: f64, dt: f32) {
+        for h in self.humans.iter_mut().filter(|h| !h.died) {
+            if h.ai.noticed {
+                h.voice_started |= h.voice.notice(&r.voice, now, &mut self.random).is_some();
+            }
+            let anim = h.ai.anim;
+            let root = *physics.rapier().bodies[h.body].position() * self.animator;
+            self.rig.update(
+                &mut h.animation,
+                &HumanoidInput {
+                    now,
+                    dt,
+                    root,
+                    target_forward: anim.forward,
+                    target_turn: anim.turn,
+                    crouch: anim.duck,
+                    look: h.target,
+                    holds: [anim.hold, None],
+                    mouth: h.voice.mouth,
+                },
+            );
+        }
+    }
+
+    /// `SoundDeath` of `Die(true)`. A saved dead human does not call it.
+    pub fn death_voice(&mut self, r: &HumanReference, id: u32, now: f64) {
+        if let Some(h) = self.humans.iter_mut().find(|h| h.id == id) {
+            h.voice_started |= h.voice.death(&r.voice, now, &mut self.random).is_some();
+        }
+    }
+
+    /// The voice of each human while its clip plays.
+    pub fn sounds<'a>(
+        &'a self,
+        r: &'a HumanReference,
+        physics: &'a PhysicsWorld,
+        now: f64,
+    ) -> impl Iterator<Item = HumanSound> + 'a {
+        let local = Vector::from_array(r.voice.position);
+        self.humans.iter().filter_map(move |h| {
+            let play = h.voice.current.filter(|_| h.voice.playing(now))?;
+            Some(HumanSound {
+                id: h.id,
+                play,
+                started: h.voice_started,
+                position: root_pose(physics, h) * local,
+            })
+        })
+    }
+
+    /// Animated rig node and pose under the view pose of each live human node.
+    pub fn each_animated(&self, id: u32, mut f: impl FnMut(NodeId, Pose)) {
+        let Some(h) = self.humans.iter().find(|h| h.id == id && !h.died) else {
+            return;
+        };
+        for i in 1..self.rig.len() {
+            let frame = self.rig.converted(&h.animation, i);
+            f(
+                self.rig.node(i),
+                self.animator * Pose::from_parts(frame.position, frame.rotation),
+            );
         }
     }
 
