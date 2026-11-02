@@ -132,6 +132,8 @@ pub struct Owned<'a> {
     pub target: &'a mut Vector,
     /// Source `patrolCurrentTime`.
     pub patrol_time: &'a mut f32,
+    /// `startPatrolTimeMin` and `startPatrolTimeMax`.
+    pub patrol_range: [f32; 2],
 }
 
 /// What `Update` reads this frame.
@@ -266,14 +268,14 @@ impl HumanAi {
     }
 
     /// Source `NewPatrolTime`.
-    pub(crate) fn new_patrol_time(
+    fn new_patrol_time(
         &mut self,
-        r: &HumanAiReference,
+        range: [f32; 2],
         random: &mut StormRandom,
         patrol_time: &mut f32,
     ) {
         self.patrol_charge = 0.;
-        *patrol_time = random.range(r.start_patrol_time[0], r.start_patrol_time[1]);
+        *patrol_time = random.range(range[0], range[1]);
     }
 
     /// `ladderscript.OnTriggerStay` on this AI.
@@ -299,6 +301,7 @@ impl HumanAi {
             first,
             target,
             patrol_time,
+            patrol_range,
         } = owned;
         if *sleeping && *first {
             *sleeping = false;
@@ -494,7 +497,7 @@ impl HumanAi {
         if (self.last_patrol_pos - position).length() < r.start_patrol_dist {
             self.patrol_charge += dt;
             if self.patrol_charge > *patrol_time {
-                self.new_patrol_time(r, random, patrol_time);
+                self.new_patrol_time(patrol_range, random, patrol_time);
                 *target = self.new_patrol_pos(r, frame, world, random);
             }
         } else {
@@ -611,9 +614,30 @@ impl HumanAi {
 mod tests {
     use super::*;
 
+    fn sens() -> crate::reference::LiveCollider {
+        crate::reference::LiveCollider {
+            node: crate::reference::NodeId(0),
+            source: crate::reference::SourceId {
+                file: String::new(),
+                path_id: 0,
+            },
+            sensor: true,
+            membership: 1,
+            filter: !0,
+            friction: 0.,
+            restitution: 0.,
+            geometry: crate::reference::ColliderGeometry::Sphere {
+                center: [0.; 3],
+                radius: 0.1,
+            },
+            step_surface: None,
+            tag: None,
+        }
+    }
+
     fn reference() -> HumanAiReference {
         HumanAiReference {
-            sens: [crate::reference::NodeId(0); 5],
+            sens: std::array::from_fn(|_| sens()),
             col: crate::reference::NodeId(0),
             stand: crate::reference::CapsuleShape {
                 height: 1.8,
@@ -650,7 +674,6 @@ mod tests {
             avoid_lerp: 0.5,
             ray_attack_dist_range: 1.,
             door_speed: 30.,
-            start_patrol_time: [5., 10.],
             start_patrol_dist: 1.,
             patrol_ray_start_dist: 0.5,
             patrol_iteration: 2,
@@ -723,6 +746,7 @@ mod tests {
                 first: &mut self.first,
                 target: &mut self.target,
                 patrol_time: &mut self.patrol_time,
+                patrol_range: [5., 10.],
             }
         }
     }
