@@ -1,8 +1,10 @@
 //! Source creature AI: `aispawn`, `aiscript`, `movecreaturescript`, `sensoryscript`,
-//! `stimulscript` and `nyulscript`. Live rabbits run before the physics step.
+//! `stimulscript` and `nyulscript`, and the `newAiScript` human monster. Live creatures run
+//! before the physics step.
 pub mod animator;
 pub mod brain;
 pub mod evil;
+pub mod human;
 pub mod human_ai;
 pub mod motion;
 pub mod rabbit;
@@ -134,6 +136,8 @@ pub struct Creatures {
     random: StormRandom,
     /// `peacefulEnemies == 2`: rabbits do not get evil.
     pub peaceful: bool,
+    /// Human monsters. The host alone places them, as rabbits.
+    pub humans: human::Humans,
 }
 
 impl Creatures {
@@ -218,6 +222,7 @@ impl Creatures {
             next_id: 1,
             random: StormRandom(seed ^ 0x7261_6262_6974_0001),
             peaceful: false,
+            humans: human::Humans::new(&c.human, &reference.nodes)?,
         })
     }
 
@@ -325,7 +330,7 @@ impl Creatures {
             rabbit.size.scale,
             &mut self.pose,
         );
-        let poses = ragdoll::poses(r, &self.bone_nodes, root, &self.pose);
+        let poses = ragdoll::poses(&r.ragdoll, &self.bone_nodes, root, &self.pose);
         rabbit.evil.die();
         if let Some(trigger) = rabbit.trigger.take() {
             self.triggers.push((trigger.handle, false));
@@ -335,10 +340,10 @@ impl Creatures {
         rabbit.colliders.clear();
         rabbit.alive = false;
         rabbit.bones = ragdoll::spawn(
-            r,
+            &r.ragdoll,
             &poses,
             rabbit.size.scale,
-            rabbit.size.live_mass(r),
+            Some(rabbit.size.live_mass(r)),
             velocity,
             items,
             collider_id,
@@ -390,10 +395,10 @@ impl Creatures {
         rabbit.senses.has_eyes = saved.eyes;
         rabbit.senses.has_ears = saved.ears;
         rabbit.bones = ragdoll::spawn(
-            r,
+            &r.ragdoll,
             &poses,
             size.scale,
-            size.live_mass(r),
+            Some(size.live_mass(r)),
             Vector::ZERO,
             items,
             collider_id,
@@ -417,6 +422,7 @@ impl Creatures {
         for rabbit in &mut self.rabbits {
             rabbit.brain.rebase(shift);
         }
+        self.humans.rebase(shift);
     }
 
     /// One fixed step: the spawner, then each live rabbit sets its body velocity and rotation.

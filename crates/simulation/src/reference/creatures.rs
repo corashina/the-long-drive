@@ -1,4 +1,5 @@
-//! Source rabbit prefab (`aispawn.AIPrefab`) and the `stimulscript` sources that rabbits sense.
+//! Source rabbit prefab (`aispawn.AIPrefab`), the human monster prefab (`newAiScript`) and the
+//! `stimulscript` sources that rabbits sense.
 //! Positions and directions use the converted space. Angles are in degrees. Ranges are [min, max].
 use super::*;
 
@@ -6,6 +7,7 @@ use super::*;
 #[serde(deny_unknown_fields)]
 pub struct CreaturesReference {
     pub rabbit: RabbitReference,
+    pub human: HumanReference,
     /// Every `stimulscript`, sorted by source.
     pub stimuli: Vec<StimulusSource>,
     /// `Stimul` on the player Head.
@@ -371,6 +373,107 @@ pub struct RabbitReference {
     pub evidence: ManagedEvidence,
 }
 
+/// `newAiScript` fields that `Start` reads.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HumanStart {
+    pub source: SourceId,
+    pub sleeping: bool,
+    /// Source `startSleepChange`.
+    pub start_sleep_chance: f32,
+    pub first: bool,
+    pub voice_pitch: [f32; 2],
+    /// Source `startPatrolTimeMin` and `startPatrolTimeMax`.
+    pub patrol_time: [f32; 2],
+}
+
+/// The human monster prefab. Buildings spawn it through the `humanmonster` category.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HumanReference {
+    /// Prefab root Transform.
+    pub source: SourceId,
+    pub asset: AssetId,
+    pub root: NodeId,
+    /// `tosaveitemscript` id.
+    pub item_id: u32,
+    pub start: HumanStart,
+    pub head: NodeId,
+    /// The `breakablescript`. It has no owners: the creature runtime binds it.
+    pub breakable: BreakableReference,
+    pub body: CreatureBody,
+    pub ragdoll: CreatureRagdoll,
+}
+
+impl HumanReference {
+    fn local(&self, m: &ReferenceManifest, node: NodeId) -> bool {
+        m.nodes
+            .iter()
+            .any(|n| n.id == node && n.asset == self.asset)
+    }
+
+    pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
+        require(
+            m.assets.iter().any(|a| {
+                a.id == self.asset
+                    && a.usage == AssetUsage::CreaturePrototype
+                    && a.root == self.source
+            }) && m
+                .nodes
+                .iter()
+                .any(|n| n.id == self.root && n.source == self.source && n.parent.is_none())
+                && self.local(m, self.head),
+            "human asset",
+        )?;
+        let s = &self.start;
+        require(
+            range(&s.voice_pitch)
+                && range(&s.patrol_time)
+                && (0. ..=1.).contains(&s.start_sleep_chance),
+            "human start",
+        )?;
+        let b = &self.breakable;
+        require(
+            [b.health, b.shoot_health, b.explosion_health]
+                .iter()
+                .all(|v| v.is_finite() && *v > 0.),
+            "human breakable",
+        )?;
+        require(
+            self.body.mass_kg > 0.
+                && !self.body.colliders.is_empty()
+                && self.body.colliders.iter().all(|c| self.local(m, c.node)),
+            "human body",
+        )?;
+        validate_ragdoll(&self.ragdoll, |n| self.local(m, n), "human ragdoll")
+    }
+}
+
+fn validate_ragdoll(
+    r: &CreatureRagdoll,
+    local: impl Fn(NodeId) -> bool,
+    what: &str,
+) -> Result<(), ReferenceError> {
+    let bodies = r.bodies.len() as u32;
+    require(
+        !r.bodies.is_empty()
+            && r.pickups.len() == r.bodies.len()
+            && r.bodies
+                .iter()
+                .enumerate()
+                .all(|(i, b)| b.id.0 == i as u32 + 1 && local(b.node) && b.mass_kg > 0.)
+            && r.colliders
+                .iter()
+                .all(|c| (1..=bodies).contains(&c.body.0) && local(c.node))
+            && r.joints.iter().all(|j| {
+                (1..=bodies).contains(&j.body.0)
+                    && (1..=bodies).contains(&j.connected_body.0)
+                    && j.body != j.connected_body
+            }),
+        what,
+    )
+}
+
 fn range(r: &[f32; 2]) -> bool {
     finite(r) && 0. <= r[0] && r[0] <= r[1]
 }
@@ -381,6 +484,7 @@ impl CreaturesReference {
     }
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         self.rabbit.validate(m)?;
+        self.human.validate(m)?;
         require(
             self.stimuli.iter().all(|s| {
                 s.max_sound_value.is_finite() && s.stimuli.iter().all(|v| v.value.is_finite())
@@ -522,24 +626,7 @@ impl RabbitReference {
                 && self.body.colliders.iter().all(|c| self.local(m, c.node)),
             "rabbit body",
         )?;
-        let r = &self.ragdoll;
-        let bodies = r.bodies.len() as u32;
-        require(
-            !r.bodies.is_empty()
-                && r.pickups.len() == r.bodies.len()
-                && r.bodies.iter().enumerate().all(|(i, b)| {
-                    b.id.0 == i as u32 + 1 && self.local(m, b.node) && b.mass_kg > 0.
-                })
-                && r.colliders
-                    .iter()
-                    .all(|c| (1..=bodies).contains(&c.body.0) && self.local(m, c.node))
-                && r.joints.iter().all(|j| {
-                    (1..=bodies).contains(&j.body.0)
-                        && (1..=bodies).contains(&j.connected_body.0)
-                        && j.body != j.connected_body
-                }),
-            "rabbit ragdoll",
-        )?;
+        validate_ragdoll(&self.ragdoll, |n| self.local(m, n), "rabbit ragdoll")?;
         let a = &self.animator;
         require(
             a.clips.len() >= 2

@@ -1,8 +1,8 @@
 //! `ragdollactivatescript.SetRagdol(true)`: dynamic bones with gravity, joints and pickups.
-//! `InitColliders` ignores contacts between the bones of one rabbit.
+//! `InitColliders` ignores contacts between the bones of one creature.
 use super::rig::RigPose;
 use crate::player::ragdoll::joint;
-use crate::reference::{ColliderId, ItemId, RabbitReference, ReferenceError};
+use crate::reference::{ColliderId, CreatureRagdoll, ItemId, ReferenceError};
 use crate::vehicle::{PhysicsWorld, collider_builder, step_surface_bits, tag_bits};
 use rapier3d::math::{Pose, Vector};
 use rapier3d::prelude::{
@@ -18,8 +18,8 @@ pub struct Bone {
 }
 
 /// World pose of each bone body when the prefab root is at `root` with the sampled `pose`.
-pub fn poses(r: &RabbitReference, nodes: &[usize], root: Pose, pose: &RigPose) -> Vec<Pose> {
-    debug_assert_eq!(nodes.len(), r.ragdoll.bodies.len());
+pub fn poses(r: &CreatureRagdoll, nodes: &[usize], root: Pose, pose: &RigPose) -> Vec<Pose> {
+    debug_assert_eq!(nodes.len(), r.bodies.len());
     nodes
         .iter()
         .map(|i| {
@@ -29,27 +29,26 @@ pub fn poses(r: &RabbitReference, nodes: &[usize], root: Pose, pose: &RigPose) -
         .collect()
 }
 
-/// Inserts the bones at `poses`. `SetMass` gives each bone `mass`. Unity scales the
-/// colliders and the joint anchors with the root scale.
+/// Inserts the bones at `poses`. `SetMass` gives each bone `mass`; none keeps the Rigidbody
+/// mass. Unity scales the colliders and the joint anchors with the root scale.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn(
-    r: &RabbitReference,
+    rag: &CreatureRagdoll,
     poses: &[Pose],
     scale: f32,
-    mass: f32,
+    mass: Option<f32>,
     velocity: Vector,
     items: &[ItemId],
     collider_id: &mut dyn FnMut() -> Result<ColliderId, ReferenceError>,
     physics: &mut PhysicsWorld,
 ) -> Result<Vec<Bone>, ReferenceError> {
-    let rag = &r.ragdoll;
     let mut bones = Vec::with_capacity(rag.bodies.len());
     for ((b, pose), item) in rag.bodies.iter().zip(poses).zip(items) {
         let body = physics.insert_body(
             RigidBodyBuilder::dynamic()
                 .pose(*pose)
                 .ccd_enabled(true)
-                .additional_mass(mass)
+                .additional_mass(mass.unwrap_or(b.mass_kg))
                 .linear_damping(b.linear_damping)
                 .angular_damping(b.angular_damping)
                 .linvel(velocity),

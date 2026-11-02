@@ -301,6 +301,7 @@ pub fn run(reference_json: &[u8], startup: &[u8]) -> Result<(), JsValue> {
                     presentation::menu_figure::sync,
                     presentation::sky_traffic::sync,
                     presentation::creatures::sync,
+                    presentation::humans::sync,
                 )
                     .chain(),
                 presentation::lighting::sync_control_visuals,
@@ -351,6 +352,7 @@ fn setup(
     ));
     commands.insert_resource(presentation::sky_traffic::SkyTrafficVisuals::default());
     commands.insert_resource(presentation::creatures::CreatureVisuals::default());
+    commands.insert_resource(presentation::humans::HumanVisuals::default());
     if let Err(error) =
         presentation::materials::load_materials(&mut commands, &server, &reference.0)
     {

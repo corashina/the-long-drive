@@ -14,6 +14,7 @@ pub mod figure_stage;
 pub mod fixed_assets;
 pub mod gpu_prepare;
 pub mod gpu_timing;
+pub mod humans;
 pub mod lamp_shadows;
 pub mod light_dither;
 pub mod lighting;
