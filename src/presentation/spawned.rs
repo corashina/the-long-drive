@@ -1,14 +1,14 @@
 //! Scene instances of spawned item prototype bodies.
 use super::materials::SourceMaterial;
-use super::reference::{ReferenceVisuals, bind_node};
+use super::reference::ReferenceVisuals;
+use super::scene_nodes::SceneGraph;
 use super::sim_frame::SimFrameResource;
 use crate::app::RuntimeReference;
-use crate::reference::{AssetUsage, ItemId, ItemPrototype, NodeId, ReferenceManifest, SourceId};
+use crate::reference::{AssetUsage, ItemId, ItemPrototype, NodeId, ReferenceManifest};
 use crate::starting_area::spawned::SpawnedItem;
 use crate::vehicle::{VehiclePose, from_rapier, to_rapier};
 use bevy::ecs as bevy_ecs;
 use bevy::ecs::system::SystemParam;
-use bevy::gltf::GltfExtras;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAssetRoot, WorldInstanceReady};
@@ -22,6 +22,8 @@ struct SpawnedInstance {
     root: Entity,
     ready: bool,
     bound: bool,
+    /// Binding failed. The item stays hidden and binding does not run again.
+    failed: bool,
     source_materials_bound: bool,
     nodes: Vec<(NodeId, Entity)>,
     primitives: Vec<Entity>,
@@ -58,7 +60,7 @@ impl SpawnedVisuals {
         node: NodeId,
         color: [f32; 4],
         map: Option<Handle<Image>>,
-        assets: &mut Assets<SourceMaterial>,
+        assets: &mut ResMut<Assets<SourceMaterial>>,
         bound: &mut Query<(&ChildOf, &mut MeshMaterial3d<SourceMaterial>)>,
     ) -> Result<bool, String> {
         let Some(instance) = self.instances.get_mut(&item) else {
@@ -113,11 +115,6 @@ impl SpawnedVisuals {
     }
 }
 
-#[derive(serde::Deserialize)]
-struct Identity {
-    reference_id: Option<SourceId>,
-}
-
 /// The body node that owns `node` in its prototype, if any.
 fn owning_body(
     manifest: &ReferenceManifest,
@@ -169,7 +166,7 @@ fn bind_skin(
     items: &[SpawnedItem],
     prototype: &ItemPrototype,
     item: &SpawnedItem,
-    primitives: &Query<(Entity, &ChildOf), With<Mesh3d>>,
+    graph: &SceneGraph,
     skins: &Query<&SkinnedMesh>,
 ) -> bool {
     let Some(skin) = prototype.hose.as_ref().map(|hose| &hose.skin) else {
@@ -190,10 +187,7 @@ fn bind_skin(
     let joints: Vec<Entity> = bodies
         .map(|body| sibling_node(spawned, items, prototype, item, body.unwrap()).unwrap())
         .collect();
-    for (primitive, parent) in primitives {
-        if parent.parent() != mesh {
-            continue;
-        }
+    for primitive in graph.primitives(mesh) {
         let Ok(current) = skins.get(primitive) else {
             error!("Spawned skin primitive lacks its glTF skin");
             continue;
@@ -214,9 +208,7 @@ fn bind_skin(
 /// Scene graph queries that bind a prototype instance.
 #[derive(SystemParam)]
 pub(crate) struct SceneQueries<'w, 's> {
-    extras: Query<'w, 's, (Entity, &'static GltfExtras)>,
-    parents: Query<'w, 's, &'static ChildOf>,
-    primitives: Query<'w, 's, (Entity, &'static ChildOf), With<Mesh3d>>,
+    graph: SceneGraph<'w, 's>,
     source_materials: Query<'w, 's, (), With<MeshMaterial3d<SourceMaterial>>>,
     skins: Query<'w, 's, &'static SkinnedMesh>,
     transforms: Query<'w, 's, &'static mut Transform, With<SpawnedScene>>,
@@ -233,9 +225,7 @@ pub(crate) fn sync(
     scene: SceneQueries,
 ) {
     let SceneQueries {
-        extras,
-        parents,
-        primitives,
+        graph,
         source_materials,
         skins,
         mut transforms,
@@ -316,6 +306,7 @@ pub(crate) fn sync(
                     root,
                     ready: false,
                     bound: false,
+                    failed: false,
                     source_materials_bound: false,
                     nodes: Vec::new(),
                     primitives: Vec::new(),
@@ -330,45 +321,19 @@ pub(crate) fn sync(
         if !instance.ready {
             continue;
         }
+        if instance.failed {
+            continue;
+        }
         if !instance.bound {
-            for (entity, extra) in &extras {
-                let mut parent = entity;
-                let mut belongs = false;
-                while let Ok(link) = parents.get(parent) {
-                    parent = link.parent();
-                    if parent == instance.root {
-                        belongs = true;
-                        break;
-                    }
-                }
-                if !belongs {
-                    continue;
-                }
-                let Ok(identity) = serde_json::from_str::<Identity>(&extra.value) else {
-                    continue;
-                };
-                let Some(node) = identity.reference_id.and_then(|source| {
-                    manifest
-                        .nodes
-                        .iter()
-                        .find(|node| node.source == source && node.asset == prototype.asset)
-                }) else {
-                    continue;
-                };
-                if !instance.nodes.iter().any(|(id, _)| *id == node.id)
-                    && bind_node(&mut commands, node, entity, extra, &primitives).is_ok()
-                {
-                    instance.nodes.push((node.id, entity));
-                }
-            }
-            let count = manifest
-                .nodes
-                .iter()
-                .filter(|node| node.asset == prototype.asset)
-                .count();
-            if instance.nodes.len() != count {
+            let binding =
+                graph.bind_instance(&mut commands, manifest, instance.root, prototype.asset);
+            if !binding.complete() {
+                error!("Spawned item {:?}: {}", item.id, binding.failure());
+                instance.failed = true;
                 continue;
             }
+            instance.nodes = binding.nodes;
+            instance.primitives = binding.primitives;
             // Other pickup bodies of the prototype are separate items. One item shows the skin.
             let own = prototype
                 .bodies
@@ -386,18 +351,6 @@ pub(crate) fn sync(
                 };
                 if owner.is_some_and(|body| body != own) {
                     commands.entity(entity).insert(Visibility::Hidden);
-                }
-            }
-            for (primitive, parent) in &primitives {
-                let mut ancestor = parent.parent();
-                while ancestor != instance.root {
-                    let Ok(link) = parents.get(ancestor) else {
-                        break;
-                    };
-                    ancestor = link.parent();
-                }
-                if ancestor == instance.root {
-                    instance.primitives.push(primitive);
                 }
             }
             instance.bound = true;
@@ -441,7 +394,7 @@ pub(crate) fn sync(
                 items,
                 prototype,
                 item,
-                &primitives,
+                &graph,
                 &skins,
             )
         {

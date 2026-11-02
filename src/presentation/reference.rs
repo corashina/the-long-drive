@@ -2,7 +2,6 @@ use super::sim_frame::SimFrameResource;
 use crate::reference::{
     AssetId, AssetUsage, BodyId, ItemId, ItemKind, NodeId, OpeningId, ReferenceManifest, SourceId,
 };
-use bevy::camera::visibility::RenderLayers;
 use bevy::ecs as bevy_ecs;
 use bevy::gltf::{GltfExtras, GltfLoaderSettings, convert_coordinates::GltfConvertCoordinates};
 use bevy::prelude::*;
@@ -128,68 +127,16 @@ fn instance_ready(_: On<WorldInstanceReady>, mut visuals: ResMut<ReferenceVisual
 }
 
 #[derive(serde::Deserialize)]
-struct NodeExtras {
-    active: bool,
-    renderer_enabled: Option<bool>,
-    layer: Option<u8>,
-    cast_shadows: Option<u8>,
-    receive_shadows: Option<bool>,
-}
-#[derive(serde::Deserialize)]
 struct NodeReference {
     reference_id: Option<SourceId>,
 }
 
-/// Apply checked source renderer flags without global node ownership.
-pub(crate) fn bind_node(
-    commands: &mut Commands,
-    node: &crate::reference::NodeRecord,
-    entity: Entity,
-    extra: &GltfExtras,
-    primitives: &Query<(Entity, &ChildOf), With<Mesh3d>>,
-) -> Result<(), String> {
-    let data: NodeExtras = serde_json::from_str(&extra.value)
-        .map_err(|error| format!("Invalid glTF node {} extras: {error}", node.id.0))?;
-    if !data.active {
-        commands.entity(entity).insert(Visibility::Hidden);
-    }
-    for (primitive, parent) in primitives {
-        if parent.parent() != entity {
-            continue;
-        }
-        let enabled = data
-            .renderer_enabled
-            .ok_or_else(|| format!("Missing renderer_enabled for glTF node {}", node.id.0))?;
-        let layer = data
-            .layer
-            .filter(|layer| *layer < 32)
-            .ok_or_else(|| format!("Missing source layer for glTF node {}", node.id.0))?;
-        let cast = data
-            .cast_shadows
-            .filter(|mode| *mode <= 3)
-            .ok_or_else(|| format!("Missing shadow mode for glTF node {}", node.id.0))?;
-        commands.entity(primitive).insert((
-            RenderLayers::layer(layer as usize),
-            super::materials::SourceShadowMode(cast),
-        ));
-        if data.receive_shadows == Some(false) {
-            commands
-                .entity(primitive)
-                .insert(bevy::light::NotShadowReceiver);
-        }
-        if !enabled {
-            commands.entity(primitive).insert(Visibility::Hidden);
-        }
-    }
-    Ok(())
-}
-
-pub fn bind(
+pub(crate) fn bind(
     commands: &mut Commands,
     reference: &ReferenceManifest,
     visuals: &mut ReferenceVisuals,
     extras: &Query<(Entity, &GltfExtras)>,
-    primitives: &Query<(Entity, &ChildOf), With<Mesh3d>>,
+    graph: &super::scene_nodes::SceneGraph,
 ) -> Result<bool, String> {
     if visuals.bound {
         for (node, entity) in &visuals.nodes {
@@ -224,7 +171,7 @@ pub fn bind(
         {
             continue;
         }
-        bind_node(commands, node, entity, extra, primitives)?;
+        super::scene_nodes::bind_node(commands, node, entity, extra, graph)?;
         if visuals.nodes.insert(node.id, entity).is_some() {
             return Err(format!("Duplicate glTF node {}", node.id.0));
         }

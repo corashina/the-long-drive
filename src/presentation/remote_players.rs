@@ -9,10 +9,10 @@ use super::player_body::{
     pose_instance, spawn_instance,
 };
 use super::reference::ReferenceVisuals;
+use super::scene_nodes::SceneGraph;
 use super::sim_frame::SimFrameResource;
 use crate::app::RuntimeReference;
 use bevy::ecs as bevy_ecs;
-use bevy::gltf::GltfExtras;
 use bevy::prelude::*;
 use bevy::world_serialization::WorldInstanceReady;
 use simulation::boundary::RemoteRow;
@@ -48,9 +48,7 @@ fn bind(
     reference: Res<RuntimeReference>,
     frame: Res<SimFrameResource>,
     mut figures: Query<&mut RemoteFigure>,
-    children: Query<&Children>,
-    extras: Query<&GltfExtras>,
-    primitives: Query<(Entity, &ChildOf), With<Mesh3d>>,
+    graph: SceneGraph,
 ) {
     let Ok(mut figure) = figures.get_mut(event.entity) else {
         return;
@@ -61,9 +59,7 @@ fn bind(
         &mut commands,
         &reference.0,
         frame.rig(),
-        &children,
-        &extras,
-        &primitives,
+        &graph,
     );
 }
 

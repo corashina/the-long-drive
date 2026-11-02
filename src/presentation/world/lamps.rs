@@ -98,6 +98,7 @@ pub(crate) fn prepare_road_lamp(
     materials: Res<crate::presentation::materials::SourceMaterials>,
     extras: Query<(Entity, &GltfExtras)>,
     primitives: Query<(Entity, &ChildOf), With<Mesh3d>>,
+    graph: crate::presentation::scene_nodes::SceneGraph,
     receivers: Query<(
         &Mesh3d,
         &MeshMaterial3d<SourceMaterial>,
@@ -169,12 +170,12 @@ pub(crate) fn prepare_road_lamp(
             }) else {
                 continue;
             };
-            if let Err(error) = crate::presentation::reference::bind_node(
+            if let Err(error) = crate::presentation::scene_nodes::bind_node(
                 &mut commands,
                 node,
                 entity,
                 extra,
-                &primitives,
+                &graph,
             ) {
                 source.state = RenderingState::Failed(error);
                 return;
