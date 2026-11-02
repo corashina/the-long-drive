@@ -2038,6 +2038,10 @@ impl GarageRuntime {
                 emps: &self.emps,
             },
         );
+        self.creatures
+            .humans
+            .collide(&reference.creatures.human, &self.physics);
+        self.settle_humans(reference);
         self.place_humans(reference);
         self.step_humans(reference, dt);
         if self.creatures.place_remove_due(self.simulation_seconds) {

@@ -162,6 +162,8 @@ pub struct Output {
     pub gravity: bool,
     /// `Use`: push this usable by `doorSpeed * dt` on each axis.
     pub door: Option<Usable>,
+    /// `Attack`: `survival.DamageInstant(damage * dt, show: true)` on the player.
+    pub damage: f32,
 }
 
 /// `newAiAnim` inputs. `forward` and `turn` keep their value while the AI stands.
@@ -171,8 +173,8 @@ pub struct AnimInput {
     pub turn: f32,
     pub on_ground: bool,
     pub duck: bool,
-    /// `anim.Hold(point, leftHand: true)` of `Use`.
-    pub hold: Option<Vector>,
+    /// `anim.Hold` points of the left (0) and right (1) hand. `Use` holds the left hand, `Attack` both.
+    pub hold: [Option<Vector>; 2],
 }
 
 #[derive(Debug, Default)]
@@ -201,6 +203,9 @@ pub struct HumanAi {
     reset_on_ground: bool,
     avoid_dir: Vector,
     current_player: Option<PlayerView>,
+    /// `Attack` health damage this frame.
+    damage: f32,
+    attack_hits: Vec<Hit>,
     patrol_charge: f32,
     last_patrol_pos: Vector,
     hits: Vec<Hit>,
@@ -312,7 +317,8 @@ impl HumanAi {
         let rotation = frame.pose.rotation;
         let fwd = forward(rotation);
         self.noticed = false;
-        self.anim.hold = None;
+        self.anim.hold = [None; 2];
+        self.damage = 0.;
         self.ladder = self.ladder_v > 0;
         self.avoid_dir = Vector::ZERO;
         if self.ladder {
@@ -413,7 +419,7 @@ impl HumanAi {
         if !frame.peaceful
             && let Some(player) = self.current_player
         {
-            self.attack(target, player);
+            self.attack(r, frame, world, target, player);
         }
         if self.stuck {
             let ray_usable = self.avoid_walls(r, frame, target, world);
@@ -423,7 +429,7 @@ impl HumanAi {
             if let Some(u) = usable {
                 // `Use`: the caller pushes the door. The hand holds the midpoint of the usable
                 // and one meter ahead.
-                self.anim.hold = Some((u.position + position + fwd) * 0.5);
+                self.anim.hold[0] = Some((u.position + position + fwd) * 0.5);
             }
             if current.is_none() && self.current_player.is_none() {
                 let (down, up) = (self.sensors.down.sensed(), self.sensors.up.sensed());
@@ -490,6 +496,7 @@ impl HumanAi {
             rotation,
             gravity: !self.ladder,
             door: usable,
+            damage: self.damage,
         };
         if self.is_attacking || *sleeping {
             return output;
@@ -507,9 +514,36 @@ impl HumanAi {
         output
     }
 
-    /// Source `Attack`. X03h adds the `canAttack` ray, the damage and the holds.
-    fn attack(&mut self, target: &mut Vector, player: PlayerView) {
+    /// Source `Attack`: the first hit that is not this AI must be the player.
+    fn attack(
+        &mut self,
+        r: &HumanAiReference,
+        frame: &Frame,
+        world: &mut dyn World,
+        target: &mut Vector,
+        player: PlayerView,
+    ) {
+        let position = frame.pose.translation;
+        let mut hits = std::mem::take(&mut self.attack_hits);
+        hits.clear();
+        world.ray_all(
+            position,
+            player.position - position,
+            r.ray_attack_dist_range * 2.,
+            &mut hits,
+        );
+        let can_attack = hits
+            .iter()
+            .find(|hit| !hit.own)
+            .is_some_and(|hit| hit.player.is_some());
+        self.attack_hits = hits;
         *target = player.head;
+        if can_attack {
+            self.is_attacking = true;
+            self.damage += r.damage * frame.dt;
+            let hold = (player.head + position + forward(frame.pose.rotation)) * 0.5;
+            self.anim.hold = [Some(hold); 2];
+        }
     }
 
     /// Source `AvoidWalls`: sets `avoid_dir` and returns `rayUsable`.
@@ -548,7 +582,7 @@ impl HumanAi {
                             && let Some(player) = hit.player
                         {
                             self.current_player = Some(player);
-                            self.attack(target, player);
+                            self.attack(r, frame, world, target, player);
                         }
                         continue;
                     }
@@ -673,6 +707,7 @@ mod tests {
             avoid_force: 1.,
             avoid_lerp: 0.5,
             ray_attack_dist_range: 1.,
+            damage: 10.,
             door_speed: 30.,
             start_patrol_dist: 1.,
             patrol_ray_start_dist: 0.5,
@@ -701,6 +736,7 @@ mod tests {
             if let Some(d) = self.wall {
                 hits.push(hit(d, None));
             }
+            hits.sort_by(|a, b| a.distance.total_cmp(&b.distance));
         }
         fn ray(&mut self, _: Vector, _: Vector, _: f32) -> Option<Hit> {
             None
@@ -849,6 +885,33 @@ mod tests {
             }
         }
         panic!("never stuck");
+    }
+
+    #[test]
+    fn attack_damages_only_a_player_in_clear_sight() {
+        let r = reference();
+        let mut ai = HumanAi::new();
+        let mut s = state();
+        let player = PlayerView {
+            position: Vector::new(0., 0., -1.),
+            head: Vector::new(0., 1.6, -1.),
+        };
+        let mut world = Open {
+            player: Some(player),
+            wall: None,
+        };
+        let mut random = StormRandom(1);
+        ai.sensors.up.stay(Touch::Player(player));
+        let out = ai.update(&r, s.owned(), &frame(Some(player)), &mut world, &mut random);
+        assert!(ai.is_attacking);
+        assert!((out.damage - r.damage * 0.02).abs() < 1e-6);
+        assert_eq!(s.target, player.head);
+        assert!(ai.anim.hold.iter().all(Option::is_some));
+        // A wall between them blocks the hit, but the AI still turns to the head.
+        world.wall = Some(0.5);
+        let out = ai.update(&r, s.owned(), &frame(Some(player)), &mut world, &mut random);
+        assert!(!ai.is_attacking && out.damage == 0.);
+        assert_eq!(ai.anim.hold, [None; 2]);
     }
 
     #[test]

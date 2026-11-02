@@ -46,6 +46,8 @@ pub struct HumanAiReference {
     pub avoid_force: f32,
     pub avoid_lerp: f32,
     pub ray_attack_dist_range: f32,
+    /// `damage`: `Attack` takes `damage * dt` health per frame.
+    pub damage: f32,
     pub door_speed: f32,
     pub start_patrol_dist: f32,
     pub patrol_ray_start_dist: f32,
@@ -81,6 +83,7 @@ impl HumanAiReference {
                 self.avoid_force,
                 self.avoid_lerp,
                 self.ray_attack_dist_range,
+                self.damage,
                 self.door_speed,
                 self.start_patrol_dist,
                 self.patrol_ray_start_dist,
