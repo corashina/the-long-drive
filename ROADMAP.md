@@ -15,13 +15,11 @@ If a feature drops the frame rate, fix the cost before merge or agree a cut.
 Keep the game playable after each task.
 Recheck the code and the original before each task. Complete missing behavior and verify existing behavior.
 Remove a row when its task is done. Do not mark rows done.
-Add the manual checks of each task to the test pass below. Remove them after they pass.
+Add the manual checks of each task to the test pass at the end. Remove them after they pass.
 
 Size: S is up to a day. M is a few days. L is about a week. XL is several weeks.
 
 ## Open tasks
-
-The starting area, car parts, world and more cars sections are done. Only their test pass remains.
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
@@ -32,6 +30,10 @@ The starting area, car parts, world and more cars sections are done. Only their 
 Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). WebRTC peer to peer through PeerJS. The host browser runs the world. Guests talk only to the host. The host forwards.
 
 Not planned: VR, stereo 3D, mod events, Steam features.
+
+## Test pass
+
+Run these checks on Tomasz's PC after every task of the section is done. Check F3 in each scenario.
 
 ### Multiplayer
 
@@ -59,4 +61,4 @@ Re-export the reference first: X03d adds `sky.ground_ufo` and `sky.prefabs[].emp
 5. X03e: Enter an old house, a mansion or the Vizmu building with human spawns. Some have a human monster. Saves keep it, and a placement does not spawn a second one.
 6. X03f: A human monster that sees the player chases them. It ducks and jumps over low walls, pushes doors open and climbs ladders. Out of sight it patrols. Peaceful mode stops it. Re-export first: X03f adds `creatures.human.ai` with the five `sens` triggers.
 7. X03g: A live human monster walks, runs, turns and crouches with its clips, looks at its target, and holds a door with its left hand. Feet stay on the ground. It speaks with idle, notice, chase and attack sounds, and its mouth moves. Re-export first: X03g adds `creatures.human.animator` and `creatures.human.voice`. Check the port choices: blend tree child speed is `1 / m_Duration` (crouch walks play twice as fast), and clip foot IK goals and twist spreading are not used.
-8. X03h: A human monster that reaches the player hurts the player and holds the player with both hands. A shot wakes a sleeping human and turns it to the shooter. Shots, explosions and hard hits kill it into a ragdoll with the death voice. Run `tp_x03h_human_shot_wakes_and_kills` after the re-export (X03h adds `creatures.human.ai.damage`). The attack shows no damage flash yet.
+8. X03h: A human monster that reaches the player hurts the player and holds the player with both hands. A shot wakes a sleeping human and turns it to the shooter. Shots, explosions and hard hits kill it into a ragdoll with the death voice. Re-export first: X03h adds `creatures.human.ai.damage`. The attack shows no damage flash yet.

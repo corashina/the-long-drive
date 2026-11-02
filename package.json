@@ -2,12 +2,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint": "eslint web tests/web tests/roadmap"
+    "lint": "eslint web tests/web"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
     "eslint": "9.39.5",
-    "globals": "17.13.0",
-    "playwright-core": "1.56.1"
+    "globals": "17.13.0"
   }
 }
