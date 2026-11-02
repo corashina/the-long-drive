@@ -1520,6 +1520,7 @@ pub enum AudioKind {
     Break = 22,
     ComputerNote = 23,
     Horror = 24,
+    Hum = 25,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
@@ -1559,6 +1560,18 @@ impl AudioState {
         pitch: Option<f32>,
         position: [f64; 3],
     ) {
+        self.clip_loop(kind, emitter, 0, gain, pitch, position);
+    }
+    /// A loop that plays clip `index` of its row. A new clip restarts the loop.
+    pub fn clip_loop(
+        &mut self,
+        kind: AudioKind,
+        emitter: u32,
+        index: usize,
+        gain: f32,
+        pitch: Option<f32>,
+        position: [f64; 3],
+    ) {
         let b = self
             .reference
             .survival
@@ -1570,7 +1583,7 @@ impl AudioState {
             emitter,
             kind,
             action: AudioAction::Update,
-            clip: b.clips[0],
+            clip: b.clips[index],
             gain,
             pitch: pitch.unwrap_or(b.pitch[0]),
             position,

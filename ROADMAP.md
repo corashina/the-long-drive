@@ -25,7 +25,6 @@ The starting area, car parts, world and more cars sections are done. Only their 
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| X03a | Player hum | M | Source `fpscontroller` hum on `IN.hum`: start and loop clips, scroll selects the tune, mouse sets volume and pitch. `humStimul.SetAudioValue(volume * humStimulValues[tune])` lets rabbits hear it. Export the clips, values and key binding. |
 | X03b | EMP jamming | L | Live `electronicsscript.jamValue` (`mainscript.jamIncrease` 0.3, `jamDecrease` 0.1, `maxJamValue` 0.3, `TLastEmp`). Source `empscript`: `OverlapSphere`, Perlin range and value noise, `fallOff`, `ambientSoundModifier`. Jam dims car, headlights, flashlights, street lamps and bus doors, and affects compass, radio and metal detector. Today each output is fixed at spawn. |
 | X03c | Green-eyed evil rabbits | S | Needs X03b. `empscript.makeRabbitsEvil`: rabbit `electronicsscript.nyul` output below 0.2 calls `GetEvil(natural: false)`. `Evil::get_evil` has the `Green` path. Link rabbit electronics and render `EyeGreen`. |
 | X03d | Ground UFO | M | Needs X03b. Find and export the source prefabs that carry `empscript` (also check `sky_ufo`). Place the ground UFO with its model, sounds and EMP. |
