@@ -97,6 +97,10 @@ impl MechanismState {
         records.sort_by(|a, b| a.source.cmp(&b.source));
         Ok(records)
     }
+    /// Items with a control.
+    pub fn controlled(&self) -> impl Iterator<Item = ItemId> + '_ {
+        self.items.keys().copied()
+    }
     pub fn snapshot(&self, item: ItemId) -> Option<crate::world::MechanismSnapshot> {
         let c = &self.controls[*self.items.get(&item)?];
         Some(crate::world::MechanismSnapshot {

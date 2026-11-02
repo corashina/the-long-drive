@@ -7,6 +7,7 @@ pub mod items;
 pub mod message;
 pub mod objects;
 pub mod remote;
+pub mod state;
 pub mod world;
 
 use crate::boundary::{PoseRow, RemoteRow, SimFrame};
@@ -18,11 +19,12 @@ use inventory::InventorySync;
 use items::ItemSync;
 use message::{
     BodyMessage, CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage,
-    ClaimMessage, InventoryMessage, ItemPoseMessage, Message, PoseMessage, RemoveMessage,
-    RequestMessage, VelocityMessage,
+    ClaimMessage, FluidMessage, InventoryMessage, ItemPoseMessage, Message, PoseMessage,
+    RemoveMessage, RequestMessage, TankCapMessage, UsableMessage, VelocityMessage,
 };
 use objects::{NetKey, ObjectIndex};
 use remote::Remote;
+use state::StateSync;
 use world::WorldSync;
 
 /// Source `snTempPlayerSync.syncTime`.
@@ -68,6 +70,7 @@ pub struct Net {
     /// The cars carry session state that must clear when the session ends.
     cars_touched: bool,
     inventory: InventorySync,
+    state: StateSync,
     /// Remote figure poses of this frame, in stream space.
     figures: Vec<(u8, rapier3d::math::Pose)>,
     /// Peers that left since the last frame.
@@ -86,6 +89,7 @@ impl Net {
             self.inbox.clear();
             self.objects.clear();
             self.items.clear();
+            self.state.clear();
             self.cars.clear();
         }
     }
@@ -175,14 +179,14 @@ impl Net {
             real_dt,
             &mut self.outbox,
         );
-        self.inventory.send(
-            runtime,
-            &self.objects,
-            &mut items::Out {
-                slot: self.slot,
-                bytes: &mut self.outbox,
-            },
-        );
+        let out = &mut items::Out {
+            slot: self.slot,
+            bytes: &mut self.outbox,
+        };
+        self.inventory.send(runtime, &self.objects, out);
+        self.state
+            .send(runtime, &self.objects, &self.items.requested, real_dt, out);
+        self.items.requested.clear();
         let origin = &runtime.stream.origin;
         self.figures.clear();
         for remote in &mut self.remotes {
@@ -291,6 +295,18 @@ impl Net {
         } else if let Ok((slot, m)) = RequestMessage::decode(packet) {
             if slot != mine && host {
                 self.items.requested(m.keys());
+            }
+        } else if let Ok((slot, m)) = FluidMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                self.state.got_fluid(runtime, id, &m);
+            }
+        } else if let Ok((slot, m)) = TankCapMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                self.state.got_valve(runtime, id, &m);
+            }
+        } else if let Ok((slot, m)) = UsableMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                self.state.got_usable(runtime, id, &m);
             }
         } else if let Ok((slot, m)) = ClaimMessage::decode(packet) {
             if let Some(id) = item(slot, m.key) {
