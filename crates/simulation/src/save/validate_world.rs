@@ -389,6 +389,13 @@ impl SaveSnapshot {
                 source(s)?;
                 data(speed.is_finite(), "Source door speed")?;
             }
+            for (id, roll) in &init.humans {
+                generated(id)?;
+                data(
+                    roll.voice_pitch.is_finite() && roll.patrol_time.is_finite(),
+                    "Source human start",
+                )?;
+            }
             for c in &init.conditions {
                 generated(&c.parent)?;
                 source(&c.source)?;

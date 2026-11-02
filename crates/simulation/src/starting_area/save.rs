@@ -392,6 +392,8 @@ impl GarageRuntime {
             candidate.simulation_seconds,
         )?;
         candidate.restore_dead_rabbits(reference, &saved.rabbits)?;
+        // The place check brings each saved human back where the world is loaded.
+        candidate.creatures.humans.load_far(&saved.humans);
         let spawned = super::spawned::restore_save(
             reference,
             &mut candidate.area,
@@ -670,6 +672,7 @@ impl GarageRuntime {
                 .weather
                 .snapshot(&reference.weather, self.simulation_seconds),
             rabbits: self.creatures.snapshot(&self.physics, origin),
+            humans: self.creatures.humans.snapshot(&self.physics, origin),
         };
         if let Some(pending) = &self.pending_restore {
             for saved in &pending.items {
