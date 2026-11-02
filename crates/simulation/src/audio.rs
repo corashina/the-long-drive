@@ -627,6 +627,34 @@ impl AudioState {
             }
         }
     }
+    /// `newAiScript.SourceVoice` of each human while its clip plays. `Play` starts a clip; the
+    /// voice then follows the human. Runs after `sky`, which clears `voice_loops`.
+    pub fn humans(
+        &mut self,
+        voice: u32,
+        sounds: impl Iterator<Item = crate::creatures::human::HumanSound>,
+        origin: &crate::world::WorldOrigin,
+    ) {
+        let kind = cars::CAR_KIND + voice;
+        for s in sounds {
+            let (action, list) = if s.started {
+                (AudioAction::Start, &mut self.cars.events)
+            } else {
+                (AudioAction::Update, &mut self.voice_loops)
+            };
+            if list.len() < list.capacity() {
+                list.push(cars::CarSignal {
+                    kind,
+                    instance: s.id,
+                    action,
+                    clip: s.play.clip,
+                    gain: 1.,
+                    pitch: s.play.pitch,
+                    position: origin.absolute(s.position.to_array()),
+                });
+            }
+        }
+    }
     fn sample(&mut self) -> f32 {
         xorshift(&mut self.random)
     }

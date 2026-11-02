@@ -1946,6 +1946,13 @@ impl GarageRuntime {
             self.place_remove_humans(reference, distances);
         }
         self.settle_rabbits(reference);
+        let r = &reference.creatures.human;
+        let now = self.simulation_seconds;
+        self.creatures.humans.animate(r, &self.physics, now, dt);
+        if let Some(audio) = &mut self.audio {
+            let sounds = self.creatures.humans.sounds(r, &self.physics, now);
+            audio.humans(r.voice.voice, sounds, &self.stream.origin);
+        }
     }
 
     pub fn sky(&self) -> &crate::sky_traffic::SkyTraffic {

@@ -104,8 +104,7 @@ pub struct HumanoidReference {
     pub hand_weight_up: f32,
     pub hand_weight_down: f32,
     pub hand_weight_down_delay: f32,
-    /// `newAiScript.head` and `headRotLimit` in degrees.
-    pub head: NodeId,
+    /// `newAiScript.headRotLimit` in degrees. It limits `HumanReference.head`.
     pub head_limit: f32,
     pub copies: Vec<HumanoidCopy>,
 }
@@ -162,8 +161,8 @@ impl HumanoidReference {
         {
             return fail("bone masses");
         }
-        if !known(self.root) || !known(self.head) || !(self.scale > 0.) {
-            return fail("root, head or scale");
+        if !known(self.root) || !(self.scale > 0.) {
+            return fail("root or scale");
         }
         for c in &self.clips {
             let valid = c.stop_time > 0.

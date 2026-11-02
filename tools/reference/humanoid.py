@@ -195,7 +195,7 @@ def child(source, transform, name):
 
 
 def humanoid_record(source, ai, anim, node, relative_pose):
-    """`newAiAnim.anim` and its fields, `newAiScript.head`, `headRotLimit`, `bones` and `bonesTarget`.
+    """`newAiAnim.anim` and its fields, `newAiScript.headRotLimit`, `bones` and `bonesTarget`.
     `relative_pose(reader, stage)` gives the pose of Transform `reader` in the space of `stage`."""
     n = source.read(anim)
     animator = source.resolve(anim, n['anim'])
@@ -239,7 +239,7 @@ def humanoid_record(source, ai, anim, node, relative_pose):
         'forward_lerp': n['forwardLerp'], 'turn_lerp': n['turnLerp'], 'look_lerp': n['lookLerp'],
         'hand_weight_up': n['handWeightUp'], 'hand_weight_down': n['handWeightDown'],
         'hand_weight_down_delay': n['handWeightDownMinTime'],
-        'head': node(source.resolve(ai, d['head'])), 'head_limit': d['headRotLimit'], 'copies': copies}
+        'head_limit': d['headRotLimit'], 'copies': copies}
 
 
 def voice_record(source, ai, node, relative_pose):

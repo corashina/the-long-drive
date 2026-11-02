@@ -21,7 +21,7 @@
 use super::clip::sample_track;
 use crate::player::body::ik::Frame;
 use crate::reference::{
-    FIRST_MUSCLE, HUMAN_BONES, HumanVoiceReference, HumanoidChild, HumanoidReference, MUSCLES,
+    FIRST_MUSCLE, HUMAN_BONES, HumanReference, HumanoidChild, MUSCLES,
     MotionTrack, NodeId, NodeRecord, ROOT_T, ReferenceError, Transform,
 };
 use rapier3d::math::{Pose, Rotation, Vector};
@@ -414,11 +414,8 @@ fn cartesian_weights(children: &[HumanoidChild], point: [f32; 2], out: &mut Vec<
 }
 
 impl Humanoid {
-    pub fn new(
-        nodes: &[NodeRecord],
-        r: &HumanoidReference,
-        voice: &HumanVoiceReference,
-    ) -> Result<Self, ReferenceError> {
+    pub fn new(nodes: &[NodeRecord], human: &HumanReference) -> Result<Self, ReferenceError> {
+        let (r, voice) = (&human.animator, &human.voice);
         let fail = |text: &str| ReferenceError(format!("Human monster Animator: {text}"));
         let asset = nodes
             .iter()
@@ -521,7 +518,7 @@ impl Humanoid {
             .map(|c| Ok((at(c.node)?, frame(&c.target))))
             .collect::<Result<_, ReferenceError>>()?;
         let mouth = Some((at(voice.mouth)?, frame(&voice.closed), frame(&voice.open)));
-        let head = at(r.head)?;
+        let head = at(human.head)?;
         Ok(Self {
             nodes: ids,
             index,

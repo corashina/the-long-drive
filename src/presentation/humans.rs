@@ -1,5 +1,5 @@
-//! Scene instances of the human monsters. A live human shows the prefab rest pose at its row
-//! pose. A dead human takes its ragdoll bone rows.
+//! Scene instances of the human monsters. The bone rows pose the Animator nodes of a live human
+//! and the ragdoll bones of a dead one.
 use super::creatures::CreatureScene;
 use super::reference::{ReferenceVisuals, bind_node};
 use super::sim_frame::SimFrameResource;
@@ -9,7 +9,6 @@ use bevy::ecs as bevy_ecs;
 use bevy::gltf::GltfExtras;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAssetRoot, WorldInstanceReady};
-use simulation::boundary::CreatureRow;
 use simulation::creatures::rig::{Rig, RigPose};
 use simulation::vehicle::VehiclePose;
 use std::collections::HashMap;
@@ -23,7 +22,7 @@ struct Instance {
     nodes: Vec<(usize, Entity)>,
     primitives: Vec<Entity>,
     pose: RigPose,
-    /// Bone rows of a dead human: rig node and pose.
+    /// Bone rows: rig node and pose.
     bones: Vec<(usize, rapier3d::math::Pose)>,
 }
 
@@ -127,7 +126,7 @@ pub(crate) fn sync(
                     nodes: Vec::with_capacity(rig.len()),
                     primitives: Vec::new(),
                     pose: rig.pose(),
-                    bones: Vec::with_capacity(r.ragdoll.bodies.len()),
+                    bones: Vec::with_capacity(rig.len()),
                 },
             );
             continue;
@@ -197,10 +196,6 @@ pub(crate) fn sync(
         });
         if let Ok(mut transform) = transforms.get_mut(instance.root) {
             transform.set_if_neq(super::transform(pose));
-        }
-        // A live human keeps the rest pose.
-        if row.flags & CreatureRow::DEAD == 0 {
-            continue;
         }
         let [start, count] = row.bones.map(|v| v as usize);
         instance.bones.clear();
