@@ -129,7 +129,7 @@ impl WorldStream {
             let b = &self.electronics_bindings[index];
             let active = self
                 .contents
-                .active
+                .active()
                 .iter()
                 .find(|c| c.content.placement.id == b.parent);
             let at = match active.and_then(|c| c.item).and_then(|i| items.get(i)) {

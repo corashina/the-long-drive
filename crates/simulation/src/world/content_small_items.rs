@@ -171,7 +171,7 @@ impl WorldStream {
         }
         let active = |parent: &GeneratedId, item: ItemId| {
             self.contents
-                .active
+                .active()
                 .iter()
                 .position(|c| &c.content.placement.id == parent && c.item == Some(item))
         };
@@ -199,7 +199,7 @@ impl WorldStream {
                 self.small_items.lamps.swap_remove(i);
             }
         }
-        let contents = &self.contents.active;
+        let contents = &self.contents.active();
         self.small_items.binoculars.retain(|(parent, item)| {
             let active = contents
                 .iter()
@@ -212,7 +212,7 @@ impl WorldStream {
         let small = &mut self.small_items;
         small.ammo.retain(|b| {
             self.contents
-                .active
+                .active()
                 .iter()
                 .any(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
         });
@@ -220,8 +220,8 @@ impl WorldStream {
         let lamp = &reference.small_items.genie_lamp.prototype;
         let binoculars = &reference.small_items.binoculars.prototype;
         let mut complete = true;
-        for slot in 0..self.contents.active.len() {
-            let content = &self.contents.active[slot];
+        for slot in 0..self.contents.active().len() {
+            let content = &self.contents.active()[slot];
             let Some(item) = content.item else {
                 continue;
             };
@@ -236,7 +236,7 @@ impl WorldStream {
                 self.small_items.ammo_prototypes.insert(prototype, ammo);
                 ammo
             };
-            let content = &self.contents.active[slot];
+            let content = &self.contents.active()[slot];
             let prototype = &content.content.placement.prototype;
             if (prototype != spray && prototype != lamp && prototype != binoculars && !ammo)
                 || self.small_items.sprays.iter().any(|b| b.item == item)
@@ -256,7 +256,7 @@ impl WorldStream {
             } else if prototype == binoculars {
                 let camera = self.binocular_camera(reference, slot)?;
                 interaction.binoculars.bind(item, camera);
-                let parent = self.contents.active[slot].content.placement.id.clone();
+                let parent = self.contents.active()[slot].content.placement.id.clone();
                 self.small_items.binoculars.push((parent, item));
             } else if prototype == spray {
                 let binding = self.bind_spray(reference, slot, item)?;
@@ -278,7 +278,7 @@ impl WorldStream {
         &self,
         slot: usize,
     ) -> Result<&WorldPrototypeReference, ReferenceError> {
-        let placement = &self.contents.active[slot].content.placement;
+        let placement = &self.contents.active()[slot].content.placement;
         self.reference
             .prototypes
             .iter()
@@ -291,7 +291,7 @@ impl WorldStream {
         reference: &ReferenceManifest,
         slot: usize,
     ) -> Result<Pose, ReferenceError> {
-        let placement = &self.contents.active[slot].content.placement;
+        let placement = &self.contents.active()[slot].content.placement;
         let prototype = self.small_item_prototype(slot)?;
         let rules = &self.contents.rules;
         let pickup = rules
@@ -320,7 +320,7 @@ impl WorldStream {
         item: ItemId,
     ) -> Result<SprayBinding, ReferenceError> {
         let r = &reference.small_items.spray_bottle;
-        let content = &self.contents.active[slot];
+        let content = &self.contents.active()[slot];
         let placement = &content.content.placement;
         let prototype = self.small_item_prototype(slot)?;
         let rules = &self.contents.rules;
@@ -367,7 +367,7 @@ impl WorldStream {
         item: ItemId,
     ) -> Result<LampBinding, ReferenceError> {
         let r = &reference.small_items.genie_lamp;
-        let parent = self.contents.active[slot].content.placement.id.clone();
+        let parent = self.contents.active()[slot].content.placement.id.clone();
         let prototype = self.small_item_prototype(slot)?;
         let rules = &self.contents.rules;
         let wash = rules.get(&self.reference, &r.wash_trigger)?.fields;
@@ -602,7 +602,7 @@ impl WorldStream {
             }
             let content = self
                 .contents
-                .active
+                .active_mut()
                 .get_mut(b.slot)
                 .filter(|c| c.item == Some(b.item))
                 .map(|c| &mut c.content.lights);

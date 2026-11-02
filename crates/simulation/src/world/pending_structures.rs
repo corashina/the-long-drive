@@ -1,9 +1,10 @@
-//! Wanted structure placements with a revision that changes on each edit.
-use crate::world::Placement;
+//! Wanted structure placements with a revision that changes on each edit, and an id index.
+use crate::world::{GeneratedId, Placement, id_index::IdIndex};
 
 #[derive(Default)]
 pub struct PendingStructures {
     list: Vec<Placement>,
+    index: IdIndex,
     revision: u64,
 }
 impl PendingStructures {
@@ -13,7 +14,14 @@ impl PendingStructures {
     fn bump(&mut self) {
         self.revision = self.revision.wrapping_add(1);
     }
+    fn reindex(&mut self) {
+        self.index.rebuild(&self.list, |p| &p.id);
+    }
+    pub fn contains(&self, id: &GeneratedId) -> bool {
+        self.index.position(&self.list, |p| &p.id, id).is_some()
+    }
     pub fn push(&mut self, placement: Placement) {
+        self.index.push(&placement.id, self.list.len());
         self.list.push(placement);
         self.bump();
     }
@@ -21,6 +29,7 @@ impl PendingStructures {
         let count = self.list.len();
         self.list.retain(keep);
         if self.list.len() != count {
+            self.reindex();
             self.bump();
         }
     }
@@ -29,6 +38,7 @@ impl PendingStructures {
         let count = self.list.len();
         let result = edit(&mut self.list);
         if self.list.len() != count {
+            self.reindex();
             self.bump();
         }
         result
@@ -36,6 +46,7 @@ impl PendingStructures {
     /// Any edit. The revision always changes.
     pub fn edit<R>(&mut self, edit: impl FnOnce(&mut Vec<Placement>) -> R) -> R {
         let result = edit(&mut self.list);
+        self.reindex();
         self.bump();
         result
     }
@@ -43,7 +54,12 @@ impl PendingStructures {
         &mut self,
         count: usize,
     ) -> Result<(), std::collections::TryReserveError> {
-        self.list.try_reserve_exact(count)
+        self.list.try_reserve_exact(count)?;
+        self.index.try_reserve(self.list.capacity())
+    }
+    /// Index bytes. List bytes are charged from the list capacity.
+    pub fn index_bytes(&self) -> usize {
+        self.index.retained_bytes()
     }
 }
 impl std::ops::Deref for PendingStructures {

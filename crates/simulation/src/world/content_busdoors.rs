@@ -323,7 +323,7 @@ impl WorldStream {
             let b = &mut self.bus_door_bindings[i];
             if let Some(slot) = self
                 .contents
-                .active
+                .active()
                 .iter()
                 .position(|c| c.content.placement.id == b.parent)
             {
@@ -336,8 +336,8 @@ impl WorldStream {
                 self.bus_door_bindings.swap_remove(i);
             }
         }
-        for slot in 0..self.contents.active.len() {
-            let content = &self.contents.active[slot];
+        for slot in 0..self.contents.active().len() {
+            let content = &self.contents.active()[slot];
             if self
                 .bus_door_bindings
                 .iter()
@@ -382,7 +382,7 @@ impl WorldStream {
         script: Option<&SourceId>,
         boxes: &[SourceId],
     ) -> Result<BusDoorBinding, ReferenceError> {
-        let content = &self.contents.active[slot];
+        let content = &self.contents.active()[slot];
         let parent = content.content.placement.id.clone();
         let rules = &self.contents.rules;
         let reference = &*self.reference;
@@ -611,7 +611,7 @@ impl WorldStream {
             DoorLamps::Signed => (green_on, red_off),
             DoorLamps::Off => (green_off, red_off),
         };
-        let appearance = &mut self.contents.active[b.slot].content.appearance;
+        let appearance = &mut self.contents.active_mut()[b.slot].content.appearance;
         for node in &d.green {
             set_material(appearance, node, green);
         }
@@ -668,7 +668,10 @@ impl WorldStream {
             let Some(e) = &mut b.state.electronics else {
                 continue;
             };
-            let Some(item) = self.contents.active[b.slot].item.and_then(|i| items.get(i)) else {
+            let Some(item) = self.contents.active()[b.slot]
+                .item
+                .and_then(|i| items.get(i))
+            else {
                 continue;
             };
             e.state

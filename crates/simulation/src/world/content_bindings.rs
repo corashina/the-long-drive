@@ -46,7 +46,7 @@ impl WorldStream {
         let key = items.object_key(id);
         snapshot.lamp = self
             .contents
-            .active
+            .active()
             .iter()
             .find(|c| c.item == Some(id))
             .and_then(|c| c.content.portable_lamp());
@@ -93,7 +93,7 @@ impl WorldStream {
             physics.rapier().bodies[b].body_type()
                 == rapier3d::prelude::RigidBodyType::KinematicPositionBased
         }) && items.get(id).is_some_and(|i| !i.buried)
-            && self.contents.active.iter().any(|c| c.item == Some(id))
+            && self.contents.active().iter().any(|c| c.item == Some(id))
         {
             if let Some(previous) = self.changes.get(&key).and_then(|c| c.snapshot.as_ref()) {
                 snapshot.linear_velocity = previous.linear_velocity;
@@ -117,7 +117,7 @@ impl WorldStream {
             }
             if self
                 .contents
-                .active
+                .active()
                 .iter()
                 .chain(&self.static_controls)
                 .any(|c| {
@@ -139,7 +139,7 @@ impl WorldStream {
                     .map(|(_, s)| s),
                 crate::world::ObjectKey::Generated(_) => self
                     .contents
-                    .active
+                    .active()
                     .iter()
                     .chain(&self.static_controls)
                     .find_map(|c| {
@@ -180,7 +180,7 @@ impl WorldStream {
             if let crate::world::ObjectKey::Generated(_) = &key {
                 if let Some(owner) = self
                     .contents
-                    .active
+                    .active()
                     .iter()
                     .chain(&self.static_controls)
                     .find(|c| c.item == Some(id) || c.bindings.iter().any(|b| b.item == id))
@@ -243,7 +243,7 @@ impl WorldStream {
         self.changes.retain_dependency(owner.clone(), snapshot);
         if let Some(content) = self
             .contents
-            .active
+            .active()
             .iter()
             .chain(&self.static_controls)
             .find(|c| c.item == Some(id))
@@ -348,7 +348,7 @@ impl WorldStream {
             if instance.fixed_decoration
                 || self
                     .contents
-                    .active
+                    .active()
                     .iter()
                     .any(|c| c.content.placement.id == instance.placement.id)
                 || self
@@ -359,10 +359,7 @@ impl WorldStream {
                 // content, as in `retire_structures`. The start car is a startup structure.
                 || ((!instance.placement.id.children.is_empty()
                     || instance.placement.id.layer == WorldLayer::Startup)
-                    && !self
-                        .wanted_structures
-                        .iter()
-                        .any(|p| p.id == instance.placement.id))
+                    && !self.wanted_structures.contains(&instance.placement.id))
                 || !reference
                     .world
                     .mechanisms
@@ -424,7 +421,7 @@ impl WorldStream {
         &self,
     ) -> impl Iterator<Item = (crate::reference::ItemId, &crate::world::ObjectSnapshot)> {
         self.contents
-            .active
+            .active()
             .iter()
             .chain(&self.static_controls)
             .flat_map(|c| {
@@ -439,7 +436,7 @@ impl WorldStream {
         id: &crate::world::GeneratedId,
     ) -> &[crate::world::GeneratedCapVisual] {
         self.contents
-            .active
+            .active()
             .iter()
             .find(|c| &c.content.placement.id == id)
             .map_or(&[], |c| c.caps.as_slice())
@@ -450,7 +447,7 @@ impl WorldStream {
         node: usize,
     ) -> Option<crate::vehicle::VehiclePose> {
         self.contents
-            .active
+            .active()
             .iter()
             .chain(&self.static_controls)
             .find(|c| &c.content.placement.id == id)
@@ -471,7 +468,7 @@ impl WorldStream {
             .find(|r| r.prototype == prototype.source && r.recipe.source == *door)?;
         let content = self
             .contents
-            .active
+            .active()
             .iter()
             .chain(&self.static_controls)
             .find(|c| &c.content.placement.id == id)?;
@@ -504,7 +501,7 @@ impl WorldStream {
             let id = &self.static_controls[index].content.placement.id;
             if !self
                 .contents
-                .active
+                .active()
                 .iter()
                 .any(|c| &c.content.placement.id == id && c.item.is_none())
             {
@@ -516,7 +513,7 @@ impl WorldStream {
             if let Some(item) = content.item {
                 unbind_storage(
                     item,
-                    &self.contents.active,
+                    &self.contents.active(),
                     items,
                     interaction,
                     physics,
@@ -532,7 +529,8 @@ impl WorldStream {
         }
         // Scanners cache on the active revision and skip contents without an item.
         let mut bound = false;
-        for content in &mut self.contents.active {
+        let (active, rules, _) = self.contents.active_parts();
+        for content in active {
             crate::world::content_mechanisms::sync(content, items, interaction, physics);
             for binding in &content.bindings {
                 if let (Some(state), Some((body, local))) =
@@ -587,25 +585,20 @@ impl WorldStream {
                     prototype,
                     hose,
                     reference,
-                    &self.contents.rules,
+                    rules,
                     items,
                     interaction,
                     physics,
                 )
             } else {
-                let pickup_root = if let Some(unparent) = self.contents.rules.component(
-                    &self.reference,
-                    &placement.prototype,
-                    "childunparent",
-                )? {
+                let pickup_root = if let Some(unparent) =
+                    rules.component(&self.reference, &placement.prototype, "childunparent")?
+                {
                     link(unparent.fields, "g")?
                 } else {
                     &placement.prototype
                 };
-                let pickup =
-                    self.contents
-                        .rules
-                        .component(&self.reference, pickup_root, "pickupable")?;
+                let pickup = rules.component(&self.reference, pickup_root, "pickupable")?;
                 // Car and trailer roots are items without a pickupable. Only bikes have one.
                 // A bat has none: `randomFlyer` moves its Rigidbody.
                 if pickup.is_none()
@@ -629,16 +622,14 @@ impl WorldStream {
                         instance,
                         prototype,
                         &self.reference,
-                        &self.contents.rules,
+                        rules,
                         items,
                         interaction,
                         physics,
                     )?;
-                    if let Some(edible) = self.contents.rules.component(
-                        &self.reference,
-                        pickup_root,
-                        "ediblescript",
-                    )? {
+                    if let Some(edible) =
+                        rules.component(&self.reference, pickup_root, "ediblescript")?
+                    {
                         if let Some((prototype_index, food)) = reference
                             .survival
                             .foods
@@ -666,7 +657,7 @@ impl WorldStream {
                         content,
                         instance,
                         prototype,
-                        &self.contents.rules,
+                        rules,
                         reference,
                         items,
                         interaction,
@@ -676,7 +667,7 @@ impl WorldStream {
                         content,
                         instance,
                         prototype,
-                        &self.contents.rules,
+                        rules,
                         reference,
                         rule,
                         layers,
@@ -688,7 +679,7 @@ impl WorldStream {
                         content,
                         instance,
                         prototype,
-                        &self.contents.rules,
+                        rules,
                         reference,
                         items,
                         interaction,
@@ -699,7 +690,7 @@ impl WorldStream {
                         content,
                         instance,
                         prototype,
-                        &self.contents.rules,
+                        rules,
                         reference,
                         items,
                         interaction,
@@ -711,7 +702,7 @@ impl WorldStream {
                         instance,
                         prototype,
                         reference,
-                        &self.contents.rules,
+                        rules,
                         items,
                         interaction,
                         physics,
@@ -728,7 +719,7 @@ impl WorldStream {
                         content,
                         instance,
                         prototype,
-                        &self.contents.rules,
+                        rules,
                         &self.reference,
                         interaction,
                     )?;
@@ -743,7 +734,7 @@ impl WorldStream {
                             rapier3d::math::Vector::from_array(root.translation),
                             rapier3d::math::Rotation::from_array(root.rotation),
                         ),
-                        &self.contents.rules,
+                        rules,
                         reference,
                         interaction,
                     )?;
@@ -764,7 +755,7 @@ impl WorldStream {
                         prototype,
                         &self.reference,
                         &reference.skid,
-                        &self.contents.rules,
+                        rules,
                         items,
                         interaction,
                         physics,
@@ -803,9 +794,9 @@ impl WorldStream {
         if bound {
             self.contents.items_bound();
         }
-        for content_index in 0..self.contents.active.len() {
-            for slot_index in 0..self.contents.active[content_index].slots.len() {
-                let content = &self.contents.active[content_index];
+        for content_index in 0..self.contents.active().len() {
+            for slot_index in 0..self.contents.active()[content_index].slots.len() {
+                let content = &self.contents.active()[content_index];
                 let binding = &content.slots[slot_index];
                 let source = &binding.source;
                 let slot = binding.slot;
@@ -813,7 +804,7 @@ impl WorldStream {
                     continue;
                 }
                 if interaction.parts.slot_item(slot).is_some() {
-                    self.contents.active[content_index].slots[slot_index].initialized = true;
+                    self.contents.active_mut()[content_index].slots[slot_index].initialized = true;
                     continue;
                 }
                 let embedded = self
@@ -828,7 +819,7 @@ impl WorldStream {
                     });
                 let spawned = self
                     .contents
-                    .active
+                    .active()
                     .iter()
                     .find(|child| {
                         let mut iter = child.content.placement.id.children.iter();
@@ -858,7 +849,7 @@ impl WorldStream {
                         .parts
                         .mount_mechanism(item, &mut interaction.mechanisms);
                     self.rebaseline(item, reference, items, interaction, physics);
-                    self.contents.active[content_index].slots[slot_index].initialized = true;
+                    self.contents.active_mut()[content_index].slots[slot_index].initialized = true;
                 }
             }
         }
@@ -887,7 +878,7 @@ impl WorldStream {
         if let Some(mut snapshot) =
             crate::world::changes::capture(item, items, interaction, physics, reference)
         {
-            for owner in &mut self.contents.active {
+            for owner in self.contents.active_mut() {
                 if owner.item == Some(item) {
                     snapshot.lamp = owner.content.portable_lamp();
                     owner.baseline = Some(snapshot);
@@ -920,13 +911,13 @@ impl WorldStream {
         physics: &mut PhysicsWorld,
         wheels: &mut crate::interaction::wheels::WheelAssemblies,
     ) -> Result<(), ReferenceError> {
-        let count = self.contents.active.len() + self.static_controls.len();
+        let count = self.contents.active().len() + self.static_controls.len();
         for index in 0..count {
             self.publish_content_visual(index, items);
             let pending_parent = {
                 let content = self
                     .contents
-                    .active
+                    .active()
                     .iter()
                     .chain(&self.static_controls)
                     .nth(index)
@@ -947,7 +938,7 @@ impl WorldStream {
                             .and_then(|k| items.resolve_key(k))
                             .is_some_and(|parent| {
                                 self.contents
-                                    .active
+                                    .active()
                                     .iter()
                                     .chain(&self.static_controls)
                                     .any(|owner| {
@@ -961,7 +952,7 @@ impl WorldStream {
             };
             let content = self
                 .contents
-                .active
+                .active_mut()
                 .iter_mut()
                 .chain(&mut self.static_controls)
                 .nth(index)
@@ -1055,10 +1046,10 @@ impl WorldStream {
         Ok(())
     }
     fn publish_content_visual(&mut self, index: usize, items: &ItemStore) {
-        let active_count = self.contents.active.len();
+        let active_count = self.contents.active().len();
         let (content, slot) = if index < active_count {
             (
-                &mut self.contents.active[index],
+                &mut self.contents.active_mut()[index],
                 super::content_index::ContentSlot::Active(index),
             )
         } else {
@@ -1078,7 +1069,7 @@ impl WorldStream {
 
     pub fn bindings_ready(&self, id: &crate::world::GeneratedId) -> bool {
         self.contents
-            .active
+            .active()
             .iter()
             .chain(&self.static_controls)
             .find(|c| &c.content.placement.id == id)
@@ -1115,8 +1106,8 @@ impl WorldStream {
         let freeze = self.distances.item_freeze_dist;
         let unfreeze = self.distances.item_unfreeze_dist;
         let mut index = 0;
-        while index < self.contents.active.len() {
-            let content = &self.contents.active[index];
+        while index < self.contents.active().len() {
+            let content = &self.contents.active()[index];
             // An item that left a storage lock with its owner unloads now.
             let departing = content
                 .item
@@ -1150,7 +1141,7 @@ impl WorldStream {
             };
             let local_slot = |slot| {
                 content.slots.iter().any(|s| s.slot == slot)
-                    || self.contents.active.iter().any(|owner| {
+                    || self.contents.active().iter().any(|owner| {
                         let parent = &owner.content.placement.id;
                         let child = &content.content.placement.id;
                         parent.layer == child.layer
@@ -1165,7 +1156,7 @@ impl WorldStream {
             // A world car slot rim may leave with its car or the car content that spawned it.
             let local_owner = |item| {
                 local_item(item)
-                    || self.contents.active.iter().any(|owner| {
+                    || self.contents.active().iter().any(|owner| {
                         let parent = &owner.content.placement.id;
                         let child = &content.content.placement.id;
                         parent.layer == child.layer
@@ -1287,7 +1278,7 @@ impl WorldStream {
                 // Restart: items that leave with this owner may sit before `index`.
                 if unbind_storage(
                     item,
-                    &self.contents.active,
+                    &self.contents.active(),
                     items,
                     interaction,
                     physics,

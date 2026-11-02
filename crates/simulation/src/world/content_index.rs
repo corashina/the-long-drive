@@ -139,7 +139,7 @@ impl WorldStream {
                 self.contents.active_revision(),
                 self.static_control_revision,
             ),
-            &self.contents.active,
+            &self.contents.active(),
             &self.static_controls,
         );
         index.update_lamps(
@@ -158,10 +158,10 @@ impl WorldStream {
     }
     #[cfg(test)]
     pub fn indexed_content(&self, index: &ContentIndex, id: &GeneratedId) -> IndexedContent<'_> {
-        index.content(&self.contents.active, &self.static_controls, id)
+        index.content(&self.contents.active(), &self.static_controls, id)
     }
     pub fn content_at(&self, slot: Option<ContentSlot>) -> IndexedContent<'_> {
-        content_at(&self.contents.active, &self.static_controls, slot)
+        content_at(&self.contents.active(), &self.static_controls, slot)
     }
     pub fn indexed_appearance<'a>(
         &'a self,
