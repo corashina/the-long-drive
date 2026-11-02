@@ -1,12 +1,11 @@
 //! Scene instances of the rabbits. Live nodes take the Animator frames of their row. Dead
 //! rabbits take their bone rows. The GPU skins the meshes. Evil rabbits swap the eye material.
 use super::materials::{SourceMaterial, SourceMaterials, authored_material};
-use super::reference::{ReferenceVisuals, bind_node};
+use super::reference::ReferenceVisuals;
+use super::scene_nodes::SceneGraph;
 use super::sim_frame::SimFrameResource;
 use crate::app::{Drive, RuntimeReference};
-use crate::reference::SourceId;
 use bevy::ecs as bevy_ecs;
-use bevy::gltf::GltfExtras;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAssetRoot, WorldInstanceReady};
 use simulation::boundary::{CreatureRow, PoseRow};
@@ -22,6 +21,8 @@ struct Instance {
     root: Entity,
     ready: bool,
     bound: bool,
+    /// Binding failed. The rabbit stays hidden and binding does not run again.
+    failed: bool,
     shown: bool,
     /// Rig node index and entity.
     nodes: Vec<(usize, Entity)>,
@@ -37,7 +38,7 @@ struct Instance {
 
 #[derive(Resource, Default)]
 pub struct CreatureVisuals {
-    rig: Option<Rig>,
+    rig: Option<Result<Rig, ()>>,
     /// Rabbit id to scene instance.
     instances: HashMap<u32, Instance>,
     /// Converted eye materials by material, mirror and receiver mask.
@@ -51,11 +52,6 @@ pub struct CreatureVisuals {
 }
 
 impl CreatureVisuals {}
-
-#[derive(serde::Deserialize)]
-struct Identity {
-    reference_id: Option<SourceId>,
-}
 
 fn descends(mut entity: Entity, root: Entity, parents: &Query<&ChildOf>) -> bool {
     while let Ok(link) = parents.get(entity) {
@@ -76,9 +72,8 @@ pub(crate) fn sync(
     visuals: Res<ReferenceVisuals>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
     mut creatures: ResMut<CreatureVisuals>,
-    extras: Query<(Entity, &GltfExtras)>,
+    graph: SceneGraph,
     parents: Query<&ChildOf>,
-    primitives: Query<(Entity, &ChildOf), With<Mesh3d>>,
     source_materials: Query<(), With<MeshMaterial3d<SourceMaterial>>>,
     eye_materials: Query<(&MeshMaterial3d<SourceMaterial>, &GlobalTransform)>,
     authored: Res<SourceMaterials>,
@@ -92,16 +87,15 @@ pub(crate) fn sync(
     let manifest = &reference.0;
     let r = &manifest.creatures.rabbit;
     let creatures = &mut *creatures;
-    if creatures.rig.is_none() {
-        match Rig::new(&manifest.nodes, r.root, &r.animator) {
-            Ok(rig) => creatures.rig = Some(rig),
-            Err(error) => {
-                error!("Rabbit rig: {error}");
-                return;
-            }
-        }
-    }
-    let rig = creatures.rig.as_ref().unwrap();
+    // A rig error is logged once and stops the rabbit visuals.
+    let rig = creatures.rig.get_or_insert_with(|| {
+        Rig::new(&manifest.nodes, r.root, &r.animator)
+            .inspect_err(|error| error!("Rabbit rig: {error}"))
+            .map_err(drop)
+    });
+    let Ok(rig) = rig.as_ref() else {
+        return;
+    };
     let rows = &frame.frame.creatures;
     creatures.instances.retain(|id, instance| {
         let keep = rows.iter().any(|row| row.id == *id);
@@ -147,6 +141,7 @@ pub(crate) fn sync(
                     root,
                     ready: false,
                     bound: false,
+                    failed: false,
                     shown: false,
                     nodes: Vec::with_capacity(rig.len()),
                     primitives: Vec::new(),
@@ -161,32 +156,25 @@ pub(crate) fn sync(
         if !instance.ready {
             continue;
         }
+        if instance.failed {
+            continue;
+        }
         if !instance.bound {
-            for (entity, extra) in &extras {
-                if !descends(entity, instance.root, &parents) {
-                    continue;
-                }
-                let Ok(identity) = serde_json::from_str::<Identity>(&extra.value) else {
-                    continue;
-                };
-                let Some(node) = identity.reference_id.and_then(|source| {
-                    manifest
-                        .nodes
-                        .iter()
-                        .find(|node| node.source == source && node.asset == r.asset)
-                }) else {
-                    continue;
-                };
-                let Some(index) = rig.index(node.id) else {
-                    continue;
-                };
-                if !instance.nodes.iter().any(|(i, _)| *i == index)
-                    && bind_node(&mut commands, node, entity, extra, &primitives).is_ok()
-                {
-                    instance.nodes.push((index, entity));
-                }
-            }
+            let binding = graph.bind_instance(&mut commands, manifest, instance.root, r.asset);
+            instance.nodes.extend(
+                binding
+                    .nodes
+                    .iter()
+                    .filter_map(|(id, entity)| Some((rig.index(*id)?, *entity))),
+            );
             if instance.nodes.len() != rig.len() {
+                error!(
+                    "Rabbit {}: {} rig nodes, {}",
+                    row.id,
+                    rig.len(),
+                    binding.failure()
+                );
+                instance.failed = true;
                 continue;
             }
             let eye_nodes: Vec<Entity> = r
@@ -197,15 +185,13 @@ pub(crate) fn sync(
                 .filter_map(|index| instance.nodes.iter().find(|(i, _)| *i == index))
                 .map(|(_, entity)| *entity)
                 .collect();
-            for (primitive, _) in &primitives {
-                if descends(primitive, instance.root, &parents) {
-                    instance.primitives.push(primitive);
-                    if eye_nodes
-                        .iter()
-                        .any(|eye| descends(primitive, *eye, &parents))
-                    {
-                        instance.eyes.push(primitive);
-                    }
+            for &primitive in &binding.primitives {
+                instance.primitives.push(primitive);
+                if eye_nodes
+                    .iter()
+                    .any(|eye| descends(primitive, *eye, &parents))
+                {
+                    instance.eyes.push(primitive);
                 }
             }
             instance.bound = true;

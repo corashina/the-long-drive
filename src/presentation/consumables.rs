@@ -1,11 +1,11 @@
 use super::materials::SourceMaterial;
-use super::reference::{ReferenceVisuals, bind_node};
+use super::reference::ReferenceVisuals;
+use super::scene_nodes::SceneGraph;
 use super::sim_frame::SimFrameResource;
 use crate::app::RuntimeReference;
-use crate::reference::{AssetId, AssetUsage, ItemId, NodeId, SourceId};
+use crate::reference::{AssetId, AssetUsage, ItemId, NodeId};
 use crate::vehicle::{from_rapier, to_rapier};
 use bevy::ecs as bevy_ecs;
-use bevy::gltf::GltfExtras;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAssetRoot, WorldInstanceReady};
 use simulation::boundary::{PoseKey, SpawnData};
@@ -18,6 +18,8 @@ struct FoodInstance {
     root: Entity,
     ready: bool,
     bound: bool,
+    /// Binding failed. The food stays hidden and binding does not run again.
+    failed: bool,
     source_materials_bound: bool,
     nodes: Vec<(NodeId, Entity)>,
     primitives: Vec<Entity>,
@@ -36,11 +38,6 @@ pub struct ConsumableVisuals {
 
 impl ConsumableVisuals {}
 
-#[derive(serde::Deserialize)]
-struct Identity {
-    reference_id: Option<SourceId>,
-}
-
 pub(crate) fn sync(
     mut commands: Commands,
     reference: Res<RuntimeReference>,
@@ -48,9 +45,7 @@ pub(crate) fn sync(
     visuals: Res<ReferenceVisuals>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
     mut food: ResMut<ConsumableVisuals>,
-    extras: Query<(Entity, &GltfExtras)>,
-    parents: Query<&ChildOf>,
-    primitives: Query<(Entity, &ChildOf), With<Mesh3d>>,
+    graph: SceneGraph,
     source_materials: Query<(), With<MeshMaterial3d<SourceMaterial>>>,
     mut transforms: Query<&mut Transform, With<ConsumableScene>>,
     mut visibility: Query<&mut Visibility>,
@@ -125,7 +120,7 @@ pub(crate) fn sync(
             &mut commands,
             manifest,
             prototype.asset,
-            (&extras, &parents, &primitives),
+            &graph,
             &source_materials,
         ) {
             continue;
@@ -206,6 +201,7 @@ impl FoodInstance {
             root,
             ready: false,
             bound: false,
+            failed: false,
             source_materials_bound: false,
             nodes: Vec::new(),
             primitives: Vec::new(),
@@ -220,67 +216,24 @@ impl FoodInstance {
         commands: &mut Commands,
         manifest: &crate::reference::ReferenceManifest,
         asset: AssetId,
-        (extras, parents, primitives): (
-            &Query<(Entity, &GltfExtras)>,
-            &Query<&ChildOf>,
-            &Query<(Entity, &ChildOf), With<Mesh3d>>,
-        ),
+        graph: &SceneGraph,
         source_materials: &Query<(), With<MeshMaterial3d<SourceMaterial>>>,
     ) -> bool {
         if !self.ready {
             return false;
         }
+        if self.failed {
+            return false;
+        }
         if !self.bound {
-            for (entity, extra) in extras {
-                let mut parent = entity;
-                let mut belongs = false;
-                while let Ok(link) = parents.get(parent) {
-                    parent = link.parent();
-                    if parent == self.root {
-                        belongs = true;
-                        break;
-                    }
-                }
-                if !belongs {
-                    continue;
-                }
-                let Ok(identity) = serde_json::from_str::<Identity>(&extra.value) else {
-                    continue;
-                };
-                let Some(node) = identity.reference_id.and_then(|source| {
-                    manifest
-                        .nodes
-                        .iter()
-                        .find(|node| node.source == source && node.asset == asset)
-                }) else {
-                    continue;
-                };
-                if !self.nodes.iter().any(|(id, _)| *id == node.id)
-                    && bind_node(commands, node, entity, extra, primitives).is_ok()
-                {
-                    self.nodes.push((node.id, entity));
-                }
-            }
-            let count = manifest
-                .nodes
-                .iter()
-                .filter(|node| node.asset == asset)
-                .count();
-            if self.nodes.len() != count {
+            let binding = graph.bind_instance(commands, manifest, self.root, asset);
+            if !binding.complete() {
+                error!("Food asset {}: {}", asset.0, binding.failure());
+                self.failed = true;
                 return false;
             }
-            for (primitive, parent) in primitives {
-                let mut ancestor = parent.parent();
-                while ancestor != self.root {
-                    let Ok(link) = parents.get(ancestor) else {
-                        break;
-                    };
-                    ancestor = link.parent();
-                }
-                if ancestor == self.root {
-                    self.primitives.push(primitive);
-                }
-            }
+            self.nodes = binding.nodes;
+            self.primitives = binding.primitives;
             self.bound = true;
         }
         if !self.source_materials_bound {
@@ -312,9 +265,7 @@ pub(crate) fn warm_up(
     materials: Res<super::materials::SourceMaterials>,
     loading: Res<super::materials::MaterialLoading>,
     mut lighting: ResMut<super::lighting::SourceLighting>,
-    extras: Query<(Entity, &GltfExtras)>,
-    parents: Query<&ChildOf>,
-    primitives: Query<(Entity, &ChildOf), With<Mesh3d>>,
+    graph: SceneGraph,
     source_materials: Query<(), With<MeshMaterial3d<SourceMaterial>>>,
     parts: Query<
         (&Mesh3d, &MeshMaterial3d<SourceMaterial>),
@@ -362,13 +313,7 @@ pub(crate) fn warm_up(
     }
     let mut bound = true;
     for (instance, asset) in food.warmups.iter_mut().zip(&assets) {
-        bound &= instance.bind(
-            &mut commands,
-            manifest,
-            *asset,
-            (&extras, &parents, &primitives),
-            &source_materials,
-        );
+        bound &= instance.bind(&mut commands, manifest, *asset, &graph, &source_materials);
     }
     // Warm the startup mesh variants, not the raw glTF meshes.
     if !bound

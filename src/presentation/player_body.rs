@@ -5,9 +5,10 @@
 //! The body hides while the ragdoll shows.
 use super::materials::{OutfitMaterials, OutfitSlot, SourceMaterial, update_retained_color};
 use super::outfit::{MODEL_OFF, MODEL_SHADOW, Outfit, map_by_name};
-use super::reference::{ReferenceVisuals, bind_node};
+use super::reference::ReferenceVisuals;
 use super::renderer_visibility::CameraHidden;
 use super::renderers::AuthoredRenderer;
+use super::scene_nodes::{SceneGraph, bind_node};
 use super::sim_frame::SimFrameResource;
 use crate::app::{Drive, RuntimeReference};
 use crate::reference::{CharacterReference, NodeId, ReferenceManifest, SourceId};
@@ -224,15 +225,13 @@ pub(super) fn bind_instance(
     commands: &mut Commands,
     manifest: &ReferenceManifest,
     rig: &[NodeId],
-    children: &Query<&Children>,
-    extras: &Query<&GltfExtras>,
-    primitives: &Query<(Entity, &ChildOf), With<Mesh3d>>,
+    graph: &SceneGraph,
 ) -> Option<BoundBody> {
     let clothing = &manifest.clothing;
     let characters = &clothing.characters;
     let mut body = BoundBody::default();
-    for entity in children.iter_descendants(root) {
-        let Ok(extra) = extras.get(entity) else {
+    for entity in graph.children.iter_descendants(root) {
+        let Ok(extra) = graph.extras.get(entity) else {
             continue;
         };
         let Some(node) = serde_json::from_str::<Identity>(&extra.value)
@@ -261,10 +260,7 @@ pub(super) fn bind_instance(
         }
         let drawn = character_renderer(characters, node.id);
         let mut removed = false;
-        for (primitive, parent) in primitives {
-            if parent.parent() != entity {
-                continue;
-            }
+        for primitive in graph.primitives(entity) {
             let Some((character, renderer)) = drawn else {
                 commands.entity(primitive).despawn();
                 removed = true;
@@ -273,7 +269,8 @@ pub(super) fn bind_instance(
             commands
                 .entity(primitive)
                 .insert(AuthoredRenderer(renderer.state.clone()));
-            let slot = extras
+            let slot = graph
+                .extras
                 .get(primitive)
                 .map_err(|e| e.to_string())
                 .and_then(|e| {
@@ -299,7 +296,7 @@ pub(super) fn bind_instance(
         if removed {
             continue;
         }
-        if let Err(error) = bind_node(commands, node, entity, extra, primitives) {
+        if let Err(error) = bind_node(commands, node, entity, extra, graph) {
             error!("Player body: {error}");
         }
     }
@@ -334,9 +331,7 @@ fn bind(
     reference: Res<RuntimeReference>,
     frame: Res<SimFrameResource>,
     mut body: ResMut<PlayerBody>,
-    children: Query<&Children>,
-    extras: Query<&GltfExtras>,
-    primitives: Query<(Entity, &ChildOf), With<Mesh3d>>,
+    graph: SceneGraph,
 ) {
     if let Some(bound) = bind_instance(
         0,
@@ -344,9 +339,7 @@ fn bind(
         &mut commands,
         &reference.0,
         frame.rig(),
-        &children,
-        &extras,
-        &primitives,
+        &graph,
     ) {
         body.bound = bound;
     }

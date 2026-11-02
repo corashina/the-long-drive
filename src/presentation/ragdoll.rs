@@ -8,13 +8,13 @@ use super::player_body::{
     BoundQuery, Identity, OutfitQuery, character_nodes, character_renderer, dress, materials_bound,
     outfit_slot,
 };
-use super::reference::{ReferenceVisuals, bind_node};
+use super::reference::ReferenceVisuals;
 use super::renderers::AuthoredRenderer;
+use super::scene_nodes::{SceneGraph, bind_node};
 use super::sim_frame::SimFrameResource;
 use crate::app::{Drive, RuntimeReference};
 use crate::reference::NodeId;
 use bevy::ecs as bevy_ecs;
-use bevy::gltf::GltfExtras;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAssetRoot, WorldInstanceReady};
 use simulation::boundary::PoseRow;
@@ -42,9 +42,7 @@ fn bind(
     mut commands: Commands,
     reference: Res<RuntimeReference>,
     mut ragdoll: ResMut<RagdollBody>,
-    children: Query<&Children>,
-    extras: Query<&GltfExtras>,
-    primitives: Query<(Entity, &ChildOf), With<Mesh3d>>,
+    graph: SceneGraph,
 ) {
     let manifest = &reference.0;
     let record = &manifest.clothing.ragdoll;
@@ -55,8 +53,8 @@ fn bind(
         return;
     };
     let mut bodies = HashMap::<NodeId, Entity>::new();
-    for entity in children.iter_descendants(event.entity) {
-        let Ok(extra) = extras.get(entity) else {
+    for entity in graph.children.iter_descendants(event.entity) {
+        let Ok(extra) = graph.extras.get(entity) else {
             continue;
         };
         let Some(node) = serde_json::from_str::<Identity>(&extra.value)
@@ -79,10 +77,7 @@ fn bind(
         }
         let drawn = character_renderer(characters, node.id);
         let mut removed = false;
-        for (primitive, parent) in &primitives {
-            if parent.parent() != entity {
-                continue;
-            }
+        for primitive in graph.primitives(entity) {
             let Some((character, renderer)) = drawn else {
                 commands.entity(primitive).despawn();
                 removed = true;
@@ -91,7 +86,8 @@ fn bind(
             commands
                 .entity(primitive)
                 .insert(AuthoredRenderer(renderer.state.clone()));
-            let slot = extras
+            let slot = graph
+                .extras
                 .get(primitive)
                 .map_err(|e| e.to_string())
                 .and_then(|e| {
@@ -117,7 +113,7 @@ fn bind(
         if removed {
             continue;
         }
-        if let Err(error) = bind_node(&mut commands, node, entity, extra, &primitives) {
+        if let Err(error) = bind_node(&mut commands, node, entity, extra, &graph) {
             error!("Ragdoll: {error}");
         }
     }
