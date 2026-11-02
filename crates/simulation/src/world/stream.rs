@@ -368,6 +368,9 @@ pub struct WorldStream {
     /// Source breakablescript targets of active content.
     pub breakables: crate::damage::Breakables,
     evaluator: TerrainEvaluator,
+    /// `roads[0]` lateral curve and width for `road_point`.
+    road_curve: super::RoadCurve,
+    road_width: f32,
     color_foundations: Vec<super::FoundationPoint>,
     color_helpers: Vec<TerrainFoundation>,
     tiles: [TerrainTile; 3],
@@ -1025,6 +1028,8 @@ impl WorldStream {
             boxes: Default::default(),
             breakables: Default::default(),
             evaluator,
+            road_curve: super::RoadCurve::new(world, seed),
+            road_width: world.road.width,
             color_foundations: Vec::new(),
             color_helpers: Vec::new(),
             tiles: [
@@ -3992,6 +3997,19 @@ impl WorldStream {
         let height = context.height(xz);
         let color = self.evaluator.color(xz, height);
         (height, super::forced_color(color, context.biome_override))
+    }
+    /// Source `roads[0].OneCoord(position)` with Y at `above` over the base terrain height
+    /// (`GetTerrainHeightWorld(pb1: true, pb2: false, pb3: false)`). Absolute coordinates.
+    pub fn road_point(&self, position: [f64; 3], above: f32) -> [f64; 3] {
+        // OneCoord projects onto the identity world's forward axis. Source Z is the negated world Z.
+        let z = -position[2] as f32;
+        let x = self.road_curve.value(z.abs()) * self.road_width;
+        let height = self.evaluator.base_height([x, z], true);
+        [
+            f64::from(x),
+            f64::from(height) + f64::from(above),
+            position[2],
+        ]
     }
     pub fn required_content(&self) -> super::RequiredContent<'_> {
         super::RequiredContent {
