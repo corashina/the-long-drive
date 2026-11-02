@@ -60,6 +60,8 @@ pub struct StepInput<'a> {
     /// Squared horizontal distance from a local point to the nearest source important object.
     pub important: &'a dyn Fn(Vector) -> f32,
     pub distances: PlaceDistances,
+    /// Source `aispawn.SpawnRoutine` runs only when `isServerOrNoMulti`: false on a multiplayer guest.
+    pub spawns: bool,
 }
 
 /// Source `itemPlaceRemoveScript` distances, squared as in `FStart`.
@@ -370,8 +372,9 @@ impl Creatures {
                 )
             })
             .collect();
+        let id = self.take_id(Some(saved.id));
         let mut rabbit = Rabbit::new(
-            self.next_id,
+            id,
             r,
             RigidBodyHandle::invalid(),
             Vec::new(),
@@ -381,7 +384,6 @@ impl Creatures {
             now,
             &mut self.random,
         );
-        self.next_id += 1;
         rabbit.alive = false;
         rabbit.health.shoot_health = saved.shoot_health;
         rabbit.senses.has_eyes = saved.eyes;
@@ -437,22 +439,24 @@ impl Creatures {
         }
         let count = self.ais.len();
         let mut spawned = Vec::new();
-        self.spawner.step(
-            &r.spawner,
-            now,
-            count,
-            &input.player,
-            physics,
-            &mut self.random,
-            |place, random| {
-                let yaw = random.range(0., 360.);
-                spawned.push((place, Size::new(r, random.unit()), yaw));
-            },
-        );
+        if input.spawns {
+            self.spawner.step(
+                &r.spawner,
+                now,
+                count,
+                &input.player,
+                physics,
+                &mut self.random,
+                |place, random| {
+                    let yaw = random.range(0., 360.);
+                    spawned.push((place, Size::new(r, random.unit()), yaw));
+                },
+            );
+        }
         for (place, size, yaw) in spawned {
             let pose = Pose::from_parts(place, Rotation::from_rotation_y(-yaw.to_radians()));
             let id = self
-                .spawn(r, physics, pose, size, size.shoot_health, now)
+                .spawn(r, physics, pose, size, size.shoot_health, now, None)
                 .expect("validated rabbit reference")
                 .id;
             self.ais.push(id);
@@ -588,10 +592,18 @@ impl Creatures {
     ) -> Result<u32, ReferenceError> {
         let size = Size::new(r, size);
         Ok(self
-            .spawn(r, physics, pose, size, size.shoot_health, now)?
+            .spawn(r, physics, pose, size, size.shoot_health, now, None)?
             .id)
     }
 
+    /// `id`: a saved or host id, or none for a new one.
+    fn take_id(&mut self, id: Option<u32>) -> u32 {
+        let id = id.unwrap_or(self.next_id);
+        self.next_id = self.next_id.max(id + 1);
+        id
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn spawn(
         &mut self,
         r: &RabbitReference,
@@ -600,12 +612,14 @@ impl Creatures {
         size: Size,
         shoot_health: f32,
         now: f64,
+        id: Option<u32>,
     ) -> Result<&mut Rabbit, ReferenceError> {
         let (body, colliders, trigger) =
             rabbit::insert_body(r, &self.rig, &self.bones, &size, pose, physics)?;
         self.triggers.push((trigger.handle, true));
+        let id = self.take_id(id);
         let mut rabbit = Rabbit::new(
-            self.next_id,
+            id,
             r,
             body,
             colliders,
@@ -621,9 +635,75 @@ impl Creatures {
                 .evil
                 .get_evil(&r.evil, &mut rabbit.brain, true, now, &mut self.random);
         }
-        self.next_id += 1;
         self.rabbits.push(rabbit);
         Ok(self.rabbits.last_mut().unwrap())
+    }
+
+    /// Multiplayer host: each loaded rabbit as id, size, alive, root pose and velocity.
+    pub fn host_rows<'a>(
+        &'a self,
+        physics: &'a PhysicsWorld,
+    ) -> impl Iterator<Item = (u32, f32, bool, Pose, Vector)> + 'a {
+        self.rabbits.iter().map(|rabbit| {
+            let velocity = if rabbit.bones.is_empty() {
+                physics.rapier().bodies[rabbit.body].linvel()
+            } else {
+                Vector::ZERO
+            };
+            (
+                rabbit.id,
+                rabbit.size.size,
+                rabbit.alive,
+                root_pose(physics, rabbit),
+                velocity,
+            )
+        })
+    }
+
+    /// Multiplayer guest: the host rabbit `id` (source item pose of an AI). A loaded rabbit takes the
+    /// pose and velocity and dies with the host. A far one moves its snapshot. A new live one spawns.
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_host(
+        &mut self,
+        r: &RabbitReference,
+        physics: &mut PhysicsWorld,
+        origin: &WorldOrigin,
+        id: u32,
+        size: f32,
+        alive: bool,
+        pose: Pose,
+        velocity: Vector,
+        now: f64,
+    ) -> Result<(), ReferenceError> {
+        if let Some(rabbit) = self.rabbits.iter_mut().find(|rabbit| rabbit.id == id) {
+            if !rabbit.bones.is_empty() {
+                return Ok(());
+            }
+            if !alive {
+                kill(rabbit, Death::Hit, &mut self.deaths);
+            }
+            physics.edit_body(rabbit.body, |body| {
+                body.set_position(pose, true);
+                if body.is_dynamic() {
+                    body.set_linvel(velocity, true);
+                }
+            });
+            return Ok(());
+        }
+        if let Some(far) = self.far.iter_mut().find(|s| s.id == id) {
+            far.pose = AbsolutePose {
+                position: origin.absolute(pose.translation.to_array()),
+                rotation: pose.rotation.to_array(),
+            };
+            far.alive &= alive;
+            return Ok(());
+        }
+        if !alive || !(0.0..=1.0).contains(&size) {
+            return Ok(());
+        }
+        let size = Size::new(r, size);
+        self.spawn(r, physics, pose, size, size.shoot_health, now, Some(id))?;
+        Ok(())
     }
 
     /// Rabbits for the renderer.
@@ -722,7 +802,15 @@ impl Creatures {
                 Vector::from_array(origin.local(s.pose.position)),
                 Rotation::from_array(s.pose.rotation),
             );
-            let rabbit = self.spawn(r, physics, pose, Size::new(r, s.size), s.shoot_health, now)?;
+            let rabbit = self.spawn(
+                r,
+                physics,
+                pose,
+                Size::new(r, s.size),
+                s.shoot_health,
+                now,
+                Some(s.id),
+            )?;
             rabbit.senses.has_eyes = s.eyes;
             rabbit.senses.has_ears = s.ears;
         }
@@ -801,6 +889,7 @@ fn snapshot(physics: &PhysicsWorld, origin: &WorldOrigin, rabbit: &Rabbit) -> Ra
     };
     let pose = root_pose(physics, rabbit);
     RabbitSnapshot {
+        id: rabbit.id,
         pose: absolute(&pose),
         size: rabbit.size.size,
         shoot_health: rabbit.health.shoot_health,

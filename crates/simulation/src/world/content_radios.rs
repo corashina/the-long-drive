@@ -370,6 +370,39 @@ impl WorldStream {
         items.mark_dirty(item);
         Some((item, click))
     }
+    /// The controls of radio `item`.
+    pub fn radio_state(&self, item: ItemId) -> Option<&RadioState> {
+        self.radio_bindings
+            .iter()
+            .find(|b| b.item == item)
+            .map(|b| &b.state)
+    }
+    /// Source `snItemsync.UpdRadio`: the controls of radio `item` from a peer.
+    pub fn set_radio(
+        &mut self,
+        item: ItemId,
+        saved: &crate::save::RadioSnapshot,
+        items: &mut ItemStore,
+    ) {
+        let Some(index) = self.radio_bindings.iter().position(|b| b.item == item) else {
+            return;
+        };
+        let b = &mut self.radio_bindings[index];
+        if !saved.tuning.is_finite()
+            || !saved.volume.is_finite()
+            || b.state.restore_save(saved).is_err()
+        {
+            return;
+        }
+        if b.place_needle() {
+            let slot = ContentSlot::Active(b.slot);
+            if !self.presentation_changes.contains(&slot) {
+                self.presentation_changes.push(slot);
+            }
+        }
+        self.show_radio_power(index);
+        items.mark_dirty(item);
+    }
     /// The radio of a knob collider.
     pub fn knob_radio(&self, knob: ColliderId) -> Option<&RadioState> {
         self.radio_bindings
