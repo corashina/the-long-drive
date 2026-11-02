@@ -57,15 +57,9 @@ Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix 
 - WD20: `tp_wd20_a_hard_hit_breaks_a_tumbleweed_with_its_gib_and_it_stays_gone` needs the next export. The exporter now exports gib ParticleSystems (`behavior.gib_particles`, #WD20). The tumbleweed gib is particles only. The test passes on ee6554d with a stand-in particle record.
 - Export field added (#PB): `player.seat_push_force` (source `fpscontroller.seatPushForce`). Export ee6554d lacks it, so re-export before the next run.
 - MC2, older tests: `garage_start_car_drives_in_automatic`, `car07_drives_in_forced_automatic` and `two_ladas_drive_save_and_load` pass (#MC2). `start_cars_drive_save_and_load`: StartCar01 (Car01Full) stalls in first gear with full gas: the rpm falls from 600 to 0 at torque 8 Nm. `lada_tows_the_trailer_and_the_hitch_saves`: the Lada now tows the trailer on a deck, but the load of the hitched trailer never gets ready (one structure replay stays pending).
-- Changed without a run, because the cloud has no export. Run them in the next test pass:
-  - `bike01_kick_starts_and_rides_upright`: automatic gears in a gearbox without neutral now keep the gear. Before: panic "validated neutral".
-  - `bike03_pedals_then_kick_starts`: it now takes any vehicle with pedals. Before: no bike prototype.
-  - `tp_w12_a_crowbar_hit_does_not_dig_up_a_buried_item`: it replaces `crowbar_hit_does_not_lift_a_buried_item` and uses the world prototype crowbar.
-  - `fixed_decorations_preserve_collision_without_item_bindings`: the wrong-file prototype is gone. It had no source rule.
-- Stale test data: `roadside_possession_survives_owner_retirement_without_duplicate_spawn` finds no natural right-hand item at the building.
+- `bike01_kick_starts_and_rides_upright`: the Bike01 copy has no fuel tank. Its tank slot spawns a part only by chance (source `partslotscript.spawnChance`), so the kick start has no fuel.
+- Stale test data: `roadside_possession_survives_owner_retirement_without_duplicate_spawn`. Its building 83471 has a right-hand item after 3000 steps, but no car part. In the first 12 road buildings, the start car moved there retires.
 - `fixed_decoration_possessions_restore_on_item_path`: the part check passes now (#CP: every part registers). The last step fails the same way with or without that change: the dropped, retired possession published again fails sync with "Source snapshot has no container".
-- `road_building_cable_is_in_building_appearance`: no building cables.
-- `required_publication_reaches_ready_and_withholds_dependencies`: the world is not supported.
 
 Blocked checks. Each waits for the fix of its bug. Run them in the next build's test pass.
 

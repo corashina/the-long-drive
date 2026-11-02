@@ -88,6 +88,7 @@ fn seated_bike(
         })
         .expect("bike seat");
     assert!(run.area.player.enter_item_seat(&seat, &mut run.physics));
+    super::car_types::release_handbrake(&mut run, reference, &key);
     seconds(&mut run, reference, 2.);
     assert!(run.physics.wheel_contacts(&key).all(|c| c), "wheels down");
     assert!(!running(&run, &key));
@@ -193,11 +194,11 @@ fn bike03_pedals_then_kick_starts() {
     let moved = distance(start, run.physics.snapshot(&key).pose.position);
     assert!(started, "pedaling kick starts the engine after {moved} m");
 
-    // The pedals give no torque while the engine runs.
+    // The pedals give no torque while the engine runs. Source `output` keeps its value, but
+    // `disabled` skips the wheel torque.
     for i in 0..(2. / FIXED_DT) as usize {
         step(&mut run, &reference, player_keys::GAS);
-        let pedals = run.vehicles[&key].pedals;
-        assert_eq!(pedals.output, 0., "step {i}: pedal torque");
+        assert!(run.vehicles[&key].pedals.disabled, "step {i}: pedal torque");
     }
     assert!(running(&run, &key));
     assert_eq!(run.vehicles[&key].pedals.gas, 0.);
