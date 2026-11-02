@@ -49,7 +49,7 @@ Look, listen and F3-only checks are on Tomasz's eyes list (project file `plans/t
 
 Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix before the next run:
 
-- K4 (browser): First page load can stall at the start of object loading with dependency staging full (7.7/7.8 MiB). A reload clears it.
+- K4 (browser): First page load can stall during object loading. A reload clears it, because each page load picks a new world seed. Repeat a seed with `?sandbox&seed=N`; seeds 2141051742 and 1122282040 stall. One stall needs an 81 MB prototype payload with Asset CPU at 512/512 MiB. The other stall waits for job and pending credit that the stream does not grant.
 - K5 (browser): In game, pause > Load > Load last once stayed on "Loading..." for over 6 minutes, with no console messages. The simulation and the save bridge finish the load (`tp_k5_s1_a_stored_save_starts_the_session_and_its_restore_finishes`), so the hang is in the browser.
 - 32 of 169 ignored simulation tests failed in release. Debug overflows the stack. #KF removed 8 old tests that `roadmap_tests` covers, and changed 4 without a run. The lines below name each open one.
 - WD3: `tp_wd3_each_melee_weapon_swings_with_each_key_and_breaks_a_bottle` needs the next export. The exporter now links melee weapons through `pickupable.melee` (#WD3), which adds the katana, fly swatter and leg. The test passes on ee6554d with those records added.

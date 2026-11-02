@@ -153,7 +153,7 @@ impl SourceFixedAssets {
             .textures
             .iter()
             .map(|t| {
-                if t.aniso > 1
+                if t.aniso > 16
                     || t.mip_bias != 0.0
                     || t.filter_mode > 2
                     || t.wrap_u > 2
@@ -661,6 +661,7 @@ impl SourceFixedAssets {
                     filter: record.filter_mode,
                     wrap_u: record.wrap_u,
                     wrap_v: record.wrap_v,
+                    aniso: record.aniso as u16,
                     main_world_only: false,
                     decoded_bytes: row.pixels.len(),
                 };
@@ -961,6 +962,7 @@ impl SourceFixedAssets {
                             filter,
                             wrap_u,
                             wrap_v,
+                            aniso: 0,
                             main_world_only: true,
                             decoded_bytes,
                         };

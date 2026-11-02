@@ -16,6 +16,8 @@ pub struct SourceImageSettings {
     pub wrap_u: u8,
     pub wrap_v: u8,
     #[serde(default)]
+    pub aniso: u16,
+    #[serde(default)]
     pub main_world_only: bool,
     #[serde(default)]
     pub decoded_bytes: usize,
@@ -128,13 +130,14 @@ pub(crate) fn source_image(
     image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
         mag_filter: filter,
         min_filter: filter,
-        mipmap_filter: if settings.filter == 2 {
+        mipmap_filter: if settings.filter == 2 || settings.aniso > 1 {
             ImageFilterMode::Linear
         } else {
             ImageFilterMode::Nearest
         },
         address_mode_u: address(settings.wrap_u),
         address_mode_v: address(settings.wrap_v),
+        anisotropy_clamp: settings.aniso.max(1),
         ..default()
     });
     image

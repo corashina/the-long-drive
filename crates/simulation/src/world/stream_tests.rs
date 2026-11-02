@@ -113,6 +113,37 @@ fn terrain_admission_respects_pending_capacity_and_continues_at_capacity() {
 
 #[test]
 #[ignore = "requires the installed source export"]
+fn waiting_renderer_ready_surface_lends_the_publication_slot() {
+    let reference = reference();
+    let mut stream = WorldStream::new_default(&reference, 42).unwrap();
+    let mut physics = PhysicsWorld::new(&reference);
+    stream.initial_generation_ready = true;
+    stream.terrain_ready[0] = true;
+    stream.wanted_tiles.push(SurfaceKey {
+        layer: WorldLayer::Terrain,
+        unit: [0, 0],
+    });
+    for _ in 0..1000 {
+        stream.prepare_terrain(|| true);
+        if stream.ready.is_some() {
+            break;
+        }
+    }
+    let work = stream.ready.as_ref().unwrap();
+    let (request, key) = (work.request, work.published.key);
+    stream.reserve_surface_renderer(request, key).unwrap();
+    stream.accept_surface_renderer(request, key).unwrap();
+    // The surface waits, as a road waits for a required structure. Renderer work that the
+    // structure waits for, such as a grass writer, needs the publication slot.
+    stream.terrain_ready[0] = false;
+    stream.publish(&mut physics, &[]).unwrap();
+    assert!(stream.ready.is_some());
+    stream.take_presentation_report(PresentationReport::default());
+    assert!(stream.grant_presentation().publication);
+}
+
+#[test]
+#[ignore = "requires the installed source export"]
 fn structure_refresh_accumulates_both_foci_and_forced_refreshes() {
     let reference = reference();
     let mut run = GarageRuntime::new_default(&reference).unwrap();
