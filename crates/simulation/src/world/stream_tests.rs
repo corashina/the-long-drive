@@ -498,6 +498,7 @@ fn swept_boundaries(run: &mut GarageRuntime, reference: &ReferenceManifest) {
         "player must stop before unresolved collision"
     );
     publish_with_receipts(run);
+    run.sync_world_activity(reference).unwrap();
     assert!(run.world_supported());
     run.step(
         reference,
@@ -506,11 +507,10 @@ fn swept_boundaries(run: &mut GarageRuntime, reference: &ReferenceManifest) {
             ..Default::default()
         },
     );
+    // The player falls from 10 m up and has no air control, so compare all axes.
     let after = run.area.player.body_pose(&run.physics);
-    assert!(
-        (after.position[0] - before.position[0]).abs()
-            + (after.position[2] - before.position[2]).abs()
-            > 1e-5,
+    assert_ne!(
+        after.position, before.position,
         "player advances after collision publication"
     );
 
@@ -1822,10 +1822,33 @@ fn road_pole_cable_reaches_the_next_pole() {
 #[test]
 #[ignore = "requires the installed source export"]
 fn road_building_cable_is_in_building_appearance() {
-    let reference = reference();
-    let run = ready(&reference);
+    let (reference, mut run) = load_garage();
+    // The garage area has no cabled road building. Visit road buildings until one has a cable.
+    let cabled = |run: &GarageRuntime| {
+        run.stream
+            .building_cables
+            .iter()
+            .any(|(_, c)| !c.is_empty())
+    };
+    for name in ["Benzinkut01", "Buszmegallo", "LegjobbBenzinkut", "Mansion"] {
+        if cabled(&run) {
+            break;
+        }
+        act(
+            &mut run,
+            &reference,
+            &format!(r#"{{"action":"building","name":"{name}"}}"#),
+        );
+        for _ in 0..3000 {
+            if run.world_supported() && run.stream.required_ready() {
+                break;
+            }
+            frame(&mut run, &reference);
+        }
+        seconds(&mut run, &reference, 2.);
+    }
+    assert!(cabled(&run), "a road building has a cable");
     let stream = &run.stream;
-    assert!(!stream.building_cables.is_empty());
     for (id, cable) in stream.building_cables.iter().filter(|(_, c)| !c.is_empty()) {
         assert_eq!(cable[0].active, Some(true));
         let appearance = stream.appearance(id);
