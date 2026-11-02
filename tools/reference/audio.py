@@ -992,5 +992,18 @@ def recover_ambient(source):
     return {'source':source_id(cycle),
         'day_volume':[cd['dayAmbientSoundVolumeDay'][0],cd['dayAmbientSoundVolumeNight'][0]],
         'night_volume':[cd['nightAmbientSoundVolumeDay'][0],cd['nightAmbientSoundVolumeNight'][0]],
-        'modifier':cd['ambientSoundModifier'],'only_modifier':cd['onlyAmbientSoundModifier'],'recovery_per_second':0.1}
+        'modifier':cd['ambientSoundModifier'],'only_modifier':cd['onlyAmbientSoundModifier'],'recovery_per_second':0.1,
+        'player_electronics':player_electronics(source)}
+
+def player_electronics(source):
+    """empscript.affectAmbientSound reads the electronicsscript on a player collider of layer 10 or 12."""
+    from .explosions import PLAYER
+    player=source.get(*PLAYER)
+    root=source.transform_for(source.resolve(player,source.read(player)['m_GameObject']))
+    found=[(n,c) for n in source.hierarchy(root) for c in n['components']
+        if c.type.name=='MonoBehaviour' and source.class_name(c)=='electronicsscript' and source.read(n['game_object'])['m_Layer'] in (10,12)]
+    if len(found)!=1:raise ValueError(f'Player needs one ambient electronicsscript, found {len(found)}')
+    node,reader=found[0];f=source.read(reader)
+    if f['jamValue']!=0:raise ValueError(f'{key(reader)} nonzero startup jam requires source rule')
+    return {'source':source_id(reader),'max_output':f['maxOutput'],'override_max_jam':f['overRideMaxJamValue'],'layer':source.read(node['game_object'])['m_Layer']}
 

@@ -1050,6 +1050,17 @@ pub struct AmbientReference {
     pub modifier: f32,
     pub only_modifier: f32,
     pub recovery_per_second: f32,
+    pub player_electronics: PlayerElectronicsReference,
+}
+/// The player `electronicsscript` that `empscript.affectAmbientSound` reads.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlayerElectronicsReference {
+    pub source: SourceId,
+    pub max_output: f32,
+    pub override_max_jam: f32,
+    /// Collider layer: 10 or 12.
+    pub layer: u32,
 }
 impl AmbientReference {
     pub(super) fn validate(&self) -> Result<(), ReferenceError> {
@@ -1064,7 +1075,10 @@ impl AmbientReference {
                     .chain([&ambient.modifier, &ambient.only_modifier])
                     .all(|v| v.is_finite() && (0. ..=1.).contains(v))
                 && ambient.recovery_per_second.is_finite()
-                && ambient.recovery_per_second > 0.,
+                && ambient.recovery_per_second > 0.
+                && ambient.player_electronics.max_output.is_finite()
+                && ambient.player_electronics.override_max_jam.is_finite()
+                && matches!(ambient.player_electronics.layer, 10 | 12),
             "ambient",
         )?;
         Ok(())
