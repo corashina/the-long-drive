@@ -250,7 +250,7 @@ async function load(){
  const bytes=await downloadManifest(response);
  status.textContent='Loading game code...';
  loading.step('code',0);
- const [{default:init,run,manifest_shell,source_render_failure,source_render_audit,cpu_profile,request_thumbnail,wake_frame},module]=await code;
+ const [{default:init,prepare,run,manifest_shell,source_render_failure,source_render_audit,cpu_profile,request_thumbnail,wake_frame},module]=await code;
  const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;
  rustCpuProfile=cpu_profile;if(startupCpuProfile)rustCpuProfile(true);
  window.gameThumbnailFrame=()=>thumbnail.frame();thumbnail.connect(request_thumbnail);
@@ -325,10 +325,14 @@ async function load(){
  startup.end('interface');
  if(failed)return;status.textContent='Loading the garage...';loading.step('interface',1);
  startup.begin('generation');startup.begin('decodeUpload');startup.begin('pipeline');
+ // Parse the reference here while the worker parses its own copy and starts.
+ // The start message goes out in the first callback of `startWorld`, before this await ends.
+ await startWorld;if(failed)return;
+ prepare(bytes);
  const {world,startup:startupBytes,loadError}=await simulationStarted;
  if(world)menu.started(world.error||loadError,world.operation);
  if(world?.operation==='join'&&(world.error||loadError))multiplayer.leave();
- if(failed)return;run(bytes,startupBytes);
+ if(failed)return;run(startupBytes);
  cpuProfile.end('startup');
 }
 load().catch(error=>fail(error?.message??String(error)));
