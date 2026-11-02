@@ -25,49 +25,18 @@ The starting area, car parts, world and more cars sections are done. Only their 
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| X03a | Player hum | M | Source `fpscontroller` hum on `IN.hum`: start and loop clips, scroll selects the tune, mouse sets volume and pitch. `humStimul.SetAudioValue(volume * humStimulValues[tune])` lets rabbits hear it. Export the clips, values and key binding. |
 | X03b | EMP jamming | L | Live `electronicsscript.jamValue` (`mainscript.jamIncrease` 0.3, `jamDecrease` 0.1, `maxJamValue` 0.3, `TLastEmp`). Source `empscript`: `OverlapSphere`, Perlin range and value noise, `fallOff`, `ambientSoundModifier`. Jam dims car, headlights, flashlights, street lamps and bus doors, and affects compass, radio and metal detector. Today each output is fixed at spawn. |
 | X03c | Green-eyed evil rabbits | S | Needs X03b. `empscript.makeRabbitsEvil`: rabbit `electronicsscript.nyul` output below 0.2 calls `GetEvil(natural: false)`. `Evil::get_evil` has the `Green` path. Link rabbit electronics and render `EyeGreen`. |
-| X03d | Ground UFO | M | Needs X03b. Find and export the source prefabs that carry `empscript` (also check `sky_ufo`). Place the ground UFO with its model, sounds and EMP. |
 | X03f | Human monster AI | L | `newAiScript.Update`: sight by `fov` and ray, chase time, patrol (`GetNewPatrolPos`), rigidbody move, `AvoidWalls`, jump when stuck, ladders (`ladderV`), doors (`Use`), `peacefulEnemies`, `rizseshusi` target. |
 | X03g | Human monster animation and voice | M | Needs X03f. `newAiAnim` animator, look target and hand IK. Voices: idle, notice, chase, attack and death lists with pitch, and the `TVoice` mouth move. |
 | X03h | Human monster attack and death | M | Needs X03f. `Attack`: ray to the player, `survival.DamageInstant(damage * dt)`, both hands hold. `breakablescript.DamageFrom` wakes it and turns its target to the hit. Shot, collision and explosion break it. `Die`: ragdoll and death sound. |
+| X03i | UFO seat, colliders and stimulus | M | `fedoscript` seat: `PlayerInput`, the `AutoPilot`, `SetSpeed` and `SetHeight` usables, `seatedObj`. Fedo01 rigidbody and colliders. Its `stimulscript` (kind 3, value 50) for rabbits. The UFO itself flies since X03d. |
 
 ### Multiplayer
 
 Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). WebRTC peer to peer through PeerJS. The host browser runs the world. Guests talk only to the host. The host forwards.
 
 Not planned: VR, stereo 3D, mod events, Steam features.
-
-## Test pass
-
-Run these checks on Tomasz's PC in one run. Passed checks are removed.
-Check F3 in each scenario below. Compare with the frame rate rule.
-Look, listen and F3-only checks are on Tomasz's eyes list (project file `plans/tp-eyes-list.md`), not here.
-
-Headless run on 2026-11-02 (master ebed1d3, export 3fd48db): 174 of 179 ignored simulation tests passed, and 270 of 270 release workspace tests passed. #419 and #422-#425 fix the other 5. Each fix passed on Tomasz's PC before merge. W02 measured 24,128 bytes/km (120.6 MB for 5,000 km).
-
-Open before the next run:
-
-- X06c (browser): Stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
-- The stored key bindings reset once, because the export adds the `voicechat` binding (#M04).
-- X03e (browser): Enter an old house, a mansion or the Vizmu building with human spawns. Some have a human monster in its rest pose. It does not move before X03f. Saves keep it, and a placement does not spawn a second one.
-
-Prepare once:
-
-1. Pull master. Re-export, then make a release build. Old exports and old saves do not load. Only the current save schema loads.
-2. Paste the acquisition hash that the export prints into `CONTRACT_SHA256` if it changed.
-3. Run all ignored tests: `cargo test --release --lib -- --ignored --nocapture`.
-4. In that output, note the `w02_` bytes per km and the 5,000 km estimate. Above 200 MB, compact spawn boundaries.
-5. Claude runs the steps in Chrome with the test sandbox: see `tests/sandbox/README.md`. First check the sandbox itself: `spawn('Bus02Full', 10)` places a bus, and `teleport`, `building`, `spawn`, `hand`, `fill` and `cycle` work. Use `tests/sandbox/buses.js` for More cars steps 16-20.
-
-### Startup
-
-1. K4: Open the game 3 times in a new private window (empty cache). Each first load passes object loading and reaches the garage. The "Dependency staging" row on the loading screen does not stay full.
-
-### Saves
-
-1. K5: In game, pause > Load > Load last. The page reloads within 30 s and the last save loads. "Loading..." does not stay. Do the same with a named save from pause > Load.
 
 ### Multiplayer
 
@@ -83,3 +52,10 @@ Two browsers, host and guest in one room. Check F3 on the host before and after,
 8. M03: The guest takes off the start car hood and a wheel, and takes the tire off the rim. They come off on the host. The guest puts them back; they go back on at the host. The host hitches a trailer; it hitches on the guest.
 9. M03: The guest rides a sled down a dune. The host sees the sled and the guest move together. The host switches a garage light and a building lamp, and opens a bus door; all change on the guest. The guest rusts a part with a crash; the host sees the rust.
 10. M03: The guest eats half a sandwich, fires a gun and reloads it. The host sees the bites and hears the shot; the gun ammo matches on both. The guest pushes a wheelbarrow; it moves on the host. The guest breaks a bottle: the host sees it break and the shards on both match.
+
+### Creatures
+
+Re-export the reference first: X03d adds `sky.ground_ufo` and `sky.prefabs[].emp`.
+
+1. X03d: Sleep through nights until a UFO comes (after 2 to 6 nights, 75 % chance, host only). It comes from behind, 15 m over the road, with its hum and spin. It passes the player and flies on. Check F3 while it is near.
+2. X03e: Enter an old house, a mansion or the Vizmu building with human spawns. Some have a human monster in its rest pose. It does not move before X03f. Saves keep it, and a placement does not spawn a second one.

@@ -56,6 +56,8 @@ pub struct StepInput<'a> {
     pub player: Player,
     /// The player head stimulus position and the player body.
     pub head: (Vector, RigidBodyHandle),
+    /// Source `humStimul.SetAudioValue` volume.
+    pub hum: f32,
     pub origin: &'a WorldOrigin,
     /// True when the world has collision around a local point.
     pub supports: &'a dyn Fn(Vector) -> bool,
@@ -428,10 +430,14 @@ impl Creatures {
     pub fn step(&mut self, r: &RabbitReference, physics: &mut PhysicsWorld, input: &StepInput) {
         let now = input.now;
         let origin = *input.origin;
-        self.stimuli
-            .rebuild(&self.sources, input.head, &self.bound, now, |p| {
-                Vector::from_array(origin.local(p))
-            });
+        self.stimuli.rebuild(
+            &self.sources,
+            input.head,
+            input.hum,
+            &self.bound,
+            now,
+            |p| Vector::from_array(origin.local(p)),
+        );
         if self.spawner.due(now) {
             // `SpawnRoutine` drops one destroyed AI per tick.
             let rabbits = &self.rabbits;

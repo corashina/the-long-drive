@@ -14,6 +14,8 @@ pub struct InstrumentSample {
     /// Source `carscript.ledOilTestTwoStrokeDefault`.
     pub oil_led_two_stroke: bool,
     pub local_ignition: bool,
+    /// Live `carscript.electronics` output.
+    pub electronics_output: f32,
     pub headlights: u8,
     pub distance_m: f64,
 }
@@ -53,7 +55,7 @@ pub fn lamp_bits(lamps: &[LampReference], limits: &GaugeLimits, s: &InstrumentSa
             "oil" => oil_lamp(limits, s),
             "battery" => s.local_ignition && s.rpm < limits.battery_test_rpm,
             "headlight2" => {
-                s.headlights == 2 && limits.electronics_output > limits.electronics_off_threshold
+                s.headlights == 2 && s.electronics_output > limits.electronics_off_threshold
             }
             _ => false,
         };
@@ -216,6 +218,7 @@ mod tests {
         let s = InstrumentSample {
             rpm: 3000.,
             local_ignition: true,
+            electronics_output: 1.,
             oil_led_two_stroke: true,
             two_stroke: true,
             oil_penalty: 0.5,
@@ -250,6 +253,7 @@ mod tests {
         let s = InstrumentSample {
             rpm: 3000.,
             local_ignition: true,
+            electronics_output: 1.,
             oil_liters: 0.5,
             two_stroke: true,
             oil_penalty: 1.,

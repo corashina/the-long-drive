@@ -1,0 +1,37 @@
+longest FunctionCall ms 2495 175,170,135
+busy samples 4360
+3499  <simulation[914e7017016368d5]::world::spawn_rules::SourceRules>::index
+267  <simulation[914e7017016368d5]::world::spawn_rules::SourceRules>::get
+188  <simulation[914e7017016368d5]::world::spawn_rules::SourceRules>::node_index
+92  simulation[914e7017016368d5]::world::spawn_rules::number::<simulation[914e7017016368d5]::world::spawn_rules::Fields>
+80  <simulation[914e7017016368d5]::world::spawn_rules::SourceRules>::descend
+76  simulation[914e7017016368d5]::world::spawn_rules::vector::<simulation[914e7017016368d5]::world::spawn_rules::Fields>
+51  <simulation[914e7017016368d5]::reference::world::fields::WorldFields>::get
+30  simulation[914e7017016368d5]::world::spawn_rules::array::<simulation[914e7017016368d5]::world::spawn_rules::Fields>
+
+HOTTEST STACK (1796)
+  <simulation[914e7017016368d5]::world::spawn_rules::SourceRules>::index
+  < <simulation[914e7017016368d5]::world::spawn_rules::SourceRules>::get
+  < <simulation[914e7017016368d5]::world::spawn_rules::SourceRules>::descend
+  < <simulation[914e7017016368d5]::world::spawn_rules::SourceRules>::descend
+  < <simulation[914e7017016368d5]::world::spawn_rules::SourceRules>::descend
+  < <simulation[914e7017016368d5]::world::stream::renderer_world::RendererWorld>::lamp_materials
+  < <bevy_ecs[d6701b2d2a3a83c4]::system::function_system::FunctionSystem<fn(bevy_ecs[d6701b2d2a3a83c4]::change_detection::params::Res<the_long_slop[2333efbb634fffe7]::app::RuntimeReference>, bevy_ecs[d6701b2d2a3a83c4]::change_detection::params::ResMut<the_long_slop[2333efbb634fffe7]::app::Drive>, bevy_ecs[d6701b2d2a3a83c4]::change_detection::params::ResMut<the_long_slop[2333efbb634fffe7]::presentation::sim_frame::SimFrameResource>, the_long_slop[2333efbb634fffe7]::presentation::world::runtime::WorldPresentation, bevy_ecs[d6701b2d2a3a83c4]::system::query::Query<(&bevy_camera[763ee491c0c88709]::projection::Projection, &bevy_transform[c9d91010c53d1b13]::components::transform::Transform), bevy_ecs[d6701b2d2a3a83c4]::query::filter::With<the_long_slop[2333efbb634fffe7]::presentation::camera::DriveCamera>>, bevy_ecs[d6701b2d2a3a83c4]::change_detection::params::Res<the_long_slop[2333efbb634fffe7]::presentation::view_frame::SourceViewFrame>, bevy_ecs[d6701b2d2a3a83c4]::change_detection::params::Res<the_long_slop[2333efbb634fffe7]::presentation::view_frame::SourceSceneEpoch>, bevy_ecs[d6701b2d2a3a83c4]::system::query::Query<&bevy_window[114492e90c0ee1cd]::window::Window>), (), (), the_long_slop[2333efbb634fffe7]::app::prepare_world> as bevy_ecs[d6701b2d2a3a83c4]::system::system::System>::run_unsafe
+  < <bevy_ecs[d6701b2d2a3a83c4]::system::function_system::FunctionSystem<fn(bevy_ecs[d6701b2d2a3a83c4]::change_detection::params::Res<the_long_slop[2333efbb634fffe7]::app::RuntimeReference>, bevy_ecs[d6701b2d2a3a83c4]::change_detection::params::ResMut<the_long_slop[2333efbb634fffe7]::app::Drive>, bevy_ecs[d6701b2d2a3a83c4]::change_detection::params::ResMut<the_long_slop[2333efbb634fffe7]::presentation::sim_frame::SimFrameResource>, the_long_slop[2333efbb634fffe7]::presentation::world::runtime::WorldPresentation, bevy_ecs[d6701b2d2a3a83c4]::system::query::Query<(&bevy_camera[763ee491c0c88709]::projection::Projection, &bevy_transform[c9d91010c53d1b13]::components::transform::Transform), bevy_ecs[d6701b2d2a3a83c4]::query::filter::With<the_long_slop[2333efbb634fffe7]::presentation::camera::DriveCamera>>, bevy_ecs[d6701b2d2a3a83c4]::change_detection::params::Res<the_long_slop[2333efbb634fffe7]::presentation::view_frame::SourceViewFrame>, bevy_ecs[d6701b2d2a3a83c4]::change_detection::params::Res<the_long_slop[2333efbb634fffe7]::presentation::view_frame::SourceSceneEpoch>, bevy_ecs[d6701b2d2a3a83c4]::system::query::Query<&bevy_window[114492e90c0ee1cd]::window::Window>), (), (), the_long_slop[2333efbb634fffe7]::app::prepare_world> as bevy_ecs[d6701b2d2a3a83c4]::system::system::System>::run_without_applying_deferred
+  < <bevy_ecs[d6701b2d2a3a83c4]::schedule::executor::single_threaded::SingleThreadedExecutor as bevy_ecs[d6701b2d2a3a83c4]::schedule::executor::SystemExecutor>::run
+  < <bevy_ecs[d6701b2d2a3a83c4]::schedule::schedule::Schedule>::run
+  < <bevy_app[7938d26ca102c9]::main_schedule::Main>::run_main
+  < <bevy_ecs[d6701b2d2a3a83c4]::system::exclusive_function_system::ExclusiveFunctionSystem<fn(bevy_ecs[d6701b2d2a3a83c4]::system::system_param::Local<bool>), (), <bevy_app[7938d26ca102c9]::main_schedule::Main>::run_main> as bevy_ecs[d6701b2d2a3a83c4]::system::system::System>::run_unsafe
+  < <bevy_ecs[d6701b2d2a3a83c4]::schedule::executor::single_threaded::SingleThreadedExecutor as bevy_ecs[d6701b2d2a3a83c4]::schedule::executor::SystemExecutor>::run
+  < <bevy_ecs[d6701b2d2a3a83c4]::schedule::schedule::Schedule>::run
+  < <bevy_app[7938d26ca102c9]::sub_app::SubApp>::run_default_schedule
+  < <bevy_app[7938d26ca102c9]::sub_app::SubApps>::update
+  < <winit[7c54e04820d3f35]::platform_impl::web::event_loop::EventLoop<bevy_winit[60b5f95eca366efb]::WinitUserEvent>>::spawn::<<winit[7c54e04820d3f35]::event_loop::EventLoop<bevy_winit[60b5f95eca366efb]::WinitUserEvent> as winit[7c54e04820d3f35]::platform::web::EventLoopExtWebSys>::spawn_app<bevy_winit[60b5f95eca366efb]::state::WinitAppRunnerState>::{closure#0}>::{closure#0}
+  < <winit[7c54e04820d3f35]::platform_impl::web::event_loop::runner::Shared>::handle_event::<winit[7c54e04820d3f35]::event::Event<()>>
+  < <winit[7c54e04820d3f35]::platform_impl::web::web_sys::animation_frame::AnimationFrameHandler>::on_animation_frame::<<winit[7c54e04820d3f35]::platform_impl::web::event_loop::window_target::ActiveEventLoop>::register::{closure#20}>::{closure#0}
+  < wasm_bindgen[7d83d9a8d208435b]::convert::closures::_::invoke::<(), true>
+  < js-to-wasm:ii:
+  < wasm_bindgen_7d83d9a8d208435b___convert__closures_____invoke_______true_
+  < real._wbg_cb_unref
+  < real
+  < (root)
