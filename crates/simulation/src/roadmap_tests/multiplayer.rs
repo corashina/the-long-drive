@@ -378,8 +378,9 @@ fn tp_m03_a_host_item_moves_on_the_guest() {
     );
 }
 
-/// M03. Source `Claim`: a guest pickup claims the item, so the host does not send it. The drop
-/// sends the last pose, then the release, and the host owns the item again.
+/// M03. Source `Claim` and `UpdInventory`: a guest pickup claims the item, so the host does not send
+/// it, and the host copy rides on the guest. The drop sends the last pose, then the release, and the
+/// host owns the loose item again.
 #[test]
 #[ignore = "requires the installed source export"]
 fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
@@ -399,6 +400,11 @@ fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
         "the host sees the claim"
     );
     assert!(!pair.host.claims().owns(item, true));
+    let body = run.area.items.get(item).unwrap().body.unwrap();
+    assert!(
+        run.physics.rapier().bodies[body].is_kinematic(),
+        "source UpdInventory: the host copy rides on the guest"
+    );
     pair.run(&reference, &mut run, &mut guest, 1.2);
     assert!(
         apart(absolute(&run, item), absolute(&guest, copy)) < 0.2,
@@ -415,5 +421,9 @@ fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
     assert!(
         pair.host.claims().owns(item, true),
         "the host owns it again"
+    );
+    assert!(
+        run.physics.rapier().bodies[body].is_dynamic(),
+        "the host copy is loose again"
     );
 }
