@@ -44,7 +44,6 @@ Headless run on 2026-11-02 (master ebed1d3, export 3fd48db): 174 of 179 ignored 
 Open before the next run:
 
 - K4 (browser): First page load can stall at the start of object loading with dependency staging full (7.7/7.8 MiB). A reload clears it.
-- K5 (browser): In game, pause > Load > Load last once stayed on "Loading..." for over 6 minutes, with no console messages. The simulation and the save bridge finish the load (`tp_k5_s1_a_stored_save_starts_the_session_and_its_restore_finishes`), so the hang is in the browser.
 - X06c (browser): Stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
 - The stored key bindings reset once, because the export adds the `voicechat` binding (#M04).
 
@@ -55,6 +54,10 @@ Prepare once:
 3. Run all ignored tests: `cargo test --release --lib -- --ignored --nocapture`.
 4. In that output, note the `w02_` bytes per km and the 5,000 km estimate. Above 200 MB, compact spawn boundaries.
 5. Claude runs the steps in Chrome with the test sandbox: see `tests/sandbox/README.md`. First check the sandbox itself: `spawn('Bus02Full', 10)` places a bus, and `teleport`, `building`, `spawn`, `hand`, `fill` and `cycle` work. Use `tests/sandbox/buses.js` for More cars steps 16-20.
+
+### Saves
+
+1. K5: In game, pause > Load > Load last. The page reloads within 30 s and the last save loads. "Loading..." does not stay. Do the same with a named save from pause > Load.
 
 ### Multiplayer
 
