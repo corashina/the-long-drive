@@ -332,10 +332,7 @@ impl SaveSnapshot {
             "Source live random state",
         )?;
         let spawn = &self.world.spawn;
-        for id in &spawn.parents {
-            generated(id)?;
-        }
-        for s in &spawn.callers {
+        for s in &spawn.sources {
             source(s)?;
         }
         for c in &spawn.contexts {
@@ -347,6 +344,13 @@ impl SaveSnapshot {
         // restore_history below rejects bad table indices and duplicate boundaries.
         for b in &spawn.boundaries {
             data(b.random.words != [0; 4], "Source boundary random state")?;
+            data(
+                b.parent
+                    .unit
+                    .iter()
+                    .all(|v| v.unsigned_abs() <= crate::world::MAX_ABSOLUTE_COORDINATE as u64),
+                "Generated unit",
+            )?;
             let Some(init) = &b.initialization else {
                 continue;
             };

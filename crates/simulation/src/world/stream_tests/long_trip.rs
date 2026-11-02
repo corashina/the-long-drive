@@ -143,7 +143,6 @@ fn w02_long_trip_keeps_far_edits() {
         }
         if index % 20 == 0 {
             eprintln!("km {km}: history {:?}", history(&run));
-            eprintln!("km {km}: {}", run.stream.contents.state.breakdown());
         }
     }
     let end = history(&run);

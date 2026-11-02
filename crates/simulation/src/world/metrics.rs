@@ -68,7 +68,6 @@ pub struct WorldMetrics {
     pub checkpoint_bytes: usize,
     pub changed_record_bytes: usize,
     pub changed_objects: usize,
-    pub spawn_parents: usize,
     pub spawn_boundaries: usize,
     pub spawn_boundary_bytes: usize,
     pub prepared_roads: u32,

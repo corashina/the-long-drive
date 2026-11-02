@@ -1642,12 +1642,17 @@ mod tests {
         assert_eq!(contents.state.boundary_count(), 1);
         let history = contents.state.capture_history();
         let boundary = &history.boundaries[0];
+        let parent = &contents.cursors[0].parent.id;
         assert_eq!(
-            history.parents[boundary.parent as usize],
-            contents.cursors[0].parent.id
+            history.sources[boundary.parent.generator as usize],
+            parent.generator
         );
         assert_eq!(
-            history.callers[boundary.caller as usize],
+            (boundary.parent.unit, boundary.parent.ordinal),
+            (parent.unit, parent.ordinal)
+        );
+        assert_eq!(
+            history.sources[boundary.caller as usize],
             *contents.cursors[0].building.as_ref().unwrap()
         );
         assert_eq!(boundary.phase, SpawnPhase::SynchronousAndStarts);
