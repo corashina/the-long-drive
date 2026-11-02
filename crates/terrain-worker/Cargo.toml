@@ -1,0 +1,12 @@
+[package]
+name = "terrain-worker"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+terrain = { path = "../terrain" }
+wasm-bindgen = "=0.2.129"

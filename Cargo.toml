@@ -1,0 +1,61 @@
+[package]
+name = "the-long-slop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[workspace]
+members = ["crates/simulation", "crates/simulation-worker", "crates/terrain", "crates/terrain-worker", "crates/road-mesh", "crates/road-worker", "crates/grass-mesh", "crates/grass-worker"]
+
+[dependencies]
+simulation = { path = "crates/simulation" }
+bevy_platform = "=0.19.1"
+rapier3d = "=0.36.0"
+serde = { version = "=1.0.229", features = ["derive", "rc"] }
+serde_json = { version = "=1.0.151", features = ["float_roundtrip", "raw_value"] }
+terrain = { path = "crates/terrain" }
+road-mesh = { path = "crates/road-mesh" }
+grass-mesh = { path = "crates/grass-mesh" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+async-lock = "=3.4.2"
+bytemuck = "=1.25.2"
+js-sys = "=0.3.106"
+wgpu = { version = "=29.0.4", default-features = false }
+bevy = { version = "=0.19.1", default-features = false, features = [
+    "std", "async_executor", "bevy_asset", "bevy_log", "bevy_window",
+    "bevy_winit", "bevy_render", "bevy_core_pipeline", "bevy_pbr",
+    "bevy_light", "bevy_mesh", "bevy_camera", "bevy_color",
+    "keyboard", "mouse", "bevy_gltf", "png", "reflect_auto_register", "webgpu",
+] }
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "=0.4.79"
+# The frame limit wakes the Bevy event loop through its proxy. Same version as bevy_winit.
+winit = { version = "=0.30.13", default-features = false }
+gltf = { version = "=1.4.1", default-features = false, features = ["utils", "names", "extras"] }
+console_error_panic_hook = "=0.1.7"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+bevy = { version = "=0.19.1", default-features = false, features = [
+    "std", "bevy_asset", "bevy_mesh", "bevy_camera",
+] }
+naga = { version = "=29.0.4", features = ["wgsl-in"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+
+# Fast rebuilds for iteration: `scripts/build.ps1 -Fast`.
+[profile.fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+
+[patch.crates-io]
+bevy_render = { path = "vendor/bevy_render" }

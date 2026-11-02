@@ -1,0 +1,4 @@
+* -text
+src/render_resource/pipeline_cache.rs text eol=lf
+SOURCE_PATCH.md text eol=lf
+.gitattributes text eol=lf

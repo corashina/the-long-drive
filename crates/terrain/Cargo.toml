@@ -1,0 +1,9 @@
+[package]
+name = "terrain"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+
+[dependencies]
+glam = { version = "=0.33.12", default-features = false, features = ["std"] }
+serde = { version = "=1.0.229", features = ["derive"] }
