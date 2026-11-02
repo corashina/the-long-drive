@@ -445,6 +445,8 @@ pub fn world_vehicle(
 const ELECTRONICS_CUTOFF: f32 = 0.2;
 /// Body sounds that wait for the next net frame.
 const SHARED_SOUNDS: usize = 4;
+/// Usual count of live EMPs: sky UFOs and ground UFOs.
+const EMP_CAPACITY: usize = 8;
 
 /// Per-copy inputs of a world car runtime.
 pub struct WorldCarParts {
@@ -769,10 +771,13 @@ pub struct GarageRuntime {
     pub weather: crate::weather::WeatherState,
     weather_bindings: weather::WeatherBindings,
     sky: crate::sky_traffic::SkyTraffic,
+    ground_ufos: crate::ground_ufo::GroundUfos,
     pub flyers: crate::flyers::Flyers,
     pub creatures: crate::creatures::Creatures,
-    /// Live `empscript` sources in physics space. Their placements add and remove them.
+    /// Live `empscript` sources in physics space. `sync_emps` adds, moves and removes them.
     pub emps: Vec<crate::electronics::Emp>,
+    /// Plane id of each `emps` entry.
+    emp_planes: Vec<u32>,
     pub urine: crate::interaction::fluid_contact::FluidContact,
     urine_reference: crate::reference::FluidParticleReference,
     urine_emission: [f32; 2],
@@ -996,9 +1001,11 @@ impl GarageRuntime {
             weather: crate::weather::WeatherState::new(&reference.weather, seed as u64),
             weather_bindings,
             sky: crate::sky_traffic::SkyTraffic::new(&reference.sky, seed as u64),
+            ground_ufos: crate::ground_ufo::GroundUfos::new(&reference.sky.ground_ufo, seed as u64),
             flyers: crate::flyers::Flyers::new(seed as u64),
             creatures: crate::creatures::Creatures::new(reference, seed as u64, 0.)?,
-            emps: Vec::new(),
+            emps: Vec::with_capacity(EMP_CAPACITY),
+            emp_planes: Vec::with_capacity(EMP_CAPACITY),
             survival: crate::survival::SurvivalState::new(&reference.survival),
             hearing: crate::hearing::HearingState::new(reference)?,
             sleep: crate::sleep::SleepState::new(&reference.sleep),
@@ -1887,8 +1894,62 @@ impl GarageRuntime {
             std::array::from_fn(|i| origin[i] - anchor[i]),
             &self.physics,
         );
+        let player = self
+            .stream
+            .origin
+            .absolute(self.area.player.body_pose(&self.physics).position);
+        let stream = &self.stream;
+        self.ground_ufos.advance(
+            &reference.sky.ground_ufo,
+            self.lighting.cycle.output().phase,
+            player,
+            !self.net_guest,
+            dt,
+            |position, above| stream.road_point(position, above),
+        );
+        self.ground_ufos.place(&reference.sky.ground_ufo, anchor);
+        self.sync_emps(reference, anchor);
         if let Some(audio) = &mut self.audio {
-            audio.sky(self.sky.planes(), anchor);
+            audio.sky(
+                self.sky.planes().iter().chain(self.ground_ufos.planes()),
+                anchor,
+            );
+        }
+    }
+
+    /// Sky planes, then ground UFOs, relative to the sky anchor.
+    pub fn planes(&self) -> impl Iterator<Item = &crate::sky_traffic::Plane> {
+        self.sky.planes().iter().chain(self.ground_ufos.planes())
+    }
+
+    /// One `emps` entry follows each plane whose prefab carries an empscript.
+    fn sync_emps(&mut self, reference: &ReferenceManifest, anchor: [f64; 3]) {
+        let mut i = 0;
+        while i < self.emp_planes.len() {
+            let id = self.emp_planes[i];
+            if self.planes().any(|p| p.id == id) {
+                i += 1;
+            } else {
+                self.emp_planes.swap_remove(i);
+                self.emps.swap_remove(i);
+            }
+        }
+        let origin = self.stream.origin;
+        for plane in self.sky.planes().iter().chain(self.ground_ufos.planes()) {
+            let Some(emp) = &reference.sky.prefabs[plane.prefab].emp else {
+                continue;
+            };
+            let position =
+                rapier3d::math::Vector::from_array(origin.local(std::array::from_fn(|i| {
+                    anchor[i] + f64::from(plane.offset[i])
+                })));
+            match self.emp_planes.iter().position(|id| *id == plane.id) {
+                Some(i) => self.emps[i].position = position,
+                None => {
+                    self.emp_planes.push(plane.id);
+                    self.emps.push(crate::electronics::Emp::new(emp, position));
+                }
+            }
         }
     }
 
