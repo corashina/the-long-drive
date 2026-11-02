@@ -1800,6 +1800,8 @@ impl WorldStream {
         // revises replay selection; it must not restart the one-metre baseline.
         let force_structures = self.plan_revision != self.request.revision
             || self.selection_inputs != self.contents.input_revision();
+        use super::stream_profile::{Stage, Timer};
+        let mut timer = Timer::new(Stage::DescriptorSelection);
         if self.selection_inputs != self.contents.input_revision()
             || self.selection_changes != self.changes.revision()
         {
@@ -1808,6 +1810,7 @@ impl WorldStream {
         if self.failure.is_some() {
             return;
         }
+        timer.next(Stage::DescriptorPlan);
         while !self.initial_generation_ready {
             let slots = 2usize.saturating_sub(self.presentation.jobs);
             let before = (
@@ -1859,12 +1862,15 @@ impl WorldStream {
                 return;
             }
         }
+        timer.next(Stage::DescriptorRoads);
         if self.next_road < self.road_candidates.len() {
             self.discover_road();
         }
         // Placement needs the complete selected road-point set.
         if self.next_road == self.road_candidates.len() {
+            timer.next(Stage::DescriptorProps);
             self.prepare_props();
+            timer.next(Stage::DescriptorContents);
             self.prepare_contents();
         }
     }
@@ -2442,10 +2448,13 @@ impl WorldStream {
         if !self.admit_generation(reservation) {
             return;
         }
+        let mut timer =
+            super::stream_profile::Timer::new(super::stream_profile::Stage::ContentCables);
         self.prepare_building_cables();
         if self.failure.is_some() {
             return;
         }
+        timer.next(super::stream_profile::Stage::ContentAdvance);
         let replay_admission = self.contents.has_replay() || self.available_external_jobs() > 0;
         if let Err(error) = self.contents.advance(
             &self.reference,
@@ -2466,6 +2475,7 @@ impl WorldStream {
             self.failure = Some(error.0);
             return;
         }
+        timer.next(super::stream_profile::Stage::ContentSelect);
         self.discard_fixed_decoration_changes();
         self.wanted_structures.retain(|p| {
             self.changes
