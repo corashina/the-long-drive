@@ -32,6 +32,16 @@ impl<'a> From<&'a WorldVehicleReference> for Gearbox<'a> {
         }
     }
 }
+/// Who controls the car this step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Control {
+    None,
+    /// The local driver: keys, gear edges and AutoShift.
+    Local,
+    /// Source `multiControlling`: the controls of a remote driver after its AutoShift.
+    /// The gear comes in its own message.
+    Remote,
+}
 #[derive(Clone, Debug)]
 pub struct DrivetrainState {
     gear: usize,
@@ -82,9 +92,10 @@ impl DrivetrainState {
         direction: f32,
         vehicle: Gearbox<'_>,
         driving: &DrivingReference,
-        controlled: bool,
+        control: Control,
     ) -> DrivetrainOutput {
-        let controls = if controlled {
+        let controlled = control == Control::Local;
+        let controls = if control != Control::None {
             controls
         } else {
             DrivingControls::default()

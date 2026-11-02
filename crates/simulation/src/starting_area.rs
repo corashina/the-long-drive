@@ -545,6 +545,8 @@ pub struct VehicleRuntime {
     pub pedal_angle: f32,
     /// Source `carscript` drive leg poses of the pedals.
     pub pedal_reach: crate::simulation::reach::PedalReach,
+    /// Multiplayer state. It is not saved.
+    pub net: crate::net::car::CarNet,
 }
 
 impl VehicleRuntime {
@@ -604,6 +606,7 @@ impl VehicleRuntime {
             pedals: Default::default(),
             pedal_angle: 0.,
             pedal_reach: Default::default(),
+            net: crate::net::car::CarNet::new(parts.seed),
         }
     }
     /// The vehicle record of the car prototype.
@@ -2084,9 +2087,8 @@ impl GarageRuntime {
                         pose,
                         active,
                         horn: active
-                            && controls
-                            && seated == Some(key)
-                            && input.held & keys::HORN != 0,
+                            && ((controls && seated == Some(key) && input.held & keys::HORN != 0)
+                                || vehicle.net.remote.is_some_and(|r| r.horn > 0.)),
                         horn_hit: vehicle.horn_hit.map(|h| h.gain()),
                         ambient_temperature,
                         wheels: &vehicle.wheel_effects,
@@ -2244,6 +2246,9 @@ impl GarageRuntime {
         driving: bool,
         driving_output: crate::simulation::input::DrivingOutput,
     ) {
+        vehicle.net.sent = None;
+        let received_gear = vehicle.net.gear.take();
+        let received_rpm = vehicle.net.rpm.take();
         let chassis = self.physics.chassis_handle(key);
         let chassis_active = self.physics.body_active(chassis);
         let climate = self.engine_climate(reference);
@@ -2259,6 +2264,9 @@ impl GarageRuntime {
             .and_then(|item| item.body)
             .is_some_and(|body| self.physics.body_active(body));
         if !chassis_active && !engine_active {
+            if let Some(gear) = received_gear {
+                vehicle.drivetrain.restore_gear(gear);
+            }
             return;
         }
         let gearbox: crate::simulation::drivetrain::Gearbox =
@@ -2274,6 +2282,18 @@ impl GarageRuntime {
         } else {
             Default::default()
         };
+        // Source `multiControlling`: the drivers of the other peers.
+        let remote = vehicle.net.remote.filter(|_| chassis_active);
+        let controls = remote.map_or(controls, |r| {
+            crate::net::car::with_remote(controls, r, driving)
+        });
+        let control = if driving {
+            crate::simulation::drivetrain::Control::Local
+        } else if remote.is_some() {
+            crate::simulation::drivetrain::Control::Remote
+        } else {
+            crate::simulation::drivetrain::Control::None
+        };
         let direction = speed
             * snapshot
                 .linear_velocity
@@ -2283,6 +2303,9 @@ impl GarageRuntime {
                 .sqrt();
         let rolling_rpm = self.physics.driven_wheel_rpm(key);
         let last_gear = vehicle.drivetrain.gear();
+        if let Some(gear) = received_gear {
+            vehicle.drivetrain.restore_gear(gear);
+        }
         let drivetrain = vehicle.drivetrain.step(
             controls,
             gear_edges,
@@ -2293,7 +2316,7 @@ impl GarageRuntime {
             direction,
             gearbox,
             &reference.driving,
-            driving,
+            control,
         );
         let gear = drivetrain.gear;
         if gear != last_gear
@@ -2398,6 +2421,9 @@ impl GarageRuntime {
         if engine_active
             && let (Some(part), mut radiator_part) = self.powertrain.pair_mut(powertrain)
         {
+            if let Some(rpm) = received_rpm {
+                part.state.rpm = rpm;
+            }
             let (fan_on, radiator, coolant_tank) = match radiator_part.as_deref_mut() {
                 Some(r) => (Some(&mut r.fan_on), Some(&r.record), r.coolant_tank),
                 None => (None, None, None),
@@ -2489,7 +2515,11 @@ impl GarageRuntime {
             .push_steering()
             .filter(|(body, _)| self.physics.vehicle_of(*body) == Some(key))
             .map(|(_, steer)| steer);
-        vehicle.steer = vehicle_steer(vehicle.steer, pushed, driving.then_some(controls.steer));
+        vehicle.steer = vehicle_steer(
+            vehicle.steer,
+            pushed,
+            (driving || remote.is_some()).then_some(controls.steer),
+        );
         let drive = DriveInput {
             throttle,
             brake,
@@ -2501,10 +2531,10 @@ impl GarageRuntime {
         // A push leaves source `isteer` at 0 after `ResetInput`, so the balance steer is 0.
         // Source `isteer` is right minus left. Port steer is left minus right.
         if chassis_active
-            && (driving || pushed.is_some())
+            && (driving || remote.is_some() || pushed.is_some())
             && let Some(balance) = &world_vehicle(reference, vehicle.prototype).balance
         {
-            let steer = if driving {
+            let steer = if driving || remote.is_some() {
                 -controls.steer.clamp(-1., 1.)
             } else {
                 0.
@@ -2529,11 +2559,37 @@ impl GarageRuntime {
                     vehicle.pedals.disabled = output.running;
                 }
                 let disabled = vehicle.pedals.disabled;
+                // Source `UpdMulti`: `bikepedal.multiGas` when the remote pedals more.
+                if let Some(r) = remote
+                    && r.bike_gas > vehicle.pedals.gas
+                {
+                    vehicle.pedals.multi_gas = r.bike_gas;
+                }
                 torques.pedal_nm =
                     self.step_pedals(reference, key, vehicle, pedals, disabled, controls.throttle);
             }
             self.physics.apply_vehicle_forces(key, drive, torques);
         }
+        // Source `carscript.UpdMulti` sender half: the driver controls after AutoShift.
+        if driving {
+            vehicle.net.sent = Some(crate::net::car::CarFloats {
+                steer: vehicle.steer,
+                horn: (input.held & keys::HORN != 0) as u8 as f32,
+                gas: drivetrain.throttle,
+                brake: drivetrain.brake,
+                clutch: drivetrain.clutch,
+                bike_gas: vehicle.pedals.gas,
+            });
+        }
+    }
+
+    /// The engine rpm of a car, 0 without an engine.
+    pub fn engine_rpm(&self, key: &ObjectKey) -> f32 {
+        self.vehicles
+            .get(key)
+            .and_then(|vehicle| vehicle.powertrain.engine)
+            .and_then(|item| self.powertrain.engine(item))
+            .map_or(0., |engine| engine.state.rpm)
     }
 
     /// Source `bikepedalscript.Update()`. Returns the motor torque of each pedal wheel.

@@ -35,8 +35,7 @@ Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). WebRTC pe
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
 | M01 | Join and see each other | S | Remote player collision: export the `mpplayerscript` capsule (`minBodyRadius`, `maxBodyRadius`, head and prone head nodes), add a kinematic capsule per figure, 3 s spawn delay and 1 s after standing up. |
-| M02 | Shared cars | L | Driver input sync (`carfloats`, gears, ignition, lamps, handbrake), passengers. Seated figures follow the seat of the car by save id (source `UpdPos` sitting). |
-| M03 | Shared items and world | XL | `claim`, item poses and velocity, inventory, tanks and caps, parts, usables, attachables, food, weapons. |
+| M03 | Shared items and world | XL | `claim`, item and car poses and velocity (until then each peer car copy drifts from the others), item seats (sleds and chairs send the world pose until then), inventory, tanks and caps, parts, usables, attachables, food, weapons. |
 | M04 | Everything else | XL | Creatures, time and sleep, weather, radio channels, sounds, voice chat. |
 
 Not planned: VR, stereo 3D, mod events, Steam features.
@@ -63,4 +62,4 @@ Prepare once:
 3. Run all ignored tests: `cargo test --release --lib -- --ignored --nocapture`.
 4. In that output, note the `w02_` bytes per km and the 5,000 km estimate. Above 200 MB, compact spawn boundaries.
 5. Claude runs the steps in Chrome with the test sandbox: see `tests/sandbox/README.md`. First check the sandbox itself: `spawn('Bus02Full', 10)` places a bus, and `teleport`, `building`, `spawn`, `hand`, `fill` and `cycle` work. Use `tests/sandbox/buses.js` for More cars steps 16-20.
-
+6. Multiplayer, two browsers: a guest drives the start car. The host copy steers, shifts, and honks with it. The handbrake and ignition follow. Both see each passenger in their seat. Check F3 with two peers.

@@ -60,10 +60,10 @@ fn tp_mp3_the_other_figure_follows_walk_duck_and_look() {
                 .advance_inventory_frame(&reference, input, FIXED_DT, view)
                 .fixed_input;
             frame_with(run, &reference, fixed);
-            host.fill(&reference, run, FIXED_DT, &mut sent);
+            host.fill(&reference, run, FIXED_DT, 1., &mut sent);
             host.take_outbox(&mut packets);
             guest.receive(&packets);
-            guest.fill(&reference, run, FIXED_DT, &mut seen);
+            guest.fill(&reference, run, FIXED_DT, 1., &mut seen);
         }
         assert_eq!(seen.remotes.len(), 1, "one remote figure");
         let row = seen.remotes[0];
@@ -104,4 +104,106 @@ fn tp_mp3_the_other_figure_follows_walk_duck_and_look() {
     look(&mut run, 0., 60.);
     let (_, looked) = sync(&mut run, FrameInput::default(), 50);
     assert_ne!(looked, up, "the figure looks up");
+}
+
+/// One frame of a host and a guest that run their own world copies.
+fn exchange(
+    reference: &crate::reference::ReferenceManifest,
+    peers: [(&mut GarageRuntime, &mut Net, FrameInput); 2],
+    frame: &mut SimFrame,
+) {
+    let mut packets = Vec::new();
+    let [(a, a_net, a_input), (b, b_net, b_input)] = peers;
+    frame_with(a, reference, a_input);
+    frame_with(b, reference, b_input);
+    a_net.fill(reference, a, FIXED_DT, 1., frame);
+    a_net.take_outbox(&mut packets);
+    b_net.receive(&packets);
+    b_net.fill(reference, b, FIXED_DT, 1., frame);
+    b_net.take_outbox(&mut packets);
+    a_net.receive(&packets);
+}
+
+/// MP4. Source `SCarFloats`, `SCarHandbrake`, `SCarGear`, `SCarIgnition` and `SPlayerPosUpd`
+/// sitting: the guest drives the start car. The host copy takes its gas, handbrake, gear and
+/// ignition, and the guest figure sits in the host copy of the car.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
+    let (reference, mut host) = load_garage();
+    settle(&mut host, &reference);
+    let mut guest = save_load(&host, &reference);
+    frame(&mut guest, &reference);
+    let (mut host_net, mut guest_net) = (Net::default(), Net::default());
+    host_net.set_session(NetRole::Host, 0);
+    guest_net.set_session(NetRole::Guest, 1);
+    let mut seen = SimFrame::default();
+    act(
+        &mut guest,
+        &reference,
+        r#"{"action":"seat","seat":"driver"}"#,
+    );
+    let key = guest
+        .area
+        .player
+        .seat_vehicle()
+        .cloned()
+        .expect("the guest sits");
+    let gas = FrameInput {
+        held: keys::FORWARD,
+        ..Default::default()
+    };
+    for _ in 0..90 {
+        exchange(
+            &reference,
+            [
+                (&mut guest, &mut guest_net, gas),
+                (&mut host, &mut host_net, FrameInput::default()),
+            ],
+            &mut seen,
+        );
+    }
+    let car = &host.vehicles[&key];
+    assert!(
+        car.net.remote.is_some_and(|r| r.gas > 0.),
+        "the host copy takes the guest gas"
+    );
+    // `exchange` fills the host frame last.
+    assert_eq!(seen.remotes.len(), 1, "one remote figure");
+    let figure = Vector::from_array(seen.remotes[0].body_pose.position);
+    let chassis = host.physics.chassis_handle(&key);
+    let at = host.physics.rapier().bodies[chassis].translation();
+    assert!(
+        (figure - Vector::new(at.x, at.y, at.z)).length() < 3.,
+        "the guest figure sits in the host copy"
+    );
+    let vehicle = guest.vehicles.get_mut(&key).unwrap();
+    vehicle.handbrake = !vehicle.handbrake;
+    vehicle.ignition.ignition = !vehicle.ignition.ignition;
+    let gear = (vehicle.drivetrain.gear() + 1) % vehicle.record(&reference).gear_ratios.len();
+    vehicle.drivetrain.restore_gear(gear);
+    let want = (vehicle.handbrake, vehicle.ignition.ignition);
+    for _ in 0..3 {
+        exchange(
+            &reference,
+            [
+                (&mut guest, &mut guest_net, FrameInput::default()),
+                (&mut host, &mut host_net, FrameInput::default()),
+            ],
+            &mut seen,
+        );
+    }
+    let car = &host.vehicles[&key];
+    assert_eq!((car.handbrake, car.ignition.ignition), want);
+    assert_eq!(car.drivetrain.gear(), gear, "the host copy shifts");
+    // No echo: the host sends no reliable car state back.
+    let mut packets = Vec::new();
+    host_net.fill(&reference, &mut host, FIXED_DT, 1., &mut seen);
+    host_net.take_outbox(&mut packets);
+    let mut rest = &packets[..];
+    while let [a, b, tail @ ..] = rest {
+        let n = u16::from_le_bytes([*a, *b]);
+        assert_eq!(n & crate::net::message::RELIABLE, 0, "no echo");
+        rest = &tail[(n & !crate::net::message::RELIABLE) as usize..];
+    }
 }

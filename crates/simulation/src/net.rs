@@ -1,5 +1,6 @@
 //! Multiplayer of the source (`sns`, `snTempPlayerSync`). The browser owns the peers and the session messages.
 //! The simulation sends the local player and poses the remote players.
+pub mod car;
 pub mod message;
 pub mod remote;
 
@@ -7,13 +8,19 @@ use crate::boundary::{PoseRow, RemoteRow, SimFrame};
 use crate::player::body::BodyState;
 use crate::reference::ReferenceManifest;
 use crate::starting_area::GarageRuntime;
-use message::{BodyMessage, Message, PoseMessage};
+use car::CarFloats;
+use message::{
+    BodyMessage, CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage,
+    Message, PoseMessage,
+};
 use remote::Remote;
 
 /// Source `snTempPlayerSync.syncTime`.
 pub const SYNC_TIME: f32 = 0.15;
 /// Source `snl` default and the port cap.
 pub const MAX_PLAYERS: usize = 8;
+/// Source `carscript.UpdMulti`: driver values older than 1 s drop.
+const CAR_VALUES_SECONDS: f64 = 1.;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NetRole {
@@ -21,6 +28,14 @@ pub enum NetRole {
     Off,
     Host,
     Guest,
+}
+
+/// Source `carscript.CarSyncValues` entry of one peer and one car.
+struct CarValues {
+    slot: u8,
+    car: u64,
+    floats: CarFloats,
+    time: f64,
 }
 
 #[derive(Default)]
@@ -36,6 +51,9 @@ pub struct Net {
     /// Outbound packets, each with a u16 length. Bit `message::RELIABLE` of the length marks a reliable packet.
     outbox: Vec<u8>,
     remotes: Vec<Remote>,
+    cars: Vec<CarValues>,
+    /// The cars carry session state that must clear when the session ends.
+    cars_touched: bool,
 }
 
 impl Net {
@@ -45,6 +63,7 @@ impl Net {
         if role == NetRole::Off {
             self.remotes.clear();
             self.inbox.clear();
+            self.cars.clear();
         }
     }
     pub fn role(&self) -> NetRole {
@@ -59,6 +78,7 @@ impl Net {
     /// A peer left. Its figure goes away.
     pub fn leave(&mut self, slot: u8) {
         self.remotes.retain(|r| r.slot != slot);
+        self.cars.retain(|c| c.slot != slot);
     }
     /// Length-prefixed packets for the browser. The next call starts empty.
     pub fn take_outbox(&mut self, out: &mut Vec<u8>) {
@@ -66,25 +86,35 @@ impl Net {
         std::mem::swap(out, &mut self.outbox);
     }
 
-    /// One rendered frame: reads the inbox, sends the local player when due and poses the remotes.
+    /// One rendered frame: reads the inbox, shares the cars, sends the local player when due and
+    /// poses the remotes. `alpha`: the render interpolation between the last two steps.
     pub fn fill(
         &mut self,
         reference: &ReferenceManifest,
-        runtime: &GarageRuntime,
+        runtime: &mut GarageRuntime,
         real_dt: f32,
+        alpha: f32,
         frame: &mut SimFrame,
     ) {
         frame.remotes.clear();
         frame.remote_joints.clear();
         if self.role == NetRole::Off {
+            if std::mem::take(&mut self.cars_touched) {
+                for vehicle in runtime.vehicles.values_mut() {
+                    vehicle.net.clear();
+                }
+            }
             return;
         }
+        self.cars_touched = true;
         self.clock += real_dt as f64;
-        self.read_inbox(reference);
-        self.send(runtime, real_dt);
+        self.read_inbox(reference, runtime);
+        self.share_cars(runtime);
+        self.send(reference, runtime, real_dt);
         let origin = &runtime.stream.origin;
         for remote in &mut self.remotes {
-            let Some((pose, root)) = remote.step(self.clock, real_dt, origin) else {
+            let seat = |car, seat| car::seat_pose(reference, runtime, alpha, car, seat);
+            let Some((pose, root)) = remote.step(self.clock, real_dt, origin, seat) else {
                 continue;
             };
             frame.remotes.push(RemoteRow {
@@ -100,7 +130,7 @@ impl Net {
         }
     }
 
-    fn read_inbox(&mut self, reference: &ReferenceManifest) {
+    fn read_inbox(&mut self, reference: &ReferenceManifest, runtime: &mut GarageRuntime) {
         let mut rest = &self.inbox[..];
         while let [a, b, tail @ ..] = rest {
             // The outbox flag is masked, so an outbox reads as an inbox.
@@ -125,16 +155,115 @@ impl Net {
                     None => continue,
                 };
                 remote.smoothing.got_pose(&pose, self.clock);
-            } else if let Ok((slot, body)) = BodyMessage::decode(packet)
-                && let Some(remote) = self.remotes.iter_mut().find(|r| r.slot == slot)
+            } else if let Ok((slot, body)) = BodyMessage::decode(packet) {
+                if let Some(remote) = self.remotes.iter_mut().find(|r| r.slot == slot) {
+                    remote.got_body(&body);
+                }
+            } else if let Ok((slot, m)) = CarFloatsMessage::decode(packet) {
+                // Source `UpdMultiValues`.
+                if slot == self.slot {
+                    continue;
+                }
+                let floats = CarFloats::of(&m);
+                match self
+                    .cars
+                    .iter_mut()
+                    .find(|c| c.slot == slot && c.car == m.car)
+                {
+                    Some(c) => {
+                        c.floats = floats;
+                        c.time = self.clock;
+                    }
+                    None => self.cars.push(CarValues {
+                        slot,
+                        car: m.car,
+                        floats,
+                        time: self.clock,
+                    }),
+                }
+            } else if let Ok((slot, m)) = CarHandbrakeMessage::decode(packet) {
+                if slot != self.slot {
+                    car::got_handbrake(runtime, m.car, m.handbrake);
+                }
+            } else if let Ok((slot, m)) = CarGearMessage::decode(packet) {
+                if slot != self.slot {
+                    car::got_gear(reference, runtime, m.car, m.gear as usize);
+                }
+            } else if let Ok((slot, m)) = CarIgnitionMessage::decode(packet)
+                && slot != self.slot
             {
-                remote.got_body(&body);
+                car::got_ignition(runtime, &m);
             }
         }
         self.inbox.clear();
     }
 
-    fn send(&mut self, runtime: &GarageRuntime, dt: f32) {
+    /// Source `carscript.UpdMulti` receiver half: drops old driver values and merges the rest.
+    fn share_cars(&mut self, runtime: &mut GarageRuntime) {
+        let now = self.clock;
+        self.cars.retain(|c| now - c.time < CAR_VALUES_SECONDS);
+        for vehicle in runtime.vehicles.values_mut() {
+            vehicle.net.remote = self
+                .cars
+                .iter()
+                .filter(|c| c.car == vehicle.net.key)
+                .map(|c| c.floats)
+                .reduce(CarFloats::merge);
+        }
+    }
+
+    fn send(&mut self, reference: &ReferenceManifest, runtime: &mut GarageRuntime, dt: f32) {
+        // Source `carscript.UpdMulti` and the `SCar*` senders on change.
+        for (key, vehicle) in &runtime.vehicles {
+            let net = &vehicle.net;
+            if let Some(f) = net.sent {
+                self.push(&CarFloatsMessage {
+                    car: net.key,
+                    steer: f.steer,
+                    horn: f.horn,
+                    gas: f.gas,
+                    brake: f.brake,
+                    clutch: f.clutch,
+                    bike_gas: f.bike_gas,
+                });
+            }
+            let now = car::shared(vehicle);
+            let Some(was) = net.shared else {
+                continue;
+            };
+            if now.handbrake != was.handbrake {
+                self.push(&CarHandbrakeMessage {
+                    car: net.key,
+                    handbrake: now.handbrake as u8 as f32,
+                    pad: 0,
+                });
+            }
+            if now.gear != was.gear {
+                self.push(&CarGearMessage {
+                    car: net.key,
+                    gear: now.gear as u32,
+                    pad: 0,
+                });
+            }
+            // Source sends on a toggle and when the starter begins.
+            if now.ignition != was.ignition || (now.starter && !was.starter) {
+                let mut flags = 0;
+                if now.ignition {
+                    flags |= CarIgnitionMessage::IGNITION;
+                }
+                if now.starter {
+                    flags |= CarIgnitionMessage::STARTING;
+                }
+                self.push(&CarIgnitionMessage {
+                    car: net.key,
+                    flags,
+                    rpm: runtime.engine_rpm(key),
+                });
+            }
+        }
+        for vehicle in runtime.vehicles.values_mut() {
+            vehicle.net.shared = Some(car::shared(vehicle));
+        }
         let area = &runtime.area;
         let interval = area.body.send_interval();
         self.pose_timer += dt;
@@ -142,7 +271,7 @@ impl Net {
         if self.pose_timer >= SYNC_TIME {
             self.pose_timer = 0.;
             let pose = area.player.body_pose(&runtime.physics);
-            let message = PoseMessage {
+            let mut message = PoseMessage {
                 position: runtime.stream.origin.absolute(pose.position),
                 rotation: pose.rotation,
                 duck: area.player.posture(),
@@ -151,7 +280,9 @@ impl Net {
                 } else {
                     0
                 },
+                ..PoseMessage::default()
             };
+            car::seat_message(reference, runtime, pose, &mut message);
             self.push(&message);
         }
         if self.body_timer >= interval {
