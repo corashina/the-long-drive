@@ -2,12 +2,14 @@
 //! `busdooropenscript` leaves and `dinamiccolliderforbus` boxes.
 use super::WorldStream;
 use super::content_index::ContentSlot;
+use crate::electronics::{Emp, NodeElectronics};
+use crate::interaction::items::ItemStore;
 use crate::interaction::{InteractionState, Knob};
 use crate::reference::{
     CarShotReference, ColliderId, ReferenceError, SourceId, Transform, WorldPrototypeReference,
 };
 use crate::simulation::dials::{lerp, unity_euler};
-use crate::vehicle::PhysicsWorld;
+use crate::vehicle::{PhysicsWorld, to_rapier};
 use crate::world::spawn_appearance::NodeAppearance;
 use crate::world::spawn_rules::*;
 use crate::world::unity_random::UnityRandom;
@@ -96,12 +98,20 @@ impl Door {
 pub struct BusDoors {
     pub doors: Vec<Door>,
     pub leaves: Vec<DoorLeaf>,
-    /// `Electronics()`: no electronics, or output above `mainscript.lightTurnOffValue`.
-    powered: bool,
+    /// `electronics`. None: always powered.
+    electronics: Option<NodeElectronics>,
+    /// `mainscript.lightTurnOffValue`.
+    cutoff: f32,
     time: f32,
     random: UnityRandom,
 }
 impl BusDoors {
+    /// `Electronics()`: no electronics, or output above `mainscript.lightTurnOffValue`.
+    fn powered(&self) -> bool {
+        self.electronics
+            .as_ref()
+            .is_none_or(|e| e.state.output() > self.cutoff)
+    }
     /// One turned usable of door `door`: `Uopen` when `open`, else `Usign`. Calls `play`
     /// with the leaf audio index and the sound index of each leaf sound. Returns false
     /// without power.
@@ -111,7 +121,7 @@ impl BusDoors {
         open: bool,
         mut play: impl FnMut(Option<usize>, usize),
     ) -> bool {
-        if !self.powered {
+        if !self.powered() {
             return false;
         }
         let d = &mut self.doors[door];
@@ -410,7 +420,7 @@ impl WorldStream {
         let mut leaves = Vec::new();
         let mut buttons = Vec::new();
         let mut materials = None;
-        let mut powered = true;
+        let mut door_electronics = None;
         if let Some(script) = script {
             let f = rules.get(reference, script)?.fields;
             materials = Some([
@@ -421,13 +431,12 @@ impl WorldStream {
             ]);
             if let Some(electronics) = optional(f, "electronics")? {
                 let node = required(electronics)?;
-                powered = super::super::content_vehicles::electronics_output(
+                door_electronics = super::super::content_vehicles::node_electronics(
                     reference,
                     rules,
                     prototype,
                     node as u32,
-                )?
-                .is_none_or(|output| output > reference.electronics_cutoff);
+                )?;
             }
             for (door, d) in array(f, "doors")?.iter().enumerate() {
                 let d = fields(d)?;
@@ -512,7 +521,8 @@ impl WorldStream {
         let mut state = BusDoors {
             doors,
             leaves,
-            powered,
+            electronics: door_electronics,
+            cutoff: reference.electronics_cutoff,
             time: 0.,
             random: UnityRandom::new(key.seed() as i32),
         };
@@ -651,6 +661,19 @@ impl WorldStream {
             }
         }
         true
+    }
+    /// EMPs jam the bus door electronics at the bus item position.
+    pub fn expose_bus_doors(&mut self, emps: &[Emp], items: &ItemStore, dt: f32) {
+        for b in &mut self.bus_door_bindings {
+            let Some(e) = &mut b.state.electronics else {
+                continue;
+            };
+            let Some(item) = self.contents.active[b.slot].item.and_then(|i| items.get(i)) else {
+                continue;
+            };
+            e.state
+                .expose(emps, to_rapier(item.pose).translation, e.layer, dt);
+        }
     }
     /// `busdooropenscript.Update` and `dinamiccolliderforbus.Update` of every bound bus.
     pub fn advance_bus_doors(&mut self, dt: f32, physics: &mut PhysicsWorld) {
@@ -792,7 +815,12 @@ mod tests {
         BusDoors {
             doors: vec![door(0), door(1)],
             leaves: vec![leaf(1), leaf(2)],
-            powered,
+            electronics: (!powered).then(|| NodeElectronics {
+                node: 0,
+                layer: 0,
+                state: crate::electronics::Electronics::new(0.),
+            }),
+            cutoff: 0.2,
             time: 10.,
             random: UnityRandom::new(7),
         }
