@@ -50,6 +50,7 @@ impl GarageRuntime {
                 flags |= flag;
             }
         }
+        let (required_ready, required_total) = self.stream.required_progress();
         let needs = self.needs_output();
         let dead_weight = if needs.dead {
             (needs.death_seconds as f32 / reference.survival.death_seconds).clamp(0., 1.)
@@ -139,6 +140,8 @@ impl GarageRuntime {
             // The driver sets the view camera.
             view_camera: PoseRow::default(),
             prepared_roads: metrics.prepared_roads as u32,
+            required_ready,
+            required_total,
             glasses: crate::boundary::GlassesState::encode(area.wear.glasses),
             focus_distance: self.focus.distance,
             binocular_focus: 0.,
