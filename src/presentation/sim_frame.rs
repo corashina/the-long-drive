@@ -68,8 +68,6 @@ pub(crate) struct SimFrameResource {
     pub plates: HashMap<GeneratedId, Vec<String>>,
     /// The simulation part of a world measurement, waiting for the renderer part.
     pub measurements: Option<String>,
-    /// Sandbox replies that the browser has not taken.
-    pub sandbox: Vec<String>,
     /// A simulation failure that the browser did not show yet.
     pub failure: Option<String>,
     /// Renderer credit of the last world step, for the next renderer step.
@@ -135,7 +133,6 @@ impl SimFrameResource {
                     self.plates.insert(id.clone(), texts.clone());
                 }
                 Change::Measurements(json) => self.measurements = Some(json.clone()),
-                Change::Sandbox(json) => self.sandbox.push(json.clone()),
                 Change::Failure(failure) => self.failure = Some(failure.clone()),
                 // A grant waits until a renderer step takes it. Its credit is never dropped.
                 Change::Grant(grant) => {

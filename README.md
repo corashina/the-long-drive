@@ -36,8 +36,8 @@ Run selected native tests by integration target, name filter, or both:
 
 ```powershell
 ./scripts/check.ps1 -Test world_frontiers
-./scripts/check.ps1 -Filter roadside_
-./scripts/check.ps1 -Test world_frontiers -Filter checkpoint
+./scripts/check.ps1 -Filter checkpoint
+./scripts/check.ps1 -Test world_frontiers -Filter frontier
 ```
 
 Native test commands also check formatting and WASM compilation.

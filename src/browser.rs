@@ -219,11 +219,6 @@ extern "C" {
     pub fn game_measure_requested() -> bool;
     #[wasm_bindgen(js_namespace = window, js_name = gameMeasurements)]
     pub fn game_measurements(json: &str);
-    /// Queued sandbox commands as one JSON array. `None` without commands.
-    #[wasm_bindgen(js_namespace = window, js_name = gameSandboxTake)]
-    pub fn game_sandbox_take() -> Option<String>;
-    #[wasm_bindgen(js_namespace = window, js_name = gameSandboxReply)]
-    pub fn game_sandbox_reply(json: &str);
 
     #[wasm_bindgen(js_namespace = window, js_name = gameReady)]
     pub fn game_ready();
