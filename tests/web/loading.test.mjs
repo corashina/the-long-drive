@@ -2,34 +2,49 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createLoading,formatBudget} from '../../web/loading.js';
 
-test('loading keeps counts and budgets on failure, then resets for the next load',t=>{
+test('loading shows a total percent, step counts, and keeps them on failure',t=>{
  let now=0;t.mock.method(performance,'now',()=>now);
  const nodes=new Map();
- const node=()=>({textContent:'',hidden:false,children:[],value:null,
-  removeAttribute(name){if(name==='value')this.value=null;},
+ const node=()=>({textContent:'',hidden:false,children:[],dataset:{},value:null,
   append(...children){this.children.push(...children);}});
  globalThis.document={querySelector(selector){if(!nodes.has(selector))nodes.set(selector,node());return nodes.get(selector);},createElement:node};
  t.after(()=>delete globalThis.document);
  const loading=createLoading();t.after(()=>loading.finish());
- assert.equal(nodes.get('#loading-progress').value,null);
- now=2000;loading.progress(24000,50000,false,false);
- assert.equal(nodes.get('#loading-progress').value,24000);
- assert.match(nodes.get('#loading-count').textContent,/Road index: 24,000 \/ 50,000/);
- assert.match(nodes.get('#loading-count').textContent,/Garage rendering: preparing/);
+ const steps=nodes.get('#loading-steps').children;
+ const row=index=>({state:steps[index].dataset.state,count:steps[index].children[2].textContent});
+ assert.equal(steps.length,7);
+ assert.equal(nodes.get('#loading-phase').textContent,'Loading 0%');
+ now=1000;loading.step('download',1,1,'304 MiB');loading.step('code',1);loading.step('interface',1);
+ assert.equal(nodes.get('#loading-phase').textContent,'Loading 5%');
+ assert.deepEqual(row(0),{state:'done',count:'304 MiB'});
+ now=2000;loading.progress(1000,2000,0,980,0,0,0,5);
+ assert.equal(nodes.get('#loading-progress').value,12,'5 boot + 15 x 1/2 roads');
+ assert.deepEqual(row(3),{state:'active',count:'1,000 / 2,000'});
+ assert.deepEqual(row(5),{state:'waiting',count:''},'world total is not known yet');
+ // The index goes past the start roads. The count stops at the start roads.
+ now=3000;loading.progress(2500,2000,490,980,70,140,2,5);
+ assert.deepEqual(row(3),{state:'done',count:'2,000 / 2,000'});
+ assert.equal(nodes.get('#loading-progress').value,59,'5 + 15 + 17.5 + 17.5 + 4');
+ // A larger required set lowers the true count but not the shown percent.
+ now=4000;loading.progress(2500,2000,490,980,70,280,2,5);
+ assert.equal(nodes.get('#loading-progress').value,59);
+ assert.equal(row(5).count,'70 / 280');
  loading.budget('Asset GPU',120*1048576,512*1048576,'bytes');
  assert.equal(nodes.get('#loading-budgets').children[1].textContent,'120.0 / 512.0 MiB');
- now=3000;loading.progress(50000,50000,true,false);
- assert.equal(nodes.get('#loading-progress').value,null,'world preparation has no known percentage');
- loading.progress(50001,50000,true,false);
- assert.match(nodes.get('#loading-count').textContent,/Road index: 50,000 \/ 50,000/);
- loading.fail();const stopped=nodes.get('#loading-phase').textContent;
- loading.progress(1,50000,false,false);loading.budget('Asset GPU',0,512*1048576,'bytes');
- assert.equal(nodes.get('#loading-phase').textContent,stopped);
- assert.match(stopped,/stopped/);
+ assert.equal(nodes.get('#loading-resources').hidden,false);
+ loading.fail();
+ assert.equal(nodes.get('#loading-phase').textContent,'Loading stopped at 59%');
+ loading.progress(0,2000,0,980,0,0,0,5);
+ assert.equal(row(3).count,'2,000 / 2,000','counts stay after failure');
  assert.equal(nodes.get('#loading-details').hidden,false);
- assert.equal(nodes.get('#loading-budgets').children[1].textContent,'120.0 / 512.0 MiB');
+ assert.equal(loading.snapshot().percent,59);
  loading.finish();assert.equal(nodes.get('#loading-details').hidden,true);
- loading.start();assert.equal(nodes.get('#loading-details').hidden,false);
- assert.equal(nodes.get('#loading-budgets').hidden,true);
+ // New game and Load reload only the world.
+ loading.start(true);
+ assert.equal(nodes.get('#loading-details').hidden,false);
+ assert.equal(nodes.get('#loading-resources').hidden,true);
+ assert.deepEqual(steps.map(step=>step.hidden),[true,true,true,false,false,false,false]);
+ now=5000;loading.progress(2000,2000,0,980,0,0,0,5);
+ assert.equal(nodes.get('#loading-phase').textContent,'Loading 15%','15 of the 95 world weights');
  assert.equal(formatBudget(3,2,'jobs'),'3 / 2');
 });

@@ -4060,6 +4060,27 @@ impl WorldStream {
             ],
         }
     }
+    /// Required roads, terrain and structures: (ready, total).
+    pub fn required_progress(&self) -> (u32, u32) {
+        let roads = self.required.roads.iter().filter(|id| {
+            self.surfaces
+                .iter()
+                .any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(**id))
+        });
+        let terrain = self
+            .required
+            .terrain
+            .iter()
+            .filter(|key| self.surfaces.iter().any(|s| s.key == **key));
+        let structures = self.required.structures.iter().filter(|id| {
+            self.structures.iter().any(|s| s.placement.id == **id) && self.bindings_ready(id)
+        });
+        let ready = roads.count() + terrain.count() + structures.count();
+        let total = self.required.roads.len()
+            + self.required.terrain.len()
+            + self.required.structures.len();
+        (ready as u32, total as u32)
+    }
     pub fn required_ready(&self) -> bool {
         self.initial_generation_ready
             && self.required.views_ready
@@ -4068,19 +4089,10 @@ impl WorldStream {
             && !self.ramps_wait
             && self.plan_revision == self.request.revision
             && self.next_road == self.road_candidates.len()
-            && self.required.roads.iter().all(|id| {
-                self.surfaces
-                    .iter()
-                    .any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(*id))
-            })
-            && self
-                .required
-                .terrain
-                .iter()
-                .all(|key| self.surfaces.iter().any(|s| s.key == *key))
-            && self.required.structures.iter().all(|id| {
-                self.structures.iter().any(|s| s.placement.id == *id) && self.bindings_ready(id)
-            })
+            && {
+                let (ready, total) = self.required_progress();
+                ready == total
+            }
             && self
                 .required_content()
                 .collision_ranges

@@ -181,6 +181,10 @@ pub struct StateBlock {
     pub view_camera: PoseRow,
     /// Startup roads with prepared meshes.
     pub prepared_roads: u32,
+    /// Required start roads, terrain and structures that are ready.
+    pub required_ready: u32,
+    /// All required start roads, terrain and structures.
+    pub required_total: u32,
     /// Lens of the worn glasses, as `GlassesState::encode`. Read it with `StateBlock::glasses`.
     pub glasses: u32,
     /// Applied `DOF` volume focus distance in meters.

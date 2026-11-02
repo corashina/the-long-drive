@@ -36,6 +36,8 @@ fn frame_round_trips() {
             sleep_camera: row(9.),
             view_camera: PoseRow::default(),
             prepared_roads: 12,
+            required_ready: 3,
+            required_total: 5,
             glasses: GlassesState::encode(Some(GlassesState {
                 profile: 3,
                 hide_flare: true,

@@ -153,7 +153,16 @@ extern "C" {
     #[wasm_bindgen(js_namespace = window, js_name = gameLoading)]
     pub fn game_loading();
     #[wasm_bindgen(js_namespace = window, js_name = gameLoadingProgress)]
-    pub fn game_loading_progress(roads: u32, total: u32, rendering: bool, world: bool);
+    pub fn game_loading_progress(
+        roads: u32,
+        road_total: u32,
+        assets: u32,
+        asset_total: u32,
+        world: u32,
+        world_total: u32,
+        gates: u32,
+        gate_total: u32,
+    );
     #[wasm_bindgen(js_namespace = window, js_name = gameLoadingBudget)]
     pub fn game_loading_budget(name: &str, used: f64, limit: f64, unit: &str);
     #[wasm_bindgen(js_namespace = window, js_name = gameStartupStage)]

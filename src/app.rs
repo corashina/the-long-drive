@@ -934,16 +934,18 @@ fn publish_loading(
     lighting: Res<presentation::lighting::SourceLighting>,
     renderer: presentation::readiness::RendererReadinessAccess,
     plates: Res<presentation::plates::PlateTextStatus>,
+    fixed: Res<presentation::fixed_assets::SourceFixedAssets>,
     time: Res<Time<Real>>,
     mut last: Local<f64>,
     mut traced: Local<u8>,
 ) {
     let now = time.elapsed_secs_f64();
     let state = &sim.frame.state;
-    let rendering = visuals.bound
-        && materials.state == presentation::materials::RenderingState::Ready
-        && lighting.state == presentation::lighting::RenderingState::Ready
-        && renderer.graph_ready(presentation::readiness::RendererContentCheck {
+    let gates = [
+        visuals.bound,
+        materials.state == presentation::materials::RenderingState::Ready,
+        lighting.state == presentation::lighting::RenderingState::Ready,
+        renderer.graph_ready(presentation::readiness::RendererContentCheck {
             preparation: crate::render_readiness::ContentPreparation::Prepared(
                 crate::render_readiness::ContentKey {
                     session: state.session,
@@ -951,8 +953,11 @@ fn publish_loading(
                 },
             ),
             history_revision: state.motion_revision,
-        })
-        && plates.ready();
+        }),
+        plates.ready(),
+    ];
+    let gates_ready = gates.iter().filter(|ready| **ready).count() as u32;
+    let rendering = gates_ready == gates.len() as u32;
     if state.flags & StateBlock::GENERATION_READY != 0 && *traced & 1 == 0 {
         game_startup_stage("generation", false);
         *traced |= 1;
@@ -969,11 +974,16 @@ fn publish_loading(
         return;
     }
     *last = now;
+    let (assets, asset_total) = fixed.progress();
     game_loading_progress(
         state.prepared_roads,
         reference.0.world.road.gen_at_start,
-        rendering,
-        state.flags & StateBlock::WORLD_READY != 0,
+        assets,
+        asset_total,
+        state.required_ready,
+        state.required_total,
+        gates_ready,
+        gates.len() as u32,
     );
     for (budget, (name, unit)) in sim.frame.budgets.iter().zip(BUDGET_LABELS) {
         game_loading_budget(name, budget.used, budget.limit, unit);
