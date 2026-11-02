@@ -108,7 +108,9 @@ def recover_survival(source: LibrarySource, roots: dict, output: Path) -> dict:
     evidence=managed_evidence(source,['water = maxWater * 0.6f;', 'food = maxFood * 0.75f;', 'shit = maxShit * 0.5f;',
         'currentWaterLoss = foodLoss * sleep *', 'piss.valve = Mathf.Lerp(piss.valve, (pissing && !emptiedBladder) ? 1f : 0f, dt * 3f);',
         'survival.shit -= survival.maxShit * 0.3f;', 'sleepEndTime = Time.time + sleepRealTime * 2f;',
-        'float num = Mathf.InverseLerp(0f, 14f, Time.time - deathTime);', 'private float foodStatShowTime = 5f;', 'private float foodStatHideTime = 1f;', 'defaultInput[21].keys[0].Set(KeyCode.P);','defaultInput[22].keys[0].Set(KeyCode.B);'])
+        'float num = Mathf.InverseLerp(0f, 14f, Time.time - deathTime);', 'private float foodStatShowTime = 5f;', 'private float foodStatHideTime = 1f;', 'defaultInput[21].keys[0].Set(KeyCode.P);','defaultInput[22].keys[0].Set(KeyCode.B);',
+        'inputHumVolume = maxHumVolume * 0.5f;','humStartTime = Time.time + humSource.clip.length * 0.75f;','humPitch = Mathf.Pow(2f, humNote / 12f);',
+        'humStimul.SetAudioValue(humSource.volume * humStimulValues[selectedHum]);'])
     result={'source':source_id(owner),'player':source_id(player),'blood':source_id(source.resolve(owner,d['blood'])),
         'initial':initial,'maximum':maximum,'initial_bladder':quantities,'bladder_capacity_liters':bd['maxC'],
         'initial_queue':dict(food=d['toEat'],water=d['toDrink'],bowel=d['toShit'],hp=d['toHp']),
@@ -119,6 +121,8 @@ def recover_survival(source: LibrarySource, roots: dict, output: Path) -> dict:
             'valve_gain':3.,'empty_amount':.01,'bowel_fraction':.3,'fart_burp_ratio':pd['fartBurpRatio'],'fart_shit_ratio':pd['fartShitRatio'],
             **{snake(k):pd[k] for k in ['minFartPitch','maxFartPitch','minFartVolume','maxFartVolume','minBurpPitch','maxBurpPitch','minBurpVolume','maxBurpVolume']},
             'max_rate':od['maxRate'],'min_rate':od['minRate'],'max_speed':od['maxSpeed'],'force_color':list(od['forceColor'][c] for c in 'rgba'),'force_color_m':od['forceColorM']},
+        'hum':{'lerp':pd['humLerp'],'pitch_sensitivity':pd['humPitchSens'],'volume_sensitivity':pd['humVolumeSens'],
+            'max_volume':pd['maxHumVolume'],'note':[pd['minHumNote'],pd['maxHumNote']],'stimulus_values':pd['humStimulValues']},
         'inputs':recover_inputs(source),
         'mode_source':source_id(source.get('level0',17179)),'mode':source.read(source.get('level0',17179))['defS']['survival'],
         'death_seconds':14.,'drinking':recover_drinking(source,player)}
