@@ -44,6 +44,73 @@ use super::*;
 use crate::starting_area::GarageRuntime;
 use kit::*;
 
+/// K4. Generation work at its own staging share does not reclaim renderer staging, so the
+/// renderer loads that the work waits for go on. A short renderer room still reclaims.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k4_generation_at_its_share_leaves_renderer_staging() {
+    let reference = reference();
+    let mut stream = WorldStream::new_default(&reference, 42).unwrap();
+    stream.configure_dependency_staging(8 * MIB, 0).unwrap();
+    let surface = WorldSurface::default();
+    stream.ready = Some(PreparedSurface {
+        road_claim: None,
+        pending_bytes: STAGING - 8 * MIB,
+        renderer_ready: false,
+        offered: false,
+        renderer_reserved: false,
+        request: stream.request,
+        published: PublishedSurface {
+            key: SurfaceKey {
+                layer: WorldLayer::Terrain,
+                unit: [0, 0],
+            },
+            bounds: surface_bounds(&surface),
+            surface: Arc::new(surface),
+            prototype: None,
+            collider: None,
+            collision_bytes: 0,
+            road: None,
+        },
+    });
+    let renderer = PresentationAllocation {
+        staging_bytes: MIB,
+        dependency_staging_bytes: MIB,
+        ..Default::default()
+    };
+    assert!(
+        !stream.admit_generation(MIB),
+        "the generation share is full"
+    );
+    stream.take_presentation_report(PresentationReport {
+        used: PresentationAllocation::default(),
+        want: renderer,
+        release: PresentationAllocation::default(),
+    });
+    let grant = stream.grant_presentation();
+    assert!(stream.failure.is_none(), "{:?}", stream.failure);
+    assert!(!grant.reclaim.staging, "the renderer keeps its staging");
+    assert_eq!(
+        grant.credit.staging_bytes, MIB,
+        "the renderer load gets credit"
+    );
+
+    // The renderer holds the room: generation reclaims it.
+    stream.ready = None;
+    let full = PresentationAllocation {
+        staging_bytes: STAGING,
+        ..Default::default()
+    };
+    stream.set_presentation_allocation(full).unwrap();
+    assert!(!stream.admit_generation(MIB), "the renderer holds the room");
+    stream.take_presentation_report(PresentationReport {
+        used: renderer,
+        want: renderer,
+        release: PresentationAllocation::default(),
+    });
+    assert!(stream.grant_presentation().reclaim.staging);
+}
+
 #[test]
 #[ignore = "requires the installed source export"]
 fn terrain_admission_respects_pending_capacity_and_continues_at_capacity() {
