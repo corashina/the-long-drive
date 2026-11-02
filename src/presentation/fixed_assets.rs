@@ -153,7 +153,7 @@ impl SourceFixedAssets {
             .textures
             .iter()
             .map(|t| {
-                if t.aniso > 1
+                if t.aniso > 16
                     || t.mip_bias != 0.0
                     || t.filter_mode > 2
                     || t.wrap_u > 2
@@ -659,6 +659,7 @@ impl SourceFixedAssets {
                 let settings = super::textures::SourceImageSettings {
                     srgb: record.color_space != 0,
                     filter: record.filter_mode,
+                    aniso: record.aniso as u16,
                     wrap_u: record.wrap_u,
                     wrap_v: record.wrap_v,
                     main_world_only: false,
@@ -945,9 +946,10 @@ impl SourceFixedAssets {
             if first {
                 self.rows[index].pixels = vec![0; record.validate_chunks()?];
             }
-            let (srgb, filter, wrap_u, wrap_v) = (
+            let (srgb, filter, aniso, wrap_u, wrap_v) = (
                 record.color_space != 0,
                 record.filter_mode,
+                record.aniso as u16,
                 record.wrap_u,
                 record.wrap_v,
             );
@@ -959,6 +961,7 @@ impl SourceFixedAssets {
                         *s = super::textures::SourceImageSettings {
                             srgb,
                             filter,
+                            aniso,
                             wrap_u,
                             wrap_v,
                             main_world_only: true,
