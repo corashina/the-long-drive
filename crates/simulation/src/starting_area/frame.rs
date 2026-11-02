@@ -213,6 +213,7 @@ impl GarageRuntime {
             prefab: plane.prefab as u32,
             offset: plane.offset.to_array(),
             heading: plane.heading.to_array(),
+            flags: if plane.seated { PlaneRow::SEATED } else { 0 },
         }));
         frame.creatures.clear();
         frame.creature_bones.clear();

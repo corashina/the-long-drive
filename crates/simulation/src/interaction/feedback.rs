@@ -222,6 +222,14 @@ impl InteractionState {
                     a.adjust = super::crosshair::AdjustIcon::Rotate;
                 }
             }
+            if let Some(c) = self.ufo_controls.get(&t.collider) {
+                a.context = FeedbackContext::Mechanism;
+                a.actions.0 |= if c.control == crate::ground_ufo::UfoControl::AutoPilot {
+                    ActionMask::SWITCH
+                } else {
+                    ActionMask::TUNE | ActionMask::SCROLL
+                };
+            }
             if self.mechanisms.contains(t.item) {
                 a.context = FeedbackContext::Mechanism;
                 if self.mechanisms.turn_state(t.item).is_some() {

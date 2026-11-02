@@ -22,7 +22,6 @@ Size: S is up to a day. M is a few days. L is about a week. XL is several weeks.
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| X03i | UFO seat, colliders and stimulus | M | `fedoscript` seat: `PlayerInput`, the `AutoPilot`, `SetSpeed` and `SetHeight` usables, `seatedObj`. Fedo01 rigidbody and colliders. Its `stimulscript` (kind 3, value 50) for rabbits. The UFO itself flies since X03d. |
 
 ### Multiplayer
 
