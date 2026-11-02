@@ -179,8 +179,11 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
         (figure - Vector::new(at.x, at.y, at.z)).length() < 3.,
         "the guest figure sits in the host copy"
     );
-    // The seated guest AutoShift would pick its own gear: the guest gets out first.
-    act(&mut guest, &reference, r#"{"action":"stand"}"#);
+    // The seated guest AutoShift would pick its own gear: the guest shifts by hand.
+    guest.driving_assists = crate::reference::DrivingAssists {
+        automatic_clutch: false,
+        automatic_gears: false,
+    };
     let vehicle = guest.vehicles.get_mut(&key).unwrap();
     vehicle.handbrake = !vehicle.handbrake;
     vehicle.ignition.ignition = !vehicle.ignition.ignition;
