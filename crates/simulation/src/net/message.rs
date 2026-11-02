@@ -20,6 +20,8 @@ pub const RADIO_CHANNEL: u8 = 35;
 pub const SOUND: u8 = 45;
 /// Source `msgType.time`.
 pub const TIME: u8 = 49;
+/// Source `msgType.inventory`.
+pub const INVENTORY: u8 = 15;
 /// Source `msgType.itemPosUpd`.
 pub const ITEM_POSE: u8 = 16;
 /// Source `msgType.claim`.
@@ -225,6 +227,25 @@ pub struct ClaimMessage {
     pub pad: u32,
 }
 
+/// Source `SInventory`: where the sender keeps an item.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct InventoryMessage {
+    pub key: u64,
+    /// `STORED`, `EQUIPPED`, `PICKED`.
+    pub flags: u32,
+    pub pad: u32,
+}
+
+impl InventoryMessage {
+    /// Source `inIninventory != 0`: in an inventory slot, not in a hand.
+    pub const STORED: u32 = 1;
+    /// Source `inRightHand`.
+    pub const EQUIPPED: u32 = 2;
+    /// Source `pickedUp`.
+    pub const PICKED: u32 = 4;
+}
+
 /// Source `SRemoveItem`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -288,6 +309,10 @@ impl Message for VelocityMessage {
 }
 impl Message for ClaimMessage {
     const TYPE: u8 = CLAIM;
+    const RELIABLE: bool = true;
+}
+impl Message for InventoryMessage {
+    const TYPE: u8 = INVENTORY;
     const RELIABLE: bool = true;
 }
 impl Message for RemoveMessage {

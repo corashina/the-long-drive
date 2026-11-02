@@ -2,6 +2,7 @@
 //! The simulation sends the local player and poses the remote players.
 pub mod car;
 pub mod claim;
+pub mod inventory;
 pub mod items;
 pub mod message;
 pub mod objects;
@@ -13,10 +14,12 @@ use crate::player::body::BodyState;
 use crate::reference::ReferenceManifest;
 use crate::starting_area::GarageRuntime;
 use car::CarFloats;
+use inventory::InventorySync;
 use items::ItemSync;
 use message::{
     BodyMessage, CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage,
-    ClaimMessage, ItemPoseMessage, Message, PoseMessage, RemoveMessage, VelocityMessage,
+    ClaimMessage, InventoryMessage, ItemPoseMessage, Message, PoseMessage, RemoveMessage,
+    VelocityMessage,
 };
 use objects::{NetKey, ObjectIndex};
 use remote::Remote;
@@ -64,6 +67,11 @@ pub struct Net {
     cars: Vec<CarValues>,
     /// The cars carry session state that must clear when the session ends.
     cars_touched: bool,
+    inventory: InventorySync,
+    /// Remote figure poses of this frame, in stream space.
+    figures: Vec<(u8, rapier3d::math::Pose)>,
+    /// Peers that left since the last frame.
+    left: Vec<u8>,
 }
 
 impl Net {
@@ -96,6 +104,7 @@ impl Net {
         self.remotes.retain(|r| r.slot != slot);
         self.items.claims.leave(slot);
         self.cars.retain(|c| c.slot != slot);
+        self.left.push(slot);
     }
     /// Length-prefixed packets for the browser. The next call starts empty.
     pub fn take_outbox(&mut self, out: &mut Vec<u8>) {
@@ -125,9 +134,13 @@ impl Net {
                     vehicle.net.clear();
                 }
             }
+            self.inventory.clear(runtime);
             return;
         }
         self.cars_touched = true;
+        for slot in std::mem::take(&mut self.left) {
+            self.inventory.leave(runtime, slot);
+        }
         self.clock += real_dt as f64;
         self.objects
             .refresh(&runtime.area.items, &runtime.area.spawned);
@@ -147,12 +160,23 @@ impl Net {
             real_dt,
             &mut self.outbox,
         );
+        self.inventory.send(
+            runtime,
+            &self.objects,
+            &mut items::Out {
+                slot: self.slot,
+                bytes: &mut self.outbox,
+            },
+        );
         let origin = &runtime.stream.origin;
+        self.figures.clear();
         for remote in &mut self.remotes {
             let seat = |car, seat| car::seat_pose(reference, runtime, alpha, car, seat);
             let Some((pose, root)) = remote.step(self.clock, real_dt, origin, seat) else {
                 continue;
             };
+            self.figures
+                .push((remote.slot, crate::vehicle::to_rapier(pose)));
             frame.remotes.push(RemoteRow {
                 slot: remote.slot as u32,
                 flags: RemoteRow::VISIBLE,
@@ -164,6 +188,7 @@ impl Net {
                 .remote_joints
                 .extend((0..body.joint_count()).map(|i| PoseRow::new(body.joint_local(i), 0)));
         }
+        self.inventory.follow(runtime, &self.figures, real_dt);
     }
 
     fn read_inbox(&mut self, reference: &ReferenceManifest, runtime: &mut GarageRuntime) {
@@ -218,8 +243,14 @@ impl Net {
                 .flatten()
         };
         if let Ok((slot, m)) = ItemPoseMessage::decode(packet) {
-            if let Some(id) = item(slot, m.key) {
+            if let Some(id) = item(slot, m.key)
+                && !self.inventory.target(runtime, &self.figures, id, &m)
+            {
                 items::apply_pose(runtime, &self.items.claims, id, &m);
+            }
+        } else if let Ok((slot, m)) = InventoryMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                self.inventory.got(runtime, id, slot, m.flags);
             }
         } else if let Ok((slot, m)) = VelocityMessage::decode(packet) {
             if let Some(id) = item(slot, m.key) {

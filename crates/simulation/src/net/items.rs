@@ -22,13 +22,13 @@ pub const SYNC_MIN_POS: f64 = 0.05;
 pub const SYNC_MIN_ROT: f32 = 1.;
 
 /// The outbox of one send.
-struct Out<'a> {
-    slot: u8,
-    bytes: &'a mut Vec<u8>,
+pub(super) struct Out<'a> {
+    pub slot: u8,
+    pub bytes: &'a mut Vec<u8>,
 }
 
 impl Out<'_> {
-    fn push<M: Message>(&mut self, message: &M) {
+    pub fn push<M: Message>(&mut self, message: &M) {
         message::push(self.slot, message, self.bytes);
     }
 }
@@ -69,8 +69,16 @@ impl ItemSync {
             bytes: out,
         };
         let interaction = &runtime.area.interaction;
+        let slots = runtime.area.inventory.slots;
         self.claims.observe(
-            [interaction.carry.held(), interaction.equipment.item()],
+            [
+                interaction.carry.held(),
+                interaction.equipment.item(),
+                slots[0],
+                slots[1],
+                slots[2],
+                slots[3],
+            ],
             clock,
             &mut self.changes,
         );
