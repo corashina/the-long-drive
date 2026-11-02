@@ -555,3 +555,45 @@ fn tp_m03_a_host_part_comes_off_and_goes_on_at_the_guest() {
         "the part is on at the guest"
     );
 }
+
+/// M03. Source `SPartCondition` and `SFlashlight`: rust on the host shows on the guest, and a
+/// garage light switch on the host switches on the guest.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_m03_host_rust_and_light_switch_reach_the_guest() {
+    use crate::reference::LightControllerKind;
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let mut guest = save_load(&run, &reference);
+    let mut pair = Pair::new();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    let id = run
+        .area
+        .interaction
+        .conditions
+        .iter()
+        .find(|(_, s)| s.state < 4)
+        .expect("a garage surface")
+        .0;
+    run.area.interaction.conditions.wear(id);
+    let state = run.area.interaction.conditions.get(id).state;
+    let (i, control) = reference
+        .lighting
+        .controllers
+        .iter()
+        .enumerate()
+        .find(|(_, c)| c.kind == LightControllerKind::Switch)
+        .expect("a garage switch");
+    run.lighting.use_control(&reference.lighting, control.id);
+    let on = run.lighting.controllers[i].on;
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    assert_eq!(
+        guest.area.interaction.conditions.get(id).state,
+        state,
+        "the guest has the rust"
+    );
+    assert_eq!(
+        guest.lighting.controllers[i].on, on,
+        "the guest light switched"
+    );
+}

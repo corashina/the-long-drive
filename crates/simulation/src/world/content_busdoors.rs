@@ -709,6 +709,46 @@ impl WorldStream {
             }
         }
     }
+    /// The parent seed and the doors of each bound bus.
+    pub fn bus_door_states(&self) -> impl Iterator<Item = (u64, &[Door])> {
+        self.bus_door_bindings
+            .iter()
+            .map(|b| (b.parent.seed(), &b.state.doors[..]))
+    }
+    /// Source `UpdBus`: bit i of `opened` and `signed` is door i. False if no bus has seed `seed`.
+    pub fn set_bus_doors(&mut self, seed: u64, opened: u32, signed: u32) -> bool {
+        let Some(index) = self
+            .bus_door_bindings
+            .iter()
+            .position(|b| b.parent.seed() == seed)
+        else {
+            return false;
+        };
+        let b = &mut self.bus_door_bindings[index];
+        let mut changed = 0u32;
+        for (i, d) in b.state.doors.iter_mut().enumerate().take(32) {
+            let open = opened & (1 << i) != 0;
+            let sign = signed & (1 << i) != 0;
+            if (d.opened, d.signed) == (open, sign) {
+                continue;
+            }
+            if d.opened != open {
+                for leaf in &mut b.state.leaves[d.leaves.clone()] {
+                    leaf.set(open, b.state.time, &mut b.state.random);
+                }
+            }
+            (d.opened, d.signed) = (open, sign);
+            changed |= 1 << i;
+        }
+        if changed != 0 {
+            let key = ObjectKey::Generated(b.parent.clone());
+            self.changes.set_bus_doors(key, b.state.capture());
+            for door in (0..32).filter(|i| changed & (1 << i) != 0) {
+                self.show_door_lamps(index, door);
+            }
+        }
+        true
+    }
     pub fn bus_doors(&self, parent: &GeneratedId) -> Option<&BusDoorBinding> {
         self.bus_door_bindings.iter().find(|b| &b.parent == parent)
     }
