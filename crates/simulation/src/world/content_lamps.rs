@@ -450,6 +450,44 @@ impl WorldStream {
         self.refresh_lamp_outputs();
         Ok(true)
     }
+    /// Each generated lamp control: the seed of its lamp object, the on state and the broken bits.
+    pub fn lamp_controls(&self) -> impl Iterator<Item = (u64, bool, u64)> + '_ {
+        self.lamp_bindings.iter().filter_map(|b| {
+            let on = self
+                .contents
+                .lamp_states()
+                .find(|(p, s, _)| p == &b.parent && s == &b.source)?
+                .2;
+            let broken = self.contents.broken_lamps(&b.parent, &b.source);
+            Some((b.parent.child_seed(&b.source, 0), on, broken))
+        })
+    }
+    /// Source `UpdFlashlight`: the lamp control with seed `seed` takes `on` and the `broken` bits.
+    /// False if no control has the seed.
+    pub fn set_generated_lamp(
+        &mut self,
+        seed: u64,
+        on: bool,
+        broken: u64,
+        items: &mut crate::interaction::items::ItemStore,
+    ) -> Result<bool, ReferenceError> {
+        let Some((_, now, was)) = self.lamp_controls().find(|(s, ..)| *s == seed) else {
+            return Ok(false);
+        };
+        let binding = self
+            .lamp_bindings
+            .iter()
+            .find(|b| b.parent.child_seed(&b.source, 0) == seed)
+            .unwrap();
+        let (parent, control) = (binding.parent.clone(), binding.control);
+        if now != on {
+            self.use_generated_light(control, items)?;
+        }
+        if was | broken != was {
+            self.break_generated_lamps(&parent, control, broken)?;
+        }
+        Ok(true)
+    }
     /// Source flashlightscript.Break: sets the lamps in `lamps` of a structure control broken
     /// and refreshes their nodes and lights. Bit i is `Lamps[i]`.
     pub(super) fn break_generated_lamps(

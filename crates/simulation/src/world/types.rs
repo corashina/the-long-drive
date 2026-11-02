@@ -60,6 +60,13 @@ impl GeneratedId {
         }
         hash
     }
+    /// The seed of this key with one more child: `source` with ordinal `ordinal`.
+    pub fn child_seed(&self, source: &SourceId, ordinal: u32) -> u64 {
+        let mut hash = self.seed();
+        mix_source(&mut hash, source);
+        mix(&mut hash, &ordinal.to_le_bytes());
+        hash
+    }
 }
 impl ObjectKey {
     /// Stable 64-bit FNV-1a seed of the key. Each copy of one prototype gets its own seed.

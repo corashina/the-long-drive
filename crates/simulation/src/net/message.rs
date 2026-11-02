@@ -24,6 +24,12 @@ pub const TIME: u8 = 49;
 pub const REQUEST: u8 = 8;
 /// Source `msgType.inventory`.
 pub const INVENTORY: u8 = 15;
+/// Source `msgType.partcondition`.
+pub const PART_CONDITION: u8 = 20;
+/// Source `msgType.flashlight`.
+pub const FLASHLIGHT: u8 = 30;
+/// Source `msgType.bus`.
+pub const BUS: u8 = 32;
 /// Source `msgType.partslot`.
 pub const PART_SLOT: u8 = 21;
 /// Source `msgType.usable`.
@@ -334,6 +340,43 @@ impl MountMessage {
     pub const HITCH: u32 = 4;
 }
 
+/// Source `SPartCondition`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct ConditionMessage {
+    /// The key of the item that saves the entry, or 0 for a garage surface.
+    pub key: u64,
+    /// The seed of the entry source, or the garage `ConditionId`.
+    pub seed: u64,
+    pub state: u32,
+    pub state2: u32,
+    pub state3: u32,
+    pub pad: u32,
+    pub color: [f32; 4],
+}
+
+/// Source `SFlashlight`: a lamp switch.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct LampMessage {
+    /// The seed of a world lamp object, or 0 for garage switch `control`.
+    pub key: u64,
+    /// Source `Lamp.broken`: bit i is lamp i.
+    pub broken: u64,
+    pub control: u32,
+    pub on: u32,
+}
+
+/// Source `SBus`: bit i is door i.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct BusMessage {
+    /// The seed of the bus.
+    pub key: u64,
+    pub opened: u32,
+    pub signed: u32,
+}
+
 /// Source `SRemoveItem`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -421,6 +464,18 @@ impl Message for InventoryMessage {
 }
 impl Message for MountMessage {
     const TYPE: u8 = PART_SLOT;
+    const RELIABLE: bool = true;
+}
+impl Message for ConditionMessage {
+    const TYPE: u8 = PART_CONDITION;
+    const RELIABLE: bool = true;
+}
+impl Message for LampMessage {
+    const TYPE: u8 = FLASHLIGHT;
+    const RELIABLE: bool = true;
+}
+impl Message for BusMessage {
+    const TYPE: u8 = BUS;
     const RELIABLE: bool = true;
 }
 impl Message for RemoveMessage {

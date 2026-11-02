@@ -2,8 +2,9 @@
 use crate::reference::ItemId;
 use std::collections::{HashMap, HashSet};
 
-/// Items this player holds: the carried item, the right-hand item and the 4 inventory slots.
-pub const HELD: usize = 6;
+/// Items this player holds: the carried item, the right-hand item, the 4 inventory slots and the
+/// item whose seat the player sits in (a sled or a chair).
+pub const HELD: usize = 7;
 
 /// Source `tosaveitemscript.unClaim` real-time wait.
 pub const UNCLAIM_DELAY: f64 = 0.05;
@@ -97,7 +98,7 @@ mod tests {
     use super::*;
 
     fn held(carried: Option<ItemId>, hand: Option<ItemId>) -> [Option<ItemId>; HELD] {
-        [carried, hand, None, None, None, None]
+        [carried, hand, None, None, None, None, None]
     }
 
     #[test]
