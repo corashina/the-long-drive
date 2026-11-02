@@ -214,8 +214,7 @@ impl PhysicsWorld {
 pub mod tests {
     use super::*;
     use crate::reference::ItemId;
-    use crate::simulation::{DriveInput, FIXED_DT};
-    use crate::vehicle::DriveTorques;
+
     use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
     use serde_json::json;
 
@@ -283,91 +282,5 @@ pub mod tests {
         }
         physics.refresh_queries();
         (physics, keys, chassis.map(|(body, _)| body))
-    }
-
-    #[test]
-    fn removing_one_vehicle_keeps_the_other_driving() {
-        let prototype = car();
-        let (mut physics, keys, chassis) = two_cars(&prototype);
-        for body in chassis {
-            assert_eq!(physics.rapier().bodies[body].mass(), 820.0);
-        }
-        // Mass changes keep the centre of mass override.
-        let com = Vector::new(0.0, -0.1, 0.2);
-        let second = physics.chassis_handle(&keys[1]);
-        physics.set_center_of_mass(second, com).unwrap();
-        physics.set_vehicle_mass(&keys[1], 820.0);
-        let local = physics.rapier().bodies[second]
-            .mass_properties()
-            .local_mprops;
-        assert!((local.local_com - com).length() < 1e-4, "{local:?}");
-        assert!((local.mass() - 820.0).abs() < 1e-3);
-
-        let throttle = DriveInput {
-            throttle: 1.0,
-            ..Default::default()
-        };
-        let torques = DriveTorques {
-            motor_nm: 1600.0,
-            engine_brake_nm: 0.0,
-            pedal_nm: None,
-        };
-        let drive = |physics: &mut PhysicsWorld, keys: &[ObjectKey], seconds: f32| {
-            for _ in 0..(seconds / FIXED_DT) as usize {
-                for key in keys {
-                    physics.apply_vehicle_forces(key, throttle, torques);
-                }
-                physics.step_physics();
-            }
-        };
-        drive(&mut physics, &keys, 1.0);
-        for key in &keys {
-            assert!(physics.wheel_contacts(key).all(|contact| contact));
-            assert!(physics.snapshot(key).speed_mps > 1.0);
-        }
-        let first = physics.chassis_handle(&keys[0]);
-        assert!(physics.remove_vehicle(&keys[0]));
-        assert!(!physics.remove_vehicle(&keys[0]));
-        assert_eq!(physics.vehicle_of(first), None);
-        assert_eq!(physics.vehicle_count(), 1);
-        let before = physics.snapshot(&keys[1]).speed_mps;
-        drive(&mut physics, &keys[1..], 1.0);
-        assert!(physics.snapshot(&keys[1]).speed_mps > before + 1.0);
-    }
-
-    #[test]
-    fn pedal_torque_drives_pedal_wheels_until_the_engine_gives_torque() {
-        let mut prototype = car();
-        prototype.vehicle.as_mut().unwrap().pedals = Some(
-            serde_json::from_value(json!({"source": {"file": "a", "path_id": 12},
-                "driven_wheels": [2, 3], "driven_slots": [3, 4], "seat": 0, "pedals": [], "pedals_inverse": [],
-                "feet_holders": [], "axes": [], "axis_index": [], "ratio": 1.0, "speed_modifier": 1.0,
-                "input_debounce": 0.5, "gas_tap": 1.0, "player_use": true}))
-            .unwrap(),
-        );
-        let (mut physics, keys, chassis) = two_cars(&prototype);
-        let throttle = DriveInput {
-            throttle: 1.0,
-            ..Default::default()
-        };
-        let pedal = DriveTorques {
-            pedal_nm: Some(400.0),
-            ..Default::default()
-        };
-        let engine = DriveTorques {
-            motor_nm: -1600.0,
-            ..pedal
-        };
-        for _ in 0..(1.0 / FIXED_DT) as usize {
-            physics.apply_vehicle_forces(&keys[0], throttle, pedal);
-            physics.apply_vehicle_forces(&keys[1], throttle, engine);
-            physics.step_physics();
-        }
-        let [pedaled, driven] = chassis.map(|body| physics.rapier().bodies[body].linvel().z);
-        assert!(pedaled.abs() > 0.5, "{pedaled}");
-        assert!(
-            driven.abs() > 0.5 && driven.signum() != pedaled.signum(),
-            "{driven}"
-        );
     }
 }

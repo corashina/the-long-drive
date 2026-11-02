@@ -35,9 +35,9 @@ Run routine formatting and WASM compile checks:
 Run selected native tests by integration target, name filter, or both:
 
 ```powershell
-./scripts/check.ps1 -Test texture_upload
+./scripts/check.ps1 -Test world_frontiers
 ./scripts/check.ps1 -Filter roadside_
-./scripts/check.ps1 -Test texture_upload -Filter refill
+./scripts/check.ps1 -Test world_frontiers -Filter checkpoint
 ```
 
 Native test commands also check formatting and WASM compilation.

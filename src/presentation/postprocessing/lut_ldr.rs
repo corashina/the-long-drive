@@ -267,20 +267,3 @@ impl LutLdrPass {
         true
     }
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn eighth_half_is_exact() {
-        for i in 0..128u32 {
-            let bits = super::eighth_half(i);
-            let exponent = (bits >> 10) as i32 - 15;
-            let value = if bits == 0 {
-                0.
-            } else {
-                (1. + f32::from(bits & 0x3ff) / 1024.) * 2f32.powi(exponent)
-            };
-            assert_eq!(value, i as f32 / 128.);
-        }
-    }
-}

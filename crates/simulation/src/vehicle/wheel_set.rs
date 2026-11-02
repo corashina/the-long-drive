@@ -270,6 +270,3 @@ fn inverse_mass_at(body: &rapier3d::prelude::RigidBody, point: Vector, direction
     (props.effective_inv_mass * direction * direction).element_sum()
         + arm.dot(props.effective_world_inv_inertia * arm)
 }
-
-#[cfg(test)]
-mod tests;

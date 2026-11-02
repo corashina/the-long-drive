@@ -1,7 +1,5 @@
 use super::{PhysicsWorld, presentation_bodies::BodyPresentationState};
 use rapier3d::control::{CharacterCollision, KinematicCharacterController};
-#[cfg(test)]
-use rapier3d::math::Vector;
 use rapier3d::parry::shape::Shape;
 use rapier3d::prelude::{
     ActiveHooks, Collider, ColliderHandle, ColliderSet, GenericJoint, ImpulseJoint,
@@ -242,10 +240,6 @@ impl PhysicsWorld {
         wake_up: bool,
     ) -> Option<ImpulseJoint> {
         self.physics.impulse_joints.remove(joint, wake_up)
-    }
-    #[cfg(test)]
-    pub(super) fn set_gravity(&mut self, gravity: Vector) {
-        self.physics.gravity = gravity;
     }
     pub fn solve_character_collision_impulses(
         &mut self,

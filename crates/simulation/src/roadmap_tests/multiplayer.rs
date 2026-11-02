@@ -531,7 +531,7 @@ fn tp_m03_a_host_spawn_appears_on_the_guest() {
     pair.run(&reference, &mut run, &mut guest, 0.5);
     // A metal shovel where both players stood. They sit in the car first: a spawn in a player
     // capsule is thrown out and can break before the host sends it.
-    let shovel = crate::world::stream::tests::melee::weapon(&reference, &["shovel"]);
+    let shovel = weapon(&reference, &["shovel"]);
     let prototype = reference
         .item_prototypes
         .iter()
@@ -731,7 +731,7 @@ fn tp_m03_a_host_bite_reaches_the_guest() {
 #[test]
 #[ignore = "requires the installed source export"]
 fn tp_mp_m04c_host_rabbits_appear_on_the_guest() {
-    let (reference, mut host_run) = super::creatures::outdoors();
+    let (reference, mut host_run) = outdoors();
     let mut guest_run = save_load(&host_run, &reference);
     let (mut host, mut guest) = (Net::default(), Net::default());
     host.set_session(NetRole::Host, 0);

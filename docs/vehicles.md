@@ -90,7 +90,6 @@ Trailers (`utanfutoscript`) export as world prototypes with a `trailer` record. 
 - The save keeps bus door state (`Bopened`, `Bsigned`) per bus.
 - The save keeps the start car field. Load spawns its placement and ignores the menu choice. Validation checks the current car against it.
 - Save schema 25. Older saves are rejected.
-- `crates/simulation/src/world/stream_tests/car_types.rs` drives, saves and loads each start car. It needs the export.
 
 ## Bus doors
 

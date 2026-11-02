@@ -603,26 +603,6 @@ impl InteractionState {
         Ok(())
     }
 
-    /// Test view: the end segment items of the hose of `segment` and the cap each end holds.
-    #[cfg(test)]
-    pub(crate) fn hose_ends(&self, segment: ItemId) -> Option<[(ItemId, Option<OpeningId>); 2]> {
-        let hose = &self.hoses.hoses[self.hoses.find(segment)?];
-        Some(
-            hose.ends
-                .each_ref()
-                .map(|e| (hose.items[e.segment], e.cap.map(|(cap, _)| cap))),
-        )
-    }
-
-    /// Test view: the opening of `tank` and its cap item.
-    #[cfg(test)]
-    pub(crate) fn tank_opening(&self, tank: ItemId) -> Option<(OpeningId, ItemId)> {
-        self.openings
-            .iter()
-            .find(|o| o.reference.tank == tank && o.borrowed_tank.is_none())
-            .map(|o| (o.reference.id, o.reference.cap))
-    }
-
     /// Forget the hose of a removed segment item and its end openings.
     pub(super) fn unregister_hose(&mut self, item: ItemId) {
         if let Some(index) = self.hoses.find(item) {

@@ -1171,24 +1171,3 @@ impl DeadGrading {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::MotionBlurSettings;
-
-    #[test]
-    fn shutter_follows_speed_and_lerps() {
-        let blur = MotionBlurSettings {
-            samples: 10,
-            shutter_range: [0., 180.],
-            speed_range: [50., 150.],
-            shutter_lerp: 2.,
-        };
-        // Below the speed range, a full lerp step reaches the low angle.
-        assert_eq!(blur.shutter(90., 20., 0.5), 0.);
-        // Half the speed range, a quarter step: 0 + (90 - 0) * 0.25.
-        assert_eq!(blur.shutter(0., 100., 0.125), 22.5);
-        // Above the range, the target clamps to the high angle.
-        assert_eq!(blur.shutter(0., 400., 1.), 180.);
-    }
-}

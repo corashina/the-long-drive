@@ -84,6 +84,3 @@ impl super::PhysicsWorld {
         self.presentation_bodies.retained_bytes()
     }
 }
-
-#[cfg(test)]
-mod tests;

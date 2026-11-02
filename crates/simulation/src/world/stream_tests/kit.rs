@@ -1,17 +1,14 @@
 //! Test kit for headless scenario tests on the installed source export.
 //! Run in release only. Debug builds overflow the stack.
 //! The world uses the default game seed and the export date. Each frame is one fixed step (`FIXED_DT`).
-//! Section sweeps use the whole kit. Some helpers have no caller yet.
-#![allow(dead_code)]
 use super::super::*;
-use crate::audio::AudioEvent;
-use crate::reference::ItemId;
+use crate::reference::{ItemId, MeleeWeaponReference};
 use crate::sandbox::Sandbox;
 use crate::save::{SaveSnapshot, SourceStamp};
 use crate::simulation::{FIXED_DT, FrameInput};
 use crate::starting_area::GarageRuntime;
 use rapier3d::math::{Rotation, Vector};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// Path of the installed export.
 const MANIFEST: &str = concat!(
@@ -376,19 +373,6 @@ pub(crate) fn save_load(run: &GarageRuntime, reference: &ReferenceManifest) -> G
     load(reference, &save(run, reference))
 }
 
-/// Takes the queued audio events with their trigger names. The queue holds the last 64.
-pub(crate) fn audio_events(run: &mut GarageRuntime) -> Vec<(String, AudioEvent)> {
-    let audio = run.audio.as_mut().expect("audio state");
-    let mut events = Vec::new();
-    while let Some(event) = audio.pop_event() {
-        let trigger = audio
-            .binding(event.binding)
-            .map_or_else(String::new, |b| b.trigger.clone());
-        events.push((trigger, event));
-    }
-    events
-}
-
 /// The nearest item to the player whose name contains `name`, ignoring case.
 pub(crate) fn find(run: &GarageRuntime, name: &str) -> ItemId {
     let player = Vector::from_array(run.area.player.body_pose(&run.physics).position);
@@ -412,117 +396,6 @@ pub(crate) fn find(run: &GarageRuntime, name: &str) -> ItemId {
         .unwrap_or_else(|| panic!("no item named {name}"))
 }
 
-/// Spawns the first world prototype with each script class in front of the player. Returns
-/// the placements once each binds.
-pub(crate) fn spawn_scripts(
-    run: &mut GarageRuntime,
-    reference: &ReferenceManifest,
-    classes: &[&str],
-) -> Vec<crate::world::GeneratedId> {
-    let rules = &run.stream.contents.rules;
-    let sources: Vec<_> = classes
-        .iter()
-        .map(|class| {
-            reference
-                .world
-                .prototypes
-                .iter()
-                .find(|p| {
-                    rules
-                        .component(&reference.world, &p.source, class)
-                        .ok()
-                        .flatten()
-                        .is_some()
-                })
-                .unwrap_or_else(|| panic!("{class} prototype"))
-                .source
-                .clone()
-        })
-        .collect();
-    let view = run.area.player.view(&run.physics).camera_pose;
-    let rotation = rapier3d::math::Rotation::from_array(view.rotation);
-    let forward = rotation * -rapier3d::math::Vector::Z;
-    let right = rotation * rapier3d::math::Vector::X;
-    for (i, source) in sources.iter().enumerate() {
-        let p = rapier3d::math::Vector::from_array(view.position)
-            + forward.with_y(0.).normalize() * 0.8
-            + right.with_y(0.).normalize() * (0.4 * (i as f32 - 1.));
-        let position = run
-            .stream
-            .origin
-            .absolute((p - rapier3d::math::Vector::Y * 0.6).to_array());
-        run.stream
-            .add_startup_placement(
-                source,
-                crate::world::AbsolutePose {
-                    position,
-                    rotation: [0., 0., 0., 1.],
-                },
-            )
-            .unwrap();
-    }
-    let parent = |run: &GarageRuntime, source: &crate::reference::SourceId| {
-        run.stream
-            .contents
-            .active
-            .iter()
-            .find(|c| &c.content.placement.prototype == source)
-            .map(|c| c.content.placement.id.clone())
-    };
-    let bound = |run: &GarageRuntime, class: &str, p: &crate::world::GeneratedId| match class {
-        "musicboxscript" => run.stream.music_box(p).is_some(),
-        _ => run.stream.dial(p).is_some(),
-    };
-    for _ in 0..600 {
-        frame(run, reference);
-        if sources
-            .iter()
-            .zip(classes)
-            .all(|(s, c)| parent(run, s).is_some_and(|p| bound(run, c, &p)))
-        {
-            seconds(run, reference, 1.);
-            return sources.iter().map(|s| parent(run, s).unwrap()).collect();
-        }
-    }
-    panic!("{classes:?} do not bind");
-}
-
-/// The item of an active world content.
-pub(crate) fn content_item(run: &GarageRuntime, id: &crate::world::GeneratedId) -> Option<ItemId> {
-    run.stream
-        .contents
-        .active
-        .iter()
-        .find(|c| &c.content.placement.id == id)
-        .and_then(|c| c.item)
-}
-
-/// Gives a test collider a trigger role, as `trigger_roles` publishes it.
-pub(crate) fn add_trigger_role(
-    run: &mut GarageRuntime,
-    collider: rapier3d::prelude::ColliderHandle,
-    role: crate::reference::TriggerRole,
-) {
-    run.stream.trigger_roles.insert(collider, role);
-}
-
-/// Part condition entries of the start car content: store entry, input index, prototype node.
-pub(crate) fn start_car_conditions(
-    run: &GarageRuntime,
-) -> Vec<(crate::reference::ConditionId, usize, usize)> {
-    let Some(crate::world::ObjectKey::Generated(id)) = run.vehicle.as_ref() else {
-        panic!("start car key");
-    };
-    run.stream
-        .contents
-        .active
-        .iter()
-        .find(|c| &c.content.placement.id == id)
-        .expect("start car content")
-        .conditions
-        .clone()
-}
-
 /// Moves the player on foot to `distance` metres from a local point, on the side of the
 /// current player position.
 pub(crate) fn stand_near(
@@ -539,24 +412,6 @@ pub(crate) fn stand_near(
     pose.position = [at.x, pose.position[1], at.z];
     run.area.player.recover(pose, &mut run.physics);
     seconds(run, reference, 0.5);
-}
-
-/// Turns the head to an item pose and steps until the use ray hits the item.
-pub(crate) fn aim_at_item(
-    run: &mut GarageRuntime,
-    reference: &ReferenceManifest,
-    item: ItemId,
-) -> bool {
-    for _ in 0..20 {
-        let point = run.area.items.get(item).unwrap().pose.position;
-        run.area.player.look_at(point, &run.physics);
-        frame(run, reference);
-        if run.aim.use_target.is_some_and(|t| t.item == item) {
-            return true;
-        }
-    }
-    eprintln!("aim missed {item:?}: use {:?}", run.aim.use_target);
-    false
 }
 
 /// Picks up an item from 1 m away, as the hand would.
@@ -576,173 +431,74 @@ pub(crate) fn pick_up(run: &mut GarageRuntime, reference: &ReferenceManifest, it
     run.area.sync_inventory();
 }
 
-/// Moves a loose item 0.6 m in front of the eyes and picks it up there.
-pub(crate) fn take(run: &mut GarageRuntime, reference: &ReferenceManifest, item: ItemId) {
-    let view = run.area.player.view(&run.physics).camera_pose;
-    let point =
-        Vector::from_array(view.position) + Rotation::from_array(view.rotation) * -Vector::Z * 0.6;
-    let body = run.area.items.get(item).unwrap().body.unwrap();
-    run.physics.edit_body(body, |b| {
-        let mut pose = *b.position();
-        pose.translation = point;
-        b.set_position(pose, true);
-        b.set_linvel(Vector::ZERO, true);
-    });
-    run.area.items.get_mut(item).unwrap().pose.position = point.to_array();
-    run.physics.refresh_queries();
-    run.area
-        .interaction
-        .pickup_item(
-            item,
-            point.to_array(),
-            &run.area.player,
-            &mut run.area.items,
-            &mut run.physics,
-        )
-        .unwrap();
-    run.area.sync_inventory();
-    frame(run, reference);
-    assert_eq!(
-        run.area.interaction.held(),
-        Some(item),
-        "item stays in hand"
-    );
-}
-
-/// Sets the local month and day that the next new games start on.
-pub(crate) fn set_calendar(month_day: [u8; 2]) {
-    CALENDAR.set(month_day);
-}
-
-/// Publishes the sandbox placements (`spawn`, `hand`, `equip` of a world prototype) as the browser
-/// renderer accepts them. The required publication does not hold them.
-pub(crate) fn load_placements(run: &mut GarageRuntime, reference: &ReferenceManifest) {
-    for _ in 0..600 {
-        let stream = &mut run.stream;
-        let pending: Vec<_> = stream
-            .added_placement_audit()
-            .into_iter()
-            .map(|(p, _)| p.id.clone())
-            .filter(|id| {
-                // A removed placement (a broken bottle) stays gone.
-                let removed = stream
-                    .changes
-                    .get(crate::world::ObjectKey::Generated((*id).clone()))
-                    .is_some_and(|c| c.snapshot.is_none());
-                !removed
-                    && !stream.structures.iter().any(|s| &s.placement.id == id)
-                    && !stream.ready_structures.contains(id)
-            })
-            .collect();
-        if pending.is_empty() {
-            return;
-        }
-        let placement = stream
-            .wanted_structures
-            .iter()
-            .find(|p| pending.contains(&p.id) && stream.contents_initialized(&p.id))
-            .cloned()
-            .filter(|_| stream.can_request_independent(1));
-        if let Some(p) = placement {
-            stream.hold_prototype(p.prototype.clone()).unwrap();
-            stream.bind_prototype(&p.prototype).unwrap();
-            stream.bind_structure_recipe(&p.prototype).unwrap();
-            accept_structure(stream, &p.id);
+/// Frames until the stream supports the player again. False after 60 s.
+pub(crate) fn loads(run: &mut GarageRuntime, reference: &ReferenceManifest) -> bool {
+    for _ in 0..3000 {
+        if run.world_supported() && run.stream.required_ready() {
+            return true;
         }
         frame(run, reference);
     }
+    false
+}
+
+/// Frames until the stream supports the player again. Fails after 60 s with the first gap.
+pub(crate) fn wait_loaded(run: &mut GarageRuntime, reference: &ReferenceManifest) {
+    if loads(run, reference) {
+        return;
+    }
+    let focus = player_absolute(run);
+    let bounds = crate::world::WorldBounds {
+        min: focus.map(|v| v - 8.),
+        max: focus.map(|v| v + 8.),
+    };
     panic!(
-        "sandbox placements do not load: {:?}",
-        run.stream
-            .added_placement_audit()
-            .iter()
-            .map(|(_, a)| a)
-            .collect::<Vec<_>>()
+        "the area at {focus:?} does not load: {:?}",
+        run.stream.support_gap(bounds)
     );
 }
 
-/// The broken lamp bits of light control `control` of structure `parent`.
-pub(crate) fn broken_lamps(
-    run: &GarageRuntime,
-    parent: &crate::world::GeneratedId,
-    control: crate::reference::LightControlId,
-) -> u64 {
-    let source = &run
-        .stream
-        .lamp_bindings
-        .iter()
-        .find(|b| b.control == control && &b.parent == parent)
-        .expect("lamp binding")
-        .source;
-    run.stream.contents.broken_lamps(parent, source)
+/// The garage scene with the player on open ground 113 m from the spawn.
+pub(crate) fn outdoors() -> (ReferenceManifest, GarageRuntime) {
+    let (reference, mut run) = load_garage();
+    seconds(&mut run, &reference, 1.);
+    let spawn = reference.area.player_spawn.translation.map(f64::from);
+    act(
+        &mut run,
+        &reference,
+        &json!({"action": "teleport", "x": spawn[0] + 80., "z": spawn[2] + 80.}).to_string(),
+    );
+    wait_loaded(&mut run, &reference);
+    seconds(&mut run, &reference, 1.);
+    (reference, run)
 }
 
-/// The part conditions of active content `id`: condition id and condition index.
-pub(crate) fn content_conditions(
-    run: &GarageRuntime,
-    id: &crate::world::GeneratedId,
-) -> Option<Vec<(crate::reference::ConditionId, usize)>> {
-    let content = run
-        .stream
-        .contents
-        .active
+/// The weapon whose world prototype root name has one of `names`.
+pub(crate) fn weapon<'a>(
+    reference: &'a ReferenceManifest,
+    names: &[&str],
+) -> &'a MeleeWeaponReference {
+    reference
+        .melee
+        .weapons
         .iter()
-        .find(|c| &c.content.placement.id == id)?;
-    Some(content.conditions.iter().map(|&(c, i, _)| (c, i)).collect())
+        .find(|w| {
+            reference
+                .world
+                .prototypes
+                .iter()
+                .find(|p| p.source == w.prototype.0)
+                .and_then(|p| p.nodes.iter().find(|n| n.parent.is_none()))
+                .is_some_and(|n| {
+                    let name = n.name.to_lowercase();
+                    names.iter().any(|s| name.contains(s))
+                })
+        })
+        .unwrap_or_else(|| panic!("melee weapon {names:?}"))
 }
 
-/// Places world prototype `source` `forward` metres in front of the player. Returns its item
-/// once the stream binds it.
-pub(crate) fn place_prototype(
-    run: &mut GarageRuntime,
-    reference: &ReferenceManifest,
-    source: &crate::reference::SourceId,
-    forward: f32,
-) -> ItemId {
-    let before: Vec<_> = run
-        .stream
-        .contents
-        .active
-        .iter()
-        .map(|c| c.content.placement.id.clone())
-        .collect();
-    let body = run.area.player.body_pose(&run.physics);
-    let at = Vector::from_array(body.position)
-        + Rotation::from_array(body.rotation) * -Vector::Z * forward
-        + Vector::Y * 0.3;
+fn player_absolute(run: &GarageRuntime) -> [f64; 3] {
     run.stream
-        .add_startup_placement(
-            source,
-            crate::world::AbsolutePose {
-                position: run.stream.origin.absolute(at.to_array()),
-                rotation: [0., 0., 0., 1.],
-            },
-        )
-        .unwrap();
-    for _ in 0..600 {
-        frame(run, reference);
-        let item = run
-            .stream
-            .contents
-            .active
-            .iter()
-            .filter(|c| &c.content.placement.prototype == source)
-            .filter(|c| !before.contains(&c.content.placement.id))
-            .find_map(|c| c.item);
-        if let Some(item) = item {
-            seconds(run, reference, 0.5);
-            return item;
-        }
-    }
-    panic!("{source:?} does not bind");
-}
-
-/// The trigger role of collider `handle`.
-pub(crate) fn trigger_role(
-    run: &GarageRuntime,
-    handle: rapier3d::prelude::ColliderHandle,
-) -> Option<crate::reference::TriggerRole> {
-    run.stream
-        .trigger_roles
-        .get(handle, &run.physics.rapier().colliders[handle])
+        .origin
+        .absolute(run.area.player.body_pose(&run.physics).position)
 }

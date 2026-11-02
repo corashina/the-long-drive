@@ -3,7 +3,7 @@
 Claude runs the ROADMAP test pass with these in Chrome. They are not automatic tests.
 
 1. Open the game with `?sandbox`. Add `&date=11-01` for a fixed date. New games use seed 42; add `&seed=N` for another world.
-2. Paste `helpers.js` into the game tab. Start a New game. Then paste one area file, for example `buses.js`.
+2. Paste `helpers.js` into the game tab. Start a New game.
 3. Call the steps. `window.sandbox` has `teleport(x, z)`, `garage()`, `building(name)`, `spawn(name, forward)`, `hand(name)`, `fill(fluid, liters)`, `cycle(seconds)` and `state(radius)`.
    Setup helpers use the game paths, so the checks after them stay valid:
    - `seat(car, seat)`: sit on the nearest loaded seat. `car` is part of a root name (`'Car02Full'`), a game name (`'Volna'`) or `'Lada'`, or `null` for any seat, such as a sled or the WC. `seat` is `'driver'`, `'passenger'` or `null`.
