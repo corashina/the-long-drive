@@ -2983,6 +2983,82 @@ fn parked_car_keeps_nearby_item_dynamic() {
     assert!(run.physics.rapier().bodies[body].is_dynamic());
 }
 
+/// The car mechanisms, attachments, parts and wheels follow a moved chassis, as in recovery transport.
+fn follow_car(run: &mut GarageRuntime) {
+    run.area.interaction.sync_mechanisms(&mut run.physics);
+    run.area.sync_attachments(&mut run.physics, false);
+    run.area
+        .interaction
+        .sync_parts(&mut run.area.items, &mut run.physics)
+        .unwrap();
+    run.wheels
+        .sync(&mut run.area.items, &mut run.physics)
+        .unwrap();
+    run.area.items.sync_poses(&run.physics);
+}
+
+/// The first natural part at `site` that fits a removable garage car slot, with that slot.
+fn natural_part_slot(
+    run: &mut GarageRuntime,
+    site: &crate::world::GeneratedId,
+) -> (crate::reference::ItemId, crate::reference::PartSlotId) {
+    use crate::interaction::items::ItemLocation;
+    let parts: Vec<_> = run
+        .area
+        .items
+        .generated_bindings()
+        .filter(|(key, item)| {
+            key.unit == site.unit
+                && key.layer == site.layer
+                && run.area.interaction.parts.contains(item.id)
+        })
+        .map(|(_, item)| item.id)
+        .collect();
+    // The start car slots, from the startup parts in them.
+    let slots: Vec<_> = run
+        .area
+        .items
+        .iter()
+        .filter(|i| {
+            matches!(run.area.items.object_key(i.id),
+                crate::world::ObjectKey::Generated(id) if id.layer == WorldLayer::Startup)
+        })
+        .filter_map(|i| match i.location {
+            ItemLocation::PartSlot(slot) => Some((slot, i.id)),
+            _ => None,
+        })
+        .collect();
+    for (slot, existing) in slots {
+        let area = &mut run.area;
+        if area
+            .interaction
+            .parts
+            .can_remove(existing, &area.player, &area.items)
+            .is_err()
+        {
+            continue;
+        }
+        area.interaction
+            .parts
+            .remove(existing, &mut area.items, &mut run.physics)
+            .unwrap();
+        let part = parts.iter().copied().find(|&part| {
+            area.interaction
+                .parts
+                .can_install(part, slot, &area.items)
+                .is_ok()
+        });
+        area.interaction
+            .parts
+            .install(existing, slot, &mut area.items, &mut run.physics)
+            .unwrap();
+        if let Some(part) = part {
+            return (part, slot);
+        }
+    }
+    panic!("compatible garage slot for natural source part");
+}
+
 #[test]
 #[ignore = "requires the installed source export"]
 fn roadside_possession_survives_owner_retirement_without_duplicate_spawn() {
@@ -3012,11 +3088,12 @@ fn roadside_possession_survives_owner_retirement_without_duplicate_spawn() {
     car.position[0] += 5.;
     run.physics
         .reset_preserving_wheels(run.vehicle.as_ref().unwrap(), car);
+    follow_car(&mut run);
     run.stream.request_at(focus, focus);
     let mut claim = None;
     let mut held = None;
     let mut stored = None;
-    for _ in 0..300 {
+    for _ in 0..1000 {
         let required = roadside_views(&run.stream);
         prepare_step_for_views(&mut run, &reference, &mut claim, &required);
         for (key, item) in run.area.items.generated_bindings() {
@@ -3038,18 +3115,7 @@ fn roadside_possession_survives_owner_retirement_without_duplicate_spawn() {
     }
     let held = held.expect("natural right-hand item");
     let stored = stored.expect("natural inventory item");
-    let source_part = run
-        .area
-        .items
-        .generated_bindings()
-        .find(|(key, item)| {
-            key.unit == site.id.unit
-                && key.layer == site.id.layer
-                && run.area.interaction.parts.contains(item.id)
-        })
-        .unwrap()
-        .1
-        .id;
+    let (source_part, mount_slot) = natural_part_slot(&mut run, &site.id);
     let keys = [
         run.area.items.object_key(held),
         run.area.items.object_key(stored),
@@ -3092,6 +3158,7 @@ fn roadside_possession_survives_owner_retirement_without_duplicate_spawn() {
     move_player(&mut run, garage_player);
     run.physics
         .reset_preserving_wheels(run.vehicle.as_ref().unwrap(), garage_car);
+    follow_car(&mut run);
     for id in [held, stored, source_part] {
         let body = run.area.items.get(id).unwrap().body.unwrap();
         let mut pose = *run.physics.rapier().bodies[body].position();
@@ -3106,47 +3173,22 @@ fn roadside_possession_survives_owner_retirement_without_duplicate_spawn() {
         .interaction
         .sync_parts(&mut run.area.items, &mut run.physics)
         .unwrap();
-    let mut mount_slot = None;
-    for slot in &reference.part_slots {
-        let Some(existing) = run.area.interaction.parts.slot_item(slot.id) else {
-            continue;
-        };
-        if run
-            .area
-            .interaction
-            .parts
-            .can_remove(existing, &run.area.player, &run.area.items)
-            .is_err()
-        {
-            continue;
-        }
-        run.area
-            .interaction
-            .parts
-            .remove(existing, &mut run.area.items, &mut run.physics)
-            .unwrap();
-        if run
-            .area
-            .interaction
-            .parts
-            .can_install(source_part, slot.id, &run.area.items)
-            .is_ok()
-        {
-            run.area
-                .interaction
-                .parts
-                .install(source_part, slot.id, &mut run.area.items, &mut run.physics)
-                .unwrap();
-            mount_slot = Some(slot.id);
-            break;
-        }
-        run.area
-            .interaction
-            .parts
-            .install(existing, slot.id, &mut run.area.items, &mut run.physics)
-            .unwrap();
-    }
-    let mount_slot = mount_slot.expect("compatible garage slot for natural source part");
+    let existing = run.area.interaction.parts.slot_item(mount_slot).unwrap();
+    run.area
+        .interaction
+        .parts
+        .remove(existing, &mut run.area.items, &mut run.physics)
+        .unwrap();
+    run.area
+        .interaction
+        .parts
+        .install(
+            source_part,
+            mount_slot,
+            &mut run.area.items,
+            &mut run.physics,
+        )
+        .unwrap();
     assert_eq!(
         run.area.items.get(source_part).unwrap().location,
         ItemLocation::PartSlot(mount_slot)
@@ -3451,6 +3493,7 @@ fn roadside_possession_survives_owner_retirement_without_duplicate_spawn() {
     loaded
         .physics
         .reset_preserving_wheels(loaded.vehicle.as_ref().unwrap(), car);
+    follow_car(&mut loaded);
     loaded.stream.request_at(far, far);
     loaded
         .stream
@@ -3729,6 +3772,11 @@ fn roadside_possession_survives_owner_retirement_without_duplicate_spawn() {
         &reset.area.interaction,
         &reset.physics,
     );
+    // The stored item stays where it dropped, near the garage.
+    let dropped = reset
+        .stream
+        .origin
+        .absolute(reset.area.items.get(reset_stored).unwrap().pose.position);
     let reset_far_local = reset.stream.origin.local(far);
     move_player(&mut reset, reset_far_local);
     let mut reset_car = reset.physics.snapshot(reset.vehicle.as_ref().unwrap()).pose;
@@ -3736,6 +3784,7 @@ fn roadside_possession_survives_owner_retirement_without_duplicate_spawn() {
     reset
         .physics
         .reset_preserving_wheels(reset.vehicle.as_ref().unwrap(), reset_car);
+    follow_car(&mut reset);
     reset.stream.request_at(far, far);
     reset
         .stream
@@ -3752,14 +3801,15 @@ fn roadside_possession_survives_owner_retirement_without_duplicate_spawn() {
         assert!(reset.area.items.resolve_key(key).is_none());
         assert!(reset.stream.changes.get(key).is_some());
     }
-    let revisit_local = reset.stream.origin.local(focus);
+    let revisit_local = reset.stream.origin.local(dropped);
     move_player(&mut reset, revisit_local);
     reset_car.position = revisit_local;
     reset
         .physics
         .reset_preserving_wheels(reset.vehicle.as_ref().unwrap(), reset_car);
-    reset.stream.request_at(focus, focus);
-    for _ in 0..300 {
+    follow_car(&mut reset);
+    reset.stream.request_at(dropped, dropped);
+    for _ in 0..1000 {
         let required = roadside_views(&reset.stream);
         prepare_step_for_views(&mut reset, &reference, &mut claim, &required);
         if reset.area.items.resolve_key(&keys[1]).is_some() {

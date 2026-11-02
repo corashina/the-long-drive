@@ -7,7 +7,7 @@ use crate::interaction::{
 use crate::reference::{ActionBinding, PickupReference, ReferenceError, ReferenceManifest};
 use crate::vehicle::{PhysicsWorld, STEP_SURFACE_MASK, from_rapier, to_rapier};
 use crate::world::spawn_rules::*;
-use crate::world::{ObjectKey, changes};
+use crate::world::{ObjectKey, WorldLayer, changes};
 use rapier3d::prelude::ActiveEvents;
 /// A destroyed child item (a bottle cap): its removed parent instance record covers it.
 pub(super) fn removed_child(id: crate::reference::ItemId, items: &ItemStore) -> bool {
@@ -355,8 +355,10 @@ impl WorldStream {
                     .static_controls
                     .iter()
                     .any(|c| c.content.placement.id == instance.placement.id)
-                // A content child structure without a request retires with its content.
-                || (!instance.placement.id.children.is_empty()
+                // A content child or startup structure without a request retires with its
+                // content, as in `retire_structures`. The start car is a startup structure.
+                || ((!instance.placement.id.children.is_empty()
+                    || instance.placement.id.layer == WorldLayer::Startup)
                     && !self
                         .wanted_structures
                         .iter()

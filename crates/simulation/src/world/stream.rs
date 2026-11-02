@@ -3719,8 +3719,10 @@ impl WorldStream {
             Some(source) => self.prototype_holds.get(source).is_some_and(|bound| *bound),
             None => self.terrain_ready[layer_tier(work.published.key.layer)],
         };
+        // A waiting surface does not block structures. A road waits for `required_ready`,
+        // which can wait for a required structure.
         if !admitted || !work.renderer_ready || !self.road_publication_valid(work) {
-            return Ok(());
+            return self.publish_structure(physics, required_lights);
         }
         let metrics = self.metrics();
         // Geometry and renderer staging were reserved before allocation. Rapier adds collision storage.
@@ -4807,6 +4809,10 @@ impl WorldStream {
                 // A startup structure stays while it is wanted, as `refresh_startup_placements`
                 // selects it, also before its contents bind.
                 || ((!id.children.is_empty() || id.layer == WorldLayer::Startup)
+                    && self.wanted_structures.iter().any(|p| &p.id == id))
+                // A wanted replay owner stays until its replay finishes. Else a far owner
+                // publishes and retires each step, and its replayed items never publish.
+                || (self.structure_replay_required(id)
                     && self.wanted_structures.iter().any(|p| &p.id == id))
                 || (id.children.is_empty()
                     && id.layer != WorldLayer::Building
