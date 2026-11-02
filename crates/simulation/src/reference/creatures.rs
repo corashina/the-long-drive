@@ -12,6 +12,9 @@ pub struct CreaturesReference {
     pub player_stimulus: SourceId,
     /// The stimulus of the `mainscript.Audio` prefab. `PlayClipAtPoint` sets it to the volume.
     pub sound_stimulus: SourceId,
+    /// `fpscontroller.humStimul`, a second node at the player Head origin. `SetAudioValue` sets
+    /// it to the hum volume.
+    pub hum_stimulus: SourceId,
 }
 
 /// Source `stimulType`.
@@ -392,6 +395,13 @@ impl CreaturesReference {
                         && !s.check_audio_sources
                         && s.audio_sources.is_empty()
                         && !s.stimuli.is_empty()
+                })
+                && self.stimulus(&self.hum_stimulus).is_some_and(|s| {
+                    s.sound
+                        && !s.check_audio_sources
+                        && s.audio_sources.is_empty()
+                        && !s.stimuli.is_empty()
+                        && s.root == self.stimulus(&self.player_stimulus).unwrap().root
                 }),
             "stimulus sources",
         )

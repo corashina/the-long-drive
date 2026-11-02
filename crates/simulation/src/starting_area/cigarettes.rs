@@ -274,12 +274,13 @@ impl GarageRuntime {
             .filter(|id| c.cigarette(*id).is_some())
     }
 
-    /// Pack and smoke input. Consumed keys leave `input`.
+    /// Pack and smoke input. Consumed keys leave `input`. Returns true while the worn cigarette
+    /// smokes.
     pub(super) fn step_cigarettes(
         &mut self,
         reference: &ReferenceManifest,
         input: &mut FrameInput,
-    ) {
+    ) -> bool {
         let dt = FIXED_DT;
         let held = self.smoke_held();
         let mut smoking = false;
@@ -314,6 +315,8 @@ impl GarageRuntime {
                 smoking = true;
             }
         }
+        // Source `isSmoking` when the hum reads it: only the worn cigarette has run.
+        let worn = smoking;
         if let Some(id) = held {
             // Held pack: E takes one.
             if self
@@ -358,6 +361,7 @@ impl GarageRuntime {
             || input.held & keys::PRIMARY != 0;
         let exhale = self.area.cigarettes.exhale_rates;
         self.area.cigarettes.mouth_smoke = self.area.cigarettes.exhale.emit(&exhale, blocked, dt);
+        worn
     }
 
     fn take_one(&mut self, reference: &ReferenceManifest, pack: ItemId) {

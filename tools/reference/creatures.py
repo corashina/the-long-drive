@@ -20,6 +20,8 @@ STIMULUS_CLASS = 'stimulscript'
 PLAYER_STIMULUS = ('level1', 68283)
 # The stimulscript on the mainscript.Audio prefab. PlayClipAtPoint sets its value to the volume.
 SOUND_STIMULUS = ('sharedassets1.assets', 153649)
+# fpscontroller.humStimul: a second Stimul node at the player Head origin.
+HUM_STIMULUS = ('level1', 74603)
 STIMULUS_KINDS = ('nothing', 'food', 'water', 'threat', 'light', 'command')
 EVIDENCE = [
     'if ((move.RB.velocity - lastVelocity).sqrMagnitude > accelerationDeath)',
@@ -360,7 +362,8 @@ def recover_creatures(source, manifest, output):
         'die_clips': [source_id(c) for c in clips], 'die_voice': None,
         'evidence': managed_evidence(source, EVIDENCE)},
         'stimuli': recover_stimuli(source),
-        'player_stimulus': source_id(source.get(*PLAYER_STIMULUS)), 'sound_stimulus': source_id(source.get(*SOUND_STIMULUS))}
+        'player_stimulus': source_id(source.get(*PLAYER_STIMULUS)), 'sound_stimulus': source_id(source.get(*SOUND_STIMULUS)),
+        'hum_stimulus': source_id(source.get(*HUM_STIMULUS))}
 
 
 def recover_stimuli(source):
@@ -482,3 +485,7 @@ def validate_creatures(c, manifest):
         raise ValueError('Player stimulus differs')
     if sound is None or not sound['sound'] or sound['check_audio_sources'] or sound['audio_sources'] or not sound['stimuli']:
         raise ValueError('Sound stimulus differs')
+    hum = rows.get((c['hum_stimulus']['file'], c['hum_stimulus']['path_id']))
+    if (hum is None or not hum['sound'] or hum['check_audio_sources'] or hum['audio_sources'] or not hum['stimuli']
+            or hum['root'] != player['root']):
+        raise ValueError('Hum stimulus differs')

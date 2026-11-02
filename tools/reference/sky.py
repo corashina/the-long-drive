@@ -2,6 +2,7 @@
 import math
 from .source import source_id,key,vector
 from .survival import managed_evidence,finite_record,component
+from .small_items import animation_curve
 from .acquisition_motion import motion_clips
 from .particles import particle,validate_particle
 from .validation import record,array,number,u32,optional,string,boolean,source as source_shape
@@ -21,6 +22,14 @@ SKY_EVIDENCE=['PlaneCustomSpace.position = mainscript.M.player.transform.positio
     'gameObject.transform.Rotate(0f, UnityEngine.Random.Range(0f - maxAngle, maxAngle), 0f);',
     'if (Planes[i] == null || Vector3.Distance(Planes[i].position, PlaneCustomSpace.position) > destroyDistance)',
     'Planes[i].position += Planes[i].forward * speed * Time.deltaTime;']
+# fedospawnscript on the active Player. It spawns the sky_ufo prefab at night.
+UFO_SPAWNER=('level1',68413)
+# Ground UFO rules that only exist in fedospawnscript and fedoscript code.
+UFO_EVIDENCE=['T.position = transform.position + new Vector3(UnityEngine.Random.Range(0f - leftRightDist, leftRightDist), distUp, 0f - UnityEngine.Random.Range(minDistBack, maxDistBack));',
+    'tempVector = mainscript.M.terrainManager.generator.roads[0].OneCoord(transform.position + transform.forward * 50f);',
+    'currentSpeed = Mathf.Clamp(speedOfTarget, speed, highspeed) * Mathf.Lerp(aiMinMultiplier, aiMaxMultiplier, Mathf.InverseLerp(aiMinDist, aiMaxDist, distToTarget));',
+    'tempSpeed = speedOfTarget * Mathf.Lerp(aiMinMultiplier, aiMaxMultiplier, Mathf.InverseLerp(aiMinDist, aiMaxDist, distToTarget));',
+    'currentSpeed = Mathf.Clamp(currentSpeed, speed, highspeed);']
 
 def spawner(source):
     reader=scene_component(source,source.library,'AirPlaneSpawnScript')
@@ -49,6 +58,31 @@ def spin(source,records,nodes):
     x,y,z=vector(d['rotaxis'])
     return {'node':nodes[key(rot)]['id'],'axis':[-x,-y,z],'degrees_per_second':d['rotspeed']}
 
+def emp(source,records):
+    found=[c for n in records for c in n['components'] if c.type.name=='MonoBehaviour' and source.class_name(c)=='empscript']
+    if len(found)>1:raise ValueError('Sky prefab has several empscript')
+    if not found:return None
+    d=source.read(found[0])
+    return {'affect_ambient_sound':bool(d['affectAmbientSound']),'make_rabbits_evil':bool(d['makeRabbitsEvil']),
+        'range':d['range'],'value':d['value'],'range_spread':d['rangeSpread'],'range_speed':d['rangeSpeed'],
+        'value_spread':d['valueSpread'],'value_speed':d['valueSpeed'],'fall_off':animation_curve(d['fallOff']),'layers':d['lm']['m_Bits']}
+
+def recover_ground_ufo(source, prefabs):
+    """fedospawnscript on the Player and the fedoscript AI values of its prefab."""
+    spawner=source.get(*UFO_SPAWNER)
+    if source.class_name(spawner)!='fedospawnscript' or not source.read(game_object(source,spawner))['m_IsActive']:
+        raise ValueError('UFO spawner is not the active Player fedospawnscript')
+    d=source.read(spawner);go=source.resolve(spawner,d['prefab'])
+    index=next((i for i,root in enumerate(prefabs) if key(game_object(source,root))==key(go)),None)
+    if index is None:raise ValueError('UFO prefab is not a sky prefab')
+    fedo=component(source,prefabs[index],'fedoscript');f=source.read(fedo)
+    return {'source':source_id(spawner),'prefab':index,'night_range':[d['minNight'],d['maxNight']],'nights_after_spawn':d['nightsAfterSpawn'],
+        'chance':d['chance'],'back_range':[d['minDistBack'],d['maxDistBack']],'side_distance':d['leftRightDist'],'up_distance':d['distUp'],
+        'fedo':source_id(fedo),'speed':f['speed'],'high_speed':f['highspeed'],'target_distance':f['targetDist'],'road_height_offset':f['roadHeightOffset'],
+        'ai_distance_range':[f['aiMinDist'],f['aiMaxDist']],'ai_multiplier_range':[f['aiMinMultiplier'],f['aiMaxMultiplier']],
+        'visited_distance':f['aiVisitedDistance'],'disappear_distance':f['aiDisappearDistance'],
+        'evidence':managed_evidence(source,UFO_EVIDENCE)}
+
 def recover_sky(source, manifest, output):
     reader=spawner(source);d=source.read(reader)
     nodes={(n['source']['file'],n['source']['path_id']):n for n in manifest['nodes']}
@@ -65,7 +99,8 @@ def recover_sky(source, manifest, output):
             'contrail':particle(source,system,f'{name}_contrail',d['rate'],output,root) if system else None,
             # recover_audio replaces these AudioSource identities with voice ids.
             'voices':[source_id(c) for n in records for c in n['components'] if c.type.name=='AudioSource'],
-            'spin':spin(source,records,nodes)})
+            'spin':spin(source,records,nodes),'emp':emp(source,records)})
+    result['ground_ufo']=recover_ground_ufo(source,prefabs(source,reader))
     source.lighting['textures']=list(source.lighting_textures.values())
     return result
 
@@ -136,10 +171,21 @@ def validate_sky(sky, manifest):
     voices={v['id']:v for v in manifest['audio']['voices']};emitters={e['id']:e for e in manifest['audio']['emitters']}
     def prefab(p):
         record(p,{'source':source_shape,'asset':u32,'root':u32,'contrail':optional(lambda c:validate_particle(c,textures)),'voices':array(u32),
-            'spin':optional(lambda s:record(s,{'node':u32,'axis':array(number,3),'degrees_per_second':number}))})
+            'spin':optional(lambda s:record(s,{'node':u32,'axis':array(number,3),'degrees_per_second':number})),'emp':optional(emp_shape)})
+    def key_shape(k):
+        record(k,{'time':number,'value':number,'in_tangent':number,'out_tangent':number,'in_weight':number,'out_weight':number,'weighted_mode':u32})
+    def emp_shape(e):
+        record(e,{'affect_ambient_sound':boolean,'make_rabbits_evil':boolean,'range':number,'value':number,
+            'range_spread':number,'range_speed':number,'value_spread':number,'value_speed':number,
+            'fall_off':lambda c:record(c,{'keys':array(key_shape),'pre_wrap_mode':number,'post_wrap_mode':number}),'layers':u32})
+    def ufo_shape(u):
+        record(u,{'source':source_shape,'prefab':u32,'night_range':array(number,2),'nights_after_spawn':number,'chance':number,
+            'back_range':array(number,2),'side_distance':number,'up_distance':number,'fedo':source_shape,'speed':number,'high_speed':number,
+            'target_distance':number,'road_height_offset':number,'ai_distance_range':array(number,2),'ai_multiplier_range':array(number,2),
+            'visited_distance':number,'disappear_distance':number,'evidence':lambda e:record(e,{'assembly_sha256':string,'methods':array(string)})})
     record(sky,{'source':source_shape,'chances':array(number),'max_planes':u32,'spawn_time_range':array(number,2),
         'spawn_distance':number,'height':number,'speed':number,'max_angle':number,'destroy_distance':number,'contrail_rate':number,
-        'prefabs':array(prefab,len(PREFABS)),'evidence':lambda e:record(e,{'assembly_sha256':string,'methods':array(string)}),'flyer':lambda f:None})
+        'prefabs':array(prefab,len(PREFABS)),'evidence':lambda e:record(e,{'assembly_sha256':string,'methods':array(string)}),'ground_ufo':ufo_shape,'flyer':lambda f:None})
     finite_record(sky)
     if len(sky['chances'])!=len(sky['prefabs']) or any(c<0 for c in sky['chances']) or sum(sky['chances'])<=0:raise ValueError('Invalid sky chances')
     if sky['max_planes']<=0 or not 0<=sky['spawn_time_range'][0]<=sky['spawn_time_range'][1]:raise ValueError('Invalid sky schedule')
@@ -153,4 +199,8 @@ def validate_sky(sky, manifest):
             raise ValueError('Invalid sky voice')
         s=p['spin']
         if s and (nodes.get(s['node'],{}).get('asset')!=p['asset'] or math.hypot(*s['axis'])==0):raise ValueError('Invalid sky spin')
+    u=sky['ground_ufo']
+    if (u['prefab']>=len(sky['prefabs']) or sky['prefabs'][u['prefab']]['emp'] is None or not 0<=u['night_range'][0]<=u['night_range'][1]
+            or not 0<=u['chance']<=1 or not 0<=u['back_range'][0]<=u['back_range'][1] or not 0<u['speed']<=u['high_speed']):
+        raise ValueError('Invalid ground UFO')
     validate_flyer(sky['flyer'],manifest)

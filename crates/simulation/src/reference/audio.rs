@@ -998,6 +998,7 @@ impl AudioGameplayReference {
             (22, "break"),
             (23, "computer_note"),
             (24, "horror"),
+            (25, "hum"),
         ];
         for (kind, role) in required {
             require(
