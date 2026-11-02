@@ -196,7 +196,7 @@ pub(crate) fn insert_deck(run: &mut GarageRuntime, key: &ObjectKey) -> [f64; 3] 
     run.stream.origin.absolute(center)
 }
 
-/// One start car: fill, start, drive about 10 m in first gear, save, load.
+/// One start car: fill, start, drive about 10 m from first gear, save, load.
 fn start_car_drives_saves_and_loads(reference: &ReferenceManifest, field: &str) {
     let mut run = start_world(reference, field);
     run.started = true;
@@ -272,6 +272,9 @@ fn start_car_drives_saves_and_loads(reference: &ReferenceManifest, field: &str) 
         .position(|r| *r == 0.)
         .unwrap();
     assert_eq!(first, neutral + 1, "{field}: first gear");
+    // Source auto clutch only shifts (carscript.ControlStuff). Only AutoShift slips the clutch
+    // by `autoShiftClutchRpm`, so the launch uses automatic gears. At rest they keep first.
+    run.driving_assists.automatic_gears = true;
     let start = absolute(&run, &key).0;
     let moved = hold(&mut run, reference, 0, player_keys::GAS, 0, 30., |run| {
         horizontal(absolute(run, &key).0, start) > 10.
@@ -282,7 +285,11 @@ fn start_car_drives_saves_and_loads(reference: &ReferenceManifest, field: &str) 
         horizontal(absolute(&run, &key).0, start),
         drive_state(&run, &key)
     );
-    assert_eq!(run.vehicles[&key].drivetrain.gear(), first, "{field}");
+    assert!(run.vehicles[&key].drivetrain.gear() >= first, "{field}");
+    // Manual neutral, then brake: the engine idles while the car stops.
+    run.driving_assists.automatic_gears = false;
+    hold(&mut run, reference, 0, 0, keys::NEUTRAL, 0.2, |_| false);
+    assert_eq!(run.vehicles[&key].drivetrain.gear(), neutral, "{field}");
     hold(&mut run, reference, 0, player_keys::BRAKE, 0, 4., |_| false);
     assert!(running(&run, &key), "{field}: engine runs after the drive");
 
