@@ -106,6 +106,61 @@ fn tp_mp3_the_other_figure_follows_walk_duck_and_look() {
     assert_ne!(looked, up, "the figure looks up");
 }
 
+/// MP4 (M01). Source `mpplayerscript`: the figure of the other player turns solid 3 s after it
+/// shows, on layer 0. A ray with the player capsule layers then hits its body at the figure.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_mp4_the_other_figure_turns_solid_after_3_s() {
+    use rapier3d::prelude::{QueryFilter, Ray};
+    let (reference, mut host_run) = load_garage();
+    settle(&mut host_run, &reference);
+    let mut guest_run = save_load(&host_run, &reference);
+    let (mut host, mut guest) = (Net::default(), Net::default());
+    host.set_session(NetRole::Host, 0);
+    guest.set_session(NetRole::Guest, 1);
+    let (mut out, mut packets) = (SimFrame::default(), Vec::new());
+    let mut sync =
+        |host_run: &mut GarageRuntime, guest_run: &mut GarageRuntime, guest: &mut Net, s: f32| {
+            for _ in 0..(s / FIXED_DT) as usize {
+                frame(host_run, &reference);
+                frame(guest_run, &reference);
+                host.fill(&reference, host_run, FIXED_DT, &mut out);
+                host.take_outbox(&mut packets);
+                guest.receive(&packets);
+                guest.fill(&reference, guest_run, FIXED_DT, &mut out);
+                guest.take_outbox(&mut packets);
+            }
+        };
+    sync(&mut host_run, &mut guest_run, &mut guest, 2.5);
+    let body = guest.remote_body(0).expect("the host figure has a body");
+    assert!(!body.enabled(), "not solid before 3 s");
+    sync(&mut host_run, &mut guest_run, &mut guest, 1.);
+    let body = guest.remote_body(0).unwrap();
+    assert!(body.enabled(), "solid after 3 s");
+    let at = body.position(&guest_run.physics);
+    let capsule = &reference.player.posture;
+    let handle = body.handle;
+    // The guest starts where the host stood: skip its own body.
+    let own = guest_run.area.player.body_handle();
+    let filter = |_, c: &rapier3d::prelude::Collider| {
+        c.is_enabled()
+            && c.parent() != Some(own)
+            && c.collision_groups().memberships.bits() & capsule.capsule_filter != 0
+            && c.collision_groups().filter.bits() & capsule.capsule_membership != 0
+    };
+    let ray = Ray::new(at + Vector::new(2., 0., 0.), Vector::new(-1., 0., 0.));
+    let (hit, _) = guest_run
+        .physics
+        .queries(QueryFilter::default().predicate(&filter))
+        .cast_ray(&ray, 4., true)
+        .expect("the ray hits the figure");
+    assert_eq!(
+        guest_run.physics.rapier().colliders[hit].parent(),
+        Some(handle),
+        "the figure body blocks the player capsule layers"
+    );
+}
+
 /// MP M04a. Source `SendStartStuff`, `RTime`, `RadioChannelMultiplayerUpd` and `SSound`: when a guest
 /// joins, the host sends its clock and its radio stations. The guest takes them. A host burp plays at
 /// the host position on the guest.

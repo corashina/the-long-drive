@@ -12,6 +12,7 @@ from .driving import recover_driving
 from .settings import recover_settings
 from .lighting import rgba
 from .player_movement import recover_player_movement
+from .remote_player import recover_remote_player
 from .car_camera import recover_car_camera
 
 
@@ -261,6 +262,7 @@ def build_manifest(source, roots, reports, hashes, library, car_prefab, output):
     capsule=source.get('level1',58456);camera=source.get('level1',40241)
     player_record={'source':source_id(player_reader),'capsule_source':source_id(capsule),'camera_source':source_id(camera),'walk_speed':player['FdefMaxSpeed'],'run_multiplier':player['FrunM'],'jump_force':player['FjumpForce'],'mass_kg':source.read(source.get('level1',50702))['m_Mass'],'duck_multiplier':player['FduckM'],'aim_reach':player['FrayRange']}
     player_record.update(recover_player_movement(source))
+    player_record['remote']=recover_remote_player(source,source.transform_for(source.resolve(player_reader,player['m_GameObject'])),by_source,matrix)
     player_record.update(exit_distance=player['CanGetOutDist'],exit_step_vertical=player['GetOutStepV'],exit_steps_vertical=player['GetOutStepTimesV'],
         exit_step_horizontal=player['GetOutStepH'],exit_steps_horizontal=player['GetOutStepTimesH'])
     head=source.resolve(player_reader,player['Th']);held=source.resolve(player_reader,player['TpickedUpPos'])

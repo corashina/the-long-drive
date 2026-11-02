@@ -1,5 +1,6 @@
 //! Multiplayer of the source (`sns`, `snTempPlayerSync`). The browser owns the peers and the session messages.
 //! The simulation sends the local player and poses the remote players.
+pub mod body;
 pub mod message;
 pub mod remote;
 pub mod world;
@@ -39,6 +40,8 @@ pub struct Net {
     outbox: Vec<u8>,
     remotes: Vec<Remote>,
     world: WorldSync,
+    /// Bodies of figures that went away. The next frame removes them.
+    dropped: Vec<rapier3d::prelude::RigidBodyHandle>,
 }
 
 impl Net {
@@ -46,7 +49,11 @@ impl Net {
         self.role = role;
         self.slot = slot;
         if role == NetRole::Off {
-            self.remotes.clear();
+            self.dropped.extend(
+                self.remotes
+                    .drain(..)
+                    .filter_map(|r| r.collision.map(|c| c.handle)),
+            );
             self.inbox.clear();
         }
     }
@@ -61,7 +68,18 @@ impl Net {
     }
     /// A peer left. Its figure goes away.
     pub fn leave(&mut self, slot: u8) {
-        self.remotes.retain(|r| r.slot != slot);
+        if let Some(i) = self.remotes.iter().position(|r| r.slot == slot) {
+            let remote = self.remotes.remove(i);
+            self.dropped.extend(remote.collision.map(|c| c.handle));
+        }
+    }
+    /// The collision body of the figure of `slot`.
+    #[cfg(test)]
+    pub(crate) fn remote_body(&self, slot: u8) -> Option<&body::RemoteBody> {
+        self.remotes
+            .iter()
+            .find(|r| r.slot == slot)
+            .and_then(|r| r.collision.as_ref())
     }
     /// Length-prefixed packets for the browser. The next call starts empty.
     pub fn take_outbox(&mut self, out: &mut Vec<u8>) {
@@ -79,6 +97,9 @@ impl Net {
     ) {
         frame.remotes.clear();
         frame.remote_joints.clear();
+        for handle in self.dropped.drain(..) {
+            runtime.physics.remove_body(handle);
+        }
         if let Some(audio) = &mut runtime.audio {
             audio.broadcasts.set_remote(self.role == NetRole::Guest);
         }
@@ -92,8 +113,11 @@ impl Net {
         self.world
             .send(self.role, self.slot, runtime, real_dt, &mut self.outbox);
         let origin = &runtime.stream.origin;
+        let body = &reference.player.remote;
         for remote in &mut self.remotes {
-            let Some((pose, root)) = remote.step(self.clock, real_dt, origin) else {
+            let Some((pose, root)) =
+                remote.step(self.clock, real_dt, body, origin, &mut runtime.physics)
+            else {
                 continue;
             };
             frame.remotes.push(RemoteRow {
