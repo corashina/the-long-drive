@@ -288,6 +288,10 @@ impl SourceContents {
     pub fn active_revision(&self) -> u64 {
         self.active_revision
     }
+    /// Active contents got their items. Scans that skip contents without an item run again.
+    pub(super) fn items_bound(&mut self) {
+        self.active_revision += 1;
+    }
     pub(super) fn push_active(&mut self, mut content: ContentInstance) {
         self.boxes.place(&mut content.content.placement);
         self.active.push(content);

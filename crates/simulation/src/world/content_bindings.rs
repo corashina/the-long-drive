@@ -530,6 +530,8 @@ impl WorldStream {
                 .unwrap();
             rollback(&mut content, instance, items, interaction, physics, wheels);
         }
+        // Scanners cache on the active revision and skip contents without an item.
+        let mut bound = false;
         for content in &mut self.contents.active {
             crate::world::content_mechanisms::sync(content, items, interaction, physics);
             for binding in &content.bindings {
@@ -796,6 +798,10 @@ impl WorldStream {
                 self.structure_revision = self.structure_revision.wrapping_add(1);
                 return Err(error);
             }
+            bound |= content.item.is_some();
+        }
+        if bound {
+            self.contents.items_bound();
         }
         for content_index in 0..self.contents.active.len() {
             for slot_index in 0..self.contents.active[content_index].slots.len() {

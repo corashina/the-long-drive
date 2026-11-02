@@ -55,7 +55,6 @@ Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix 
 - WD3: `tp_wd3_each_melee_weapon_swings_with_each_key_and_breaks_a_bottle` needs the next export. The exporter now links melee weapons through `pickupable.melee` (#WD3), which adds the katana, fly swatter and leg. The test passes on ee6554d with those records added.
 - WD20: `tp_wd20_a_hard_hit_breaks_a_tumbleweed_with_its_gib_and_it_stays_gone` needs the next export. The exporter now exports gib ParticleSystems (`behavior.gib_particles`, #WD20). The tumbleweed gib is particles only. The test passes on ee6554d with a stand-in particle record.
 - Export field added (#PB): `player.seat_push_force` (source `fpscontroller.seatPushForce`). Export ee6554d lacks it, so re-export before the next run.
-- MC2, older tests: `garage_start_car_drives_in_automatic`, `car07_drives_in_forced_automatic` and `two_ladas_drive_save_and_load` pass (#MC2). `start_cars_drive_save_and_load`: StartCar01 (Car01Full) stalls in first gear with full gas: the rpm falls from 600 to 0 at torque 8 Nm. `lada_tows_the_trailer_and_the_hitch_saves`: the Lada now tows the trailer on a deck, but the load of the hitched trailer never gets ready (one structure replay stays pending).
 
 Prepare once:
 
