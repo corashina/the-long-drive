@@ -33,6 +33,15 @@ impl GarageRuntime {
         self.creatures.humans.step();
     }
 
+    /// `breakablescript.Break` of the humans that broke this step: `Die(_playSound: true)`.
+    pub(crate) fn settle_humans(&mut self, reference: &ReferenceManifest) {
+        while let Some(id) = self.creatures.humans.take_death() {
+            if self.kill_human(reference, id, None).is_err() {
+                self.notice = "Cannot drop the human ragdoll.";
+            }
+        }
+    }
+
     /// `Die` of human `id`. `poses` gives saved bone poses.
     pub(crate) fn kill_human(
         &mut self,

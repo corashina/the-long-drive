@@ -1,5 +1,7 @@
 //! Source `newAiScript` human monster: the live body, `Start`, `Die` and `save_newai`.
 //! Buildings spawn it through the `humanmonster` category. The world placement key names it.
+mod damage;
+
 use super::ragdoll::{self, Bone};
 use crate::damage::BreakHealth;
 use crate::reference::{ColliderId, HumanReference, ItemId, NodeId, NodeRecord, ReferenceError};
@@ -52,6 +54,10 @@ pub struct Humans {
     far: Vec<HumanSnapshot>,
     /// Live collider poses under the prefab root, in `body.colliders` order.
     colliders: Vec<Pose>,
+    /// Per live collider: its `breakchilds` index in `breakable.children`.
+    children: Vec<Option<usize>>,
+    /// Humans that `breakablescript.Break` kills this step. `Die(true)` plays the death sound.
+    deaths: Vec<u32>,
     next_id: u32,
 }
 
@@ -92,10 +98,13 @@ impl Humans {
             .iter()
             .map(|c| model_pose(nodes, r.root, c.node))
             .collect::<Result<_, _>>()?;
+        let children = damage::children(r, nodes);
         Ok(Self {
             humans: Vec::new(),
             far: Vec::new(),
             colliders,
+            children,
+            deaths: Vec::new(),
             next_id: 1,
         })
     }

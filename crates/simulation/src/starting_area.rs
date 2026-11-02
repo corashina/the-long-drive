@@ -1940,6 +1940,10 @@ impl GarageRuntime {
                 spawns: !self.net_guest,
             },
         );
+        self.creatures
+            .humans
+            .collide(&reference.creatures.human, &self.physics);
+        self.settle_humans(reference);
         self.place_humans(reference);
         if self.creatures.place_remove_due(self.simulation_seconds) {
             self.place_remove_rabbits(reference, distances);

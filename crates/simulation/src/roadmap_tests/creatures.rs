@@ -1011,3 +1011,60 @@ fn tp_x03e_human_body_die_and_save() {
         1
     );
 }
+
+/// X03h. Source `breakablescript.TryBreakShoot`, `DamageFrom` and `Break`: a weak shot wakes a
+/// sleeping human and turns its target to the shooter, and a strong shot kills it.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_x03h_human_shot_wakes_and_kills() {
+    let (reference, mut run) = outdoors();
+    let pose = run.area.player.body_pose(&run.physics);
+    let mut position = pose.position;
+    position[2] -= 5.;
+    let key = crate::world::ObjectKey::Generated(crate::world::GeneratedId {
+        layer: crate::world::WorldLayer::Startup,
+        generator: reference.creatures.human.source.clone(),
+        unit: [0, 0],
+        ordinal: 1,
+        children: Vec::new(),
+    });
+    let roll = crate::world::spawn_state::HumanRoll {
+        sleeping: true,
+        voice_pitch: 1.,
+        patrol_time: 3.,
+    };
+    let id = run
+        .creatures
+        .humans
+        .place(
+            &reference.creatures.human,
+            &mut run.physics,
+            key,
+            rapier3d::math::Pose::from_translation(Vector::from_array(position)),
+            roll,
+        )
+        .unwrap();
+    let human = |run: &GarageRuntime| {
+        let h = run.creatures.humans.iter().find(|h| h.id == id).unwrap();
+        (h.body, h.sleeping, h.target, h.died)
+    };
+    let (body, _, _, _) = human(&run);
+    let collider = run.physics.rapier().bodies[body].colliders()[0];
+    let r = &reference.creatures.human;
+    // The shot flies along -z: the target goes 5 m toward +z, the shooter side.
+    let direction = -Vector::Z;
+    assert!(
+        run.creatures
+            .humans
+            .shoot(r, &run.physics, collider, 1., direction)
+    );
+    let (_, sleeping, target, _) = human(&run);
+    let root = run.physics.rapier().bodies[body].translation();
+    assert!(!sleeping);
+    assert!((target - (root + Vector::Z * 5.)).length() < 1e-4);
+    run.creatures
+        .humans
+        .shoot(r, &run.physics, collider, 1e6, direction);
+    run.settle_humans(&reference);
+    assert!(human(&run).3, "a strong shot breaks the human");
+}
