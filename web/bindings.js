@@ -8,7 +8,7 @@ export const MOUSE_BUTTONS=['Mouse0','Mouse2','Mouse1'];
 // Pickup, mount and push share the port grab bit. Actions without a bit only show in the list.
 const KEY_BITS={forward:1,back:2,left:4,right:8,jump:16,use:32,run:64,duck:128,pickup:256,mountdismount:256,push:256,lmb:512,ignition:1024,camera:2048,mmb:4096,reload:8192,rmb:16384,equiprecenter:32768,lights:65536,
  horn:2**17,sleep:2**18,piss:2**19,burpfart:2**20,clutch:2**21,shiftup:2**22,shiftdown:2**23,gearr:2**24,gearn:2**25,gear1:2**26,gear2:2**27,gear3:2**28,gear4:2**29,gear5:2**30,gear6:2**31};
-const PLAYER_BITS={looklean:1,zoom:2,smoke:4,removeSunglasses:8,togglemousedrive:16,pointrubwave:32,map:64,keylook:128,gas:256,brake:512,steerleft:1024,steerright:2048,handbrake:4096};
+const PLAYER_BITS={looklean:1,zoom:2,smoke:4,removeSunglasses:8,togglemousedrive:16,pointrubwave:32,map:64,keylook:128,gas:256,brake:512,steerleft:1024,steerright:2048,handbrake:4096,hum:8192};
 const INVENTORY_BITS={inventory1:1,inventory2:2,inventory3:4,inventory4:8};
 // Source `GetAxis` actions, in `InputState` order: look X, look Y and scroll.
 export const ANALOG=['lookright','lookleft','lookup','lookdown','scrollup','scrolldown'];

@@ -562,6 +562,10 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
     for role,kind,field,group in zip(('burp','fart','shit'),(1,2,9),('SBurp','SFart','SFart'),source.read(sounds)['clips'],strict=True):
         prefix='Burp' if role=='burp' else 'Fart'
         survival_groups.append((role,kind,sounds,readers(sounds,group['clips']),source.resolve(player,pd[field]),[pd['min'+prefix+'Volume'],pd['max'+prefix+'Volume']],[pd['min'+prefix+'Pitch'],pd['max'+prefix+'Pitch']]))
+    # fpscontroller hum: the start clips, then the hum clips, through humSource.
+    hum=source.resolve(player,pd['humSource']);hd=source.read(hum)
+    if len(pd['humStartClips'])!=len(pd['humStimulValues']) or len(pd['humClips'])!=len(pd['humStimulValues']):raise ValueError('Hum clip count differs')
+    survival_groups.append(('hum',25,player,readers(player,[*pd['humStartClips'],*pd['humClips']]),hum,[hd['m_Volume']]*2,[hd['m_Pitch']]*2))
     survival_groups.append(('death',5,main,readers(main,[md['SdeathBell']]),source.resolve(player,pd['SDeathBellSource']),[1.,1.],[.8,1.2]))
     cycle=source.resolve(main,md['napszak']);cd=source.read(cycle)
     storm=source.get('sharedassets1.assets',158276)
@@ -689,14 +693,14 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
         if role!='sled' and any(c.type.name=='Rigidbody' for c in source.components(transform)[1]):raise ValueError('Selected audio velocity needs a Rigidbody route')
         pose=world_pose(source,transform)
         player_pose=world_pose(source,source.transform_for(source.resolve(player,pd['m_GameObject'])))
-        offset=[pose['translation'][i]-player_pose['translation'][i] for i in range(3)] if role in ('burp','fart','shit','death','sleep','horror') else [0.,0.,0.]
+        offset=[pose['translation'][i]-player_pose['translation'][i] for i in range(3)] if role in ('burp','fart','shit','death','sleep','horror','hum') else [0.,0.,0.]
         settings={'priority':ONE_SHOT_PRIORITY.get(role,PRIORITIES[7]) if one_shot else d['Priority'],'loop':bool(d['Loop']) if role!='death' else False,
             'gain':d['m_Volume'],'pitch':d['m_Pitch'],'min_distance':d['MinDistance'],'max_distance':d['MaxDistance'],
             'rolloff_mode':d['rolloffMode'],'spatial_blend':1. if one_shot else d['panLevelCustomCurve']['m_Curve'][0]['value'],
             'spatial_blend_curve':curve(d['panLevelCustomCurve']),'rolloff_curve':curve(d['rolloffCustomCurve'])}
         if one_shot:
             for k in settings['spatial_blend_curve']['keys']:k['value']=1.
-        cls,name={'eat':('mainscript','PlayClipAtPoint'),'eat_crunchy':('mainscript','PlayClipAtPoint'),'burp':('fpscontroller','Burp'),'fart':('fpscontroller','Fart'),'shit':('fpscontroller','Shit'),'death':('fpscontroller','Death2'),'sleep':('mainscript','Update'),'horror':('mainscript','RandomHorrorSound'),
+        cls,name={'eat':('mainscript','PlayClipAtPoint'),'eat_crunchy':('mainscript','PlayClipAtPoint'),'burp':('fpscontroller','Burp'),'fart':('fpscontroller','Fart'),'shit':('fpscontroller','Shit'),'death':('fpscontroller','Death2'),'sleep':('mainscript','Update'),'horror':('mainscript','RandomHorrorSound'),'hum':('fpscontroller','Update'),
             'item_hit':('pickupable','OnCollisionEnter'),'car_hit':('carscript','OnCollisionEnter'),'rock_heat':('soundplayscript','PlaySound'),'footstep':('stepSoundScript','Step'),'storm':('sandstormscript','Update'),'melee_hit':('meleeweaponscript','Update'),'metal_detector':('metalDetectorScript','UpdSound'),'ambience_zone':('ambienceZone','Upd'),'sled':('szankoScript','Update'),'radio_click':('radioscript','TurnRadio'),'break':('breakablescript','Break')}.get(role,('napszakvaltakozas','FixedUpdate'))
         audio['survival'].append({'role':role,'kind':kind,'one_shot':one_shot,'source':source_id(owner),'audio_source':source_id(reader),
             'clips':[clip(r) for r in clip_readers], 'gain':gain,'pitch':pitch,'offset':offset,
@@ -992,5 +996,18 @@ def recover_ambient(source):
     return {'source':source_id(cycle),
         'day_volume':[cd['dayAmbientSoundVolumeDay'][0],cd['dayAmbientSoundVolumeNight'][0]],
         'night_volume':[cd['nightAmbientSoundVolumeDay'][0],cd['nightAmbientSoundVolumeNight'][0]],
-        'modifier':cd['ambientSoundModifier'],'only_modifier':cd['onlyAmbientSoundModifier'],'recovery_per_second':0.1}
+        'modifier':cd['ambientSoundModifier'],'only_modifier':cd['onlyAmbientSoundModifier'],'recovery_per_second':0.1,
+        'player_electronics':player_electronics(source)}
+
+def player_electronics(source):
+    """empscript.affectAmbientSound reads the electronicsscript on a player collider of layer 10 or 12."""
+    from .explosions import PLAYER
+    player=source.get(*PLAYER)
+    root=source.transform_for(source.resolve(player,source.read(player)['m_GameObject']))
+    found=[(n,c) for n in source.hierarchy(root) for c in n['components']
+        if c.type.name=='MonoBehaviour' and source.class_name(c)=='electronicsscript' and source.read(n['game_object'])['m_Layer'] in (10,12)]
+    if len(found)!=1:raise ValueError(f'Player needs one ambient electronicsscript, found {len(found)}')
+    node,reader=found[0];f=source.read(reader)
+    if f['jamValue']!=0:raise ValueError(f'{key(reader)} nonzero startup jam requires source rule')
+    return {'source':source_id(reader),'max_output':f['maxOutput'],'override_max_jam':f['overRideMaxJamValue'],'layer':source.read(node['game_object'])['m_Layer']}
 

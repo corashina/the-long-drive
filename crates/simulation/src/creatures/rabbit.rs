@@ -6,6 +6,7 @@ use super::ragdoll::Bone;
 use super::rig::Rig;
 use super::senses::{Sensed, Senses};
 use crate::damage::BreakHealth;
+use crate::electronics::Electronics;
 use crate::reference::{self, RabbitReference, ReferenceError};
 use crate::vehicle::{PhysicsWorld, collider_builder, step_surface_bits, tag_bits};
 use crate::weather::StormRandom;
@@ -106,6 +107,8 @@ pub struct Rabbit {
     /// `PlayerDeathTrigger`. It follows the rig and is on while `evil.trigger` is set.
     pub trigger: Option<LiveCollider>,
     pub evil: Evil,
+    /// The `electronicsscript` on `HeadCollider`.
+    pub electronics: Electronics,
     pub animator: AnimatorState,
     /// Ragdoll bones of a dead rabbit, in body order.
     pub bones: Vec<Bone>,
@@ -224,6 +227,12 @@ impl Rabbit {
             colliders,
             trigger,
             evil: Evil::default(),
+            electronics: Electronics {
+                max_output: r.electronics.max_output,
+                override_max_jam: r.electronics.override_max_jam,
+                jam: r.electronics.jam,
+                last_emp: None,
+            },
             animator: AnimatorState::default(),
             bones: Vec::new(),
         }

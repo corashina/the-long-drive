@@ -1,6 +1,7 @@
 //! Source compasses and clocks: meterscript needles and digit wheels on generated items.
 use super::WorldStream;
 use super::content_index::ContentSlot;
+use crate::electronics::{Electronics, Emp, NodeElectronics};
 use crate::interaction::InteractionState;
 use crate::interaction::items::ItemStore;
 use crate::reference::{ColliderId, ItemId, ReferenceError, SourceId, Transform, UiReference};
@@ -62,6 +63,9 @@ pub struct DialBinding {
     /// clockscript hour, minute and second digit indices.
     clock: Option<[Option<usize>; 3]>,
     needle: Option<Needle>,
+    /// compassscript electronics and its jammed turn.
+    electronics: Option<NodeElectronics>,
+    spin: f32,
 }
 impl DialBinding {
     pub fn heap_bytes(&self) -> usize {
@@ -193,6 +197,24 @@ impl WorldStream {
         let s = rules.get(reference, script)?;
         let meter = rules.get(reference, link(s.fields, "meter")?)?.fields;
         let mut needle = None;
+        let mut electronics = None;
+        if s.class_name == "compassscript"
+            && let Some(e) = optional(s.fields, "electronics")?
+        {
+            let root = rules.root(reference, e)?;
+            let n = prototype
+                .nodes
+                .iter()
+                .position(|n| &n.source == root)
+                .ok_or_else(|| {
+                    ReferenceError("Compass electronics outside its prototype".into())
+                })?;
+            electronics = Some(NodeElectronics {
+                node: n as u32,
+                layer: u32::from(prototype.nodes[n].layer),
+                state: Electronics::from_fields(rules.get(reference, e)?.fields)?,
+            });
+        }
         if s.class_name == "compassscript" {
             for m in array(meter, "mutatok")? {
                 let m = fields(m)?;
@@ -329,6 +351,8 @@ impl WorldStream {
             digits,
             clock,
             needle,
+            electronics,
+            spin: 0.,
         })
     }
     /// One meterscript tune step. Returns false when the knob is not a dial.
@@ -351,6 +375,16 @@ impl WorldStream {
             .find(|b| b.item == item)
             .map(|b| (b.value != 0.).then_some(b.value))
     }
+    /// EMPs jam each compass at its item position.
+    pub fn expose_dials(&mut self, emps: &[Emp], items: &ItemStore, dt: f32) {
+        for b in &mut self.dial_bindings {
+            let (Some(e), Some(item)) = (&mut b.electronics, items.get(b.item)) else {
+                continue;
+            };
+            e.state
+                .expose(emps, Vector::from_array(item.pose.position), e.layer, dt);
+        }
+    }
     /// compassscript, clockscript, meterscript, mutatoscript and forgoszamlap updates.
     pub fn advance_dials(&mut self, dt: f32, cycle_fraction: f32, items: &ItemStore) {
         if !dt.is_finite() || dt < 0. {
@@ -363,7 +397,15 @@ impl WorldStream {
                 && let Some(item) = items.get(b.item)
             {
                 let forward = Rotation::from_array(item.pose.rotation) * Vector::NEG_Z;
-                n.value = lerp_angle(n.value, compass_north(forward, north), dt * n.speed);
+                let target = compass_value(
+                    forward,
+                    north,
+                    Vector::from_array(item.pose.position),
+                    b.electronics.as_ref().map(|e| &e.state),
+                    &mut b.spin,
+                    dt,
+                );
+                n.value = lerp_angle(n.value, target, dt * n.speed);
                 if n.value > n.max_angle {
                     n.value -= n.max_angle - n.min_angle;
                 }

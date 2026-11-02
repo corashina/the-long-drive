@@ -2,6 +2,7 @@
 //! A car copy is a vehicle body, a car runtime, its wheel slots and the engine and radiator
 //! parts on it.
 use crate::crash::Blood;
+use crate::electronics::{Electronics, NodeElectronics};
 use crate::interaction::InteractionState;
 use crate::interaction::cleaning::WashOwner;
 use crate::interaction::items::ItemStore;
@@ -16,7 +17,7 @@ use crate::starting_area::VehicleRuntime;
 use crate::vehicle::PhysicsWorld;
 use crate::world::changes::ChangeRecords;
 use crate::world::contents::ContentInstance;
-use crate::world::spawn_rules::{SourceRules, number, optional, texts};
+use crate::world::spawn_rules::{SourceRules, optional, texts};
 use crate::world::{GeneratedId, ObjectKey, StructureInstance};
 use rapier3d::prelude::{ColliderHandle, RigidBodyHandle};
 use std::collections::BTreeMap;
@@ -69,11 +70,20 @@ pub(super) fn bind(
             .iter()
             .position(|p| p.source == prototype.source)
             .ok_or_else(|| ReferenceError("Car prototype missing".into()))?;
-        let electronics_of = |node: Option<u32>| -> Result<Option<f32>, ReferenceError> {
-            Ok(node
-                .map(|node| electronics_output(world, rules, prototype, node))
-                .transpose()?
-                .flatten())
+        // One state per electronicsscript node. Controllers that share a node share its jam.
+        let mut electronics: Vec<NodeElectronics> = Vec::new();
+        let mut electronics_of = |node: Option<u32>| -> Result<Option<usize>, ReferenceError> {
+            let Some(node) = node else {
+                return Ok(None);
+            };
+            if let Some(i) = electronics.iter().position(|e| e.node == node) {
+                return Ok(Some(i));
+            }
+            let Some(e) = node_electronics(world, rules, prototype, node)? else {
+                return Ok(None);
+            };
+            electronics.push(e);
+            Ok(Some(electronics.len() - 1))
         };
         // The nearest item that holds a node: a part, a usable or the car root.
         let owner_item = |node: u32| {
@@ -102,7 +112,7 @@ pub(super) fn bind(
                 })
             })
             .collect::<Result<Vec<_>, ReferenceError>>()?;
-        let electronics = electronics_of(record.electronics)?;
+        let car_electronics = electronics_of(record.electronics)?;
         let (slot_sources, wheel_slots) = wheel_slots(content, prototype, world, rules, items)?;
         let owner = content.item.unwrap();
         let key = ObjectKey::Generated(content.content.placement.id.clone());
@@ -128,6 +138,7 @@ pub(super) fn bind(
                     .collect(),
                 fuel_tank: record.fuel_tank.and_then(node_item),
                 electronics,
+                car_electronics,
                 lights,
                 light_switch: record
                     .light_switch
@@ -470,25 +481,25 @@ pub fn register_radiator(
     powertrain.register_radiator(part);
 }
 
-/// Source `electronicsscript` output of prototype node `node`: `maxOutput` less the jam share.
-/// None: the node has no electronics script.
-pub fn electronics_output(
+/// Source `electronicsscript` of prototype node `node`. None: the node has no electronics script.
+pub fn node_electronics(
     world: &WorldReference,
     rules: &SourceRules,
     prototype: &WorldPrototypeReference,
     node: u32,
-) -> Result<Option<f32>, ReferenceError> {
-    let node = prototype
+) -> Result<Option<NodeElectronics>, ReferenceError> {
+    let n = prototype
         .nodes
         .get(node as usize)
-        .ok_or_else(|| ReferenceError("Car electronics node missing".into()))?;
-    let Some(record) = rules.component(world, &node.source, "electronicsscript")? else {
+        .ok_or_else(|| ReferenceError("Electronics node missing".into()))?;
+    let Some(record) = rules.component(world, &n.source, "electronicsscript")? else {
         return Ok(None);
     };
-    let f = record.fields;
-    Ok(Some(
-        number(f, "maxOutput")? * crate::world::spawn_lamps::electronics_factor(f)?,
-    ))
+    Ok(Some(NodeElectronics {
+        node,
+        layer: u32::from(n.layer),
+        state: Electronics::from_fields(record.fields)?,
+    }))
 }
 
 /// One car copy of a world instance, as the binder spawns it.
@@ -503,8 +514,10 @@ pub struct CarCopy<'a> {
     pub bodies: Vec<RigidBodyHandle>,
     /// Car root `tankscript` item.
     pub fuel_tank: Option<ItemId>,
-    /// `carscript.electronics` output. None: the car has no electronics.
-    pub electronics: Option<f32>,
+    /// Electronics nodes of the car.
+    pub electronics: Vec<NodeElectronics>,
+    /// `carscript.electronics` index in `electronics`. None: the car has no electronics.
+    pub car_electronics: Option<usize>,
     /// Links of each record light controller.
     pub lights: Vec<CarLightLinks>,
     /// The item of the `carscript.InteractSwitchLights` usable.
@@ -557,6 +570,7 @@ pub fn spawn(
             recovery_bounds: chassis_bounds(physics, copy.colliders),
             bodies: copy.bodies,
             electronics: copy.electronics,
+            car_electronics: copy.car_electronics,
             lights: copy.lights,
             light_switch: copy.light_switch,
             handbrake_lever: copy.handbrake_lever,
@@ -751,7 +765,8 @@ mod tests {
                 colliders: &[collider],
                 bodies: Vec::new(),
                 fuel_tank: Some(item),
-                electronics: None,
+                electronics: Vec::new(),
+                car_electronics: None,
                 lights: Vec::new(),
                 light_switch: None,
                 handbrake_lever: None,

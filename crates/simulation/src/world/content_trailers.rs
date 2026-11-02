@@ -430,6 +430,7 @@ impl WorldStream {
             b.lights.advance(
                 records,
                 input,
+                &[],
                 |i| i == item || items.descends(i, item),
                 |i| interaction.mechanisms.value(i, false).unwrap_or(0.),
                 FIXED_DT,

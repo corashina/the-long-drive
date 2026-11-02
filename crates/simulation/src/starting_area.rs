@@ -25,6 +25,7 @@ mod audio_frame;
 mod body;
 pub mod cigarettes;
 mod computers;
+mod electronics;
 mod explosions;
 mod frame;
 mod frame_particles;
@@ -32,6 +33,7 @@ mod guns;
 mod home_cable;
 pub mod hose;
 mod hud;
+mod hum;
 mod humans;
 mod rabbits;
 mod ragdoll;
@@ -444,6 +446,8 @@ pub fn world_vehicle(
 const ELECTRONICS_CUTOFF: f32 = 0.2;
 /// Body sounds that wait for the next net frame.
 const SHARED_SOUNDS: usize = 4;
+/// Usual count of live EMPs: sky UFOs and ground UFOs.
+const EMP_CAPACITY: usize = 8;
 
 /// Per-copy inputs of a world car runtime.
 pub struct WorldCarParts {
@@ -455,8 +459,10 @@ pub struct WorldCarParts {
     pub recovery_bounds: crate::reference::Bounds,
     /// Other bodies of the car instance.
     pub bodies: Vec<RigidBodyHandle>,
-    /// `carscript.electronics` output. None: the car has no electronics.
-    pub electronics: Option<f32>,
+    /// Electronics nodes of the car.
+    pub electronics: Vec<crate::electronics::NodeElectronics>,
+    /// `carscript.electronics` index in `electronics`. None: the car has no electronics.
+    pub car_electronics: Option<usize>,
     /// Links of each record light controller.
     pub lights: Vec<crate::simulation::car_lights::CarLightLinks>,
     /// The item of the `carscript.InteractSwitchLights` usable.
@@ -507,8 +513,10 @@ pub struct VehicleRuntime {
     pub fuel_tank_slot: Option<crate::reference::PartSlotId>,
     /// Source `carscript.startingTime`.
     pub starter_delay_seconds: f32,
-    /// Car electronics allow ignition.
-    pub electronics_enabled: bool,
+    /// Electronics nodes of the car. EMPs jam them.
+    pub electronics: Vec<crate::electronics::NodeElectronics>,
+    /// `carscript.electronics` index in `electronics`.
+    pub car_electronics: Option<usize>,
     /// Gauge state. The presentation advances it each frame.
     pub instruments: Option<crate::simulation::instruments::InstrumentState>,
     /// Light controllers of the car.
@@ -553,6 +561,16 @@ pub struct VehicleRuntime {
 }
 
 impl VehicleRuntime {
+    /// `carscript.electronics` output. 1 without electronics.
+    pub fn electronics_output(&self) -> f32 {
+        self.car_electronics
+            .map_or(1., |i| self.electronics[i].state.output())
+    }
+    /// `carscript.Electronics()`: no electronics, or output above the cutoff.
+    pub fn electronics_enabled(&self) -> bool {
+        self.car_electronics
+            .is_none_or(|i| self.electronics[i].state.output() > ELECTRONICS_CUTOFF)
+    }
     /// Runtime of a car copy of world prototype `prototype`.
     pub fn world(
         prototype: usize,
@@ -579,9 +597,8 @@ impl VehicleRuntime {
             root_tank: parts.fuel_tank,
             fuel_tank_slot: None,
             starter_delay_seconds: record.starter_delay_seconds,
-            electronics_enabled: parts
-                .electronics
-                .is_none_or(|output| output > ELECTRONICS_CUTOFF),
+            electronics: parts.electronics,
+            car_electronics: parts.car_electronics,
             instruments: record
                 .instruments
                 .as_ref()
@@ -748,14 +765,22 @@ pub struct GarageRuntime {
     pub hearing: crate::hearing::HearingState,
     pub sleep: crate::sleep::SleepState,
     ambient: crate::audio::AmbientState,
+    /// The player `electronicsscript` that ambient EMPs read.
+    player_electronics: crate::electronics::Electronics,
     horror: crate::horror::HorrorSound,
+    hum: crate::hum::Hum,
     pub food_particles: crate::food_particles::FoodParticles,
     pub gib_particles: crate::damage::gib_particles::GibParticles,
     pub weather: crate::weather::WeatherState,
     weather_bindings: weather::WeatherBindings,
     sky: crate::sky_traffic::SkyTraffic,
+    ground_ufos: crate::ground_ufo::GroundUfos,
     pub flyers: crate::flyers::Flyers,
     pub creatures: crate::creatures::Creatures,
+    /// Live `empscript` sources in physics space. `sync_emps` adds, moves and removes them.
+    pub emps: Vec<crate::electronics::Emp>,
+    /// Plane id of each `emps` entry.
+    emp_planes: Vec<u32>,
     pub urine: crate::interaction::fluid_contact::FluidContact,
     urine_reference: crate::reference::FluidParticleReference,
     urine_emission: [f32; 2],
@@ -951,6 +976,8 @@ impl GarageRuntime {
             urine_splash,
             0x70697373,
         );
+        let audio_gameplay =
+            crate::reference::AudioGameplayReference::from_value(&reference.audio)?;
         let mut run = Self {
             driving_assists: reference.driving.default_assists,
             options: Default::default(),
@@ -964,7 +991,15 @@ impl GarageRuntime {
             heat_haze: crate::heat_haze::OldHeatHaze::new(&reference.small_items.heat_haze),
             old_heat_haze: false,
             ambient: crate::audio::AmbientState::new(&reference.ambient),
+            player_electronics: {
+                let r = &reference.ambient.player_electronics;
+                crate::electronics::Electronics {
+                    override_max_jam: r.override_max_jam,
+                    ..crate::electronics::Electronics::new(r.max_output)
+                }
+            },
             horror: crate::horror::HorrorSound::new(seed as u64),
+            hum: crate::hum::Hum::new(&reference.survival.hum, &audio_gameplay),
             food_particles: crate::food_particles::FoodParticles::new(
                 &reference.survival.food_particles,
                 0x666f_6f64,
@@ -976,8 +1011,11 @@ impl GarageRuntime {
             weather: crate::weather::WeatherState::new(&reference.weather, seed as u64),
             weather_bindings,
             sky: crate::sky_traffic::SkyTraffic::new(&reference.sky, seed as u64),
+            ground_ufos: crate::ground_ufo::GroundUfos::new(&reference.sky.ground_ufo, seed as u64),
             flyers: crate::flyers::Flyers::new(seed as u64),
             creatures: crate::creatures::Creatures::new(reference, seed as u64, 0.)?,
+            emps: Vec::with_capacity(EMP_CAPACITY),
+            emp_planes: Vec::with_capacity(EMP_CAPACITY),
             survival: crate::survival::SurvivalState::new(&reference.survival),
             hearing: crate::hearing::HearingState::new(reference)?,
             sleep: crate::sleep::SleepState::new(&reference.sleep),
@@ -992,7 +1030,7 @@ impl GarageRuntime {
             previous_speed: None,
             death_protected: true,
             death_announced: false,
-            audio_gameplay: crate::reference::AudioGameplayReference::from_value(&reference.audio)?,
+            audio_gameplay,
             audio,
             persistent_world: crate::save::PersistentWorld::new(reference),
             pending_restore: None,
@@ -1219,12 +1257,14 @@ impl GarageRuntime {
             && interaction
                 .binoculars
                 .reserves_lmb(interaction.equipment.item(), interaction.held());
-        let duck_allowed = PlayerStepContext::can_duck(
-            input,
-            availability.actions.0 & crate::interaction::feedback::ActionMask::TUNE != 0
-                || binoculars,
-            picked_up,
-        );
+        // Source `CanDuck` is false while the player hums.
+        let duck_allowed = !self.hum.humming()
+            && PlayerStepContext::can_duck(
+                input,
+                availability.actions.0 & crate::interaction::feedback::ActionMask::TUNE != 0
+                    || binoculars,
+                picked_up,
+            );
         PlayerStepContext {
             duck_allowed,
             wheel_posture_allowed: duck_allowed && !slideable,
@@ -1286,7 +1326,8 @@ impl GarageRuntime {
             .interaction
             .finish_cancelled_input(&mut self.area.player, &mut self.physics);
         self.step_wear(&mut input);
-        self.step_cigarettes(reference, &mut input);
+        let smoking = self.step_cigarettes(reference, &mut input);
+        self.step_hum(reference, &mut input, smoking);
         for (key, vehicle) in &mut self.vehicles {
             vehicle.previous = self.persistent_world.absolute_vehicle_position(
                 &self.physics,
@@ -1580,6 +1621,7 @@ impl GarageRuntime {
                 self.reach_seated_car(reference, &key, crate::simulation::reach::handbrake);
             }
         }
+        self.advance_electronics(reference, FIXED_DT);
         self.refresh_powertrains();
         // Taking the map lets each car step borrow the runtime without allocation.
         let mut vehicles = std::mem::take(&mut self.vehicles);
@@ -1862,8 +1904,62 @@ impl GarageRuntime {
             std::array::from_fn(|i| origin[i] - anchor[i]),
             &self.physics,
         );
+        let player = self
+            .stream
+            .origin
+            .absolute(self.area.player.body_pose(&self.physics).position);
+        let stream = &self.stream;
+        self.ground_ufos.advance(
+            &reference.sky.ground_ufo,
+            self.lighting.cycle.output().phase,
+            player,
+            !self.net_guest,
+            dt,
+            |position, above| stream.road_point(position, above),
+        );
+        self.ground_ufos.place(&reference.sky.ground_ufo, anchor);
+        self.sync_emps(reference, anchor);
         if let Some(audio) = &mut self.audio {
-            audio.sky(self.sky.planes(), anchor);
+            audio.sky(
+                self.sky.planes().iter().chain(self.ground_ufos.planes()),
+                anchor,
+            );
+        }
+    }
+
+    /// Sky planes, then ground UFOs, relative to the sky anchor.
+    pub fn planes(&self) -> impl Iterator<Item = &crate::sky_traffic::Plane> {
+        self.sky.planes().iter().chain(self.ground_ufos.planes())
+    }
+
+    /// One `emps` entry follows each plane whose prefab carries an empscript.
+    fn sync_emps(&mut self, reference: &ReferenceManifest, anchor: [f64; 3]) {
+        let mut i = 0;
+        while i < self.emp_planes.len() {
+            let id = self.emp_planes[i];
+            if self.planes().any(|p| p.id == id) {
+                i += 1;
+            } else {
+                self.emp_planes.swap_remove(i);
+                self.emps.swap_remove(i);
+            }
+        }
+        let origin = self.stream.origin;
+        for plane in self.sky.planes().iter().chain(self.ground_ufos.planes()) {
+            let Some(emp) = &reference.sky.prefabs[plane.prefab].emp else {
+                continue;
+            };
+            let position =
+                rapier3d::math::Vector::from_array(origin.local(std::array::from_fn(|i| {
+                    anchor[i] + f64::from(plane.offset[i])
+                })));
+            match self.emp_planes.iter().position(|id| *id == plane.id) {
+                Some(i) => self.emps[i].position = position,
+                None => {
+                    self.emp_planes.push(plane.id);
+                    self.emps.push(crate::electronics::Emp::new(emp, position));
+                }
+            }
         }
     }
 
@@ -1933,11 +2029,13 @@ impl GarageRuntime {
                     rotation: body.rotation,
                 },
                 head: (head, player.body_handle()),
+                hum: self.hum.stimulus(&reference.survival.hum),
                 origin: &origin,
                 supports: &supports,
                 important: &important,
                 distances,
                 spawns: !self.net_guest,
+                emps: &self.emps,
             },
         );
         self.place_humans(reference);
@@ -2073,6 +2171,7 @@ impl GarageRuntime {
         vehicle.lights.advance(
             &record.lights,
             input,
+            &vehicle.electronics,
             |item| root.is_some_and(|root| item == root || items.descends(item, root)),
             |item| mechanisms.value(item, false).unwrap_or(0.),
             FIXED_DT,
@@ -2442,7 +2541,7 @@ impl GarageRuntime {
                 released: ignition_released,
             },
             vehicle.starter_delay_seconds,
-            vehicle.electronics_enabled,
+            vehicle.electronics_enabled(),
             FIXED_DT,
         );
         let was_running = engine.is_some_and(|engine| engine.state.output().running);
@@ -2471,7 +2570,7 @@ impl GarageRuntime {
                         coolant_boil: world_vehicle(reference, vehicle.prototype)
                             .coolant_steam
                             .is_some(),
-                        electronics_enabled: vehicle.electronics_enabled,
+                        electronics_enabled: vehicle.electronics_enabled(),
                     }),
                     ..climate
                 },
@@ -3274,7 +3373,8 @@ pub fn instrument_sample(
         oil_led_two_stroke: record.oil_led_two_stroke,
         headlights,
         local_ignition: vehicle.ignition.ignition
-            && limits.electronics_output > limits.electronics_off_threshold,
+            && vehicle.electronics_output() > limits.electronics_off_threshold,
+        electronics_output: vehicle.electronics_output(),
         distance_m: vehicle.trip_m,
     }
 }
