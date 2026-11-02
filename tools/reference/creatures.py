@@ -143,7 +143,8 @@ def human_ai_record(source, ai, node):
         'duck_debounce_speed_down': d['duckDebounceSpeedDown'], 'grounded_vertical_velocity': d['groundedVerticalVelocity'],
         'avoid_ray_x': d['avoidRayX'], 'avoid_ray_y': d['avoidRayY'], 'avoid_ray_range': d['avoidRayRange'],
         'avoid_ray_vertical': d['avoidRayVertical'], 'avoid_ray_angle': d['avoidRayAngle'], 'avoid_force': d['avoidForce'],
-        'avoid_lerp': d['avoidLerp'], 'ray_attack_dist_range': d['rayAttackDistRange'], 'door_speed': d['doorSpeed'],
+        'avoid_lerp': d['avoidLerp'], 'ray_attack_dist_range': d['rayAttackDistRange'],
+        'damage': d['damage'], 'door_speed': d['doorSpeed'],
         'start_patrol_time': [d['startPatrolTimeMin'], d['startPatrolTimeMax']], 'start_patrol_dist': d['startPatrolDist'],
         'patrol_ray_start_dist': d['patrolRayStartDist'], 'patrol_iteration': d['patrolIteration'],
         'patrol_ray_count': d['patrolRayCount'], 'patrol_ray_range': [d['patrolRayRangeMin'], d['patrolRayRangeMax']]}
