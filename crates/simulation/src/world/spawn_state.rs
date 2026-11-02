@@ -461,6 +461,63 @@ fn identity_bytes(id: &GeneratedId) -> usize {
 }
 
 #[cfg(test)]
+impl SourceSpawnState {
+    /// Diagnostic: retained and JSON bytes by part.
+    pub fn breakdown(&self) -> String {
+        let n = self.boundaries.len();
+        let mut ident = 0;
+        let mut pools = 0;
+        let mut pool_entries = 0;
+        let mut init = 0;
+        let mut counts = [0usize; 10];
+        let mut j_parent = 0;
+        let mut j_caller = 0;
+        let mut j_pools = 0;
+        let mut j_init = 0;
+        let mut j_rest = 0;
+        let mut distinct_pools = std::collections::HashSet::new();
+        let mut children = 0;
+        for b in &self.boundaries {
+            ident += identity_bytes(&b.parent) + b.caller.file.capacity();
+            pools += pools_bytes(&b.painting_pools);
+            pool_entries += b.painting_pools.iter().map(|p| p.available.len()).sum::<usize>();
+            init += b.initialization.retained_bytes();
+            children += b.parent.children.len();
+            let i = &b.initialization;
+            for (k, c) in [
+                i.paintings.len(), i.scales.len(), i.lamps.len(), i.conditions.len(),
+                i.initialized.len(), i.selectors.len(), i.activations.len(),
+                i.slot_parts.len(), i.door_speeds.len(), 0,
+            ].into_iter().enumerate() {
+                counts[k] += c;
+            }
+            let other_parent = [
+                i.initialized.iter().filter(|v| v.0 != b.parent).count(),
+                i.activations.iter().filter(|v| v.0 != b.parent).count(),
+            ];
+            counts[9] += other_parent[0] + other_parent[1];
+            j_parent += serde_json::to_string(&b.parent).unwrap().len();
+            j_caller += serde_json::to_string(&b.caller).unwrap().len();
+            let p = serde_json::to_string(&b.painting_pools).unwrap();
+            j_pools += p.len();
+            distinct_pools.insert(p);
+            j_init += serde_json::to_string(&b.initialization).unwrap().len();
+            j_rest += serde_json::to_string(&(b.ordinal, b.phase, b.random, b.context)).unwrap().len();
+        }
+        format!(
+            "boundaries {n} parents {} retained {} (structs {} ident {ident} pools {pools} [{pool_entries} entries, {} distinct] init {init}); \
+             init entries paint/scale/lamp/cond/init/sel/act/slot/door/other-parent {counts:?}; children {children}; \
+             json total {} (parent {j_parent} caller {j_caller} pools {j_pools} init {j_init} rest {j_rest})",
+            self.parents.len(),
+            self.retained_bytes(),
+            n * std::mem::size_of::<SpawnBoundary>(),
+            distinct_pools.len(),
+            serde_json::to_string(&self.capture_history()).unwrap().len(),
+        )
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
