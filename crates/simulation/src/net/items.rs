@@ -2,7 +2,7 @@
 //! other peers move their copy there.
 use super::claim::{ClaimChange, Claims};
 use super::message::{
-    self, ClaimMessage, ItemPoseMessage, Message, RemoveMessage, VelocityMessage,
+    self, ClaimMessage, ItemPoseMessage, Message, RemoveMessage, RequestMessage, VelocityMessage,
 };
 use super::objects::{NetKey, ObjectIndex};
 use crate::interaction::items::ItemLocation;
@@ -44,6 +44,11 @@ pub struct ItemSync {
     last: HashMap<ItemId, ([f64; 3], [f32; 4])>,
     removed: HashSet<ItemId>,
     changes: Vec<ClaimChange>,
+    fresh: Vec<NetKey>,
+    /// Host: requested keys to answer with their state.
+    requested: Vec<NetKey>,
+    /// Host: the latest pose and velocity of items that it has not loaded.
+    pending: HashMap<NetKey, (Option<ItemPoseMessage>, Option<VelocityMessage>)>,
 }
 
 impl ItemSync {
@@ -52,6 +57,66 @@ impl ItemSync {
             slot: self.slot,
             ..Self::default()
         };
+    }
+
+    /// Host: a pose or velocity of an item that it has not loaded. It applies when the item binds.
+    pub fn keep(
+        &mut self,
+        key: NetKey,
+        pose: Option<ItemPoseMessage>,
+        velocity: Option<VelocityMessage>,
+    ) {
+        let entry = self.pending.entry(key).or_default();
+        if pose.is_some() {
+            entry.0 = pose;
+        }
+        if velocity.is_some() {
+            entry.1 = velocity;
+        }
+    }
+    /// Host: source `requestData` keys.
+    pub fn requested(&mut self, keys: &[u64]) {
+        self.requested.extend(keys.iter().map(|k| NetKey(*k)));
+    }
+
+    /// Host: applies kept states of items that bound. Guest: asks for their state.
+    pub fn bound(
+        &mut self,
+        runtime: &mut GarageRuntime,
+        index: &mut ObjectIndex,
+        host: bool,
+        out: &mut Vec<u8>,
+    ) {
+        index.take_fresh(&mut self.fresh);
+        if host {
+            for key in &self.fresh {
+                let Some((pose, velocity)) = self.pending.remove(key) else {
+                    continue;
+                };
+                let Some(item) = index.item(*key) else {
+                    continue;
+                };
+                if let Some(pose) = pose {
+                    apply_pose(runtime, &self.claims, item, &pose);
+                }
+                if let Some(velocity) = velocity {
+                    apply_velocity(runtime, &self.claims, item, &velocity);
+                }
+            }
+            return;
+        }
+        // Source `LoadStuff` on a guest: `SRequestData`.
+        for keys in self.fresh.chunks(RequestMessage::KEYS) {
+            let mut m = RequestMessage {
+                keys: [0; RequestMessage::KEYS],
+                count: keys.len() as u32,
+                pad: 0,
+            };
+            for (k, key) in m.keys.iter_mut().zip(keys) {
+                *k = key.0;
+            }
+            message::push(self.slot, &m, out);
+        }
     }
 
     /// Claim changes, then the due poses. `host`: this peer is the host.
@@ -105,6 +170,14 @@ impl ItemSync {
                         });
                     }
                 }
+            }
+        }
+        // Source `SSendAllData`.
+        for key in std::mem::take(&mut self.requested) {
+            if let Some(item) = index.item(key)
+                && self.claims.owns(item, host)
+            {
+                self.send_pose(runtime, item, key, out);
             }
         }
         let step = CHECK_INTERVAL / f32::from(MORE_COUNT + 1);
@@ -182,10 +255,15 @@ impl ItemSync {
         };
         let position = runtime.stream.origin.absolute(state.pose.position);
         self.last.insert(item, (position, state.pose.rotation));
+        let spawn = runtime.area.spawned.get(item).map_or([0; 3], |s| {
+            [s.prototype as u32 + 1, s.serial, s.pickup as u32]
+        });
         out.push(&ItemPoseMessage {
             key: key.0,
             position,
             rotation: state.pose.rotation,
+            spawn,
+            pad: 0,
         });
         let held = matches!(state.location, ItemLocation::Held | ItemLocation::Equipped);
         let (linear, angular) = match state.body {
@@ -262,6 +340,31 @@ fn angle(a: &[f32; 4], b: &[f32; 4]) -> f32 {
     Rotation::from_array(*a)
         .angle_between(Rotation::from_array(*b))
         .to_degrees()
+}
+
+/// Source `UpdOrSpawnItem` and `AddObj`: a runtime spawn that this peer does not have.
+pub fn spawn(
+    reference: &crate::reference::ReferenceManifest,
+    runtime: &mut GarageRuntime,
+    m: &ItemPoseMessage,
+) -> Option<ItemId> {
+    let [prototype, serial, pickup] = m.spawn;
+    let prototype = prototype.checked_sub(1)? as usize;
+    let pose = VehiclePose {
+        position: runtime.stream.origin.local(m.position),
+        rotation: m.rotation,
+    };
+    // A spawned item pose is its body pose.
+    crate::starting_area::spawned::spawn_body(
+        reference,
+        &mut runtime.area,
+        &mut runtime.physics,
+        prototype,
+        pickup as usize,
+        pose,
+        serial,
+    )
+    .ok()
 }
 
 #[cfg(test)]

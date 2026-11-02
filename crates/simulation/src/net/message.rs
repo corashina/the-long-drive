@@ -20,6 +20,8 @@ pub const RADIO_CHANNEL: u8 = 35;
 pub const SOUND: u8 = 45;
 /// Source `msgType.time`.
 pub const TIME: u8 = 49;
+/// Source `msgType.requestData`.
+pub const REQUEST: u8 = 8;
 /// Source `msgType.inventory`.
 pub const INVENTORY: u8 = 15;
 /// Source `msgType.itemPosUpd`.
@@ -206,6 +208,26 @@ pub struct ItemPoseMessage {
     /// Item pose in world space. It does not change with origin shifts.
     pub position: [f64; 3],
     pub rotation: [f32; 4],
+    /// Source `category` and `prefabId`: a runtime spawn has its item prototype index plus 1, its
+    /// serial and its pickup index. Zero for other items.
+    pub spawn: [u32; 3],
+    pub pad: u32,
+}
+
+/// Source `SRequestData`: a guest asks the host for the state of items that bound.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
+pub struct RequestMessage {
+    pub keys: [u64; RequestMessage::KEYS],
+    pub count: u32,
+    pub pad: u32,
+}
+
+impl RequestMessage {
+    pub const KEYS: usize = 32;
+    pub fn keys(&self) -> &[u64] {
+        &self.keys[..(self.count as usize).min(Self::KEYS)]
+    }
 }
 
 /// Source `SItemVelocityUpd`.
@@ -311,6 +333,10 @@ impl Message for ClaimMessage {
     const TYPE: u8 = CLAIM;
     const RELIABLE: bool = true;
 }
+impl Message for RequestMessage {
+    const TYPE: u8 = REQUEST;
+    const RELIABLE: bool = true;
+}
 impl Message for InventoryMessage {
     const TYPE: u8 = INVENTORY;
     const RELIABLE: bool = true;
@@ -366,6 +392,8 @@ mod tests {
             key: u64::MAX - 7,
             position: [-1e7, 2., 3.],
             rotation: [0., 0., 0., 1.],
+            spawn: [4, 9, 0],
+            pad: 0,
         };
         item.encode(5, &mut out);
         assert_eq!(ItemPoseMessage::decode(&out), Ok((5, item)));

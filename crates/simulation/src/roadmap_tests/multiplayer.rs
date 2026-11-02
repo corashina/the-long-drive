@@ -427,3 +427,40 @@ fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
         "the host copy is loose again"
     );
 }
+
+/// M03. Source `UpdOrSpawnItem`: a runtime spawn of the host appears on the guest with the same
+/// serial, where the host has it.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_m03_a_host_spawn_appears_on_the_guest() {
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let mut guest = save_load(&run, &reference);
+    let mut pair = Pair::new();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    let prototype = reference
+        .item_prototypes
+        .iter()
+        .position(|p| !p.pickups.is_empty())
+        .expect("an item prototype");
+    let mut root = run.area.player.body_pose(&run.physics);
+    root.position[1] += 1.;
+    let ids = crate::starting_area::spawned::spawn_prototype(
+        &reference,
+        &mut run.area,
+        &mut run.physics,
+        prototype,
+        root,
+    )
+    .unwrap();
+    let serial = run.area.spawned.get(ids[0]).unwrap().serial;
+    pair.run(&reference, &mut run, &mut guest, 1.2);
+    let copy = guest
+        .area
+        .spawned
+        .iter()
+        .find(|s| s.serial == serial && s.prototype == prototype)
+        .expect("the guest spawns it")
+        .id;
+    assert!(apart(absolute(&run, ids[0]), absolute(&guest, copy)) < 0.2);
+}

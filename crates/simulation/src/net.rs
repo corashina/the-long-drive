@@ -19,7 +19,7 @@ use items::ItemSync;
 use message::{
     BodyMessage, CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage,
     ClaimMessage, InventoryMessage, ItemPoseMessage, Message, PoseMessage, RemoveMessage,
-    VelocityMessage,
+    RequestMessage, VelocityMessage,
 };
 use objects::{NetKey, ObjectIndex};
 use remote::Remote;
@@ -72,6 +72,8 @@ pub struct Net {
     figures: Vec<(u8, rapier3d::math::Pose)>,
     /// Peers that left since the last frame.
     left: Vec<u8>,
+    /// Guest spawn serials start at `slot << 24`.
+    serials_reserved: bool,
 }
 
 impl Net {
@@ -135,11 +137,18 @@ impl Net {
                 }
             }
             self.inventory.clear(runtime);
+            self.serials_reserved = false;
             return;
         }
         self.cars_touched = true;
         for slot in std::mem::take(&mut self.left) {
             self.inventory.leave(runtime, slot);
+        }
+        if self.role == NetRole::Guest && !std::mem::replace(&mut self.serials_reserved, true) {
+            runtime
+                .area
+                .spawned
+                .reserve_serials(u32::from(self.slot) << 24);
         }
         self.clock += real_dt as f64;
         self.objects
@@ -152,6 +161,12 @@ impl Net {
             .send(self.role, self.slot, runtime, real_dt, &mut self.outbox);
         self.objects
             .refresh(&runtime.area.items, &runtime.area.spawned);
+        self.items.bound(
+            runtime,
+            &mut self.objects,
+            self.role == NetRole::Host,
+            &mut self.outbox,
+        );
         self.items.send(
             runtime,
             &self.objects,
@@ -224,7 +239,8 @@ impl Net {
                 if let Some(remote) = self.remotes.iter_mut().find(|r| r.slot == slot) {
                     remote.got_body(&body);
                 }
-            } else if !self.read_item(packet, runtime) && !self.read_car(reference, packet, runtime)
+            } else if !self.read_item(reference, packet, runtime)
+                && !self.read_car(reference, packet, runtime)
             {
                 WorldSync::receive(self.role, packet, runtime);
             }
@@ -235,7 +251,13 @@ impl Net {
     }
 
     /// Item messages. False for other packets.
-    fn read_item(&mut self, packet: &[u8], runtime: &mut GarageRuntime) -> bool {
+    fn read_item(
+        &mut self,
+        reference: &ReferenceManifest,
+        packet: &[u8],
+        runtime: &mut GarageRuntime,
+    ) -> bool {
+        let host = self.role == NetRole::Host;
         let mine = self.slot;
         let item = |slot: u8, key: u64| {
             (slot != mine)
@@ -243,10 +265,18 @@ impl Net {
                 .flatten()
         };
         if let Ok((slot, m)) = ItemPoseMessage::decode(packet) {
-            if let Some(id) = item(slot, m.key)
-                && !self.inventory.target(runtime, &self.figures, id, &m)
-            {
-                items::apply_pose(runtime, &self.items.claims, id, &m);
+            if let Some(id) = item(slot, m.key) {
+                if !self.inventory.target(runtime, &self.figures, id, &m) {
+                    items::apply_pose(runtime, &self.items.claims, id, &m);
+                }
+            } else if slot != mine {
+                if items::spawn(reference, runtime, &m).is_some() {
+                    // Later packets of this frame name the new item.
+                    self.objects
+                        .refresh(&runtime.area.items, &runtime.area.spawned);
+                } else if host {
+                    self.items.keep(NetKey(m.key), Some(m), None);
+                }
             }
         } else if let Ok((slot, m)) = InventoryMessage::decode(packet) {
             if let Some(id) = item(slot, m.key) {
@@ -255,6 +285,12 @@ impl Net {
         } else if let Ok((slot, m)) = VelocityMessage::decode(packet) {
             if let Some(id) = item(slot, m.key) {
                 items::apply_velocity(runtime, &self.items.claims, id, &m);
+            } else if slot != mine && host {
+                self.items.keep(NetKey(m.key), None, Some(m));
+            }
+        } else if let Ok((slot, m)) = RequestMessage::decode(packet) {
+            if slot != mine && host {
+                self.items.requested(m.keys());
             }
         } else if let Ok((slot, m)) = ClaimMessage::decode(packet) {
             if let Some(id) = item(slot, m.key) {
