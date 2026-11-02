@@ -108,15 +108,23 @@ impl SpawnEvaluation<'_> {
                         if !self.mark_started(&parent.id, source) {
                             continue;
                         }
-                        if !flag(f, "sleeping")? {
-                            self.random.range(0., 1.);
-                        }
-                        self.random
+                        let sleeping = flag(f, "sleeping")?
+                            || self.random.range(0., 1.) < number(f, "startSleepChange")?;
+                        let voice_pitch = self
+                            .random
                             .range(number(f, "voiceMinPitch")?, number(f, "voiceMaxPitch")?);
-                        self.random.range(
+                        let patrol_time = self.random.range(
                             number(f, "startPatrolTimeMin")?,
                             number(f, "startPatrolTimeMax")?,
                         );
+                        self.initialization.humans.push((
+                            parent.id.clone(),
+                            super::spawn_state::HumanRoll {
+                                sleeping,
+                                voice_pitch,
+                                patrol_time,
+                            },
+                        ));
                     }
                     "randomFlyer" => {
                         if !self.mark_started(&parent.id, source) {

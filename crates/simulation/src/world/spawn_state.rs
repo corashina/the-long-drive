@@ -58,6 +58,16 @@ pub struct SpawnInitialization {
     pub slot_parts: Vec<(GeneratedId, SourceId, SourceId)>,
     /// Source `busdooropenscript.speed` drawn in Start.
     pub door_speeds: Vec<(GeneratedId, SourceId, f32)>,
+    /// Source `newAiScript.Start` rolls of each human monster placement.
+    pub humans: Vec<(GeneratedId, HumanRoll)>,
+}
+/// Source `newAiScript.Start`: `sleeping`, `voicePitch` and `NewPatrolTime`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HumanRoll {
+    pub sleeping: bool,
+    pub voice_pitch: f32,
+    pub patrol_time: f32,
 }
 impl SpawnInitialization {
     pub fn for_parent(&self, parent: &GeneratedId) -> Self {
@@ -112,6 +122,12 @@ impl SpawnInitialization {
                 .collect(),
             door_speeds: self
                 .door_speeds
+                .iter()
+                .filter(|v| &v.0 == parent)
+                .cloned()
+                .collect(),
+            humans: self
+                .humans
                 .iter()
                 .filter(|v| &v.0 == parent)
                 .cloned()
@@ -212,6 +228,12 @@ impl SpawnInitialization {
                 .door_speeds
                 .iter()
                 .map(|(p, s, _)| identity_bytes(p) + s.file.capacity())
+                .sum::<usize>()
+            + self.humans.capacity() * std::mem::size_of::<(GeneratedId, HumanRoll)>()
+            + self
+                .humans
+                .iter()
+                .map(|(p, _)| identity_bytes(p))
                 .sum::<usize>()
     }
 }
