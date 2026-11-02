@@ -117,7 +117,7 @@ def validate_runtime_paths(manifest):
         raise ValueError('Missing required source world dependency')
     from .item_prototypes import GIBS, SELECTED
     from .sky import PREFABS
-    expected = {f'reference/{name}.gltf' for name in ('home','items','road_lamp','sky','food','player','ragdoll','creature_rabbit',*(p[3] for p in SELECTED),*(f'item_gib_{g}' for g in GIBS),*(p[0] for p in PREFABS))}
+    expected = {f'reference/{name}.gltf' for name in ('home','items','road_lamp','sky','food','player','ragdoll','creature_rabbit','creature_human',*(p[3] for p in SELECTED),*(f'item_gib_{g}' for g in GIBS),*(p[0] for p in PREFABS))}
     prototype_ids={p['asset'] for p in world['prototypes']}
     material_ids={p['asset'] for p in world['painting_materials']}
     expected.update(a['path'] for a in manifest['assets'] if a['id'] in material_ids and a['usage']=='world_material')

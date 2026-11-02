@@ -301,12 +301,18 @@ impl<'a> SpawnEvaluation<'a> {
                     (fluid, tanks, ammo) = self.random_spawned(save, &row)?;
                 }
                 self.start_save(&child, save, 0)?;
-                if spawns
-                    && self
-                        .reference
-                        .prototypes
-                        .iter()
-                        .any(|p| p.source == child.prototype)
+                // The human monster has no world prototype. The creature runtime takes it.
+                let human = self
+                    .rules
+                    .component(self.reference, actual, "newAiScript")?
+                    .is_some();
+                if human
+                    || spawns
+                        && self
+                            .reference
+                            .prototypes
+                            .iter()
+                            .any(|p| p.source == child.prototype)
                 {
                     self.push(SpawnedContent {
                         inputs: super::spawn_state::SpawnInitialization::default(),

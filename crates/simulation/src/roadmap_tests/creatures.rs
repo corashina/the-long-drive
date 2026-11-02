@@ -935,3 +935,79 @@ fn tp_cr12_running_engine_makes_a_threat_stimulus() {
     assert!(running(&run, &key));
     assert!(value > 0., "the running engine makes a sound stimulus");
 }
+
+/// X03e. Source `newAiScript.Start`, `Die` and `save_newai`: a placed human keeps its key,
+/// a dead one saves its ragdoll bones and loads dead, and a placement spawns it once.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_x03e_human_body_die_and_save() {
+    let (reference, mut run) = outdoors();
+    let h = &reference.creatures.human;
+    assert_eq!(h.item_id, 317);
+    assert_eq!(
+        (h.start.start_sleep_chance, h.start.voice_pitch[0]),
+        (0.5, 0.75)
+    );
+    assert_eq!((h.breakable.health, h.breakable.shoot_health), (50., 1250.));
+    assert_eq!(h.ragdoll.bodies.len(), 11);
+    let place = |run: &mut GarageRuntime, forward: f32, ordinal: u32| {
+        let pose = run.area.player.body_pose(&run.physics);
+        let mut position = pose.position;
+        position[2] -= forward;
+        let key = crate::world::ObjectKey::Generated(crate::world::GeneratedId {
+            layer: crate::world::WorldLayer::Startup,
+            generator: reference.creatures.human.source.clone(),
+            unit: [0, 0],
+            ordinal,
+            children: Vec::new(),
+        });
+        let roll = crate::world::spawn_state::HumanRoll {
+            sleeping: ordinal == 1,
+            voice_pitch: 0.9,
+            patrol_time: 3.,
+        };
+        run.creatures
+            .humans
+            .place(
+                &reference.creatures.human,
+                &mut run.physics,
+                key,
+                rapier3d::math::Pose::from_translation(Vector::from_array(position)),
+                roll,
+            )
+            .unwrap()
+    };
+    let _sleeper = place(&mut run, 4., 1);
+    let dead = place(&mut run, 6., 2);
+    seconds(&mut run, &reference, 1.);
+    run.kill_human(&reference, dead, None).unwrap();
+    seconds(&mut run, &reference, 2.);
+    let saved = run
+        .creatures
+        .humans
+        .snapshot(&run.physics, &run.stream.origin);
+    assert_eq!(saved.len(), 2);
+    assert!(run.creatures.humans.known(&saved[0].key));
+    let loaded = save_load(&run, &reference);
+    // Saved humans wait as far humans until the next place check.
+    let mut loaded = loaded;
+    seconds(&mut loaded, &reference, 2.);
+    let back = loaded
+        .creatures
+        .humans
+        .snapshot(&loaded.physics, &loaded.stream.origin);
+    assert_eq!(back.len(), 2);
+    let d = back.iter().find(|s| s.died).expect("one dead human");
+    assert_eq!(d.bones.len(), 11);
+    let s = back.iter().find(|s| !s.died).unwrap();
+    assert!(s.sleeping && (s.voice_pitch, s.health) == (0.9, 50.));
+    assert_eq!(
+        loaded
+            .creatures
+            .humans
+            .views(&loaded.physics)
+            .filter(|v| v.died)
+            .count(),
+        1
+    );
+}

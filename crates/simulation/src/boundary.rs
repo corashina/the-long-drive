@@ -780,6 +780,19 @@ pub struct CreatureBoneRow {
     pub rotation: [f32; 4],
 }
 
+/// One human monster in physics space. A dead one takes its bone rows in `SimFrame::human_bones`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct HumanRow {
+    pub id: u32,
+    /// `CreatureRow::DEAD`.
+    pub flags: u32,
+    pub position: [f32; 3],
+    pub rotation: [f32; 4],
+    /// First index and count of the bone rows in `SimFrame::human_bones`.
+    pub bones: [u32; 2],
+}
+
 /// One bullet hole in stream space. `kind` indexes `GunsReference::decals`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -1000,6 +1013,9 @@ pub struct SimFrame {
     pub planes: Vec<PlaneRow>,
     pub creatures: Vec<CreatureRow>,
     pub creature_bones: Vec<CreatureBoneRow>,
+    pub humans: Vec<HumanRow>,
+    /// Ragdoll bones of dead humans. `node` is the manifest node id of the bone body.
+    pub human_bones: Vec<CreatureBoneRow>,
     pub conditions: Vec<ConditionRow>,
     /// 1 when the wash shows, in `ConditionRecord::washes` order.
     pub washes: Vec<u8>,
@@ -1322,6 +1338,8 @@ fn write(frame: &SimFrame, out: &mut Vec<u8>, encoder: Option<&mut FrameEncoder>
     put_rows(out, &frame.planes);
     put_rows(out, &frame.creatures);
     put_rows(out, &frame.creature_bones);
+    put_rows(out, &frame.humans);
+    put_rows(out, &frame.human_bones);
     put_rows(out, &frame.conditions);
     put_rows(out, &frame.washes);
     put_rows(out, &frame.brush_poses);
@@ -1369,6 +1387,8 @@ fn read(rest: &mut &[u8], frame: &mut SimFrame) -> Result<(), DecodeError> {
     take_rows(rest, &mut frame.planes)?;
     take_rows(rest, &mut frame.creatures)?;
     take_rows(rest, &mut frame.creature_bones)?;
+    take_rows(rest, &mut frame.humans)?;
+    take_rows(rest, &mut frame.human_bones)?;
     take_rows(rest, &mut frame.conditions)?;
     take_rows(rest, &mut frame.washes)?;
     take_rows(rest, &mut frame.brush_poses)?;
