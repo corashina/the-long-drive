@@ -161,7 +161,7 @@ impl HumanoidReference {
         {
             return fail("bone masses");
         }
-        if !known(self.root) || !(self.scale > 0.) {
+        if !known(self.root) || self.scale.is_nan() || self.scale <= 0. {
             return fail("root or scale");
         }
         for c in &self.clips {
@@ -181,7 +181,7 @@ impl HumanoidReference {
             || self.crouching.is_empty()
             || children
                 .clone()
-                .any(|c| c.clip as usize >= self.clips.len() || !(c.speed > 0.))
+                .any(|c| c.clip as usize >= self.clips.len() || c.speed.is_nan() || c.speed <= 0.)
         {
             return fail("blend trees");
         }

@@ -1,19 +1,26 @@
 //! Source `newAiScript` human monster: the live body, `Start`, `Die`, `save_newai`, the
 //! `newAiAnim` Animator and the voice. Buildings spawn it through the `humanmonster` category.
 //! The world placement key names it.
+use super::human_ai::{Frame, Hit, HumanAi, Owned, PlayerView, Touch, Usable, World};
 use super::human_voice::{Voice, VoiceInput, VoicePlay};
 use super::ragdoll::{self, Bone};
 use crate::animation::humanoid::{Humanoid, HumanoidInput, HumanoidPose};
 use crate::damage::BreakHealth;
-use crate::reference::{ColliderId, HumanReference, ItemId, NodeId, NodeRecord, ReferenceError};
+use crate::reference::TriggerRole;
+use crate::reference::{
+    ColliderGeometry, ColliderId, HumanAiReference, HumanReference, ItemId, NodeId, NodeRecord,
+    ReferenceError,
+};
 use crate::save::{AbsolutePose, HumanSnapshot};
 use crate::vehicle::{PhysicsWorld, collider_builder, step_surface_bits, tag_bits};
-use crate::world::spawn_state::HumanRoll;
 use crate::weather::StormRandom;
+use crate::world::TriggerRoles;
+use crate::world::spawn_state::HumanRoll;
 use crate::world::{ObjectKey, WorldOrigin};
 use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{
-    ActiveEvents, Group, InteractionGroups, InteractionTestMode, RigidBodyBuilder, RigidBodyHandle,
+    ActiveEvents, Collider, ColliderHandle, Group, InteractionGroups, InteractionTestMode,
+    QueryFilter, Ray, RigidBodyBuilder, RigidBodyHandle, SharedShape,
 };
 
 /// `TargetReset`: `transform.up * 0.75 + transform.forward * 0.05`. Forward is -z.
@@ -40,27 +47,11 @@ pub struct Human {
     pub health: BreakHealth,
     /// Ragdoll bones after `Die`, in body order.
     pub bones: Vec<Bone>,
-    /// The AI output for the Animator and the voice. The AI sets it each step.
-    pub drive: HumanDrive,
+    pub ai: HumanAi,
     pub animation: HumanoidPose,
     pub voice: Voice,
     /// `SourceVoice` played a new clip this step.
     pub voice_started: bool,
-}
-
-/// What `newAiScript` gives `newAiAnim` and the voice block.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct HumanDrive {
-    /// `anim.targetForward`, `anim.targetTurn` and `anim.duck`.
-    pub forward: f32,
-    pub turn: f32,
-    pub crouch: bool,
-    /// `anim.Hold` points of the left and right hand this step, local physics space.
-    pub holds: [Option<Vector>; 2],
-    /// `isChasing`, `isSeeing` and `isAttacking`.
-    pub chasing: bool,
-    pub seeing: bool,
-    pub attacking: bool,
 }
 
 /// A live human voice for audio: the clip that plays and the `SourceVoice` position.
@@ -86,11 +77,15 @@ pub struct Humans {
     far: Vec<HumanSnapshot>,
     /// Live collider poses under the prefab root, in `body.colliders` order.
     colliders: Vec<Pose>,
+    /// `sens` trigger shapes under the prefab root and their layer groups.
+    sens: Vec<(Pose, SharedShape, InteractionGroups)>,
+    /// Index of `col` in `body.colliders`, its capsule axis and radius.
+    col: (usize, Vector, f32),
+    random: StormRandom,
     next_id: u32,
     rig: Humanoid,
     /// The Animator Transform under the prefab root.
     animator: Pose,
-    random: StormRandom,
 }
 
 /// Pose of `node` under the prefab `root`, from the rest transforms. Parent scales move the
@@ -123,22 +118,65 @@ fn model_pose(nodes: &[NodeRecord], root: NodeId, node: NodeId) -> Result<Pose, 
 }
 
 impl Humans {
-    pub fn new(r: &HumanReference, nodes: &[NodeRecord]) -> Result<Self, ReferenceError> {
+    pub fn new(
+        r: &HumanReference,
+        nodes: &[NodeRecord],
+        seed: u64,
+    ) -> Result<Self, ReferenceError> {
         let colliders = r
             .body
             .colliders
             .iter()
             .map(|c| model_pose(nodes, r.root, c.node))
             .collect::<Result<_, _>>()?;
+        let ai = &r.ai;
+        let sens = ai
+            .sens
+            .iter()
+            .map(|c| {
+                let builder = collider_builder(&c.geometry)?;
+                Ok((
+                    model_pose(nodes, r.root, c.node)? * builder.position,
+                    builder.shape,
+                    InteractionGroups::new(
+                        Group::from_bits_truncate(c.membership),
+                        Group::from_bits_truncate(c.filter),
+                        InteractionTestMode::And,
+                    ),
+                ))
+            })
+            .collect::<Result<_, ReferenceError>>()?;
+        let index = r
+            .body
+            .colliders
+            .iter()
+            .position(|c| c.node == ai.col)
+            .ok_or_else(|| ReferenceError("Human col is not a live collider".into()))?;
+        let ColliderGeometry::Capsule { a, b, radius } = r.body.colliders[index].geometry else {
+            return Err(ReferenceError("Human col is not a capsule".into()));
+        };
+        let axis = (Vector::from_array(b) - Vector::from_array(a)).normalize_or(Vector::Y);
         Ok(Self {
             humans: Vec::new(),
             far: Vec::new(),
             colliders,
+            sens,
+            col: (index, axis, radius),
+            random: StormRandom(seed ^ 0x6875_6d61_6e00_0001),
             next_id: 1,
             rig: Humanoid::new(nodes, r)?,
             animator: model_pose(nodes, r.root, r.animator.root)?,
-            random: StormRandom(0x6e65_7741_6953_6372),
         })
+    }
+
+    /// `col.height` and `col.center` lerped from `colStand` to `colDuck` by `duck`.
+    fn duck_shape(col: (usize, Vector, f32), r: &HumanAiReference, duck: f32) -> SharedShape {
+        let (_, axis, radius) = col;
+        let height = r.stand.height + (r.duck.height - r.stand.height) * duck;
+        let center =
+            Vector::from_array(r.stand.center).lerp(Vector::from_array(r.duck.center), duck);
+        let half = (height * 0.5 - radius).max(0.);
+        SharedShape::capsule(center - axis * half, center + axis * half, radius)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Human> {
@@ -178,7 +216,7 @@ impl Humans {
             target: pose * TARGET_OFFSET,
             health: BreakHealth::new(&r.breakable),
             bones: Vec::new(),
-            drive: HumanDrive::default(),
+            ai: HumanAi::new(),
             animation: self.rig.pose(),
             voice: Voice::new(roll.voice_pitch, &r.voice),
             voice_started: false,
@@ -227,35 +265,141 @@ impl Humans {
         Ok(body)
     }
 
-    /// `newAiScript.Update` before the AI: a sleeping `first` human wakes.
-    pub fn step(&mut self) {
-        for h in &mut self.humans {
-            if h.sleeping && h.first {
-                h.sleeping = false;
+    /// `newAiScript.Update` of each live human, with the `sens` and `ladderscript` trigger stays
+    /// of this fixed step. Pushes the `Use` doors to `doors`.
+    pub fn step_ai(
+        &mut self,
+        r: &HumanReference,
+        physics: &mut PhysicsWorld,
+        input: &AiInput,
+        doors: &mut Vec<Usable>,
+    ) {
+        let ai = &r.ai;
+        for h in self.humans.iter_mut().filter(|h| !h.died) {
+            let body = &physics.rapier().bodies[h.body];
+            let pose = *body.position();
+            let velocity = body.linvel();
+            let touch = |handle: ColliderHandle, c: &Collider| match input.player {
+                Some((player, view)) if c.parent() == Some(player) => Touch::Player(view),
+                _ => (input.usable)(handle, physics).map_or(Touch::Other, Touch::Usable),
+            };
+            let sensors = &mut h.ai.sensors;
+            sensors.fixed_update();
+            let slots = [
+                &mut sensors.up,
+                &mut sensors.head,
+                &mut sensors.down,
+                &mut sensors.ground,
+                &mut sensors.can_get_up,
+            ];
+            for (sens, (local, shape, groups)) in slots.into_iter().zip(&self.sens) {
+                let filter = QueryFilter::default()
+                    .exclude_rigid_body(h.body)
+                    .groups(*groups);
+                if let Some((handle, c)) = physics
+                    .queries(filter)
+                    .intersect_shape(pose * *local, shape.as_ref())
+                    .next()
+                {
+                    sens.stay(touch(handle, c));
+                }
             }
+            // `ladderscript.OnTriggerStay` on the live colliders.
+            let ladder = body.colliders().iter().any(|own| {
+                let own = &physics.rapier().colliders[*own];
+                physics
+                    .queries(
+                        QueryFilter::default()
+                            .exclude_solids()
+                            .exclude_rigid_body(h.body),
+                    )
+                    .intersect_shape(*own.position(), own.shape())
+                    .any(|(handle, c)| {
+                        matches!(input.roles.get(handle, c), Some(TriggerRole::Ladder { .. }))
+                    })
+            });
+            if ladder {
+                h.ai.on_ladder();
+            }
+            let frame = Frame {
+                now: input.now,
+                dt: input.dt,
+                pose,
+                velocity,
+                head: pose * self.animator * self.rig.head(&h.animation),
+                player: input.player.map(|(_, view)| view),
+                peaceful: input.peaceful,
+                debug_target: None,
+            };
+            let mut world = Rays {
+                physics,
+                own: h.body,
+                player: input.player,
+                mask: ai.mask,
+                usable: input.usable,
+            };
+            let duck = h.ai.duck_value;
+            let out = h.ai.update(
+                ai,
+                Owned {
+                    sleeping: &mut h.sleeping,
+                    first: &mut h.first,
+                    target: &mut h.target,
+                    patrol_time: &mut h.patrol_time,
+                    patrol_range: r.start.patrol_time,
+                },
+                &frame,
+                &mut world,
+                &mut self.random,
+            );
+            physics.edit_body(h.body, |b| {
+                b.set_linvel(out.velocity, true);
+                b.set_rotation(out.rotation, true);
+                b.set_gravity_scale(if out.gravity { 1. } else { 0. }, true);
+            });
+            if h.ai.duck_value != duck {
+                let col = physics.rapier().bodies[h.body].colliders()[self.col.0];
+                let local = self.colliders[self.col.0];
+                let shape = Self::duck_shape(self.col, ai, h.ai.duck_value);
+                physics.edit_collider(col, |c| {
+                    c.set_shape(shape);
+                    c.set_position_wrt_parent(local);
+                });
+            }
+            doors.extend(out.door);
         }
     }
 
-    /// The voice block of `newAiScript.Update` with the previous drive, `newAiAnim.Update`, the
-    /// Animator and `LateUpdate`. Dead humans keep their ragdoll.
-    pub fn animate(&mut self, r: &HumanReference, physics: &PhysicsWorld, now: f64, dt: f32) {
+    /// The voice block of `newAiScript.Update`. It runs before the AI and reads the flags of the
+    /// previous step.
+    pub fn voice_block(&mut self, r: &HumanReference, now: f64, dt: f32) {
         for h in &mut self.humans {
             h.voice_started = false;
             if h.died {
                 continue;
             }
-            let d = h.drive;
             let input = VoiceInput {
                 died: false,
                 sleeping: h.sleeping,
-                chasing: d.chasing,
-                seeing: d.seeing,
-                attacking: d.attacking,
+                chasing: h.ai.is_chasing,
+                seeing: h.ai.is_seeing,
+                attacking: h.ai.is_attacking,
             };
             h.voice_started = h
                 .voice
                 .update(&r.voice, input, now, dt, &mut self.random)
                 .is_some();
+        }
+    }
+
+    /// After the AI: `SoundNotice`, `newAiAnim.Update`, the Animator and `LateUpdate`. Dead
+    /// humans keep their ragdoll.
+    pub fn animate(&mut self, r: &HumanReference, physics: &PhysicsWorld, now: f64, dt: f32) {
+        for h in self.humans.iter_mut().filter(|h| !h.died) {
+            if h.ai.noticed {
+                h.voice_started |= h.voice.notice(&r.voice, now, &mut self.random).is_some();
+            }
+            let anim = h.ai.anim;
             let root = *physics.rapier().bodies[h.body].position() * self.animator;
             self.rig.update(
                 &mut h.animation,
@@ -263,21 +407,14 @@ impl Humans {
                     now,
                     dt,
                     root,
-                    target_forward: d.forward,
-                    target_turn: d.turn,
-                    crouch: d.crouch,
+                    target_forward: anim.forward,
+                    target_turn: anim.turn,
+                    crouch: anim.duck,
                     look: h.target,
-                    holds: d.holds,
+                    holds: [anim.hold, None],
                     mouth: h.voice.mouth,
                 },
             );
-        }
-    }
-
-    /// `SoundNotice`: the AI of human `id` sees the player and was not chasing.
-    pub fn notice_voice(&mut self, r: &HumanReference, id: u32, now: f64) {
-        if let Some(h) = self.humans.iter_mut().find(|h| h.id == id) {
-            h.voice_started |= h.voice.notice(&r.voice, now, &mut self.random).is_some();
         }
     }
 
@@ -445,6 +582,7 @@ impl Humans {
     pub fn rebase(&mut self, shift: Vector) {
         for h in &mut self.humans {
             h.target -= shift;
+            h.ai.rebase(shift);
         }
     }
 
@@ -509,5 +647,81 @@ fn snapshot(physics: &PhysicsWorld, origin: &WorldOrigin, h: &Human) -> HumanSna
             .iter()
             .map(|b| absolute(physics.rapier().bodies[b.body].position()))
             .collect(),
+    }
+}
+
+/// What `step_ai` reads of the world.
+pub struct AiInput<'a> {
+    pub now: f64,
+    pub dt: f32,
+    /// The player body and its `fpscontroller` view.
+    pub player: Option<(RigidBodyHandle, PlayerView)>,
+    /// `peacefulEnemies == 2`.
+    pub peaceful: bool,
+    pub roles: &'a TriggerRoles,
+    /// `GetComponentInParent<usablescript>` of a collider.
+    pub usable: &'a dyn Fn(ColliderHandle, &PhysicsWorld) -> Option<Usable>,
+}
+
+/// The `lm` rays of one human. Rays that start inside a collider do not hit it, as in Unity.
+struct Rays<'a> {
+    physics: &'a PhysicsWorld,
+    own: RigidBodyHandle,
+    player: Option<(RigidBodyHandle, PlayerView)>,
+    mask: u32,
+    usable: &'a dyn Fn(ColliderHandle, &PhysicsWorld) -> Option<Usable>,
+}
+
+/// Unity layer 23.
+const GLASS_LAYER: u32 = 23;
+
+impl Rays<'_> {
+    fn each(&self, origin: Vector, direction: Vector, range: f32, mut f: impl FnMut(Hit)) {
+        let Some(direction) = direction.try_normalize() else {
+            return;
+        };
+        let mask = self.mask;
+        let predicate =
+            |_, c: &Collider| c.is_enabled() && c.collision_groups().memberships.bits() & mask != 0;
+        let filter = QueryFilter::default().predicate(&predicate);
+        for (handle, c, hit) in
+            self.physics
+                .queries(filter)
+                .intersect_ray(Ray::new(origin, direction), range, true)
+        {
+            if hit.time_of_impact <= 0. {
+                continue;
+            }
+            let parent = c.parent();
+            f(Hit {
+                distance: hit.time_of_impact,
+                point: origin + direction * hit.time_of_impact,
+                normal: hit.normal,
+                player: self
+                    .player
+                    .filter(|(body, _)| parent == Some(*body))
+                    .map(|(_, view)| view),
+                own: parent == Some(self.own),
+                glass: c.collision_groups().memberships.bits() == 1 << GLASS_LAYER,
+                usable: (self.usable)(handle, self.physics),
+            });
+        }
+    }
+}
+
+impl World for Rays<'_> {
+    fn ray_all(&mut self, origin: Vector, direction: Vector, range: f32, hits: &mut Vec<Hit>) {
+        self.each(origin, direction, range, |hit| hits.push(hit));
+        hits.sort_by(|a, b| a.distance.total_cmp(&b.distance));
+    }
+
+    fn ray(&mut self, origin: Vector, direction: Vector, range: f32) -> Option<Hit> {
+        let mut best: Option<Hit> = None;
+        self.each(origin, direction, range, |hit| {
+            if best.is_none_or(|b| hit.distance < b.distance) {
+                best = Some(hit);
+            }
+        });
+        best
     }
 }

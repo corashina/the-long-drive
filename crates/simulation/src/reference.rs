@@ -72,6 +72,8 @@ pub mod breakables;
 pub use breakables::*;
 pub mod creatures;
 pub use creatures::*;
+pub mod human_ai;
+pub use human_ai::*;
 pub mod humanoid;
 pub use humanoid::*;
 pub mod wheel_effects;
