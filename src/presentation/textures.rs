@@ -13,6 +13,8 @@ pub struct SourceImageLoader;
 pub struct SourceImageSettings {
     pub srgb: bool,
     pub filter: u8,
+    /// Source anisotropy. Point filtering ignores it, as in the source.
+    pub aniso: u16,
     pub wrap_u: u8,
     pub wrap_v: u8,
     #[serde(default)]
@@ -120,6 +122,7 @@ pub(crate) fn source_image(
         2 => ImageAddressMode::MirrorRepeat,
         _ => ImageAddressMode::ClampToEdge,
     };
+    let anisotropic = settings.filter != 0 && settings.aniso > 1;
     let filter = if settings.filter == 0 {
         ImageFilterMode::Nearest
     } else {
@@ -128,11 +131,12 @@ pub(crate) fn source_image(
     image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
         mag_filter: filter,
         min_filter: filter,
-        mipmap_filter: if settings.filter == 2 {
+        mipmap_filter: if settings.filter == 2 || anisotropic {
             ImageFilterMode::Linear
         } else {
             ImageFilterMode::Nearest
         },
+        anisotropy_clamp: if anisotropic { settings.aniso } else { 1 },
         address_mode_u: address(settings.wrap_u),
         address_mode_v: address(settings.wrap_v),
         ..default()

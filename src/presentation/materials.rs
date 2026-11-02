@@ -391,10 +391,8 @@ impl Plugin for SourceMaterialPlugin {
 }
 
 pub fn load_materials(
-    commands: &mut Commands,
-    _server: &AssetServer,
     reference: &ReferenceManifest,
-) -> Result<(), source::ReferenceError> {
+) -> Result<SourceMaterials, source::ReferenceError> {
     let mut sort_data = HashMap::new();
     let mut sort_identities = HashMap::<String, u32>::new();
     let mut shader_identities = HashMap::<String, i32>::new();
@@ -566,8 +564,7 @@ pub fn load_materials(
         texture_bytes: 0,
     };
     source.select_lighting_textures(reference)?;
-    commands.insert_resource(source);
-    Ok(())
+    Ok(source)
 }
 
 pub fn material_readiness(
