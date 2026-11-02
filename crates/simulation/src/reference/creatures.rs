@@ -403,6 +403,7 @@ pub struct HumanReference {
     pub breakable: BreakableReference,
     pub body: CreatureBody,
     pub ragdoll: CreatureRagdoll,
+    pub ai: HumanAiReference,
 }
 
 impl HumanReference {
@@ -444,6 +445,15 @@ impl HumanReference {
                 && !self.body.colliders.is_empty()
                 && self.body.colliders.iter().all(|c| self.local(m, c.node)),
             "human body",
+        )?;
+        self.ai.validate()?;
+        require(
+            self.ai
+                .sens
+                .iter()
+                .all(|c| c.sensor && self.local(m, c.node))
+                && self.body.colliders.iter().any(|c| c.node == self.ai.col),
+            "human AI",
         )?;
         validate_ragdoll(&self.ragdoll, |n| self.local(m, n), "human ragdoll")
     }
