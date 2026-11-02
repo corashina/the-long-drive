@@ -377,10 +377,21 @@ impl Hose {
     }
 
     /// Source `CoilingUp`: the other segments move toward the held one without gravity.
-    fn coil(&mut self, held: usize, dt: f32, physics: &mut PhysicsWorld) {
+    /// The move pulls a jointed end off its cap. Unity breaks that joint once `breakForce`
+    /// applies. A Rapier teleport gives no joint force, so the end detaches here.
+    fn coil(&mut self, held: usize, time: f32, dt: f32, physics: &mut PhysicsWorld) {
         let Some(target) = self.translation(held, physics) else {
             return;
         };
+        for end in 0..2 {
+            let e = &self.ends[end];
+            if e.segment != held
+                && matches!(e.cap, Some((_, Link::Joint(..))))
+                && time - e.attached_at >= BREAK_DELAY
+            {
+                self.detach(end, physics);
+            }
+        }
         let t = (dt * COIL_RATE).min(1.0);
         for index in (0..HOSE_SEGMENTS).filter(|i| *i != held) {
             physics.edit_body(self.bodies[index], |b| {
@@ -516,7 +527,7 @@ impl HoseState {
                 .held
                 .and_then(|id| hose.items.iter().position(|i| *i == id));
             match held {
-                Some(held) if input.coil => hose.coil(held, dt, physics),
+                Some(held) if input.coil => hose.coil(held, self.time, dt, physics),
                 _ => hose.uncoil(items, physics),
             }
             if held.is_some() {

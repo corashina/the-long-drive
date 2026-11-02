@@ -1604,21 +1604,32 @@ fn tp_cp4_siphon_hose_drains_siphons_tears_coils_and_stores() {
     get_out(&mut run, &reference);
     seconds(&mut run, &reference, 1.);
 
-    // Coil: carry an end and hold R. The other segments gather at it.
-    let point = run.area.items.get(lada_end).unwrap().pose.position;
+    // Coil: carry a free end and hold R. Source `CoilingUp` pulls the other segments to it,
+    // and pulls an end that is still on its tank off the cap.
+    // The tear frees either end. The player does not walk: a pull on the tank drops the end.
+    let end = match ends_now(&run) {
+        (None, _) => lada_end,
+        _ => can_end,
+    };
+    let point = run.area.items.get(end).unwrap().pose.position;
     stand_near(&mut run, &reference, point, 0.8);
-    pick(&mut run, lada_end);
+    pick(&mut run, end);
     seconds(&mut run, &reference, 0.2);
+    assert_eq!(
+        run.area.interaction.held(),
+        Some(end),
+        "the end stays in the hand: ends {:?}",
+        ends_now(&run)
+    );
     let spread = |run: &GarageRuntime| {
         let at = |id| Vector::from_array(run.area.items.get(id).unwrap().pose.position);
         segments
             .iter()
-            .map(|id| at(*id).distance(at(lada_end)))
+            .map(|id| at(*id).distance(at(end)))
             .fold(0., f32::max)
     };
-    // Walk back first: the carried end pulls the hose out straight.
-    hold(&mut run, &reference, keys::BACK, 0, 0, 1., |_| false);
     let before = spread(&run);
+    assert!(before > 0.2, "the hose lies spread: {before}");
     hold(
         &mut run,
         &reference,
@@ -1628,17 +1639,24 @@ fn tp_cp4_siphon_hose_drains_siphons_tears_coils_and_stores() {
         1.,
         |_| false,
     );
+    assert_eq!(
+        ends_now(&run),
+        (None, None),
+        "coiling pulls the other end off"
+    );
     assert!(
         spread(&run) < 0.7 * before,
-        "R coils the hose: {before} -> {}",
-        spread(&run)
+        "R coils the hose: {before} -> {}, held {:?}, ends {:?}",
+        spread(&run),
+        run.area.interaction.held(),
+        ends_now(&run)
     );
 
     // Store: select another slot. The carried segment goes to the inventory, and all segments
     // follow into the slot. Both ends are free.
     assert_eq!(
         run.area.interaction.held(),
-        Some(lada_end),
+        Some(end),
         "the end stays in the hand"
     );
     let slot = run.area.inventory.selected;
