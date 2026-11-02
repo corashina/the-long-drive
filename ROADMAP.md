@@ -57,12 +57,6 @@ Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix 
 - Export field added (#PB): `player.seat_push_force` (source `fpscontroller.seatPushForce`). Export ee6554d lacks it, so re-export before the next run.
 - MC2, older tests: `garage_start_car_drives_in_automatic`, `car07_drives_in_forced_automatic` and `two_ladas_drive_save_and_load` pass (#MC2). `start_cars_drive_save_and_load`: StartCar01 (Car01Full) stalls in first gear with full gas: the rpm falls from 600 to 0 at torque 8 Nm. `lada_tows_the_trailer_and_the_hitch_saves`: the Lada now tows the trailer on a deck, but the load of the hitched trailer never gets ready (one structure replay stays pending).
 
-Blocked checks. Each waits for the fix of its bug. Run them in the next build's test pass.
-
-#### MC2: the Lada does not drive
-
-- CP4: Siphon hose: first check the garage hose spawns clear of the walls. Attach it to the Lada tank and a can. Siphon by height, drain with LMB, coil with R, store it, tear it off by driving.
-
 Prepare once:
 
 1. Pull master. Re-export, then make a release build. Old exports and old saves do not load. Only the current save schema loads.

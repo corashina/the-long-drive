@@ -1106,3 +1106,567 @@ fn tp_wd8_r_and_e_at_aimed_ammo_reload_and_unload() {
     assert!(g2 < g1, "E unloads the gun into the aimed ammo");
     assert_eq!(g2 + a2, g0 + a0, "the unload keeps the rounds");
 }
+
+/// Liters in tank `id`.
+fn liters(run: &GarageRuntime, id: crate::reference::ItemId) -> f32 {
+    run.area
+        .items
+        .get(id)
+        .unwrap()
+        .fluid
+        .as_ref()
+        .unwrap()
+        .total()
+}
+
+/// Turns the head to cap `cap` until the fill ray hits it.
+fn aim_fill(run: &mut GarageRuntime, reference: &ReferenceManifest, cap: crate::reference::ItemId) {
+    for _ in 0..20 {
+        let point = run.area.items.get(cap).unwrap().pose.position;
+        run.area.player.look_at(point, &run.physics);
+        frame(run, reference);
+        if run.aim.filling_target.is_some_and(|t| t.item == cap) {
+            return;
+        }
+    }
+    panic!(
+        "fill ray misses {cap:?}: {:?}, held {:?}",
+        run.aim.filling_target,
+        run.area.interaction.held()
+    );
+}
+
+/// One short key tap.
+fn tap(run: &mut GarageRuntime, reference: &ReferenceManifest, key: u32) {
+    for input in [
+        FrameInput {
+            held: key,
+            pressed: key,
+            ..FrameInput::default()
+        },
+        FrameInput {
+            released: key,
+            ..FrameInput::default()
+        },
+    ] {
+        frame_with(run, reference, input);
+    }
+}
+
+/// Moves can `can` and the free hose `segments` by `can_at` and `hose_at` from cap `cap`, as if
+/// carried there. The y of each offset is the ground height change.
+fn bring(
+    run: &mut GarageRuntime,
+    reference: &ReferenceManifest,
+    (can, segments): (crate::reference::ItemId, &[crate::reference::ItemId]),
+    cap: crate::reference::ItemId,
+    can_at: Vector,
+    hose_at: Vector,
+) {
+    let at =
+        |run: &GarageRuntime, id| Vector::from_array(run.area.items.get(id).unwrap().pose.position);
+    let filler = at(run, cap);
+    let offset = (filler - at(run, can)).with_y(0.) + can_at;
+    move_items(run, &[can], offset);
+    let hose = segments.iter().map(|id| at(run, *id)).sum::<Vector>() / segments.len() as f32;
+    let offset = (filler - hose).with_y(0.) + hose_at;
+    move_items(run, segments, offset);
+    seconds(run, reference, 1.);
+}
+
+/// The driver opens the car door if needed and gets out.
+fn get_out(run: &mut GarageRuntime, reference: &ReferenceManifest) {
+    if !run.area.player.can_exit(&run.physics) {
+        assert!(
+            open_door_and_look_out(run, reference).is_some(),
+            "clear exit"
+        );
+    }
+    assert!(
+        run.area.player.try_exit(&mut run.physics),
+        "the driver gets out"
+    );
+}
+
+/// Moves the bodies of `items` by `offset`, as if carried there.
+fn move_items(run: &mut GarageRuntime, items: &[crate::reference::ItemId], offset: Vector) {
+    for id in items {
+        let body = run.area.items.get(*id).unwrap().body.unwrap();
+        run.physics.edit_body(body, |b| {
+            b.set_translation(b.translation() + offset, true);
+            b.set_linvel(Vector::ZERO, true);
+            b.set_angvel(Vector::ZERO, true);
+        });
+    }
+}
+
+/// Stands 0.8 m from cap `cap`, on the side away from `center` when given.
+fn stand_by_cap(
+    run: &mut GarageRuntime,
+    reference: &ReferenceManifest,
+    cap: crate::reference::ItemId,
+    center: Option<[f32; 3]>,
+) {
+    let point = Vector::from_array(run.area.items.get(cap).unwrap().pose.position);
+    let away = center.map_or(Vector::ZERO, |c| {
+        (point - Vector::from_array(c))
+            .with_y(0.)
+            .normalize_or_zero()
+    });
+    if away == Vector::ZERO {
+        stand_near(run, reference, point.to_array(), 0.8);
+        return;
+    }
+    let mut pose = run.area.player.body_pose(&run.physics);
+    let at = point + away * 0.8;
+    pose.position = [at.x, pose.position[1], at.z];
+    run.area.player.recover(pose, &mut run.physics);
+    seconds(run, reference, 0.5);
+}
+
+/// Opens cap `cap` with E.
+fn open_cap(
+    run: &mut GarageRuntime,
+    reference: &ReferenceManifest,
+    opening: crate::reference::OpeningId,
+    cap: crate::reference::ItemId,
+    center: Option<[f32; 3]>,
+) {
+    stand_by_cap(run, reference, cap, center);
+    assert!(aim_at_item(run, reference, cap), "aim at the cap");
+    if run.area.interaction.opening_valve(opening) <= 0. {
+        tap(run, reference, keys::USE);
+    }
+    // A screw cap turns with the mouse wheel.
+    for wheel in [1., -1.] {
+        for _ in 0..50 {
+            if run.area.interaction.opening_valve(opening) >= 1. {
+                break;
+            }
+            frame_with(
+                run,
+                reference,
+                FrameInput {
+                    wheel,
+                    ..FrameInput::default()
+                },
+            );
+        }
+    }
+    assert!(
+        run.area.interaction.opening_valve(opening) > 0.,
+        "the cap opens: use target {:?}",
+        run.aim.use_target
+    );
+}
+
+/// Carries hose end `end` to cap `cap` and attaches it with F, as a player does: look at the
+/// end and pick it up, look at the cap, and scroll the end up to it.
+fn attach_end(
+    run: &mut GarageRuntime,
+    reference: &ReferenceManifest,
+    end: crate::reference::ItemId,
+    cap: crate::reference::ItemId,
+    center: Option<[f32; 3]>,
+) {
+    stand_by_cap(run, reference, cap, center);
+    let at =
+        |run: &GarageRuntime, id| Vector::from_array(run.area.items.get(id).unwrap().pose.position);
+    if run.area.interaction.held() != Some(end) {
+        let point = at(run, end);
+        run.area.player.look_at(point.to_array(), &run.physics);
+        frame(run, reference);
+        run.area
+            .interaction
+            .pickup_item(
+                end,
+                point.to_array(),
+                &run.area.player,
+                &mut run.area.items,
+                &mut run.physics,
+            )
+            .unwrap();
+        run.area.sync_inventory();
+    }
+    // Turn to the cap slowly: a fast turn drops the end.
+    let from = at(run, end);
+    for step in 1..=40 {
+        let to = at(run, cap);
+        run.area
+            .player
+            .look_at(from.lerp(to, step as f32 / 40.).to_array(), &run.physics);
+        frame(run, reference);
+    }
+    aim_fill(run, reference, cap);
+    assert_eq!(
+        run.area.interaction.held(),
+        Some(end),
+        "the end stays in the hand"
+    );
+    for _ in 0..100 {
+        if run.area.interaction.held() != Some(end) {
+            break;
+        }
+        let eye = Vector::from_array(run.area.player.view(&run.physics).camera_pose.position);
+        let gap = at(run, end).distance(eye) - at(run, cap).distance(eye);
+        if gap.abs() < 0.1 {
+            break;
+        }
+        frame_with(
+            run,
+            reference,
+            FrameInput {
+                wheel: -gap.signum(),
+                ..FrameInput::default()
+            },
+        );
+    }
+    aim_fill(run, reference, cap);
+    tap(run, reference, keys::GRAB);
+    seconds(run, reference, 0.8);
+}
+
+/// CP4. Source `tubescript`: the garage siphon hose spawns clear of the walls. With one end on
+/// the Lada tank, LMB drains the tank (`JustDrain`). With both ends on, fuel flows from the
+/// higher end to the lower one (`Fill`). Driving away breaks a joint (`breakForce`). R gathers
+/// the hose (`CoilingUp`), and a stored segment carries all segments (`Store`).
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_cp4_siphon_hose_drains_siphons_tears_coils_and_stores() {
+    use crate::reference::{HOSE_SEGMENTS, TankRole};
+    let (reference, mut run) = load_garage();
+    seconds(&mut run, &reference, 3.);
+    let prototype = reference
+        .item_prototypes
+        .iter()
+        .position(|p| p.hose.is_some())
+        .expect("hose prototype");
+    let segments: Vec<_> = run
+        .area
+        .spawned
+        .iter()
+        .filter(|s| s.prototype == prototype)
+        .map(|s| s.id)
+        .collect();
+    assert_eq!(segments.len(), HOSE_SEGMENTS, "one garage hose");
+
+    // Clear of the walls: no segment touches a fixed collider with a side contact.
+    let world = run.physics.rapier();
+    for &id in &segments {
+        let body = run.area.items.get(id).unwrap().body.unwrap();
+        for &collider in world.bodies[body].colliders() {
+            for pair in world.narrow_phase.contact_pairs_with(collider) {
+                let other = if pair.collider1 == collider {
+                    pair.collider2
+                } else {
+                    pair.collider1
+                };
+                let fixed = world.colliders[other]
+                    .parent()
+                    .is_none_or(|b| world.bodies[b].is_fixed());
+                for manifold in pair.manifolds() {
+                    let side = manifold.data.normal.y.abs() < 0.7;
+                    let deep = manifold.points.iter().any(|p| p.dist < -0.01);
+                    assert!(
+                        !(fixed && side && deep),
+                        "hose segment {id:?} touches a wall: {other:?} normal {:?}",
+                        manifold.data.normal
+                    );
+                }
+            }
+        }
+    }
+
+    // The Lada tank and the can.
+    let key = run.vehicle.clone().expect("start car");
+    fill_fluids(&mut run, &key);
+    let tank = run.vehicles[&key].fuel_tank.expect("Lada fuel tank");
+    let can = reference
+        .tanks
+        .iter()
+        .find(|t| {
+            t.role == TankRole::Portable
+                && (t.capacity_liters - 20.).abs() < 0.5
+                && t.fluids.iter().any(|f| f.fluid_type == 0)
+        })
+        .expect("20 L can")
+        .item;
+    // Room in the can.
+    {
+        let fluid = run.area.items.get_mut(can).unwrap().fluid.as_mut().unwrap();
+        let total = fluid.total();
+        crate::fluids::spill(fluid, total * 0.5);
+        run.area.items.mark_dirty(can);
+    }
+    let (lada_opening, lada_cap) = run
+        .area
+        .interaction
+        .tank_opening(tank)
+        .expect("Lada tank opening");
+    let (can_opening, can_cap) = run.area.interaction.tank_opening(can).expect("can opening");
+    let car = Some(run.physics.snapshot(&key).pose.position);
+    // The 2 m hose does not reach from the Lada to the can at the bench. Carry the can and
+    // the hose to the left of the Lada filler.
+    // The garage Lada has its left side to +Z. The hose lies ahead of the filler, clear of
+    // where the player stands.
+    bring(
+        &mut run,
+        &reference,
+        (can, &segments),
+        lada_cap,
+        Vector::Z,
+        Vector::new(1., 0., 0.5),
+    );
+    open_cap(&mut run, &reference, lada_opening, lada_cap, car);
+    open_cap(&mut run, &reference, can_opening, can_cap, None);
+
+    use crate::interaction::items::ItemLocation;
+    // Look at the item and pick it up, as F does.
+    let pick = |run: &mut GarageRuntime, id: crate::reference::ItemId| {
+        let point = run.area.items.get(id).unwrap().pose.position;
+        run.area.player.look_at(point, &run.physics);
+        frame(run, &reference);
+        let point = run.area.items.get(id).unwrap().pose.position;
+        run.area
+            .interaction
+            .pickup_item(
+                id,
+                point,
+                &run.area.player,
+                &mut run.area.items,
+                &mut run.physics,
+            )
+            .unwrap();
+        run.area.sync_inventory();
+    };
+    let ends_now = |run: &GarageRuntime| {
+        let ends = run.area.interaction.hose_ends(segments[0]).unwrap();
+        (ends[0].1, ends[1].1)
+    };
+
+    // End 1 on the Lada tank.
+    let ends = run.area.interaction.hose_ends(segments[0]).unwrap();
+    let (lada_end, can_end) = (ends[0].0, ends[1].0);
+    attach_end(&mut run, &reference, lada_end, lada_cap, car);
+    assert_eq!(
+        ends_now(&run),
+        (Some(lada_opening), None),
+        "end 1 on the Lada tank"
+    );
+
+    // Drain: carry the free end and hold LMB. The Lada tank drains out of it.
+    // Look at the floor below the Lada cap: LMB on an aimed cap toggles it, as in the source.
+    // Hold the free end there, so the hose stays slack.
+    let floor = {
+        let player = Vector::from_array(run.area.player.body_pose(&run.physics).position);
+        let cap = Vector::from_array(run.area.items.get(lada_cap).unwrap().pose.position);
+        (player + cap) * 0.5 - Vector::Y * 0.6
+    };
+    run.area.player.look_at(floor.to_array(), &run.physics);
+    frame(&mut run, &reference);
+    let eye = Vector::from_array(run.area.player.view(&run.physics).camera_pose.position);
+    let hand = eye + (floor - eye).normalize() * 0.8;
+    let body = run.area.items.get(can_end).unwrap().body.unwrap();
+    run.physics.edit_body(body, |b| {
+        b.set_translation(hand, true);
+        b.set_linvel(Vector::ZERO, true);
+    });
+    run.physics.refresh_queries();
+    pick(&mut run, can_end);
+    seconds(&mut run, &reference, 0.5);
+    assert_eq!(
+        run.area.interaction.held(),
+        Some(can_end),
+        "the end stays in the hand"
+    );
+    assert_ne!(
+        run.aim.use_target.map(|t| t.item),
+        Some(lada_cap),
+        "the Lada cap is not aimed"
+    );
+    let lada = liters(&run, tank);
+    hold(
+        &mut run,
+        &reference,
+        keys::PRIMARY,
+        0,
+        keys::PRIMARY,
+        3.,
+        |_| false,
+    );
+    assert!(
+        run.area.interaction.opening_valve(lada_opening) > 0.,
+        "the Lada cap stays open"
+    );
+    let drained = lada - liters(&run, tank);
+    assert!(drained > 0.05, "LMB drains the Lada tank: {drained} L");
+    // Release LMB: the drain stops.
+    seconds(&mut run, &reference, 2.);
+    let lada = liters(&run, tank);
+    seconds(&mut run, &reference, 1.);
+    assert!(
+        lada - liters(&run, tank) < 0.01,
+        "the drain stops: {lada} -> {}",
+        liters(&run, tank)
+    );
+
+    // Siphon: carry the free end to the can. End 1 stays on the Lada tank.
+    attach_end(&mut run, &reference, can_end, can_cap, None);
+    assert_eq!(
+        ends_now(&run),
+        (Some(lada_opening), Some(can_opening)),
+        "both ends on"
+    );
+    // The Lada tank is higher than the can on the floor: fuel flows into the can.
+    let (lada, canned) = (liters(&run, tank), liters(&run, can));
+    seconds(&mut run, &reference, 5.);
+    assert!(
+        liters(&run, tank) < lada && liters(&run, can) > canned,
+        "fuel flows down: Lada {lada} -> {}, can {canned} -> {}",
+        liters(&run, tank),
+        liters(&run, can)
+    );
+
+    // Tear off: take the joined car, hose and can to the road as one, and drive away.
+    assert!(enter(&mut run, &reference), "driver seat");
+    let bodies: Vec<_> = segments
+        .iter()
+        .chain([&can])
+        .map(|id| run.area.items.get(*id).unwrap().body.unwrap())
+        .collect();
+    let car_pose = |run: &GarageRuntime| to_rapier(run.physics.snapshot(&key).pose);
+    let old = car_pose(&run);
+    let relative: Vec<_> = bodies
+        .iter()
+        .map(|b| old.inverse() * *run.physics.rapier().bodies[*b].position())
+        .collect();
+    let start = absolute(&run, &key).0;
+    let points = road_points(&run, &reference);
+    let i = points
+        .iter()
+        .position(|p| horizontal(*p, start) > 60.)
+        .expect("road 60 m out");
+    place_car(&mut run, &reference, points[i], points[i + 1], 0.8);
+    let new = car_pose(&run);
+    for (body, relative) in bodies.iter().zip(&relative) {
+        run.physics.edit_body(*body, |b| {
+            b.set_position(new * *relative, true);
+            b.set_linvel(Vector::ZERO, true);
+            b.set_angvel(Vector::ZERO, true);
+        });
+    }
+    run.physics.refresh_queries();
+    park(&mut run, &reference, points[i]);
+    assert_eq!(
+        ends_now(&run),
+        (Some(lada_opening), Some(can_opening)),
+        "both ends on the road"
+    );
+    let started = hold(
+        &mut run,
+        &reference,
+        keys::IGNITION,
+        0,
+        keys::IGNITION,
+        20.,
+        |run| running(run, &key),
+    );
+    assert!(started, "the engine starts");
+    frame_with(
+        &mut run,
+        &reference,
+        FrameInput {
+            released: keys::IGNITION,
+            ..FrameInput::default()
+        },
+    );
+    release_handbrake(&mut run, &reference, &key);
+    let active = |run: &GarageRuntime| bodies.iter().all(|b| run.physics.body_active(*b));
+    run.driving_assists.automatic_clutch = true;
+    hold(&mut run, &reference, 0, 0, keys::GEAR_1, 0.2, |_| false);
+    let start = absolute(&run, &key).0;
+    hold(&mut run, &reference, 0, player_keys::GAS, 0, 10., |run| {
+        ends_now(run) != (Some(lada_opening), Some(can_opening))
+    });
+    assert_ne!(
+        ends_now(&run),
+        (Some(lada_opening), Some(can_opening)),
+        "driving away tears the hose off: {:.1} m",
+        horizontal(absolute(&run, &key).0, start)
+    );
+    // The stream can lag behind a test drive. A hose frozen on the moving car would snap back.
+    assert!(active(&run), "the hose and the can stay active");
+    hold(&mut run, &reference, 0, player_keys::BRAKE, 0, 2., |_| {
+        false
+    });
+    get_out(&mut run, &reference);
+    seconds(&mut run, &reference, 1.);
+
+    // Coil: carry an end and hold R. The other segments gather at it.
+    let point = run.area.items.get(lada_end).unwrap().pose.position;
+    stand_near(&mut run, &reference, point, 0.8);
+    pick(&mut run, lada_end);
+    seconds(&mut run, &reference, 0.2);
+    let spread = |run: &GarageRuntime| {
+        let at = |id| Vector::from_array(run.area.items.get(id).unwrap().pose.position);
+        segments
+            .iter()
+            .map(|id| at(*id).distance(at(lada_end)))
+            .fold(0., f32::max)
+    };
+    // Walk back first: the carried end pulls the hose out straight.
+    hold(&mut run, &reference, keys::BACK, 0, 0, 1., |_| false);
+    let before = spread(&run);
+    hold(
+        &mut run,
+        &reference,
+        keys::RELOAD,
+        0,
+        keys::RELOAD,
+        1.,
+        |_| false,
+    );
+    assert!(
+        spread(&run) < 0.7 * before,
+        "R coils the hose: {before} -> {}",
+        spread(&run)
+    );
+
+    // Store: select another slot. The carried segment goes to the inventory, and all segments
+    // follow into the slot. Both ends are free.
+    assert_eq!(
+        run.area.interaction.held(),
+        Some(lada_end),
+        "the end stays in the hand"
+    );
+    let slot = run.area.inventory.selected;
+    let select = |run: &mut GarageRuntime, slot: u8| {
+        super::weapons::input(
+            run,
+            &reference,
+            FrameInput {
+                inventory_released: 1 << slot,
+                ..FrameInput::default()
+            },
+        );
+        seconds(run, &reference, 0.5);
+    };
+    select(&mut run, (slot + 1) % 8);
+    for id in &segments {
+        let location = run.area.items.get(*id).unwrap().location;
+        assert!(
+            matches!(location, ItemLocation::Stored(_)),
+            "segment {id:?} stored: {location:?}"
+        );
+    }
+    assert_eq!(ends_now(&run), (None, None), "storing frees both ends");
+    // Take it out: the segments return to the world.
+    select(&mut run, slot);
+    for id in &segments {
+        let location = run.area.items.get(*id).unwrap().location;
+        assert!(
+            !matches!(location, ItemLocation::Stored(_)),
+            "segment {id:?} out: {location:?}"
+        );
+    }
+}
