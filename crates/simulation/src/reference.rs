@@ -72,6 +72,8 @@ pub mod breakables;
 pub use breakables::*;
 pub mod creatures;
 pub use creatures::*;
+pub mod human_ai;
+pub use human_ai::*;
 pub mod wheel_effects;
 pub use wheel_effects::{EffectGains, SkidReference, WheelEffectsReference, WheelGains};
 pub mod plates;

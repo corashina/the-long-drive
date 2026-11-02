@@ -25,7 +25,6 @@ The starting area, car parts, world and more cars sections are done. Only their 
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| X03f | Human monster AI | L | `newAiScript.Update`: sight by `fov` and ray, chase time, patrol (`GetNewPatrolPos`), rigidbody move, `AvoidWalls`, jump when stuck, ladders (`ladderV`), doors (`Use`), `peacefulEnemies`, `rizseshusi` target. |
 | X03g | Human monster animation and voice | M | Needs X03f. `newAiAnim` animator, look target and hand IK. Voices: idle, notice, chase, attack and death lists with pitch, and the `TVoice` mouth move. |
 | X03h | Human monster attack and death | M | Needs X03f. `Attack`: ray to the player, `survival.DamageInstant(damage * dt)`, both hands hold. `breakablescript.DamageFrom` wakes it and turns its target to the hit. Shot, collision and explosion break it. `Die`: ragdoll and death sound. |
 | X03i | UFO seat, colliders and stimulus | M | `fedoscript` seat: `PlayerInput`, the `AutoPilot`, `SetSpeed` and `SetHeight` usables, `seatedObj`. Fedo01 rigidbody and colliders. Its `stimulscript` (kind 3, value 50) for rabbits. The UFO itself flies since X03d. |
@@ -59,4 +58,5 @@ Re-export the reference first: X03d adds `sky.ground_ufo` and `sky.prefabs[].emp
 2. X03b: Let the UFO pass near the start car at night. The headlights and rear lights dim and go out, the engine does not start and the radio fades to static. All come back within about 10 s after it leaves. Check F3 while it is near.
 3. X03b: Hold a compass and a switched-on metal detector under the UFO. The compass points at the UFO, then spins when it is close. The detector beeps without metal.
 4. X03b: Near road lamps and a building with lamps, the lamps dim and go out under the UFO and come back after. The ambient sound drops and recovers. A bus door button does nothing while the bus is jammed.
-5. X03e: Enter an old house, a mansion or the Vizmu building with human spawns. Some have a human monster in its rest pose. It does not move before X03f. Saves keep it, and a placement does not spawn a second one.
+5. X03e: Enter an old house, a mansion or the Vizmu building with human spawns. Some have a human monster. Saves keep it, and a placement does not spawn a second one.
+6. X03f: A human monster that sees the player chases them. It ducks and jumps over low walls, pushes doors open and climbs ladders. Out of sight it patrols. Peaceful mode stops it. Re-export first: X03f adds `creatures.human.ai` with the five `sens` triggers.

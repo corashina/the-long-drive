@@ -30,7 +30,42 @@ impl GarageRuntime {
                 self.notice = "Cannot place the human.";
             }
         }
-        self.creatures.humans.step();
+    }
+
+    /// `newAiScript.Update` of the live humans. Host only, as rabbits.
+    pub(super) fn step_humans(&mut self, reference: &ReferenceManifest, dt: f32) {
+        if self.net_guest {
+            return;
+        }
+        let player = &self.area.player;
+        let view = crate::creatures::human_ai::PlayerView {
+            position: crate::vehicle::to_rapier(player.body_pose(&self.physics)).translation,
+            head: Vector::from_array(player.focus_position(&self.physics)),
+        };
+        let interaction = &self.area.interaction;
+        let usable =
+            |handle, physics: &crate::vehicle::PhysicsWorld| interaction.ai_usable(handle, physics);
+        let mut doors = Vec::new();
+        let r = &reference.creatures.human;
+        self.creatures.humans.step_ai(
+            r,
+            &mut self.physics,
+            &crate::creatures::human::AiInput {
+                now: self.simulation_seconds,
+                dt,
+                player: Some((player.body_handle(), view)),
+                peaceful: self.creatures.peaceful,
+                roles: self.stream.trigger_roles(),
+                usable: &usable,
+            },
+            &mut doors,
+        );
+        for door in doors {
+            self.area
+                .interaction
+                .mechanisms
+                .push(door.item, r.ai.door_speed * dt, dt);
+        }
     }
 
     /// `Die` of human `id`. `poses` gives saved bone poses.
