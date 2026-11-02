@@ -12,6 +12,14 @@ pub const RADIO_CHANNEL: u8 = 35;
 pub const SOUND: u8 = 45;
 /// Source `msgType.time`.
 pub const TIME: u8 = 49;
+/// Source `msgType.itemPosUpd`.
+pub const ITEM_POSE: u8 = 16;
+/// Source `msgType.claim`.
+pub const CLAIM: u8 = 18;
+/// Source `msgType.velocity`.
+pub const VELOCITY: u8 = 19;
+/// Source `msgType.removeItem`.
+pub const REMOVE: u8 = 48;
 pub const HEADER: usize = 2;
 /// Outbox length prefix bit: `web/net.js` sends the packet on the reliable connection.
 pub const RELIABLE: u16 = 0x8000;
@@ -122,6 +130,42 @@ pub fn push_with(reliable: bool, n: usize, out: &mut Vec<u8>, encode: impl FnOnc
     debug_assert_eq!(out.len() - start, n);
 }
 
+/// Source `SItemPosUpd`: the world pose of an item, sent by its owner.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct ItemPoseMessage {
+    pub key: u64,
+    /// Item pose in world space. It does not change with origin shifts.
+    pub position: [f64; 3],
+    pub rotation: [f32; 4],
+}
+
+/// Source `SItemVelocityUpd`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct VelocityMessage {
+    pub key: u64,
+    pub linear: [f32; 3],
+    pub angular: [f32; 3],
+}
+
+/// Source `SClaim`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct ClaimMessage {
+    pub key: u64,
+    /// 1 claims, 0 releases.
+    pub claim: u32,
+    pub pad: u32,
+}
+
+/// Source `SRemoveItem`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct RemoveMessage {
+    pub key: u64,
+}
+
 pub trait Message: Pod {
     const TYPE: u8;
     /// Source `EP2PSendReliable`. Other messages can drop.
@@ -153,6 +197,20 @@ impl Message for TimeMessage {
 }
 impl Message for SoundMessage {
     const TYPE: u8 = SOUND;
+    const RELIABLE: bool = true;
+}
+impl Message for ItemPoseMessage {
+    const TYPE: u8 = ITEM_POSE;
+}
+impl Message for VelocityMessage {
+    const TYPE: u8 = VELOCITY;
+}
+impl Message for ClaimMessage {
+    const TYPE: u8 = CLAIM;
+    const RELIABLE: bool = true;
+}
+impl Message for RemoveMessage {
+    const TYPE: u8 = REMOVE;
     const RELIABLE: bool = true;
 }
 
@@ -194,5 +252,14 @@ mod tests {
         let (slot, got) = RadioChannelMessage::decode(&out).unwrap();
         assert_eq!((slot, got.collect::<Vec<_>>()), (0, stations.to_vec()));
         assert!(RadioChannelMessage::decode(&out[..out.len() - 1]).is_err());
+        out.clear();
+        let item = ItemPoseMessage {
+            key: u64::MAX - 7,
+            position: [-1e7, 2., 3.],
+            rotation: [0., 0., 0., 1.],
+        };
+        item.encode(5, &mut out);
+        assert_eq!(ItemPoseMessage::decode(&out), Ok((5, item)));
+        assert_eq!(ClaimMessage::decode(&out), Err(NetError));
     }
 }
