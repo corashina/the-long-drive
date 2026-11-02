@@ -120,14 +120,24 @@ fn play(runtime: &mut GarageRuntime, slot: u8, sound: &SoundMessage) {
         k if k == AudioKind::Burp as u32 => AudioKind::Burp,
         k if k == AudioKind::Fart as u32 => AudioKind::Fart,
         k if k == AudioKind::Shit as u32 => AudioKind::Shit,
+        // Source `WeaponShot`.
+        k if k == AudioKind::ItemHit as u32 => AudioKind::ItemHit,
         _ => return,
     };
     // The clip must be one of this sound's clips: the browser plays only known clips.
-    if !runtime
-        .audio_gameplay
-        .binding(kind as u32)
-        .clips
-        .contains(&sound.clip)
+    let known = if kind == AudioKind::ItemHit {
+        runtime
+            .audio
+            .as_ref()
+            .is_some_and(|a| a.reference.clips.iter().any(|c| c.id == sound.clip))
+    } else {
+        runtime
+            .audio_gameplay
+            .binding(kind as u32)
+            .clips
+            .contains(&sound.clip)
+    };
+    if !known
         || !sound.position.iter().all(|v| v.is_finite())
         || !sound.gain.is_finite()
         || !sound.pitch.is_finite()

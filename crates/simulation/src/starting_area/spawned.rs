@@ -46,6 +46,10 @@ impl SpawnedItems {
     pub fn ammo(&self, id: ItemId) -> Option<AmmoItem> {
         self.ammo.iter().find(|(i, _)| *i == id).map(|(_, a)| *a)
     }
+    /// Each spawned magazine.
+    pub fn ammo_items(&self) -> impl Iterator<Item = (ItemId, AmmoItem)> + '_ {
+        self.ammo.iter().copied()
+    }
     pub fn set_ammo(&mut self, id: ItemId, ammo: AmmoItem) {
         if let Some((_, a)) = self.ammo.iter_mut().find(|(i, _)| *i == id) {
             *a = ammo;

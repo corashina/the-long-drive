@@ -4,6 +4,7 @@ pub mod body;
 pub mod car;
 pub mod claim;
 pub mod conditions;
+pub mod consumables;
 pub mod creatures;
 pub mod inventory;
 pub mod items;
@@ -21,15 +22,17 @@ use crate::reference::ReferenceManifest;
 use crate::starting_area::GarageRuntime;
 use car::CarFloats;
 use conditions::ConditionSync;
+use consumables::ConsumableSync;
 use creatures::CreatureSync;
 use inventory::InventorySync;
 use items::ItemSync;
 use lamps::LampSync;
 use message::{
-    BodyMessage, BusMessage, CarFloatsMessage, CarGearMessage, CarHandbrakeMessage,
-    CarIgnitionMessage, ClaimMessage, ConditionMessage, FluidMessage, InventoryMessage,
-    ItemPoseMessage, LampMessage, Message, MountMessage, PoseMessage, RemoveMessage,
-    RequestMessage, TankCapMessage, UsableMessage, VelocityMessage,
+    AmmoMessage, BodyMessage, BrokeMessage, BusMessage, CarFloatsMessage, CarGearMessage,
+    CarHandbrakeMessage, CarIgnitionMessage, ClaimMessage, ConditionMessage, FluidMessage,
+    FoodMessage, InventoryMessage, ItemPoseMessage, LampMessage, Message, MountMessage,
+    PoseMessage, PushMessage, RemoveMessage, RequestMessage, TankCapMessage, UsableMessage,
+    VelocityMessage, WeaponMessage,
 };
 use mounts::MountSync;
 use objects::{NetKey, ObjectIndex};
@@ -89,6 +92,7 @@ pub struct Net {
     mounts: MountSync,
     conditions: ConditionSync,
     lamps: LampSync,
+    consumables: ConsumableSync,
     /// Remote figure poses of this frame, in stream space.
     figures: Vec<(u8, rapier3d::math::Pose)>,
     /// Peers that left since the last frame.
@@ -115,6 +119,7 @@ impl Net {
             self.mounts.clear();
             self.conditions.clear();
             self.lamps.clear();
+            self.consumables.clear();
             self.cars.clear();
         }
     }
@@ -175,6 +180,8 @@ impl Net {
         runtime.net_guest = self.role == NetRole::Guest;
         if self.role == NetRole::Off {
             runtime.shared_sounds.clear();
+            runtime.shared_breaks.clear();
+            runtime.area.interaction.push.pushes.clear();
             runtime.shared_radios.clear();
             if std::mem::take(&mut self.cars_touched) {
                 for vehicle in runtime.vehicles.values_mut() {
@@ -235,6 +242,22 @@ impl Net {
             bytes: &mut self.outbox,
         };
         self.inventory.send(runtime, &self.objects, out);
+        items::send_pushes(
+            runtime,
+            &self.objects,
+            &self.items.claims,
+            self.role == NetRole::Host,
+            out,
+        );
+        for (item, record) in runtime.shared_breaks.drain(..) {
+            if let Some(key) = self.objects.key(item) {
+                out.push(&BrokeMessage {
+                    key: key.0,
+                    record,
+                    pad: 0,
+                });
+            }
+        }
         self.state
             .send(runtime, &self.objects, &self.items.requested, real_dt, out);
         self.mounts
@@ -242,6 +265,8 @@ impl Net {
         self.conditions
             .send(runtime, &self.objects, &self.items.requested, real_dt, out);
         self.lamps.send(reference, runtime, real_dt, out);
+        self.consumables
+            .send(runtime, &self.objects, &self.items.requested, real_dt, out);
         self.items.requested.clear();
         let origin = &runtime.stream.origin;
         self.figures.clear();
@@ -388,6 +413,18 @@ impl Net {
             if slot != mine {
                 self.conditions.got(runtime, &self.objects, &m);
             }
+        } else if let Ok((slot, m)) = FoodMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                self.consumables.got_food(reference, runtime, id, &m);
+            }
+        } else if let Ok((slot, m)) = AmmoMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                self.consumables.got_ammo(runtime, id, &m);
+            }
+        } else if let Ok((slot, m)) = WeaponMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                self.consumables.got_gun(runtime, id, &m);
+            }
         } else if let Ok((slot, m)) = LampMessage::decode(packet) {
             if slot != mine {
                 self.lamps.got_lamp(reference, runtime, &m);
@@ -408,12 +445,31 @@ impl Net {
             // Source `RemoveItem`: Destroy with `removeFromMemory`.
             if let Some(id) = item(slot, m.key) {
                 let area = &mut runtime.area;
-                let _ = runtime.stream.remove_item(
-                    id,
-                    &mut area.items,
-                    &mut area.interaction.storage,
-                    &mut runtime.physics,
-                );
+                if area.spawned.contains(id) {
+                    let _ = crate::starting_area::spawned::despawn(area, &mut runtime.physics, id);
+                } else {
+                    let _ = runtime.stream.remove_item(
+                        id,
+                        &mut area.items,
+                        &mut area.interaction.storage,
+                        &mut runtime.physics,
+                    );
+                }
+            }
+        } else if let Ok((slot, m)) = PushMessage::decode(packet) {
+            // Source `Push`: `pushablescript.PushLocal` on the owner.
+            if let Some(id) = item(slot, m.key)
+                && self.items.claims.owns(id, host)
+            {
+                items::apply_push(runtime, id, &m);
+            }
+        } else if let Ok((slot, m)) = BrokeMessage::decode(packet) {
+            // Source `Broke`: the host breaks the item.
+            if host
+                && let Some(id) = item(slot, m.key)
+                && (m.record as usize) < reference.breakables.len()
+            {
+                runtime.break_item(reference, m.record as usize, id);
             }
         } else {
             return false;

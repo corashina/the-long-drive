@@ -653,6 +653,33 @@ fn tp_m03_host_rust_and_light_switch_reach_the_guest() {
     );
 }
 
+/// M03. Source `SFood`: a bite that the host takes shows on the guest.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_m03_a_host_bite_reaches_the_guest() {
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let mut guest = save_load(&run, &reference);
+    let mut pair = Pair::new();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    let food = run
+        .area
+        .items
+        .iter()
+        .find(|i| {
+            !i.removed
+                && i.food
+                    .is_some_and(|f| f.bite + 1 < reference.survival.foods[f.prototype_index].bites)
+        })
+        .expect("a food")
+        .id;
+    let copy = same(&run, &guest, food);
+    let bite = run.area.items.get(food).unwrap().food.unwrap().bite + 1;
+    run.set_food_bite(&reference, food, bite).unwrap();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    assert_eq!(guest.area.items.get(copy).unwrap().food.unwrap().bite, bite);
+}
+
 /// MP M04c. Source `aispawn.SpawnRoutine` (`isServerOrNoMulti`) and the item pose of an AI: the
 /// guest spawns no rabbits of its own, and a rabbit that the host spawns appears on the guest with
 /// the host id and follows the host pose.

@@ -3,7 +3,7 @@ use crate::interaction::items::ItemStore;
 use crate::reference::ItemId;
 use crate::starting_area::spawned::{SpawnedItem, SpawnedItems};
 use crate::world::{ObjectKey, fnv1a};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// The wire name of an object. World objects use `ObjectKey::seed`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -29,6 +29,11 @@ pub struct ObjectIndex {
     previous: HashMap<NetKey, ItemId>,
     /// Keys that bound since the last `take_fresh`.
     fresh: Vec<NetKey>,
+    /// Runtime spawn keys, now and at the last rebuild.
+    spawned: HashSet<NetKey>,
+    previous_spawned: HashSet<NetKey>,
+    /// Runtime spawns that left since the last `take_gone`: a despawn deletes the item.
+    gone: Vec<NetKey>,
 }
 
 impl ObjectIndex {
@@ -43,11 +48,20 @@ impl ObjectIndex {
         for (id, state) in items.generated_bindings() {
             self.insert(NetKey(id.seed()), state.id);
         }
+        std::mem::swap(&mut self.spawned, &mut self.previous_spawned);
+        self.spawned.clear();
         for item in spawned.iter() {
             if items.get(item.id).is_some() {
-                self.insert(NetKey::spawned(item), item.id);
+                let key = NetKey::spawned(item);
+                self.insert(key, item.id);
+                self.spawned.insert(key);
             }
         }
+        self.gone.extend(
+            self.previous_spawned
+                .iter()
+                .filter(|key| !self.spawned.contains(key)),
+        );
         for state in items.iter() {
             if !self.keys.contains_key(&state.id) {
                 self.insert(NetKey(ObjectKey::Imported(state.id).seed()), state.id);
@@ -58,6 +72,11 @@ impl ObjectIndex {
                 self.fresh.push(*key);
             }
         }
+    }
+    /// Runtime spawns that left since the last call.
+    pub fn take_gone(&mut self, out: &mut Vec<NetKey>) {
+        out.clear();
+        std::mem::swap(out, &mut self.gone);
     }
     /// Keys that bound since the last call.
     pub fn take_fresh(&mut self, out: &mut Vec<NetKey>) {
@@ -81,6 +100,9 @@ impl ObjectIndex {
         self.keys.clear();
         self.previous.clear();
         self.fresh.clear();
+        self.spawned.clear();
+        self.previous_spawned.clear();
+        self.gone.clear();
     }
 }
 
