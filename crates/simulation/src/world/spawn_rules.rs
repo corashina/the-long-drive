@@ -1,8 +1,7 @@
 //! Borrowed access to checked prototype records and compact initialization inputs.
 use crate::reference::WorldFields;
 use crate::reference::{
-    CurveKey, ReferenceError, SourceId, TorqueCurve, Transform, WorldInitField, WorldReference,
-    WorldValue,
+    ReferenceError, SourceId, Transform, WorldInitField, WorldReference, WorldValue,
 };
 use std::collections::HashMap;
 #[derive(Clone, Copy)]
@@ -545,35 +544,6 @@ pub fn value_link(v: &WorldValue) -> Result<&SourceId, ReferenceError> {
 pub fn vector<'a>(f: impl FieldAccess<'a>, n: &str) -> Result<[f32; 3], ReferenceError> {
     let v = fields(value(f, n)?)?;
     Ok([number(v, "x")?, number(v, "y")?, number(v, "z")?])
-}
-
-/// An unweighted source AnimationCurve.
-pub fn curve<'a>(f: impl FieldAccess<'a>, name: &str) -> Result<TorqueCurve, ReferenceError> {
-    let c = fields(value(f, name)?)?;
-    let mut keys = Vec::new();
-    for k in array(c, "m_Curve")? {
-        let k = fields(k)?;
-        if integer(k, "weightedMode")? != 0 {
-            return Err(ReferenceError(format!("Weighted source curve {name}")));
-        }
-        keys.push(CurveKey {
-            time: number(k, "time")?,
-            value: number(k, "value")?,
-            in_tangent: number(k, "inSlope")?,
-            out_tangent: number(k, "outSlope")?,
-            in_weight: number(k, "inWeight")?,
-            out_weight: number(k, "outWeight")?,
-            weighted_mode: 0,
-        });
-    }
-    if keys.is_empty() {
-        return Err(ReferenceError(format!("Empty source curve {name}")));
-    }
-    Ok(TorqueCurve {
-        keys,
-        pre_wrap_mode: integer(c, "m_PreInfinity")?,
-        post_wrap_mode: integer(c, "m_PostInfinity")?,
-    })
 }
 
 fn source_order(a: &SourceId, b: &SourceId) -> std::cmp::Ordering {

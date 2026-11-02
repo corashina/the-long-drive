@@ -1,8 +1,9 @@
 //! Source `electronicsscript` jam state and `empscript` sources.
 use crate::reference::{ReferenceError, TorqueCurve};
 use crate::simulation::dials::inverse_lerp;
-use crate::world::spawn_rules::{FieldAccess, curve, fields, integer, number, value};
+use crate::world::spawn_rules::{FieldAccess, number};
 use rapier3d::math::Vector;
+use serde::{Deserialize, Serialize};
 
 /// `mainscript.jamIncrease`: jam per second that an EMP adds.
 pub const JAM_INCREASE: f32 = 0.3;
@@ -61,7 +62,24 @@ impl Electronics {
     }
 }
 
-/// Source `empscript`.
+/// Exported `empscript` fields.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EmpReference {
+    pub affect_ambient_sound: bool,
+    pub make_rabbits_evil: bool,
+    pub range: f32,
+    pub value: f32,
+    pub range_spread: f32,
+    pub range_speed: f32,
+    pub value_spread: f32,
+    pub value_speed: f32,
+    pub fall_off: TorqueCurve,
+    /// `lm` layer bits.
+    pub layers: u32,
+}
+
+/// Live source `empscript`.
 #[derive(Clone, Debug)]
 pub struct Emp {
     pub position: Vector,
@@ -74,7 +92,6 @@ pub struct Emp {
     value_spread: f32,
     value_speed: f32,
     fall_off: TorqueCurve,
-    /// `lm` layer bits.
     layers: u32,
     noise_range: f32,
     noise_value: f32,
@@ -83,30 +100,26 @@ pub struct Emp {
 }
 
 impl Emp {
-    pub fn from_fields<'a>(
-        f: impl FieldAccess<'a>,
-        position: Vector,
-    ) -> Result<Self, ReferenceError> {
-        let fall_off = curve(f, "fallOff")?;
+    pub fn new(r: &EmpReference, position: Vector) -> Self {
         let mut emp = Self {
             position,
-            affect_ambient_sound: number(f, "affectAmbientSound")? != 0.,
-            make_rabbits_evil: number(f, "makeRabbitsEvil")? != 0.,
-            range: number(f, "range")?,
-            value: number(f, "value")?,
-            range_spread: number(f, "rangeSpread")?,
-            range_speed: number(f, "rangeSpeed")?,
-            value_spread: number(f, "valueSpread")?,
-            value_speed: number(f, "valueSpeed")?,
-            fall_off,
-            layers: integer(fields(value(f, "lm")?)?, "m_Bits")? as u32,
-            noise_range: number(f, "noiseRange")?,
-            noise_value: number(f, "noiseValue")?,
+            affect_ambient_sound: r.affect_ambient_sound,
+            make_rabbits_evil: r.make_rabbits_evil,
+            range: r.range,
+            value: r.value,
+            range_spread: r.range_spread,
+            range_speed: r.range_speed,
+            value_spread: r.value_spread,
+            value_speed: r.value_speed,
+            fall_off: r.fall_off.clone(),
+            layers: r.layers,
+            noise_range: 0.,
+            noise_value: 0.,
             local_range: 0.,
             local_value: 0.,
         };
         emp.advance(0.);
-        Ok(emp)
+        emp
     }
     /// `Update` noise: range and value of this frame.
     pub fn advance(&mut self, dt: f32) {
@@ -133,7 +146,7 @@ impl Emp {
     /// toward the fall-off value. Returns true when the sphere holds the target.
     pub fn jam(&self, at: Vector, layer: u32, e: &mut Electronics, dt: f32) -> bool {
         let distance = (at - self.position).length();
-        if layer >= 32 || self.layers & (1 << layer) == 0 || !(distance <= self.local_range) {
+        if layer >= 32 || self.layers & (1 << layer) == 0 || distance > self.local_range {
             return false;
         }
         let t = inverse_lerp(0., self.local_range, distance);
@@ -161,27 +174,25 @@ mod tests {
             out_weight: 0.,
             weighted_mode: 0,
         };
-        Emp {
-            position: Vector::ZERO,
-            affect_ambient_sound: false,
-            make_rabbits_evil: false,
-            range: 10.,
-            value,
-            range_spread: 0.,
-            range_speed: 0.,
-            value_spread: 0.,
-            value_speed: 0.,
-            fall_off: TorqueCurve {
-                keys: vec![key(0., 1.), key(1., 1.)],
-                pre_wrap_mode: 0,
-                post_wrap_mode: 0,
+        Emp::new(
+            &EmpReference {
+                affect_ambient_sound: false,
+                make_rabbits_evil: false,
+                range: 10.,
+                value,
+                range_spread: 0.,
+                range_speed: 0.,
+                value_spread: 0.,
+                value_speed: 0.,
+                fall_off: TorqueCurve {
+                    keys: vec![key(0., 1.), key(1., 1.)],
+                    pre_wrap_mode: 0,
+                    post_wrap_mode: 0,
+                },
+                layers: 1,
             },
-            layers: 1,
-            noise_range: 0.,
-            noise_value: 0.,
-            local_range: 10.,
-            local_value: value,
-        }
+            Vector::ZERO,
+        )
     }
 
     #[test]
