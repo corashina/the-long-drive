@@ -1,5 +1,7 @@
 """Resolve Unity identities and verify complete typed records."""
+from functools import cached_property
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def source_id(reader):
@@ -226,6 +228,16 @@ class Source:
         return result
 
 
+class TextureObject(SimpleNamespace):
+    """Decode the checked library PNG only when a caller uses the image."""
+    @cached_property
+    def image(self):
+        from PIL import Image
+        stored = Image.open(self.path)
+        stored.load()
+        return stored
+
+
 class LibrarySource(Source):
     """Resolve the selected scene from accepted typed records only."""
     def __init__(self, library):
@@ -273,16 +285,13 @@ class LibrarySource(Source):
 
     def texture_object(self, reader):
         from types import SimpleNamespace as NS
-        from PIL import Image
         from .library.types import ObjectId
         identity = ObjectId(*key(reader))
         data = self.read(reader)
-        with Image.open(self.library.texture(identity)) as stored:
-            image = stored.copy()
         fields = {name:value for name,value in data.items() if name.startswith('m_')}
         fields['m_TextureSettings'] = NS(**data['m_TextureSettings'])
         fields['object_reader'] = NS(assets_file=reader.assets_file,path_id=reader.path_id,version=reader.assets_file.version,platform=reader.assets_file.platform)
-        return NS(**fields, image=image, get_image_data=lambda:self.library.texture_data(identity))
+        return TextureObject(**fields, path=self.library.texture(identity), get_image_data=lambda:self.library.texture_data(identity))
 
     def sprite_image(self, reader):
         from PIL import Image

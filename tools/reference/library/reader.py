@@ -1,16 +1,27 @@
 """Read accepted library records and selected decoded payloads."""
 import hashlib
 import json
+import stat
+from functools import cache
 from pathlib import Path
 from urllib.parse import unquote
 from .types import LibraryReceipt, ObjectId
 from .archive import validate_paths, _check_path
 
 
+@cache
+def _checked_directory(directory: Path, root: Path) -> None:
+    """Resolve each directory once. validate_paths keeps file names inside it."""
+    _check_path(directory, root.resolve())
+
+
 def checked(root, record):
     validate_paths([record['file']])
     path = root / record['file']
-    _check_path(path, root.resolve())
+    _checked_directory(path.parent, root)
+    attributes = path.lstat()
+    if stat.S_ISLNK(attributes.st_mode) or getattr(attributes, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+        raise ValueError(f'Filesystem link: {path}')
     content = path.read_bytes()
     if len(content) != record['bytes'] or hashlib.sha256(content).hexdigest() != record['sha256']:
         raise ValueError(f"Library file hash mismatch: {record['file']}")
@@ -64,6 +75,7 @@ class LibraryReader:
         self.selected_textures = set()
         self.selected_sprites = set()
         self.selected_audio = set()
+        self.meshes = {}
 
     def record(self, source: ObjectId) -> dict:
         name = f'{source.file}/{source.path_id}.json'
@@ -81,6 +93,9 @@ class LibraryReader:
         return decode(value['data'])
 
     def mesh(self, source: ObjectId):
+        """Return the checked mesh document. Callers must not change it."""
+        if source in self.meshes:
+            return self.meshes[source]
         from ..gltf import validate_gltf
         entry = self.exports[source]
         if entry['status'] != 'converted' or entry['details']['type'] != 'Mesh':
@@ -94,9 +109,9 @@ class LibraryReader:
             target = (path.parent / unquote(buffer['uri'])).resolve()
             relative = target.relative_to(self.root).as_posix()
             if relative not in files: raise ValueError('Mesh dependency lacks receipt')
-        document = validate_gltf(path)
         self.selected_meshes.add(source)
-        return document, path.parent, 0
+        self.meshes[source] = validate_gltf(path), path.parent, 0
+        return self.meshes[source]
 
     def texture(self, source: ObjectId) -> Path:
         entry = self.exports[source]
