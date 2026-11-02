@@ -1,6 +1,7 @@
 //! Source `headlightscript` (headlight and cabin) and `rearlights` controllers of one world car
 //! or trailer.
 //! Outputs name prototype nodes. The presentation maps them to the car instance.
+use crate::electronics::NodeElectronics;
 use crate::lighting::HeadlightState;
 use crate::reference::{
     ItemId, LampSignal, LightControllerKind, MaterialLink, WorldLampStateReference,
@@ -61,8 +62,8 @@ pub struct CarLightInput {
 struct Controller {
     state: HeadlightState,
     kind: LightControllerKind,
-    /// `electronicsscript` output. None: the controller has no electronics.
-    electronics: Option<f32>,
+    /// Index of its `electronicsscript` in the car electronics. None: no electronics.
+    electronics: Option<usize>,
     /// The part item that holds the controller. None: the car root.
     owner: Option<ItemId>,
     cabin_mode: usize,
@@ -84,7 +85,7 @@ pub struct CarLights {
 
 /// Per-controller links that the binder resolves on the car copy.
 pub struct CarLightLinks {
-    pub electronics: Option<f32>,
+    pub electronics: Option<usize>,
     pub owner: Option<ItemId>,
     pub doors: Vec<Option<ItemId>>,
 }
@@ -170,6 +171,7 @@ impl CarLights {
         &mut self,
         records: &[WorldLightReference],
         input: CarLightInput,
+        electronics: &[NodeElectronics],
         mounted: impl Fn(ItemId) -> bool,
         door: impl Fn(ItemId) -> f32,
         dt: f32,
@@ -177,9 +179,10 @@ impl CarLights {
         for index in 0..self.controllers.len() {
             let reference = &records[index];
             let c = &mut self.controllers[index];
+            let output = c.electronics.map(|i| electronics[i].state.output());
             match c.kind {
                 LightControllerKind::Rear => {
-                    let powered = c.electronics.is_none_or(|e| e > ELECTRONICS_CUTOFF);
+                    let powered = output.is_none_or(|e| e > ELECTRONICS_CUTOFF);
                     self.refresh_rear(records, index, input, input.ignition && powered);
                 }
                 LightControllerKind::Headlight | LightControllerKind::Cabin => {
@@ -206,7 +209,7 @@ impl CarLights {
                         c.state.request(u8::from(on));
                     }
                     c.state.update(dt);
-                    self.refresh_fade(records, index);
+                    self.refresh_fade(records, index, output.unwrap_or(1.));
                 }
                 _ => {}
             }
@@ -273,9 +276,10 @@ impl CarLights {
         }
     }
 
-    fn refresh_fade(&mut self, records: &[WorldLightReference], index: usize) {
+    /// `RefreshLights`: `output` is the `electronicsscript` output, 1 without electronics.
+    fn refresh_fade(&mut self, records: &[WorldLightReference], index: usize, output: f32) {
         let c = &self.controllers[index];
-        let energy = c.state.energy() * c.electronics.unwrap_or(1.);
+        let energy = c.state.energy() * output;
         let current = c.state.refreshed_state();
         let states = &records[index].states;
         // Clear other states first. Shared source renderers then select the current state.
