@@ -32,6 +32,7 @@ mod guns;
 mod home_cable;
 pub mod hose;
 mod hud;
+mod hum;
 mod rabbits;
 mod ragdoll;
 mod reach;
@@ -748,6 +749,7 @@ pub struct GarageRuntime {
     pub sleep: crate::sleep::SleepState,
     ambient: crate::audio::AmbientState,
     horror: crate::horror::HorrorSound,
+    hum: crate::hum::Hum,
     pub food_particles: crate::food_particles::FoodParticles,
     pub gib_particles: crate::damage::gib_particles::GibParticles,
     pub weather: crate::weather::WeatherState,
@@ -952,6 +954,8 @@ impl GarageRuntime {
             urine_splash,
             0x70697373,
         );
+        let audio_gameplay =
+            crate::reference::AudioGameplayReference::from_value(&reference.audio)?;
         let mut run = Self {
             driving_assists: reference.driving.default_assists,
             options: Default::default(),
@@ -966,6 +970,7 @@ impl GarageRuntime {
             old_heat_haze: false,
             ambient: crate::audio::AmbientState::new(&reference.ambient),
             horror: crate::horror::HorrorSound::new(seed as u64),
+            hum: crate::hum::Hum::new(&reference.survival.hum, &audio_gameplay),
             food_particles: crate::food_particles::FoodParticles::new(
                 &reference.survival.food_particles,
                 0x666f_6f64,
@@ -994,7 +999,7 @@ impl GarageRuntime {
             previous_speed: None,
             death_protected: true,
             death_announced: false,
-            audio_gameplay: crate::reference::AudioGameplayReference::from_value(&reference.audio)?,
+            audio_gameplay,
             audio,
             persistent_world: crate::save::PersistentWorld::new(reference),
             pending_restore: None,
@@ -1221,12 +1226,14 @@ impl GarageRuntime {
             && interaction
                 .binoculars
                 .reserves_lmb(interaction.equipment.item(), interaction.held());
-        let duck_allowed = PlayerStepContext::can_duck(
-            input,
-            availability.actions.0 & crate::interaction::feedback::ActionMask::TUNE != 0
-                || binoculars,
-            picked_up,
-        );
+        // Source `CanDuck` is false while the player hums.
+        let duck_allowed = !self.hum.humming()
+            && PlayerStepContext::can_duck(
+                input,
+                availability.actions.0 & crate::interaction::feedback::ActionMask::TUNE != 0
+                    || binoculars,
+                picked_up,
+            );
         PlayerStepContext {
             duck_allowed,
             wheel_posture_allowed: duck_allowed && !slideable,
@@ -1288,7 +1295,8 @@ impl GarageRuntime {
             .interaction
             .finish_cancelled_input(&mut self.area.player, &mut self.physics);
         self.step_wear(&mut input);
-        self.step_cigarettes(reference, &mut input);
+        let smoking = self.step_cigarettes(reference, &mut input);
+        self.step_hum(reference, &mut input, smoking);
         for (key, vehicle) in &mut self.vehicles {
             vehicle.previous = self.persistent_world.absolute_vehicle_position(
                 &self.physics,
@@ -1938,6 +1946,7 @@ impl GarageRuntime {
                     rotation: body.rotation,
                 },
                 head: (head, player.body_handle()),
+                hum: self.hum.stimulus(&reference.survival.hum),
                 origin: &origin,
                 supports: &supports,
                 important: &important,
