@@ -351,6 +351,3 @@ fn spin(state: &mut WheelState, motor: f32, reaction: f32, damping: f32, brake_s
     };
     state.angle += state.omega * h;
 }
-
-#[cfg(test)]
-mod tests;

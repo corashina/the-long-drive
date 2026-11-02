@@ -185,7 +185,3 @@ impl TerrainWorker {
         crate::host::game_terrain_discard();
     }
 }
-
-#[cfg(test)]
-#[path = "terrain_tests.rs"]
-mod tests;

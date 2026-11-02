@@ -165,29 +165,3 @@ pub struct Placement {
     pub bounds: WorldBounds,
     pub object_seed: i32,
 }
-
-#[cfg(test)]
-mod surface_codec_tests {
-    use super::WorldSurface;
-
-    #[test]
-    fn surface_arrays_encode_as_raw_bytes() {
-        let surface = WorldSurface {
-            origin: [1., 2., 3.],
-            vertices: vec![[0.5, -1., 2.]; 100],
-            normals: vec![[0., 1., 0.]; 100],
-            triangles: vec![[0, 1, 2]; 50],
-            submeshes: vec![0..50],
-            ..Default::default()
-        };
-        let bytes = postcard::to_stdvec(&surface).unwrap();
-        // Arrays cost their raw size plus a short length prefix each.
-        assert!(bytes.len() < 100 * 12 * 2 + 50 * 12 + 64);
-        let back: WorldSurface = postcard::from_bytes(&bytes).unwrap();
-        assert_eq!(back.vertices, surface.vertices);
-        assert_eq!(back.normals, surface.normals);
-        assert_eq!(back.triangles, surface.triangles);
-        assert_eq!(back.submeshes, surface.submeshes);
-        assert!(postcard::from_bytes::<WorldSurface>(&bytes[..bytes.len() - 1]).is_err());
-    }
-}

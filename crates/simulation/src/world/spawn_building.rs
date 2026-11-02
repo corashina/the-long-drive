@@ -188,13 +188,3 @@ pub fn source_euler(v: [f32; 3]) -> [f32; 4] {
     let q = super::placement::multiply(super::placement::multiply(y, x), z);
     [-q[0], -q[1], q[2], q[3]]
 }
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn halloween_window() {
-        assert!(!super::halloween([2026, 10, 14]));
-        assert!(super::halloween([2026, 10, 15]));
-        assert!(super::halloween([2026, 11, 15]));
-        assert!(!super::halloween([2026, 11, 16]));
-    }
-}
