@@ -105,3 +105,65 @@ fn tp_mp3_the_other_figure_follows_walk_duck_and_look() {
     let (_, looked) = sync(&mut run, FrameInput::default(), 50);
     assert_ne!(looked, up, "the figure looks up");
 }
+
+/// MP M04a. Source `SendStartStuff`, `RTime`, `RadioChannelMultiplayerUpd` and `SSound`: when a guest
+/// joins, the host sends its clock and its radio stations. The guest takes them. A host burp plays at
+/// the host position on the guest.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_mp_m04a_guest_takes_host_clock_stations_and_burp() {
+    use crate::audio::AudioKind;
+    let (reference, mut host_run) = load_garage();
+    settle(&mut host_run, &reference);
+    let mut guest_run = save_load(&host_run, &reference);
+    host_run.lighting.cycle.set_cycle_seconds(123.);
+    let clip = host_run
+        .audio_gameplay
+        .binding(AudioKind::Burp as u32)
+        .clips[0];
+    let at = [1e5, 20., -3e4];
+    host_run
+        .shared_sounds
+        .push(crate::net::message::SoundMessage {
+            position: at,
+            kind: AudioKind::Burp as u32,
+            clip,
+            gain: 1.,
+            pitch: 1.,
+        });
+    let (mut host, mut guest) = (Net::default(), Net::default());
+    host.set_session(NetRole::Host, 0);
+    guest.set_session(NetRole::Guest, 1);
+    let (mut frame, mut packets) = (SimFrame::default(), Vec::new());
+    for _ in 0..20 {
+        guest.fill(&reference, &mut guest_run, FIXED_DT, &mut frame);
+        guest.take_outbox(&mut packets);
+        host.receive(&packets);
+        host.fill(&reference, &mut host_run, FIXED_DT, &mut frame);
+        host.take_outbox(&mut packets);
+        guest.receive(&packets);
+    }
+    guest.fill(&reference, &mut guest_run, FIXED_DT, &mut frame);
+    assert_eq!(
+        guest_run.lighting.cycle.cycle_seconds(),
+        123.,
+        "the host clock"
+    );
+    let (h, g) = (
+        host_run.audio.as_ref().unwrap(),
+        guest_run.audio.as_ref().unwrap(),
+    );
+    let host_channels: Vec<_> = h.broadcasts.host_channels(h.game_seconds).collect();
+    let guest_channels: Vec<_> = g.broadcasts.host_channels(g.game_seconds).collect();
+    assert_eq!(
+        host_channels.iter().map(|c| c.0).collect::<Vec<_>>(),
+        guest_channels.iter().map(|c| c.0).collect::<Vec<_>>(),
+        "the host clips"
+    );
+    assert!(
+        g.survival_events
+            .iter()
+            .any(|e| e.kind == AudioKind::Burp && e.emitter == 1 && e.position == at),
+        "the host burp at the host"
+    );
+}

@@ -162,9 +162,14 @@ impl CycleState {
         };
     }
 
-    /// Sandbox: jumps to `seconds` of the source cycle. The next advance evaluates it.
+    /// Sandbox and multiplayer guest (source `RTime`): jumps to `seconds` of the source cycle.
+    /// The next advance evaluates it.
     pub fn set_cycle_seconds(&mut self, seconds: f64) {
         self.cycle_seconds = seconds;
+    }
+    /// Source `napszak.t`.
+    pub fn cycle_seconds(&self) -> f64 {
+        self.cycle_seconds
     }
 
     pub fn capture_save(&self) -> crate::save::CycleSnapshot {
