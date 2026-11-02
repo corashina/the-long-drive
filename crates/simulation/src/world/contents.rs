@@ -172,6 +172,8 @@ pub struct SourceContents {
     pub active: Vec<ContentInstance>,
     // Membership and order only. Pose and appearance remain live.
     active_revision: u64,
+    /// Bumps when a cursor or its root content changes.
+    roots_revision: u64,
     next: usize,
     update: u64,
     selection: Option<(u64, u64)>,
@@ -255,6 +257,7 @@ impl SourceContents {
             cursors: Vec::new(),
             active: Vec::new(),
             active_revision: 0,
+            roots_revision: 0,
             deferred: Vec::new(),
             update: 0,
             selection: None,
@@ -287,6 +290,9 @@ impl SourceContents {
     }
     pub fn active_revision(&self) -> u64 {
         self.active_revision
+    }
+    pub fn roots_revision(&self) -> u64 {
+        self.roots_revision
     }
     /// Active contents got their items. Scans that skip contents without an item run again.
     pub(super) fn items_bound(&mut self) {
@@ -349,6 +355,7 @@ impl SourceContents {
         if self.active.len() != previous {
             self.active_revision += 1;
         }
+        self.roots_revision = self.roots_revision.wrapping_add(1);
         self.cursors.retain(|c| {
             let selected = if c.replay_only { replays } else { structures };
             selected.iter().any(|p| p.id == c.parent.id)
@@ -459,6 +466,7 @@ impl SourceContents {
             } else {
                 Vec::new()
             };
+            self.roots_revision = self.roots_revision.wrapping_add(1);
             self.cursors.push(Cursor {
                 replay_only,
                 deferred_batches: 0,
@@ -557,6 +565,7 @@ impl SourceContents {
             if startup {
                 output.insert(0, root.clone());
             }
+            self.roots_revision = self.roots_revision.wrapping_add(1);
             self.cursors[index].root = Some(root);
             self.cursors[index].initial_eligible = Some(
                 self.cursors[index].replay_only
@@ -742,6 +751,7 @@ impl SourceContents {
             self.cursors[index].chance = chance;
             for content in output {
                 if content.placement.id == self.cursors[index].parent.id {
+                    self.roots_revision = self.roots_revision.wrapping_add(1);
                     self.cursors[index].root = Some(content);
                     continue;
                 }
@@ -870,6 +880,7 @@ impl SourceContents {
                 .iter_mut()
                 .find(|c| c.parent.id == content.placement.id && c.replay_only == replay_only)
             {
+                self.roots_revision = self.roots_revision.wrapping_add(1);
                 cursor.root = Some(content);
             } else if let Some(existing) = self
                 .active
@@ -965,7 +976,10 @@ impl SourceContents {
         on: bool,
         staging: usize,
     ) -> Result<(), ReferenceError> {
-        self.refresh_lamp(reference, parent, source, staging, |inputs| {
+        let deferred = |i: &super::spawn_state::SpawnInitialization| {
+            i.lamps.iter().any(|(p, s, _)| p == parent && s == source)
+        };
+        self.refresh_lamp(reference, parent, staging, deferred, |inputs| {
             let state = &mut inputs
                 .lamps
                 .iter_mut()
@@ -986,18 +1000,40 @@ impl SourceContents {
         lamps: u64,
         staging: usize,
     ) -> Result<(), ReferenceError> {
-        self.refresh_lamp(reference, parent, source, staging, |inputs| {
+        let deferred = |i: &super::spawn_state::SpawnInitialization| {
+            i.lamps.iter().any(|(p, s, _)| p == parent && s == source)
+        };
+        self.refresh_lamp(reference, parent, staging, deferred, |inputs| {
             inputs.break_lamps(parent, source, lamps)
         })
     }
+    /// Live `jamValue` of electronics `component` on `parent`: its lamps and lights refresh.
+    pub fn set_jam(
+        &mut self,
+        reference: &WorldReference,
+        parent: &GeneratedId,
+        component: &SourceId,
+        jam: f32,
+        staging: usize,
+    ) -> Result<(), ReferenceError> {
+        let deferred = |i: &super::spawn_state::SpawnInitialization| {
+            i.initialized
+                .iter()
+                .any(|(p, s)| p == parent && s == component)
+        };
+        self.refresh_lamp(reference, parent, staging, deferred, |inputs| {
+            inputs.set_jam(parent, component, jam);
+            true
+        })
+    }
     /// Source flashlightscript.Refresh after `change` edits the lamp inputs. `change` returns
-    /// true when the lamp changed.
+    /// true when the lamp changed. `deferred` selects the deferred batches that `change` edits.
     fn refresh_lamp(
         &mut self,
         reference: &WorldReference,
         parent: &GeneratedId,
-        source: &SourceId,
         staging: usize,
+        deferred: impl Fn(&super::spawn_state::SpawnInitialization) -> bool,
         change: impl Fn(&mut super::spawn_state::SpawnInitialization) -> bool,
     ) -> Result<(), ReferenceError> {
         let current = self
@@ -1040,12 +1076,7 @@ impl SourceContents {
             cursor.inputs = evaluation.initialization;
         }
         for batch in &mut self.deferred {
-            if batch
-                .inputs
-                .lamps
-                .iter()
-                .any(|(p, s, _)| p == parent && s == source)
-            {
+            if deferred(&batch.inputs) {
                 change(&mut batch.inputs);
             }
         }
@@ -1207,6 +1238,20 @@ impl SourceContents {
             .iter()
             .filter_map(|c| c.root.as_ref())
             .chain(self.active.iter().map(|c| &c.content))
+    }
+    /// The active content or cursor root of placement `id`.
+    pub fn instance_mut(&mut self, id: &GeneratedId) -> Option<&mut SpawnedContent> {
+        if let Some(i) = self
+            .active
+            .iter()
+            .position(|c| &c.content.placement.id == id)
+        {
+            return Some(&mut self.active[i].content);
+        }
+        self.cursors
+            .iter_mut()
+            .filter_map(|c| c.root.as_mut())
+            .find(|c| &c.placement.id == id)
     }
     /// Parent placement and root content of the cursors with a root.
     pub fn cursor_roots(&self) -> impl Iterator<Item = (&GeneratedId, &SpawnedContent)> {

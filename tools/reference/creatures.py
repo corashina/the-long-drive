@@ -178,6 +178,28 @@ def evil_record(source, nyul, node, matrix, by_reader, asset):
             'collider': {'node': node(owner['reader']), **collider_record(source, matrix, sphere, owner, pose, True)}}}
 
 
+def electronics_record(source, records, nyul, anim_colliders, node):
+    """The electronicsscript whose `nyul` is the rabbit. empscript.makeRabbitsEvil reads its output.
+    OverlapSphere finds each collider on its GameObject. SetRagdol(true) disables the anim colliders."""
+    matches = [(r, c) for r in records for c in r['components']
+        if c is not None and c.type.name == 'MonoBehaviour' and source.class_name(c) == 'electronicsscript']
+    if len(matches) != 1:
+        raise ValueError('Rabbit requires one electronicsscript')
+    [(owner, script)] = matches
+    d = source.read(script)
+    if (key(source.resolve(script, d['nyul'])) != key(nyul) or d['lights'] or d['flashlights']
+            or source.resolve(script, d['headlight']) is not None or not d['m_Enabled']):
+        raise ValueError('Rabbit electronicsscript differs')
+    anim = {key(c) for c in anim_colliders}
+    layer = source.read(owner['game_object'])['m_Layer']
+    colliders = [{'source': source_id(c), 'layer': layer, 'anim': key(c) in anim}
+        for c in owner['components'] if c is not None and c.type.name.endswith('Collider') and source.read(c)['m_Enabled']]
+    if not colliders:
+        raise ValueError('Rabbit electronics has no collider')
+    return {'source': source_id(script), 'node': node(owner['reader']), 'max_output': d['maxOutput'],
+        'override_max_jam': d['overRideMaxJamValue'], 'jam': d['jamValue'], 'colliders': colliders}
+
+
 def damage_record(source, nyul, node):
     d = source.read(nyul)
     reader = source.resolve(nyul, d['breakable'])
@@ -358,6 +380,7 @@ def recover_creatures(source, manifest, output):
                     'pickups': [pickups[b['node']] for b in bodies]},
         'animator': animator_record(source, source.resolve(nyul, source.read(nyul)['anim']), node),
         'evil': evil_record(source, nyul, node, matrix, by_reader, asset['id']),
+        'electronics': electronics_record(source, records, nyul, anim_colliders, node),
         # recover_audio replaces these AudioClip identities with clip ids and sets the shared one-shot voice.
         'die_clips': [source_id(c) for c in clips], 'die_voice': None,
         'evidence': managed_evidence(source, EVIDENCE)},
@@ -454,6 +477,11 @@ def validate_creatures(c, manifest):
             raise ValueError(f'Invalid rabbit {name} action')
     if set(anim['actions']) != {'roar', 'attack'}:
         raise ValueError('Rabbit actions differ')
+    x = r['electronics']
+    record(x, {'source': source_shape, 'node': u32, 'max_output': number, 'override_max_jam': number, 'jam': number,
+        'colliders': array(lambda v: record(v, {'source': source_shape, 'layer': u32, 'anim': boolean}))})
+    if not local(x['node']) or not x['colliders'] or any(c['layer'] > 31 for c in x['colliders']) or x['max_output'] < 0:
+        raise ValueError('Invalid rabbit electronics')
     e = r['evil']
     material = lambda v: record(v, {'asset': u32, 'gltf_material': u32, 'source': source_shape, 'condition_key': lambda x: None})
     record(e, {'source': source_shape, 'attack_angle': number, 'attack_distance': number, 'attack_duration': number,

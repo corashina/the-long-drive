@@ -25,8 +25,6 @@ The starting area, car parts, world and more cars sections are done. Only their 
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| X03b | EMP jamming | L | Live `electronicsscript.jamValue` (`mainscript.jamIncrease` 0.3, `jamDecrease` 0.1, `maxJamValue` 0.3, `TLastEmp`). Source `empscript`: `OverlapSphere`, Perlin range and value noise, `fallOff`, `ambientSoundModifier`. Jam dims car, headlights, flashlights, street lamps and bus doors, and affects compass, radio and metal detector. Today each output is fixed at spawn. |
-| X03c | Green-eyed evil rabbits | S | Needs X03b. `empscript.makeRabbitsEvil`: rabbit `electronicsscript.nyul` output below 0.2 calls `GetEvil(natural: false)`. `Evil::get_evil` has the `Green` path. Link rabbit electronics and render `EyeGreen`. |
 | X03e | Human monster body and save | M | Export the `newAiScript` prefab (`world_spawn.py` excludes it as an actor) and spawn it. `Start`: `startSleepChange`, voice pitch, patrol time. Ragdoll and `breakablescript` health. Save `save_newai`: `died`, `sleeping`, `first`, `health`, `shootHealth`, `explosionHealth`. Host-only, as rabbits (#M04). |
 | X03f | Human monster AI | L | Needs X03e. `newAiScript.Update`: sight by `fov` and ray, chase time, patrol (`GetNewPatrolPos`), rigidbody move, `AvoidWalls`, jump when stuck, ladders (`ladderV`), doors (`Use`), `peacefulEnemies`, `rizseshusi` target. |
 | X03g | Human monster animation and voice | M | Needs X03f. `newAiAnim` animator, look target and hand IK. Voices: idle, notice, chase, attack and death lists with pitch, and the `TVoice` mouth move. |
@@ -56,6 +54,9 @@ Two browsers, host and guest in one room. Check F3 on the host before and after,
 
 ### Creatures
 
-Re-export the reference first: X03d adds `sky.ground_ufo` and `sky.prefabs[].emp`.
+Re-export the reference first: X03d adds `sky.ground_ufo` and `sky.prefabs[].emp`, X03b adds `ambient.player_electronics`.
 
 1. X03d: Sleep through nights until a UFO comes (after 2 to 6 nights, 75 % chance, host only). It comes from behind, 15 m over the road, with its hum and spin. It passes the player and flies on. Check F3 while it is near.
+2. X03b: Let the UFO pass near the start car at night. The headlights and rear lights dim and go out, the engine does not start and the radio fades to static. All come back within about 10 s after it leaves. Check F3 while it is near.
+3. X03b: Hold a compass and a switched-on metal detector under the UFO. The compass points at the UFO, then spins when it is close. The detector beeps without metal.
+4. X03b: Near road lamps and a building with lamps, the lamps dim and go out under the UFO and come back after. The ambient sound drops and recovers. A bus door button does nothing while the bus is jammed.

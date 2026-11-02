@@ -1687,6 +1687,13 @@ impl AmbientState {
         }
     }
 
+    /// `empscript.affectAmbientSound`: the ambient falls toward the player electronics output.
+    pub fn jam(&mut self, output: f32, dt: f32) {
+        if self.modifier > output {
+            self.modifier = (self.modifier - dt * crate::electronics::JAM_INCREASE).max(output);
+        }
+    }
+
     /// Source `ambienceZone`: a playing zone lowers the day and night ambient.
     pub fn duck(&mut self, lerp: f32) {
         self.only_modifier = self.only_modifier.min(1. - lerp);
