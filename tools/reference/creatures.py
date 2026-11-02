@@ -133,6 +133,42 @@ def senses_record(source, senses, node):
         'vision_mask': mask(d['visionMask']), 'rays': rays}
 
 
+def human_ai_record(source, ai, node, matrix, by_reader):
+    """newAiScript AI fields of the human monster. The `sens` triggers are live colliders in their node space."""
+    d = source.read(ai)
+
+    def owner(pptr):
+        component = source.resolve(ai, pptr)
+        return component, by_reader[key(source.transform_for(source.resolve(component, source.read(component)['m_GameObject'])))]
+
+    def sens(pptr):
+        script, record_ = owner(pptr)
+        reader = source.resolve(script, source.read(script)['selfCol'])
+        if reader is None:
+            raise ValueError('Human sens has no selfCol')
+        pose = world_pose(source, record_['reader']); pose['scale'] = [1., 1., 1.]
+        return {'node': node(record_['reader']), **collider_record(source, matrix, reader, record_, pose, True)}
+
+    def capsule(pptr):
+        c = source.read(source.resolve(ai, pptr))
+        return {'height': c['m_Height'], 'center': list(convert_point(vector(c['m_Center'])))}
+
+    return {'sens': [sens(d[f]) for f in ('sensU', 'sensH', 'sensD', 'sensG', 'sensCanGetUp')],
+        'col': node(owner(d['col'])[1]['reader']), 'stand': capsule(d['colStand']), 'duck': capsule(d['colDuck']),
+        'mask': mask(d['lm']), 'fov': d['fov'], 'range': d['range'], 'chase_time': [d['chaseTimeMin'], d['chaseTimeMax']],
+        'walk_dist': d['walkDist'], 'run_dist': d['runDist'], 'target_dist': d['targetDist'], 'target_dist_v': d['targetDistV'],
+        'min_speed': d['minSpeed'], 'max_speed': d['maxSpeed'], 'max_velocity': d['maxVelocity'],
+        'velocity_change': d['velocityChange'], 'rot_speed': d['rotSpeed'], 'jump_velocity': d['jumpVelocity'],
+        'jump_velocity_duck': d['jumpVelocityDuck'], 'duck_debounce_speed_up': d['duckDebounceSpeedUp'],
+        'duck_debounce_speed_down': d['duckDebounceSpeedDown'], 'grounded_vertical_velocity': d['groundedVerticalVelocity'],
+        'avoid_ray_x': d['avoidRayX'], 'avoid_ray_y': d['avoidRayY'], 'avoid_ray_range': d['avoidRayRange'],
+        'avoid_ray_vertical': d['avoidRayVertical'], 'avoid_ray_angle': d['avoidRayAngle'], 'avoid_force': d['avoidForce'],
+        'avoid_lerp': d['avoidLerp'], 'ray_attack_dist_range': d['rayAttackDistRange'], 'door_speed': d['doorSpeed'],
+        'start_patrol_dist': d['startPatrolDist'], 'patrol_ray_start_dist': d['patrolRayStartDist'],
+        'patrol_iteration': d['patrolIteration'], 'patrol_ray_count': d['patrolRayCount'],
+        'patrol_ray_range': [d['patrolRayRangeMin'], d['patrolRayRangeMax']]}
+
+
 def size_record(source, nyul, node):
     d = source.read(nyul)
     if d['started'] or d['size'] < 0:
@@ -411,7 +447,7 @@ def human_record(source, manifest, nodes, parents):
     target = source.resolve(ai, d['target'])
     if source.resolve(target, source.read(target)['m_Father']) is None:
         raise ValueError('Human target is not a prefab child')
-    body, ragdoll, _, _ = rig_records(source, root, records, by_node, parents, node, 'Human')
+    body, ragdoll, matrix, by_reader = rig_records(source, root, records, by_node, parents, node, 'Human')
     save = source.read(component(source, root, 'tosaveitemscript'))
     pose = lambda reader, stage: relative_pose(source, reader, stage)
     return {'source': source_id(root), 'asset': asset['id'], 'root': node(root), 'item_id': save['id'],
@@ -420,7 +456,7 @@ def human_record(source, manifest, nodes, parents):
                   'patrol_time': [d['startPatrolTimeMin'], d['startPatrolTimeMax']]},
         'head': node(source.resolve(ai, d['head'])),
         'breakable': breakable(source, breakable_reader, actor=True),
-        'body': body, 'ragdoll': ragdoll,
+        'body': body, 'ragdoll': ragdoll, 'ai': human_ai_record(source, ai, node, matrix, by_reader),
         # recover_audio replaces the voice clip identities and sets the SourceVoice template.
         'animator': humanoid_record(source, ai, source.resolve(ai, d['anim']), node, pose), 'voice': voice_record(source, ai, node, pose)}
 
@@ -576,6 +612,11 @@ def validate_human(h, manifest):
         raise ValueError('Invalid human ragdoll links')
     if len(rag['pickups']) != len(rag['bodies']) or any(p['cant_pickup'] for p in rag['pickups']):
         raise ValueError('Invalid human ragdoll pickups')
+    ai = h['ai']
+    if len(ai['sens']) != 5 or not all(local(x['node']) and x['sensor'] for x in ai['sens']):
+        raise ValueError('Invalid human sens')
+    if ai['col'] not in {x['node'] for x in body['colliders']} or ai['patrol_ray_count'] < 1:
+        raise ValueError('Invalid human AI')
     a = h['animator']
     if (not a['grounded'] or not a['crouching'] or len(a['bones']) != 55 or a['bones'][0] is None
             or not all(local(b['node']) for b in a['bones'] if b) or not local(a['root'])

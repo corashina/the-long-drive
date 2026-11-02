@@ -403,6 +403,7 @@ pub struct HumanReference {
     pub breakable: BreakableReference,
     pub body: CreatureBody,
     pub ragdoll: CreatureRagdoll,
+    pub ai: HumanAiReference,
     pub animator: HumanoidReference,
     pub voice: HumanVoiceReference,
 }
@@ -447,13 +448,25 @@ impl HumanReference {
                 && self.body.colliders.iter().all(|c| self.local(m, c.node)),
             "human body",
         )?;
+        self.ai.validate()?;
+        require(
+            self.ai
+                .sens
+                .iter()
+                .all(|c| c.sensor && self.local(m, c.node))
+                && self.body.colliders.iter().any(|c| c.node == self.ai.col),
+            "human AI",
+        )?;
         validate_ragdoll(&self.ragdoll, |n| self.local(m, n), "human ragdoll")?;
         self.animator.validate(&m.nodes)?;
         let v = &self.voice;
         let clips = m.audio["clips"].as_array();
         let clip = |c: &HumanVoiceClip| {
             c.seconds > 0.
-                && clips.is_some_and(|l| l.iter().any(|x| x["id"].as_u64() == Some(u64::from(c.clip))))
+                && clips.is_some_and(|l| {
+                    l.iter()
+                        .any(|x| x["id"].as_u64() == Some(u64::from(c.clip)))
+                })
         };
         require(
             [&v.idle, &v.chase, &v.notice, &v.attack, &v.death]

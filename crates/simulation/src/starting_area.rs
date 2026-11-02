@@ -1941,16 +1941,18 @@ impl GarageRuntime {
             },
         );
         self.place_humans(reference);
+        self.step_humans(reference, dt);
         if self.creatures.place_remove_due(self.simulation_seconds) {
             self.place_remove_rabbits(reference, distances);
             self.place_remove_humans(reference, distances);
         }
         self.settle_rabbits(reference);
         let r = &reference.creatures.human;
-        let now = self.simulation_seconds;
-        self.creatures.humans.animate(r, &self.physics, now, dt);
         if let Some(audio) = &mut self.audio {
-            let sounds = self.creatures.humans.sounds(r, &self.physics, now);
+            let sounds = self
+                .creatures
+                .humans
+                .sounds(r, &self.physics, self.simulation_seconds);
             audio.humans(r.voice.voice, sounds, &self.stream.origin);
         }
     }

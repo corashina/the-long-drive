@@ -21,8 +21,8 @@
 use super::clip::sample_track;
 use crate::player::body::ik::Frame;
 use crate::reference::{
-    FIRST_MUSCLE, HUMAN_BONES, HumanReference, HumanoidChild, MUSCLES,
-    MotionTrack, NodeId, NodeRecord, ROOT_T, ReferenceError, Transform,
+    FIRST_MUSCLE, HUMAN_BONES, HumanReference, HumanoidChild, MUSCLES, MotionTrack, NodeId,
+    NodeRecord, ROOT_T, ReferenceError, Transform,
 };
 use rapier3d::math::{Pose, Rotation, Vector};
 use std::collections::HashMap;
@@ -588,6 +588,12 @@ impl Humanoid {
     /// Converted parent-local frame of rig node `index`.
     pub fn converted_local(&self, pose: &HumanoidPose, index: usize) -> Frame {
         mirror_frame(&pose.local[index])
+    }
+
+    /// Converted pose of `newAiScript.head` under the Animator Transform.
+    pub fn head(&self, pose: &HumanoidPose) -> Pose {
+        let f = self.converted(pose, self.head);
+        Pose::from_parts(f.position, f.rotation)
     }
 
     fn forward_kinematics(&self, pose: &mut HumanoidPose) {
