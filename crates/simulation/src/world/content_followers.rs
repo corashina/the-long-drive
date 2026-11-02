@@ -293,11 +293,11 @@ impl WorldStream {
         if self.follower_scan == Some(revision) {
             return Ok(());
         }
-        let active = &self.contents.active;
+        let active = &self.contents.active();
         self.follower_bindings
             .retain(|b| active.iter().any(|c| c.content.placement.id == b.parent));
         let mut complete = true;
-        for content in &self.contents.active {
+        for content in self.contents.active() {
             let Some(index) = self.follower_prototypes.iter().copied().find(|&p| {
                 self.reference.prototypes[p].source == content.content.placement.prototype
             }) else {

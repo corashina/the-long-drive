@@ -108,7 +108,7 @@ impl WorldStream {
             return Ok(());
         }
         let mut complete = true;
-        let active = &self.contents.active;
+        let active = &self.contents.active();
         self.trailer_bindings.retain(|b| {
             active
                 .iter()
@@ -119,8 +119,8 @@ impl WorldStream {
                 .iter()
                 .any(|c| c.content.placement.id == *parent && c.item == Some(*item))
         });
-        for slot in 0..self.contents.active.len() {
-            let content = &self.contents.active[slot];
+        for slot in 0..self.contents.active().len() {
+            let content = &self.contents.active()[slot];
             let Some(item) = content.item else {
                 continue;
             };
@@ -149,7 +149,7 @@ impl WorldStream {
             }
             if !record.hitches.is_empty() && !registered {
                 self.bind_hitches(items, interaction, physics, slot, index)?;
-                let parent = self.contents.active[slot].content.placement.id.clone();
+                let parent = self.contents.active()[slot].content.placement.id.clone();
                 self.hitch_owners.push((parent, item));
             }
             if record.trailer.is_some() && !bound {
@@ -170,7 +170,7 @@ impl WorldStream {
         index: usize,
         collider: u32,
     ) -> Result<(usize, Pose), ReferenceError> {
-        let placement = &self.contents.active[slot].content.placement;
+        let placement = &self.contents.active()[slot].content.placement;
         let prototype = &self.reference.prototypes[index];
         let body = prototype.colliders[collider as usize]
             .body
@@ -195,7 +195,7 @@ impl WorldStream {
         slot: usize,
         index: usize,
     ) -> Result<(), ReferenceError> {
-        let content = &self.contents.active[slot];
+        let content = &self.contents.active()[slot];
         let placement = &content.content.placement;
         let prototype = &self.reference.prototypes[index];
         let instance = self
@@ -252,14 +252,14 @@ impl WorldStream {
         slot: usize,
         index: usize,
     ) -> Result<Option<TrailerBinding>, ReferenceError> {
-        let content = &self.contents.active[slot];
+        let content = &self.contents.active()[slot];
         let placement = &content.content.placement;
         let prototype = &self.reference.prototypes[index];
         let reference = prototype.trailer.as_ref().unwrap();
         // A saved hitch keeps the grip unrestored until the trailer registers.
         let Some(grip) = self
             .contents
-            .active
+            .active()
             .iter()
             .find(|c| {
                 spawned_child(
@@ -385,7 +385,7 @@ impl WorldStream {
             }
             let on = b.brake.as_ref().is_some_and(|brake| {
                 self.contents
-                    .active
+                    .active()
                     .iter()
                     .find(|c| c.content.placement.id == b.parent)
                     .is_some_and(|c| {

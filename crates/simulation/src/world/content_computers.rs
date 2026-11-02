@@ -162,7 +162,7 @@ impl WorldStream {
         }
         let active = |parent: &GeneratedId, item: ItemId| {
             self.contents
-                .active
+                .active()
                 .iter()
                 .position(|c| &c.content.placement.id == parent && c.item == Some(item))
         };
@@ -203,8 +203,8 @@ impl WorldStream {
         }
         let r = &reference.computer;
         let mut complete = true;
-        for slot in 0..self.contents.active.len() {
-            let content = &self.contents.active[slot];
+        for slot in 0..self.contents.active().len() {
+            let content = &self.contents.active()[slot];
             let Some(item) = content.item else {
                 continue;
             };

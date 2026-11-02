@@ -176,7 +176,8 @@ impl WorldStream {
         if self.condition_changes.is_empty() {
             return Ok(());
         }
-        for (slot, content) in self.contents.active.iter_mut().enumerate() {
+        let (active, rules, _) = self.contents.active_parts();
+        for (slot, content) in active.iter_mut().enumerate() {
             if !content
                 .conditions
                 .iter()
@@ -190,7 +191,7 @@ impl WorldStream {
                 self.condition_looks.clear();
                 condition_appearance(
                     &self.reference,
-                    &self.contents.rules,
+                    rules,
                     &input.source,
                     &input.kind,
                     [s.state as i32, s.state2 as i32, s.state3 as i32],
