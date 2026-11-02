@@ -626,7 +626,7 @@ fn bats(
         .collect()
 }
 
-/// Visits the road buildings. Returns the bats near each loaded building.
+/// Visits the road buildings. Returns the bats seen near each loaded building.
 fn bat_tour(
     run: &mut GarageRuntime,
     reference: &ReferenceManifest,
@@ -655,8 +655,18 @@ fn bat_tour(
         if !super::world::loads(run, reference) {
             continue;
         }
-        seconds(run, reference, 3.);
-        found.push((at, bats(run, reference, at)));
+        // Source `breakablescript.OnCollisionEnter`: a bat that hits a wall can break, so
+        // collect each bat seen in the first 3 s.
+        let mut seen = Vec::new();
+        for _ in 0..steps(3.) {
+            frame(run, reference);
+            for bat in bats(run, reference, at) {
+                if !seen.contains(&bat) {
+                    seen.push(bat);
+                }
+            }
+        }
+        found.push((at, seen));
     }
     found
 }
