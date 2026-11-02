@@ -34,7 +34,7 @@ Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). WebRTC pe
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
 | M01 | Join and see each other | S | Remote player collision: export the `mpplayerscript` capsule (`minBodyRadius`, `maxBodyRadius`, head and prone head nodes), add a kinematic capsule per figure, 3 s spawn delay and 1 s after standing up. |
-| M03 | Shared items and world | XL | Item seats (sleds and chairs send the world pose), `requestData` on load, host keeps changes of items it has not loaded, spawned items, tanks and caps, parts, usables, attachables, lamps, food, weapons. Design: project file `plans/m03-design.md`. |
+| M03 | Shared items and world | XL | Item seats (sleds and chairs send the world pose), tanks and caps, parts, usables, attachables, lamps, food, weapons. Design: project file `plans/m03-design.md`. |
 | M04 | Everything else | L | After the M03 network keys: host-only creature, Fedo, random stuff and tumbleweed spawns, creature poses to guests, radio controls (`msgType.radio`). The source does not sync sandstorms or sleep. |
 
 Not planned: VR, stereo 3D, mod events, Steam features.
@@ -73,3 +73,4 @@ Two browsers, host and guest in one room. Check F3 on the host before and after,
 3. M02: The guest drives the start car. The host copy steers, shifts and honks with it. The handbrake and ignition follow.
 4. M02: Both see each passenger in their car seat, also at speed.
 5. M03: The guest puts the can in the inventory. It goes away on the host. The guest takes it in the right hand. It shows in the guest hand on the host.
+6. M03: The host walks 2 km away. The guest picks up a can there, drops it in another place and walks away too. The host comes back: the can is where the guest left it.

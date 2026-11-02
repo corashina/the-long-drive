@@ -51,6 +51,10 @@ impl SpawnedItems {
             *a = ammo;
         }
     }
+    /// Multiplayer: spawns of this peer start at `floor`, so the serials of two peers differ.
+    pub fn reserve_serials(&mut self, floor: u32) {
+        self.next_serial = self.next_serial.max(floor);
+    }
     /// Restored serials stay unique: later spawns start after the largest one.
     pub(super) fn record(&mut self, item: SpawnedItem) {
         self.next_serial = self.next_serial.max(item.serial.saturating_add(1));
