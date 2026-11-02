@@ -51,7 +51,7 @@ Open before the next run:
 - X03e (browser): Enter an old house, a mansion or the Vizmu building with human spawns. Some have a human monster in its rest pose. It does not move before X03f. Saves keep it, and a placement does not spawn a second one.
 - X03f (browser): A human monster that sees the player chases them. It ducks and jumps over low walls, pushes doors open and climbs ladders. Out of sight it patrols. Peaceful mode stops it. Export check: `human.ai.col` is a capsule live collider and the five `sens` triggers export.
 - X03g (browser): A live human monster walks, runs, turns and crouches with its Animator clips, looks at its target, and holds a door with its left hand. Feet stay on the ground. Export check: `human.animator` has 15 `grounded` and 4 `crouching` children, and `human.voice` has five clip lists. Port choices to check against the source: blend tree child speed is `1 / m_Duration` (crouch walks play twice as fast), clip foot IK goals and twist spreading are not used.
-- X03h (browser): A human monster that reaches the player hurts him and holds him with both hands. A shot wakes a sleeping human and turns it to the shooter. Shots, explosions and hard hits kill it into a ragdoll with the death voice. Run `tp_x03h_human_shot_wakes_and_kills` after the re-export. The attack shows no damage flash yet.
+- X03h (browser): A human monster that reaches the player hurts the player and holds the player with both hands. A shot wakes a sleeping human and turns it to the shooter. Shots, explosions and hard hits kill it into a ragdoll with the death voice. Run `tp_x03h_human_shot_wakes_and_kills` after the re-export. The attack shows no damage flash yet.
 
 Prepare once:
 
