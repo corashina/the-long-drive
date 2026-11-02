@@ -39,20 +39,13 @@ Run these checks on Tomasz's PC in one run. Passed checks are removed.
 Check F3 in each scenario below. Compare with the frame rate rule.
 Look, listen and F3-only checks are on Tomasz's eyes list (project file `plans/tp-eyes-list.md`), not here.
 
-Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix before the next run:
+Headless run on 2026-11-02 (master ebed1d3, export 3fd48db): 174 of 179 ignored simulation tests passed, and 270 of 270 release workspace tests passed. #419 and #422-#425 fix the other 5. Each fix passed on Tomasz's PC before merge. W02 measured 24,128 bytes/km (120.6 MB for 5,000 km).
+
+Open before the next run:
 
 - K4 (browser): First page load can stall at the start of object loading with dependency staging full (7.7/7.8 MiB). A reload clears it.
-- 32 of 169 ignored simulation tests failed in release. Debug overflows the stack. #KF removed 8 old tests that `roadmap_tests` covers, and changed 4 without a run. The lines below name each open one.
-- WD3: `tp_wd3_each_melee_weapon_swings_with_each_key_and_breaks_a_bottle` needs the next export. The exporter now links melee weapons through `pickupable.melee` (#WD3), which adds the katana, fly swatter and leg. The test passes on ee6554d with those records added.
-- WD20: `tp_wd20_a_hard_hit_breaks_a_tumbleweed_with_its_gib_and_it_stays_gone` needs the next export. The exporter now exports gib ParticleSystems (`behavior.gib_particles`, #WD20). The tumbleweed gib is particles only. The test passes on ee6554d with a stand-in particle record.
-- MP (29e693f run): `tp_m03_a_host_spawn_appears_on_the_guest` fails at "the guest spawns it". The test prints its state ("m03 spawn:") for the fix.
-- CR2: `tp_cr2_halloween_bats_near_buildings` was flaky: load time depends on the machine, and the one tracked bat could break before it squeaked. It now collects bats from the first frame of each visit and checks squeaks, flight and save over all bats of the building (#TP CR2). Changed without a run.
-- Export field added (#PB): `player.seat_push_force` (source `fpscontroller.seatPushForce`). Export ee6554d lacks it, so re-export before the next run.
-- Export field added (#M01): `player.remote` (source `mpplayerscript` of `snTempPlayerSync.playerPrefab`). Export ee6554d lacks it, so re-export before the next run. `tp_mp5_the_other_figure_turns_solid_after_3_s` then checks the remote figure body.
-- Export format changed (#X06c): each world prototype has `probes`, and `vehicle.probe` is gone. Re-export before the next run. Then stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
-- Export field added (#M04): the `voicechat` input binding (source `inputscript.IN.voicechat`). Until the re-export, voice chat has no push-to-talk key. The stored key bindings reset once.
-- Save schema 41 (#M04): rabbits keep their id (`RabbitSnapshot.id`). Old saves do not load.
-- Save schema 42 (#TP W02): spawn boundaries are compact. They store sources, contexts and pool states once in tables, and each parent as a compact key. Old saves do not load. The 3fd48db run measured 158,021 bytes/km (790 MB for 5,000 km). On 6fae264 it measured 24,128 bytes/km (120.6 MB), below the 200 MB limit.
+- X06c (browser): Stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
+- The stored key bindings reset once, because the export adds the `voicechat` binding (#M04).
 
 Prepare once:
 
