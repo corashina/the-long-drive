@@ -166,7 +166,7 @@ impl WorldOrigin {
 
 mod spawn_contents;
 mod spawn_initialization;
-mod spawn_rules;
+pub(crate) mod spawn_rules;
 mod spawn_selection;
 
 mod biome_materials;
