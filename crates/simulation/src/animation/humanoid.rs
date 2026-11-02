@@ -291,7 +291,8 @@ pub struct Humanoid {
     fades: [f32; 2],
     head: usize,
     head_limit: f32,
-    copies: Vec<(usize, Frame)>,
+    /// Copied rig node and its target rig node.
+    copies: Vec<(usize, usize)>,
     mouth: Option<(usize, Frame, Frame)>,
     forward_lerp: f32,
     turn_lerp: f32,
@@ -515,7 +516,7 @@ impl Humanoid {
         let copies = r
             .copies
             .iter()
-            .map(|c| Ok((at(c.node)?, frame(&c.target))))
+            .map(|c| Ok((at(c.node)?, at(c.target)?)))
             .collect::<Result<_, ReferenceError>>()?;
         let mouth = Some((at(voice.mouth)?, frame(&voice.closed), frame(&voice.open)));
         let head = at(human.head)?;
@@ -850,9 +851,13 @@ impl Humanoid {
             };
         }
         self.forward_kinematics(pose);
-        for (node, target) in &self.copies {
-            let parent = self.parent[*node].map_or(Frame::IDENTITY, |p| pose.model[p]);
-            pose.local[*node] = parent.inverse_mul(target);
+        // Position, rotation and `localScale` of the target.
+        for &(node, target) in &self.copies {
+            let parent = self.parent[node].map_or(Frame::IDENTITY, |p| pose.model[p]);
+            let mut local = parent.inverse_mul(&pose.model[target]);
+            local.scale = pose.local[target].scale;
+            pose.local[node] = local;
+            pose.model[node] = parent.mul(&local);
         }
         // `RotateTowards(transform.rotation, head.rotation, headRotLimit)`. The prefab root
         // and the Animator Transform share their rotation.
