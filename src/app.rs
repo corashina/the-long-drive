@@ -552,15 +552,12 @@ fn check_ready(
 fn read_input(
     reference: Res<RuntimeReference>,
     time: Res<Time<Real>>,
-    mut sim: ResMut<SimFrameResource>,
+    sim: Res<SimFrameResource>,
     mut drive: ResMut<Drive>,
     mut requests: ResMut<save::SaveRequests>,
     screen: Res<presentation::screen_effects::ScreenEffects>,
 ) {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Input);
-    for json in sim.sandbox.drain(..) {
-        game_sandbox_reply(&json);
-    }
     let hud = &sim.frame.hud;
     let [steer, throttle, brake, clutch, handbrake] = hud.controls;
     game_driving_state(
@@ -656,12 +653,6 @@ fn read_input(
         world: std::mem::take(&mut drive.world),
         save: requests.take_commands(),
         listener: drive.listener,
-        // A pending save drops the input, so the commands wait in the browser.
-        sandbox: if hold {
-            Vec::new()
-        } else {
-            game_sandbox_take().into_iter().collect()
-        },
     };
     drive.link.send(command);
 }

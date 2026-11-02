@@ -1,4 +1,4 @@
-//! ROADMAP test pass: Known failures (K rows).
+//! Headless scenario tests: fixed known failures (K rows).
 use crate::boundary::SimInit;
 use crate::session::Session;
 use crate::starting_area::GarageRuntime;
