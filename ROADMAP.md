@@ -35,7 +35,7 @@ Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). WebRTC pe
 | --- | --- | --- | --- |
 | M01 | Join and see each other | S | Remote player collision: export the `mpplayerscript` capsule (`minBodyRadius`, `maxBodyRadius`, head and prone head nodes), add a kinematic capsule per figure, 3 s spawn delay and 1 s after standing up. |
 | M02 | Shared cars | L | Driver input sync (`carfloats`, gears, ignition, lamps, handbrake), passengers. Seated figures follow the seat of the car by save id (source `UpdPos` sitting). |
-| M03 | Shared items and world | XL | `claim`, item poses and velocity, inventory, tanks and caps, parts, usables, attachables, food, weapons. |
+| M03 | Shared items and world | XL | Inventory and remote held items, `localPos`, `requestData` on load, host keeps changes of items it has not loaded, spawned items, tanks and caps, parts, usables, attachables, lamps, food, weapons. Design: project file `plans/m03-design.md`. |
 | M04 | Everything else | XL | Voice chat (M04b). After the M03 network keys: host-only creature, Fedo, random stuff and tumbleweed spawns, creature poses to guests, radio controls (`msgType.radio`). The source does not sync sandstorms or sleep. |
 
 Not planned: VR, stereo 3D, mod events, Steam features.
@@ -64,3 +64,9 @@ Prepare once:
 4. In that output, note the `w02_` bytes per km and the 5,000 km estimate. Above 200 MB, compact spawn boundaries.
 5. Claude runs the steps in Chrome with the test sandbox: see `tests/sandbox/README.md`. First check the sandbox itself: `spawn('Bus02Full', 10)` places a bus, and `teleport`, `building`, `spawn`, `hand`, `fill` and `cycle` work. Use `tests/sandbox/buses.js` for More cars steps 16-20.
 
+### Multiplayer
+
+Two browsers, host and guest in one room. Check F3 on the host before and after, with about 300 items near.
+
+1. M03: The host kicks a loose can. It moves on the guest within 1 s and lands at the same place.
+2. M03: The guest picks up a can and walks. The host sees the can move with the guest. The guest throws it. On both screens it lands at the same place.

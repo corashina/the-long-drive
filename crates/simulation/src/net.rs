@@ -1,6 +1,9 @@
 //! Multiplayer of the source (`sns`, `snTempPlayerSync`). The browser owns the peers and the session messages.
 //! The simulation sends the local player and poses the remote players.
+pub mod claim;
+pub mod items;
 pub mod message;
+pub mod objects;
 pub mod remote;
 pub mod world;
 
@@ -8,7 +11,12 @@ use crate::boundary::{PoseRow, RemoteRow, SimFrame};
 use crate::player::body::BodyState;
 use crate::reference::ReferenceManifest;
 use crate::starting_area::GarageRuntime;
-use message::{BodyMessage, Message, PoseMessage};
+use items::ItemSync;
+use message::{
+    BodyMessage, ClaimMessage, ItemPoseMessage, Message, PoseMessage, RemoveMessage,
+    VelocityMessage,
+};
+use objects::{NetKey, ObjectIndex};
 use remote::Remote;
 use world::WorldSync;
 
@@ -39,19 +47,27 @@ pub struct Net {
     outbox: Vec<u8>,
     remotes: Vec<Remote>,
     world: WorldSync,
+    objects: ObjectIndex,
+    items: ItemSync,
 }
 
 impl Net {
     pub fn set_session(&mut self, role: NetRole, slot: u8) {
         self.role = role;
         self.slot = slot;
+        self.items.slot = slot;
         if role == NetRole::Off {
             self.remotes.clear();
             self.inbox.clear();
+            self.objects.clear();
+            self.items.clear();
         }
     }
     pub fn role(&self) -> NetRole {
         self.role
+    }
+    pub fn claims(&self) -> &claim::Claims {
+        &self.items.claims
     }
     /// Adds length-prefixed packets from the browser.
     pub fn receive(&mut self, packets: &[u8]) {
@@ -62,6 +78,7 @@ impl Net {
     /// A peer left. Its figure goes away.
     pub fn leave(&mut self, slot: u8) {
         self.remotes.retain(|r| r.slot != slot);
+        self.items.claims.leave(slot);
     }
     /// Length-prefixed packets for the browser. The next call starts empty.
     pub fn take_outbox(&mut self, out: &mut Vec<u8>) {
@@ -87,10 +104,22 @@ impl Net {
             return;
         }
         self.clock += real_dt as f64;
+        self.objects
+            .refresh(&runtime.area.items, &runtime.area.spawned);
         self.read_inbox(reference, runtime);
         self.send(runtime, real_dt);
         self.world
             .send(self.role, self.slot, runtime, real_dt, &mut self.outbox);
+        self.objects
+            .refresh(&runtime.area.items, &runtime.area.spawned);
+        self.items.send(
+            runtime,
+            &self.objects,
+            self.role == NetRole::Host,
+            self.clock,
+            real_dt,
+            &mut self.outbox,
+        );
         let origin = &runtime.stream.origin;
         for remote in &mut self.remotes {
             let Some((pose, root)) = remote.step(self.clock, real_dt, origin) else {
@@ -110,7 +139,8 @@ impl Net {
     }
 
     fn read_inbox(&mut self, reference: &ReferenceManifest, runtime: &mut GarageRuntime) {
-        let mut rest = &self.inbox[..];
+        let inbox = std::mem::take(&mut self.inbox);
+        let mut rest = &inbox[..];
         while let [a, b, tail @ ..] = rest {
             // The outbox flag is masked, so an outbox reads as an inbox.
             let n = (u16::from_le_bytes([*a, *b]) & !message::RELIABLE) as usize;
@@ -137,15 +167,54 @@ impl Net {
                     None => continue,
                 };
                 remote.smoothing.got_pose(&pose, self.clock);
-            } else if let Ok((slot, body)) = BodyMessage::decode(packet)
-                && let Some(remote) = self.remotes.iter_mut().find(|r| r.slot == slot)
-            {
-                remote.got_body(&body);
-            } else {
+            } else if let Ok((slot, body)) = BodyMessage::decode(packet) {
+                if let Some(remote) = self.remotes.iter_mut().find(|r| r.slot == slot) {
+                    remote.got_body(&body);
+                }
+            } else if !self.read_item(packet, runtime) {
                 WorldSync::receive(self.role, packet, runtime);
             }
         }
+        // The buffer keeps its capacity.
+        self.inbox = inbox;
         self.inbox.clear();
+    }
+
+    /// Item messages. False for other packets.
+    fn read_item(&mut self, packet: &[u8], runtime: &mut GarageRuntime) -> bool {
+        let mine = self.slot;
+        let item = |slot: u8, key: u64| {
+            (slot != mine)
+                .then(|| self.objects.item(NetKey(key)))
+                .flatten()
+        };
+        if let Ok((slot, m)) = ItemPoseMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                items::apply_pose(runtime, &self.items.claims, id, &m);
+            }
+        } else if let Ok((slot, m)) = VelocityMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                items::apply_velocity(runtime, &self.items.claims, id, &m);
+            }
+        } else if let Ok((slot, m)) = ClaimMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                self.items.claims.got(id, slot, m.claim != 0);
+            }
+        } else if let Ok((slot, m)) = RemoveMessage::decode(packet) {
+            // Source `RemoveItem`: Destroy with `removeFromMemory`.
+            if let Some(id) = item(slot, m.key) {
+                let area = &mut runtime.area;
+                let _ = runtime.stream.remove_item(
+                    id,
+                    &mut area.items,
+                    &mut area.interaction.storage,
+                    &mut runtime.physics,
+                );
+            }
+        } else {
+            return false;
+        }
+        true
     }
 
     fn send(&mut self, runtime: &GarageRuntime, dt: f32) {
