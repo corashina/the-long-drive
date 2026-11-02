@@ -226,8 +226,7 @@ impl SimDriver {
     pub fn advance(&mut self, reference: &ReferenceManifest) {
         self.physics_ms = 0.;
         self.frame_steps = 0;
-        // Source `isServerOrNoMulti`: a guest step spawns no rabbits, also the first after a load.
-        self.runtime.net_guest = self.net.role() == crate::net::NetRole::Guest;
+        self.net.prepare(&mut self.runtime);
         if !self.ready && !self.failed {
             // Source storage startup runs once per loading frame.
             if let Err(error) = self
