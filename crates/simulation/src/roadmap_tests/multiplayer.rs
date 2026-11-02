@@ -519,3 +519,45 @@ fn tp_m03_a_host_spawn_appears_on_the_guest() {
         .id;
     assert!(apart(absolute(&run, ids[0]), absolute(&guest, copy)) < 0.2);
 }
+
+/// M03. Source `STank` and `FluidUpdate`: a fluid change on the host reaches the guest copy, and
+/// the guest does not send it back.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_m03_a_host_fluid_change_reaches_the_guest() {
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let mut guest = save_load(&run, &reference);
+    let mut pair = Pair::new();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    let tank = run
+        .area
+        .items
+        .iter()
+        .find(|i| !i.removed && i.fluid.as_ref().is_some_and(|f| f.capacity_liters > 1.))
+        .expect("a tank")
+        .id;
+    let copy = same(&run, &guest, tank);
+    let fluid = run
+        .area
+        .items
+        .get_mut(tank)
+        .unwrap()
+        .fluid
+        .as_mut()
+        .unwrap();
+    let liters = fluid.capacity_liters * 0.5;
+    fluid.restore_entries(&[crate::fluids::FluidEntry {
+        fluid_type: 1,
+        amount: liters,
+    }]);
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    let got = guest.area.items.get(copy).unwrap().fluid.as_ref().unwrap();
+    assert!(
+        (got.total() - liters).abs() < 1e-3,
+        "the guest has the host fluid"
+    );
+    pair.run(&reference, &mut run, &mut guest, 0.1);
+    let host = run.area.items.get(tank).unwrap().fluid.as_ref().unwrap();
+    assert!((host.total() - liters).abs() < 1e-3, "no echo");
+}
