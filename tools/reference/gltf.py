@@ -461,7 +461,7 @@ class GltfExporter(GltfBuilder):
             self.document.buffers.append(gl.Buffer(uri=self.output.with_suffix('.bin').name,byteLength=len(self.binary)))
             self.output.with_suffix('.bin').write_bytes(self.binary)
         self.document.save_json(str(self.output))
-        validate_gltf(self.output)
+        check_gltf(self.output)
         paths={buffer.uri for buffer in self.document.buffers}|{image.uri for image in self.document.images}
         from .runtime_package import file_receipt
         dependencies=[file_receipt(self.output.parent/path, f'reference/{path}') for path in sorted(paths)]
@@ -476,13 +476,37 @@ class GltfExporter(GltfBuilder):
                         'rotation':self.document.nodes[mapping[key(r['reader'])]].rotation,'scale':self.document.nodes[mapping[key(r['reader'])]].scale}} for r in records]}
 
 
-def validate_gltf(path):
-    """Check generated glTF references, byte ranges, geometry, and rigs."""
+_CHECKED_GLTF = set()
+
+
+def _gltf_identity(path, text):
+    """Hash the document, its buffers and its image file presence."""
+    import json
+    from urllib.parse import unquote
+    raw = json.loads(text)
+    digest = hashlib.sha256(text.encode('utf-8'))
+    for buffer in raw.get('buffers', []):
+        digest.update(b'\0' + (path.parent / unquote(buffer['uri'])).read_bytes())
+    images = tuple((path.parent / unquote(image['uri'])).is_file() for image in raw.get('images', []) if image.get('uri') is not None)
+    return digest.hexdigest(), images
+
+
+def check_gltf(path):
+    """Validate a glTF file once for each identical document, buffer and image set."""
+    text = path.read_text(encoding='utf-8')
+    if _gltf_identity(path, text) not in _CHECKED_GLTF:
+        validate_gltf(path, text)
+
+
+def validate_gltf(path, text=None):
+    """Check generated glTF references, byte ranges, geometry, and rigs. Return the parsed document."""
     import json
     from urllib.parse import unquote
     import pygltflib as gl
     from pygltflib.validator import validate
-    text = path.read_text(encoding='utf-8')
+    if text is None:
+        text = path.read_text(encoding='utf-8')
+    identity = _gltf_identity(path, text)
     document = gl.GLTF2.gltf_from_json(text)
     import warnings
     with warnings.catch_warnings():
@@ -632,6 +656,7 @@ def validate_gltf(path):
             if root in parents: raise ValueError('Scene root has a parent')
     if document.scene is not None: index(document.scene,document.scenes,'default scene')
     validate_animation_channels(document,rows)
+    _CHECKED_GLTF.add(identity)
     return document
 
 

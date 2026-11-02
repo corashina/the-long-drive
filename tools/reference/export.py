@@ -210,7 +210,7 @@ def validate_runtime_manifest(content: bytes) -> None:
 
 def verify_reference(output: Path, library) -> None:
     from .library.reader import checked
-    from .gltf import validate_gltf
+    from .gltf import check_gltf
     content = (output / 'manifest.json').read_bytes()
     manifest = json.loads(content)
     if library is None or manifest.get('library') != provenance(library):
@@ -252,7 +252,7 @@ def verify_reference(output: Path, library) -> None:
         required = uris | material_mips
         if not required <= declared or declared - required - resources:
             raise ValueError('Runtime scene dependencies differ from selected receipts')
-        validate_gltf(scene)
+        check_gltf(scene)
     from .clothing import validate_player_export
     validate_player_export(manifest['clothing'],manifest,output)
     for sprite in [*manifest.get('ui', {}).get('sprites', []), *manifest.get('audio', {}).get('clips', [])]:
