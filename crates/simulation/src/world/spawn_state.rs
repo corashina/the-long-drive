@@ -51,6 +51,9 @@ pub struct SpawnInitialization {
     /// Runtime state only: spawn boundaries do not keep it.
     #[serde(skip)]
     pub broken_lamps: Vec<(GeneratedId, SourceId, u64)>,
+    /// Live `electronicsscript.jamValue` of a component. Runtime state only, as the source.
+    #[serde(skip)]
+    pub jams: Vec<(GeneratedId, SourceId, f32)>,
     pub conditions: Vec<super::spawn_conditions::ConditionState>,
     pub initialized: Vec<(GeneratedId, SourceId)>,
     pub selectors: Vec<(GeneratedId, SourceId, usize)>,
@@ -86,6 +89,12 @@ impl SpawnInitialization {
                 .collect(),
             broken_lamps: self
                 .broken_lamps
+                .iter()
+                .filter(|v| &v.0 == parent)
+                .cloned()
+                .collect(),
+            jams: self
+                .jams
                 .iter()
                 .filter(|v| &v.0 == parent)
                 .cloned()
@@ -160,6 +169,24 @@ impl SpawnInitialization {
             }
         }
     }
+    /// The live jam of electronics `component` on `parent`. None: its serialized `jamValue`.
+    pub fn jam(&self, parent: &GeneratedId, component: &SourceId) -> Option<f32> {
+        self.jams
+            .iter()
+            .find(|(p, s, _)| p == parent && s == component)
+            .map(|v| v.2)
+    }
+    /// Sets the live jam of electronics `component` on `parent`.
+    pub fn set_jam(&mut self, parent: &GeneratedId, component: &SourceId, jam: f32) {
+        match self
+            .jams
+            .iter_mut()
+            .find(|(p, s, _)| p == parent && s == component)
+        {
+            Some(v) => v.2 = jam,
+            None => self.jams.push((parent.clone(), component.clone(), jam)),
+        }
+    }
     /// True when flashlightscript.Break set `Lamps[index]` broken.
     pub fn lamp_broken(&self, parent: &GeneratedId, source: &SourceId, index: usize) -> bool {
         self.broken_lamps
@@ -183,6 +210,12 @@ impl SpawnInitialization {
             + self.lamps.capacity() * std::mem::size_of::<(GeneratedId, SourceId, bool)>()
             + self
                 .lamps
+                .iter()
+                .map(|(p, s, _)| identity_bytes(p) + s.file.capacity())
+                .sum::<usize>()
+            + self.jams.capacity() * std::mem::size_of::<(GeneratedId, SourceId, f32)>()
+            + self
+                .jams
                 .iter()
                 .map(|(p, s, _)| identity_bytes(p) + s.file.capacity())
                 .sum::<usize>()

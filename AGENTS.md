@@ -8,6 +8,3 @@
 - Make architectural decisions for the long term. Do not accept a stopgap that only works for now and is meant to be replaced later.
 - Avoid allocations and repeated setup in per-frame update and render paths.
 - Implement only critical tests.
-- Run targeted checks for changed behavior without asking. Web-only changes: web tests only. Rust changes: native tests and a WASM compile check.
-- Run full checks (`scripts/check.ps1 -Full`), release builds (`scripts/build.ps1`), and browser acceptance only on explicit request or at an agreed milestone. Task completion is not a request.
-- Do not add `Co-Authored-By` or `Claude-Session` trailers to commit messages.

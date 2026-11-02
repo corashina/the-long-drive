@@ -208,14 +208,12 @@ impl GarageRuntime {
         self.screen_changes(frame);
         self.plate_changes(frame);
         frame.planes.clear();
-        frame
-            .planes
-            .extend(self.sky().planes().iter().map(|plane| PlaneRow {
-                id: plane.id,
-                prefab: plane.prefab as u32,
-                offset: plane.offset.to_array(),
-                heading: plane.heading.to_array(),
-            }));
+        frame.planes.extend(self.planes().map(|plane| PlaneRow {
+            id: plane.id,
+            prefab: plane.prefab as u32,
+            offset: plane.offset.to_array(),
+            heading: plane.heading.to_array(),
+        }));
         frame.creatures.clear();
         frame.creature_bones.clear();
         for v in self.creatures.views(&self.physics) {

@@ -57,7 +57,8 @@ impl MetalDetector {
         self.value = 0.;
         self.smooth = 0.;
     }
-    /// Update while on. Returns the beep pitch and volume.
+    /// Update while on. `jam` is the `electronicsscript.jamValue`: a scan reads at least it.
+    /// Returns the beep pitch and volume.
     #[allow(clippy::too_many_arguments)]
     pub fn advance(
         &mut self,
@@ -68,6 +69,7 @@ impl MetalDetector {
         physics: &PhysicsWorld,
         random: &mut UnityRandom,
         hits: &mut Vec<(f32, u128)>,
+        jam: f32,
     ) -> Option<(f32, f32)> {
         if !self.on {
             return None;
@@ -75,7 +77,7 @@ impl MetalDetector {
         self.scan_in -= dt;
         if self.scan_in <= 0. {
             self.scan_in = rules.scan_seconds;
-            self.value = scan(rules, transform, body, physics, random, hits);
+            self.value = scan(rules, transform, body, physics, random, hits).max(jam);
         }
         self.smooth = lerp(self.smooth, self.value, dt * rules.lerp_speed);
         let pitch = lerp(
@@ -249,6 +251,7 @@ mod tests {
                 &physics,
                 &mut random,
                 &mut Vec::new(),
+                0.,
             )
             .unwrap();
         assert!(volume > 0.1);

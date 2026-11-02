@@ -552,7 +552,11 @@ impl AudioState {
         }
     }
     /// Loops of the sky prefab voices, one instance per plane. `anchor` is absolute.
-    pub fn sky(&mut self, planes: &[crate::sky_traffic::Plane], anchor: [f64; 3]) {
+    pub fn sky<'a>(
+        &mut self,
+        planes: impl IntoIterator<Item = &'a crate::sky_traffic::Plane>,
+        anchor: [f64; 3],
+    ) {
         self.voice_loops.clear();
         for plane in planes {
             for v in self.sky_voices.iter().filter(|v| v.prefab == plane.prefab) {
@@ -1548,6 +1552,7 @@ pub enum AudioKind {
     Break = 22,
     ComputerNote = 23,
     Horror = 24,
+    Hum = 25,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
@@ -1587,6 +1592,18 @@ impl AudioState {
         pitch: Option<f32>,
         position: [f64; 3],
     ) {
+        self.clip_loop(kind, emitter, 0, gain, pitch, position);
+    }
+    /// A loop that plays clip `index` of its row. A new clip restarts the loop.
+    pub fn clip_loop(
+        &mut self,
+        kind: AudioKind,
+        emitter: u32,
+        index: usize,
+        gain: f32,
+        pitch: Option<f32>,
+        position: [f64; 3],
+    ) {
         let b = self
             .reference
             .survival
@@ -1598,7 +1615,7 @@ impl AudioState {
             emitter,
             kind,
             action: AudioAction::Update,
-            clip: b.clips[0],
+            clip: b.clips[index],
             gain,
             pitch: pitch.unwrap_or(b.pitch[0]),
             position,
@@ -1695,6 +1712,13 @@ impl AmbientState {
         Self {
             modifier: reference.modifier,
             only_modifier: reference.only_modifier,
+        }
+    }
+
+    /// `empscript.affectAmbientSound`: the ambient falls toward the player electronics output.
+    pub fn jam(&mut self, output: f32, dt: f32) {
+        if self.modifier > output {
+            self.modifier = (self.modifier - dt * crate::electronics::JAM_INCREASE).max(output);
         }
     }
 
