@@ -26,7 +26,6 @@ The starting area, car parts, world and more cars sections are done. Only their 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
 | X03 | Creatures | XL | Ground UFO, EMP and green-eyed evil rabbits, human monster (attacks hurt the player), breakablescript `DamageFrom` for AI. Rabbits do not yet sense the player hum. |
-| X06c | Building reflection probes | S | Car probes are live. Check the original building prefabs for realtime `ReflectionProbe`s. Export any as prototype probes. The live probe slots then take them. |
 
 ### Multiplayer
 
@@ -35,8 +34,8 @@ Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). WebRTC pe
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
 | M01 | Join and see each other | S | Remote player collision: export the `mpplayerscript` capsule (`minBodyRadius`, `maxBodyRadius`, head and prone head nodes), add a kinematic capsule per figure, 3 s spawn delay and 1 s after standing up. |
-| M03 | Shared items and world | XL | `claim`, item and car poses and velocity (until then each peer car copy drifts from the others), item seats (sleds and chairs send the world pose until then), inventory, tanks and caps, parts, usables, attachables, food, weapons. |
-| M04 | Everything else | XL | Creatures, time and sleep, weather, radio channels, sounds, voice chat. |
+| M03 | Shared items and world | XL | Inventory and remote held items, item seats (sleds and chairs send the world pose), `localPos`, `requestData` on load, host keeps changes of items it has not loaded, spawned items, tanks and caps, parts, usables, attachables, lamps, food, weapons. Design: project file `plans/m03-design.md`. |
+| M04 | Everything else | XL | Voice chat (M04b). After the M03 network keys: host-only creature, Fedo, random stuff and tumbleweed spawns, creature poses to guests, radio controls (`msgType.radio`). The source does not sync sandstorms or sleep. |
 
 Not planned: VR, stereo 3D, mod events, Steam features.
 
@@ -54,6 +53,7 @@ Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix 
 - WD3: `tp_wd3_each_melee_weapon_swings_with_each_key_and_breaks_a_bottle` needs the next export. The exporter now links melee weapons through `pickupable.melee` (#WD3), which adds the katana, fly swatter and leg. The test passes on ee6554d with those records added.
 - WD20: `tp_wd20_a_hard_hit_breaks_a_tumbleweed_with_its_gib_and_it_stays_gone` needs the next export. The exporter now exports gib ParticleSystems (`behavior.gib_particles`, #WD20). The tumbleweed gib is particles only. The test passes on ee6554d with a stand-in particle record.
 - Export field added (#PB): `player.seat_push_force` (source `fpscontroller.seatPushForce`). Export ee6554d lacks it, so re-export before the next run.
+- Export format changed (#X06c): each world prototype has `probes`, and `vehicle.probe` is gone. Re-export before the next run. Then stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
 
 Prepare once:
 
@@ -62,4 +62,12 @@ Prepare once:
 3. Run all ignored tests: `cargo test --release --lib -- --ignored --nocapture`.
 4. In that output, note the `w02_` bytes per km and the 5,000 km estimate. Above 200 MB, compact spawn boundaries.
 5. Claude runs the steps in Chrome with the test sandbox: see `tests/sandbox/README.md`. First check the sandbox itself: `spawn('Bus02Full', 10)` places a bus, and `teleport`, `building`, `spawn`, `hand`, `fill` and `cycle` work. Use `tests/sandbox/buses.js` for More cars steps 16-20.
-6. Multiplayer, two browsers: a guest drives the start car. The host copy steers, shifts, and honks with it. The handbrake and ignition follow. Both see each passenger in their seat. Check F3 with two peers.
+
+### Multiplayer
+
+Two browsers, host and guest in one room. Check F3 on the host before and after, with about 300 items near.
+
+1. M03: The host kicks a loose can. It moves on the guest within 1 s and lands at the same place.
+2. M03: The guest picks up a can and walks. The host sees the can move with the guest. The guest throws it. On both screens it lands at the same place.
+3. M02: The guest drives the start car. The host copy steers, shifts and honks with it. The handbrake and ignition follow.
+4. M02: Both see each passenger in their car seat, also at speed.

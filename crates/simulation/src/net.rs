@@ -1,19 +1,26 @@
 //! Multiplayer of the source (`sns`, `snTempPlayerSync`). The browser owns the peers and the session messages.
 //! The simulation sends the local player and poses the remote players.
 pub mod car;
+pub mod claim;
+pub mod items;
 pub mod message;
+pub mod objects;
 pub mod remote;
+pub mod world;
 
 use crate::boundary::{PoseRow, RemoteRow, SimFrame};
 use crate::player::body::BodyState;
 use crate::reference::ReferenceManifest;
 use crate::starting_area::GarageRuntime;
 use car::CarFloats;
+use items::ItemSync;
 use message::{
     BodyMessage, CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage,
-    Message, PoseMessage,
+    ClaimMessage, ItemPoseMessage, Message, PoseMessage, RemoveMessage, VelocityMessage,
 };
+use objects::{NetKey, ObjectIndex};
 use remote::Remote;
+use world::WorldSync;
 
 /// Source `snTempPlayerSync.syncTime`.
 pub const SYNC_TIME: f32 = 0.15;
@@ -51,6 +58,9 @@ pub struct Net {
     /// Outbound packets, each with a u16 length. Bit `message::RELIABLE` of the length marks a reliable packet.
     outbox: Vec<u8>,
     remotes: Vec<Remote>,
+    world: WorldSync,
+    objects: ObjectIndex,
+    items: ItemSync,
     cars: Vec<CarValues>,
     /// The cars carry session state that must clear when the session ends.
     cars_touched: bool,
@@ -60,14 +70,20 @@ impl Net {
     pub fn set_session(&mut self, role: NetRole, slot: u8) {
         self.role = role;
         self.slot = slot;
+        self.items.slot = slot;
         if role == NetRole::Off {
             self.remotes.clear();
             self.inbox.clear();
+            self.objects.clear();
+            self.items.clear();
             self.cars.clear();
         }
     }
     pub fn role(&self) -> NetRole {
         self.role
+    }
+    pub fn claims(&self) -> &claim::Claims {
+        &self.items.claims
     }
     /// Adds length-prefixed packets from the browser.
     pub fn receive(&mut self, packets: &[u8]) {
@@ -78,6 +94,7 @@ impl Net {
     /// A peer left. Its figure goes away.
     pub fn leave(&mut self, slot: u8) {
         self.remotes.retain(|r| r.slot != slot);
+        self.items.claims.leave(slot);
         self.cars.retain(|c| c.slot != slot);
     }
     /// Length-prefixed packets for the browser. The next call starts empty.
@@ -98,7 +115,11 @@ impl Net {
     ) {
         frame.remotes.clear();
         frame.remote_joints.clear();
+        if let Some(audio) = &mut runtime.audio {
+            audio.broadcasts.set_remote(self.role == NetRole::Guest);
+        }
         if self.role == NetRole::Off {
+            runtime.shared_sounds.clear();
             if std::mem::take(&mut self.cars_touched) {
                 for vehicle in runtime.vehicles.values_mut() {
                     vehicle.net.clear();
@@ -108,9 +129,24 @@ impl Net {
         }
         self.cars_touched = true;
         self.clock += real_dt as f64;
+        self.objects
+            .refresh(&runtime.area.items, &runtime.area.spawned);
         self.read_inbox(reference, runtime);
         self.share_cars(runtime);
+        self.send_cars(runtime);
         self.send(reference, runtime, real_dt);
+        self.world
+            .send(self.role, self.slot, runtime, real_dt, &mut self.outbox);
+        self.objects
+            .refresh(&runtime.area.items, &runtime.area.spawned);
+        self.items.send(
+            runtime,
+            &self.objects,
+            self.role == NetRole::Host,
+            self.clock,
+            real_dt,
+            &mut self.outbox,
+        );
         let origin = &runtime.stream.origin;
         for remote in &mut self.remotes {
             let seat = |car, seat| car::seat_pose(reference, runtime, alpha, car, seat);
@@ -131,7 +167,8 @@ impl Net {
     }
 
     fn read_inbox(&mut self, reference: &ReferenceManifest, runtime: &mut GarageRuntime) {
-        let mut rest = &self.inbox[..];
+        let inbox = std::mem::take(&mut self.inbox);
+        let mut rest = &inbox[..];
         while let [a, b, tail @ ..] = rest {
             // The outbox flag is masked, so an outbox reads as an inbox.
             let n = (u16::from_le_bytes([*a, *b]) & !message::RELIABLE) as usize;
@@ -150,6 +187,9 @@ impl Net {
                             continue;
                         };
                         self.remotes.push(Remote::new(slot, body));
+                        if self.role == NetRole::Host {
+                            self.world.joined();
+                        }
                         self.remotes.last_mut().unwrap()
                     }
                     None => continue,
@@ -159,11 +199,64 @@ impl Net {
                 if let Some(remote) = self.remotes.iter_mut().find(|r| r.slot == slot) {
                     remote.got_body(&body);
                 }
-            } else if let Ok((slot, m)) = CarFloatsMessage::decode(packet) {
-                // Source `UpdMultiValues`.
-                if slot == self.slot {
-                    continue;
-                }
+            } else if !self.read_item(packet, runtime) && !self.read_car(reference, packet, runtime)
+            {
+                WorldSync::receive(self.role, packet, runtime);
+            }
+        }
+        // The buffer keeps its capacity.
+        self.inbox = inbox;
+        self.inbox.clear();
+    }
+
+    /// Item messages. False for other packets.
+    fn read_item(&mut self, packet: &[u8], runtime: &mut GarageRuntime) -> bool {
+        let mine = self.slot;
+        let item = |slot: u8, key: u64| {
+            (slot != mine)
+                .then(|| self.objects.item(NetKey(key)))
+                .flatten()
+        };
+        if let Ok((slot, m)) = ItemPoseMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                items::apply_pose(runtime, &self.items.claims, id, &m);
+            }
+        } else if let Ok((slot, m)) = VelocityMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                items::apply_velocity(runtime, &self.items.claims, id, &m);
+            }
+        } else if let Ok((slot, m)) = ClaimMessage::decode(packet) {
+            if let Some(id) = item(slot, m.key) {
+                self.items.claims.got(id, slot, m.claim != 0);
+            }
+        } else if let Ok((slot, m)) = RemoveMessage::decode(packet) {
+            // Source `RemoveItem`: Destroy with `removeFromMemory`.
+            if let Some(id) = item(slot, m.key) {
+                let area = &mut runtime.area;
+                let _ = runtime.stream.remove_item(
+                    id,
+                    &mut area.items,
+                    &mut area.interaction.storage,
+                    &mut runtime.physics,
+                );
+            }
+        } else {
+            return false;
+        }
+        true
+    }
+
+    /// Car messages. False for other packets.
+    fn read_car(
+        &mut self,
+        reference: &ReferenceManifest,
+        packet: &[u8],
+        runtime: &mut GarageRuntime,
+    ) -> bool {
+        let mine = self.slot;
+        if let Ok((slot, m)) = CarFloatsMessage::decode(packet) {
+            // Source `UpdMultiValues`.
+            if slot != mine {
                 let floats = CarFloats::of(&m);
                 match self
                     .cars
@@ -181,21 +274,23 @@ impl Net {
                         time: self.clock,
                     }),
                 }
-            } else if let Ok((slot, m)) = CarHandbrakeMessage::decode(packet) {
-                if slot != self.slot {
-                    car::got_handbrake(runtime, m.car, m.handbrake);
-                }
-            } else if let Ok((slot, m)) = CarGearMessage::decode(packet) {
-                if slot != self.slot {
-                    car::got_gear(reference, runtime, m.car, m.gear as usize);
-                }
-            } else if let Ok((slot, m)) = CarIgnitionMessage::decode(packet)
-                && slot != self.slot
-            {
+            }
+        } else if let Ok((slot, m)) = CarHandbrakeMessage::decode(packet) {
+            if slot != mine {
+                car::got_handbrake(runtime, m.car, m.handbrake);
+            }
+        } else if let Ok((slot, m)) = CarGearMessage::decode(packet) {
+            if slot != mine {
+                car::got_gear(reference, runtime, m.car, m.gear as usize);
+            }
+        } else if let Ok((slot, m)) = CarIgnitionMessage::decode(packet) {
+            if slot != mine {
                 car::got_ignition(runtime, &m);
             }
+        } else {
+            return false;
         }
-        self.inbox.clear();
+        true
     }
 
     /// Source `carscript.UpdMulti` receiver half: drops old driver values and merges the rest.
@@ -212,8 +307,8 @@ impl Net {
         }
     }
 
-    fn send(&mut self, reference: &ReferenceManifest, runtime: &mut GarageRuntime, dt: f32) {
-        // Source `carscript.UpdMulti` and the `SCar*` senders on change.
+    /// Source `carscript.UpdMulti` and the `SCar*` senders on change.
+    fn send_cars(&mut self, runtime: &mut GarageRuntime) {
         for (key, vehicle) in &runtime.vehicles {
             let net = &vehicle.net;
             if let Some(f) = net.sent {
@@ -227,10 +322,10 @@ impl Net {
                     bike_gas: f.bike_gas,
                 });
             }
-            let now = car::shared(vehicle);
             let Some(was) = net.shared else {
                 continue;
             };
+            let now = car::shared(vehicle);
             if now.handbrake != was.handbrake {
                 self.push(&CarHandbrakeMessage {
                     car: net.key,
@@ -264,6 +359,9 @@ impl Net {
         for vehicle in runtime.vehicles.values_mut() {
             vehicle.net.shared = Some(car::shared(vehicle));
         }
+    }
+
+    fn send(&mut self, reference: &ReferenceManifest, runtime: &GarageRuntime, dt: f32) {
         let area = &runtime.area;
         let interval = area.body.send_interval();
         self.pose_timer += dt;
@@ -294,11 +392,6 @@ impl Net {
     }
 
     fn push<M: Message>(&mut self, message: &M) {
-        let mut n = (message::HEADER + size_of::<M>()) as u16;
-        if M::RELIABLE {
-            n |= message::RELIABLE;
-        }
-        self.outbox.extend_from_slice(&n.to_le_bytes());
-        message.encode(self.slot, &mut self.outbox);
+        message::push(self.slot, message, &mut self.outbox);
     }
 }

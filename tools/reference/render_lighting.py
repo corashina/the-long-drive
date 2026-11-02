@@ -171,6 +171,21 @@ def probe_settings(identity, data):
         'mip_extents':[64>>mip for mip in range(7)]}
 
 
+def probe_records(source, hierarchy):
+    """Realtime ReflectionProbes of one world prototype: cars, trailers and buildings.
+    Each needs `reflectionsscript` beside it. Nodes are prototype node indices."""
+    from .source import key, source_id
+    records=[]
+    for node,record in enumerate(hierarchy):
+        probes=[c for c in record['components'] if c.type.name=='ReflectionProbe']
+        if not probes:continue
+        scripts=[c for c in record['components'] if c.type.name=='MonoBehaviour' and source.class_name(c)=='reflectionsscript']
+        if len(probes)!=1 or len(scripts)!=1:
+            raise ValueError(f'{key(probes[0])} requires one probe and one reflectionsscript on its node')
+        records.append({'source':source_id(probes[0]),'node':node,**probe_settings(key(probes[0]),source.read(probes[0]))})
+    return records
+
+
 def recover_lights_and_probes(source, roots):
     """Resolve identities through live component links, never prose source IDs."""
     from .source import key, source_id

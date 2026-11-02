@@ -72,6 +72,10 @@ pub struct RadioBroadcasts {
     custom_gain: f32,
     holiday_ranges: [[u8; 4]; 2],
     calendar: [u8; 2],
+    /// Multiplayer guest: the host selects the clips (source `RADIO2`).
+    remote: bool,
+    /// A station took a new clip since the last `take_changed`.
+    changed: bool,
 }
 impl Station {
     fn select(
@@ -111,9 +115,10 @@ impl Station {
         let recording = recordings[bag.remove(index)];
         Some(Selected { recording, music })
     }
-    fn advance(&mut self, seconds: f64, calendar: [u8; 2], ranges: &[[u8; 4]; 2]) {
+    /// True when the station takes a new clip.
+    fn advance(&mut self, seconds: f64, calendar: [u8; 2], ranges: &[[u8; 4]; 2]) -> bool {
         if self.source.custom {
-            return;
+            return false;
         }
         if self.current.is_none() {
             self.current = self.select(self.source.initial_music, calendar, ranges, true);
@@ -121,6 +126,7 @@ impl Station {
             self.next = self
                 .current
                 .and_then(|s| self.select(s.music, calendar, ranges, false));
+            self.current.is_some()
         } else if self
             .current
             .is_some_and(|s| seconds - self.start >= s.recording.duration)
@@ -132,7 +138,47 @@ impl Station {
             self.next = self
                 .current
                 .and_then(|s| self.select(s.music, calendar, ranges, false));
+            true
+        } else {
+            false
         }
+    }
+    /// Source `radioCH.GetCurrentIndex`: talk index, or talk count plus music index. -1 for none.
+    fn current_index(&self) -> i32 {
+        let Some(s) = self.current else {
+            return -1;
+        };
+        let (list, base) = if s.music {
+            (&self.music, self.talk.len())
+        } else {
+            (&self.talk, 0)
+        };
+        list.iter()
+            .position(|r| r.clip == s.recording.clip)
+            .map_or(-1, |i| (base + i) as i32)
+    }
+    /// Source `radioCH.UpdFromMulti`.
+    fn apply_host(&mut self, index: i32, offset: f32, seconds: f64) {
+        let Ok(index) = usize::try_from(index) else {
+            return;
+        };
+        if self.source.custom || !offset.is_finite() {
+            return;
+        }
+        let selected = match index.checked_sub(self.talk.len()) {
+            None => Selected {
+                recording: self.talk[index],
+                music: false,
+            },
+            Some(i) if i < self.music.len() => Selected {
+                recording: self.music[i],
+                music: true,
+            },
+            Some(_) => return,
+        };
+        self.current = Some(selected);
+        self.next = None;
+        self.start = seconds - f64::from(offset);
     }
     fn playback(&self, seconds: f64, gain: f32, primary: bool, custom_gain: f32) -> RadioPlayback {
         RadioPlayback {
@@ -310,6 +356,41 @@ impl RadioBroadcasts {
             custom_gain: reference.custom_gain,
             holiday_ranges: reference.holiday_ranges,
             calendar,
+            remote: false,
+            changed: false,
+        }
+    }
+    /// A multiplayer guest takes its clips from the host. Leaving the session selects again.
+    pub fn set_remote(&mut self, remote: bool) {
+        self.remote = remote;
+    }
+    /// True once after a station took a new clip.
+    pub fn take_changed(&mut self) -> bool {
+        std::mem::take(&mut self.changed)
+    }
+    /// Source `RadioChannelMultiplayerUpd`: the clip index and clip time of each station.
+    pub fn host_channels(&self, seconds: f64) -> impl ExactSizeIterator<Item = (i32, f32)> + '_ {
+        self.stations.iter().map(move |s| {
+            let index = s.current_index();
+            let offset = if index < 0 {
+                0.
+            } else {
+                (seconds - s.start) as f32
+            };
+            (index, offset)
+        })
+    }
+    /// Source `RadioChannelFromMultiplayerUpd`. A list for another station count is skipped.
+    pub fn apply_host(
+        &mut self,
+        channels: impl ExactSizeIterator<Item = (i32, f32)>,
+        seconds: f64,
+    ) {
+        if channels.len() != self.stations.len() {
+            return;
+        }
+        for (station, (index, offset)) in self.stations.iter_mut().zip(channels) {
+            station.apply_host(index, offset, seconds);
         }
     }
     pub fn calendar(&mut self, month: u8, day: u8) {
@@ -317,8 +398,11 @@ impl RadioBroadcasts {
     }
     /// mainscript.RADIO: every station advances once per step, heard or not.
     pub fn advance(&mut self, game_seconds: f64) {
+        if self.remote {
+            return;
+        }
         for s in &mut self.stations {
-            s.advance(game_seconds, self.calendar, &self.holiday_ranges);
+            self.changed |= s.advance(game_seconds, self.calendar, &self.holiday_ranges);
         }
     }
     /// radioscript.SetRadio gains for one radio.
@@ -382,6 +466,10 @@ impl RadioBroadcasts {
     }
     /// mainscript.Update advances FM stations while the sleep loop gain exceeds 0.5.
     pub fn advance_sleep(&mut self, seconds: f64) {
+        if self.remote {
+            return;
+        }
+        self.changed = true;
         let mut iteration = 0;
         loop {
             // Unity redraws Random.Range(1, 6) at each loop condition.
@@ -514,5 +602,60 @@ mod a09_save {
             assert!((frame.static_gain - 0.5 * (1. - channel)).abs() < 1e-4);
         }
         assert!(!broadcasts.frame(&radio, 0., 0.1, 0.2).power);
+    }
+
+    /// Source `RadioChannelMultiplayerUpd` and `UpdFromMulti`: a guest station plays the host clip at
+    /// the host clip time and does not select its own clips.
+    #[test]
+    fn guest_stations_follow_the_host() {
+        let mut reference = reference();
+        reference.stations = vec![
+            serde_json::from_value(serde_json::json!({
+                "id": 1, "band": "fm", "frequency": 100., "name": "", "custom": false,
+                "content": "", "initial_music": true, "start_time": 0.,
+                "initial_time": 0., "initial_max_time": 0., "initial_gain": 1., "music": [2, 3],
+                "talk": [1], "music_gains": [0., 0.], "talk_gains": [0.], "music_holidays": [0, 0],
+                "talk_holidays": [0]
+            }))
+            .unwrap(),
+        ];
+        let clips: Vec<AudioClipReference> = (1..=3)
+            .map(|id| {
+                serde_json::from_value(serde_json::json!({
+                    "id": id, "source": {"file": "f", "path_id": id}, "usages": [], "path": "",
+                    "sha256": "", "bytes": 0, "format": "", "format_tag": 0, "channels": 1,
+                    "frequency": 0, "bits_per_sample": 0, "block_align": 0, "data_bytes": 0,
+                    "frames": 0, "duration_seconds": 30., "source_duration_seconds": 30.,
+                    "duration_delta_seconds": 0., "duration_delta_frames": 0.,
+                    "duration_tolerance_frames": 0., "duration_status": ""
+                }))
+                .unwrap()
+            })
+            .collect();
+        let mut host = RadioBroadcasts::new(&reference, &clips, [1, 1]);
+        let mut guest = RadioBroadcasts::new(&reference, &clips, [1, 1]);
+        guest.set_remote(true);
+        host.advance(10.);
+        assert!(host.take_changed(), "the first clip is a change");
+        assert!(!host.take_changed());
+        guest.advance(10.);
+        let mut radio = radio(false);
+        radio.on = true;
+        radio.tuning = 0.6;
+        assert_eq!(guest.frame(&radio, 10., 1., 0.1).primary.clip, None);
+        let channels: Vec<_> = host.host_channels(14.).collect();
+        guest.apply_host(channels.into_iter(), 50.);
+        let (h, g) = (
+            host.frame(&radio, 14., 1., 0.1),
+            guest.frame(&radio, 50., 1., 0.1),
+        );
+        assert!(h.primary.clip.is_some());
+        assert_eq!(g.primary.clip, h.primary.clip);
+        assert!((g.primary.offset_seconds - 4.).abs() < 1e-4);
+        guest.advance(100.);
+        assert_eq!(
+            guest.frame(&radio, 100., 1., 0.1).primary.clip,
+            h.primary.clip
+        );
     }
 }

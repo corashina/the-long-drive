@@ -26,6 +26,7 @@ export class VoiceBank {
  // The car and voice instance emitters stay alive: their voices carry their own positions.
  begin(){this.frame++;const car=this.emitters.get(CAR_EMITTER),voice=this.emitters.get(VOICE_EMITTER);car.alive=voice.alive=true;car.seen=voice.seen=this.frame;}
  survivalEmitter(kind,x,y,z){const e=this.emitters.get(0x40000000+kind);if(e){e.position[0]=x;e.position[1]=y;e.position[2]=z;e.alive=true;e.seen=this.frame;}}
+ // A remote player body sound (instance slot+1) plays at its own position, not at the local survival emitter.
  survival(kind,instance,action,clip,gain,pitch,x,y,z){
   const record=this.survivalRecords.get(kind);if(!record||this.failedBindings.has(0x40000000+kind)||this.cache.failed?.has(clip))return;const key=kind*0x1000000+instance;
   const loop=action===1;let s=loop?this.effects.find(s=>s.survivalKey===key&&s.playing):null;
@@ -34,7 +35,7 @@ export class VoiceBank {
   // An update of a one-shot only moves its playing instance.
   if(loop&&!s&&record.one_shot)return;
   if(!loop&&!record.one_shot)for(const old of this.effects)if(old.playing&&old.record.channel===record.channel)this.stop(old,false);
-  if(!s){s=this.effects.find(s=>!s.playing);if(!s){s=this.effects.reduce((a,b)=>a.priority>b.priority?a:b);if(s.priority<=record.priority)return;}this.stop(s,false);s.record=record;s.rate=record.mixer_pitch;s.emitter=record.emitter;s.binding=0x40000000+kind;s.clip=clip;s.buffer=null;s.survivalKey=key;s.survivalLoop=loop;s.looping=loop;s.priority=record.priority;s.destroyAfter=record.one_shot?this.raw.clips.find(c=>c.id===clip).source_duration_seconds:0;s.spatialEmitter=[1,2,5,9].includes(kind)?record.emitter:0;s.previousPosition[0]=x;s.previousPosition[1]=y;s.previousPosition[2]=z;s.motionFrame=this.frame;}
+  if(!s){s=this.effects.find(s=>!s.playing);if(!s){s=this.effects.reduce((a,b)=>a.priority>b.priority?a:b);if(s.priority<=record.priority)return;}this.stop(s,false);s.record=record;s.rate=record.mixer_pitch;s.emitter=record.emitter;s.binding=0x40000000+kind;s.clip=clip;s.buffer=null;s.survivalKey=key;s.survivalLoop=loop;s.looping=loop;s.priority=record.priority;s.destroyAfter=record.one_shot?this.raw.clips.find(c=>c.id===clip).source_duration_seconds:0;s.spatialEmitter=instance===0&&[1,2,5,9].includes(kind)?record.emitter:0;s.previousPosition[0]=x;s.previousPosition[1]=y;s.previousPosition[2]=z;s.motionFrame=this.frame;}
   s.seen=this.frame;s.position[0]=x;s.position[1]=y;s.position[2]=z;s.volume=record.one_shot?Math.min(1,gain):gain;s.distanceScale=record.one_shot&&gain>1?gain-1:1;s.pitch=pitch;s.playing=true;this.connect(s,kind===12?this.routes.get(0x50000000+instance)??record.mixer:kind>=CAR_KIND&&kind<VOICE_KIND?this.routes.get(CAR_ROUTE+instance)??record.mixer:record.mixer);this.load(s);this.parameters(s);
  }
  listener(position,rotation){for(let i=0;i<3;i++)this.listenerVelocity[i]=this.motionDelta>0?(position[i]-this.listenerPrevious[i])/this.motionDelta:0;this.listenerPosition.set(position);this.listenerPrevious.set(position);this.listenerRotation.set(rotation);}

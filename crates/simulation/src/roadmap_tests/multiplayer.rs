@@ -1,6 +1,8 @@
 //! ROADMAP test pass: Multiplayer (MP rows).
 use crate::boundary::SimFrame;
+use crate::interaction::items::ItemLocation;
 use crate::net::{Net, NetRole};
+use crate::reference::ItemId;
 use crate::simulation::{FIXED_DT, FrameInput, keys};
 use crate::starting_area::GarageRuntime;
 use crate::world::stream::tests::kit::*;
@@ -206,4 +208,212 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
         assert_eq!(n & crate::net::message::RELIABLE, 0, "no echo");
         rest = &tail[(n & !crate::net::message::RELIABLE) as usize..];
     }
+}
+
+/// MP M04a. Source `SendStartStuff`, `RTime`, `RadioChannelMultiplayerUpd` and `SSound`: when a guest
+/// joins, the host sends its clock and its radio stations. The guest takes them. A host burp plays at
+/// the host position on the guest.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_mp_m04a_guest_takes_host_clock_stations_and_burp() {
+    use crate::audio::AudioKind;
+    let (reference, mut host_run) = load_garage();
+    settle(&mut host_run, &reference);
+    let mut guest_run = save_load(&host_run, &reference);
+    host_run.lighting.cycle.set_cycle_seconds(123.);
+    let clip = host_run
+        .audio_gameplay
+        .binding(AudioKind::Burp as u32)
+        .clips[0];
+    let at = [1e5, 20., -3e4];
+    host_run
+        .shared_sounds
+        .push(crate::net::message::SoundMessage {
+            position: at,
+            kind: AudioKind::Burp as u32,
+            clip,
+            gain: 1.,
+            pitch: 1.,
+        });
+    let (mut host, mut guest) = (Net::default(), Net::default());
+    host.set_session(NetRole::Host, 0);
+    guest.set_session(NetRole::Guest, 1);
+    let (mut frame, mut packets) = (SimFrame::default(), Vec::new());
+    for _ in 0..20 {
+        guest.fill(&reference, &mut guest_run, FIXED_DT, 1., &mut frame);
+        guest.take_outbox(&mut packets);
+        host.receive(&packets);
+        host.fill(&reference, &mut host_run, FIXED_DT, 1., &mut frame);
+        host.take_outbox(&mut packets);
+        guest.receive(&packets);
+    }
+    guest.fill(&reference, &mut guest_run, FIXED_DT, 1., &mut frame);
+    assert_eq!(
+        guest_run.lighting.cycle.cycle_seconds(),
+        123.,
+        "the host clock"
+    );
+    let (h, g) = (
+        host_run.audio.as_ref().unwrap(),
+        guest_run.audio.as_ref().unwrap(),
+    );
+    let host_channels: Vec<_> = h.broadcasts.host_channels(h.game_seconds).collect();
+    let guest_channels: Vec<_> = g.broadcasts.host_channels(g.game_seconds).collect();
+    assert_eq!(
+        host_channels.iter().map(|c| c.0).collect::<Vec<_>>(),
+        guest_channels.iter().map(|c| c.0).collect::<Vec<_>>(),
+        "the host clips"
+    );
+    assert!(
+        g.survival_events
+            .iter()
+            .any(|e| e.kind == AudioKind::Burp && e.emitter == 1 && e.position == at),
+        "the host burp at the host"
+    );
+}
+
+/// Host and guest runtimes that pass their packets each frame.
+struct Pair {
+    host: Net,
+    guest: Net,
+    frame: SimFrame,
+    packets: Vec<u8>,
+}
+
+impl Pair {
+    fn new() -> Self {
+        let (mut host, mut guest) = (Net::default(), Net::default());
+        host.set_session(NetRole::Host, 0);
+        guest.set_session(NetRole::Guest, 1);
+        Self {
+            host,
+            guest,
+            frame: SimFrame::default(),
+            packets: Vec::new(),
+        }
+    }
+    fn run(
+        &mut self,
+        reference: &crate::reference::ReferenceManifest,
+        host: &mut GarageRuntime,
+        guest: &mut GarageRuntime,
+        seconds: f32,
+    ) {
+        for _ in 0..(seconds / FIXED_DT).ceil() as usize {
+            frame(host, reference);
+            self.host
+                .fill(reference, host, FIXED_DT, 1., &mut self.frame);
+            self.host.take_outbox(&mut self.packets);
+            self.guest.receive(&self.packets);
+            frame(guest, reference);
+            self.guest
+                .fill(reference, guest, FIXED_DT, 1., &mut self.frame);
+            self.guest.take_outbox(&mut self.packets);
+            self.host.receive(&self.packets);
+        }
+    }
+}
+
+/// The same item on the other runtime.
+fn same(from: &GarageRuntime, to: &GarageRuntime, item: ItemId) -> ItemId {
+    to.area
+        .items
+        .resolve_key(&from.area.items.object_key(item))
+        .expect("the item is on both peers")
+}
+
+fn absolute(run: &GarageRuntime, item: ItemId) -> [f64; 3] {
+    run.stream
+        .origin
+        .absolute(run.area.items.get(item).unwrap().pose.position)
+}
+
+fn apart(a: [f64; 3], b: [f64; 3]) -> f64 {
+    (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f64>().sqrt()
+}
+
+/// The nearest loose item with a dynamic body.
+fn loose_item(run: &GarageRuntime) -> ItemId {
+    let player = body_position(run);
+    run.area
+        .items
+        .iter()
+        .filter(|i| !i.removed && i.location == ItemLocation::World && i.inactive_pose.is_none())
+        .filter(|i| {
+            i.body
+                .is_some_and(|b| run.physics.rapier().bodies[b].is_dynamic())
+        })
+        .min_by(|a, b| {
+            let a = (Vector::from_array(a.pose.position) - player).length();
+            let b = (Vector::from_array(b.pose.position) - player).length();
+            a.total_cmp(&b)
+        })
+        .expect("a loose item")
+        .id
+}
+
+/// M03. Source `MultiUpd` and `UpdInWorld`: the host owns unclaimed items and sends their pose each
+/// second. An item that the host moves moves on the guest.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_m03_a_host_item_moves_on_the_guest() {
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let mut guest = save_load(&run, &reference);
+    let mut pair = Pair::new();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    let item = loose_item(&run);
+    let copy = same(&run, &guest, item);
+    let body = run.area.items.get(item).unwrap().body.unwrap();
+    run.physics.edit_body(body, |b| {
+        let mut pose = *b.position();
+        pose.translation.y += 0.5;
+        b.set_position(pose, true);
+    });
+    pair.run(&reference, &mut run, &mut guest, 1.2);
+    let (host_at, guest_at) = (absolute(&run, item), absolute(&guest, copy));
+    assert!(
+        apart(host_at, guest_at) < 0.1,
+        "the guest item follows: host {host_at:?}, guest {guest_at:?}"
+    );
+}
+
+/// M03. Source `Claim`: a guest pickup claims the item, so the host does not send it. The drop
+/// sends the last pose, then the release, and the host owns the item again.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let mut guest = save_load(&run, &reference);
+    let mut pair = Pair::new();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    let copy = loose_item(&guest);
+    let item = same(&guest, &run, copy);
+    pick_up(&mut guest, &reference, copy);
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    assert!(pair.guest.claims().claimed(copy), "the guest claims it");
+    assert_eq!(
+        pair.host.claims().other(item),
+        Some(1),
+        "the host sees the claim"
+    );
+    assert!(!pair.host.claims().owns(item, true));
+    pair.run(&reference, &mut run, &mut guest, 1.2);
+    assert!(
+        apart(absolute(&run, item), absolute(&guest, copy)) < 0.2,
+        "the host item follows the held item"
+    );
+    guest
+        .area
+        .interaction
+        .drop_held(&mut guest.area.items, &mut guest.physics);
+    guest.area.sync_inventory();
+    pair.run(&reference, &mut run, &mut guest, 0.2);
+    assert!(!pair.guest.claims().claimed(copy), "the drop releases it");
+    assert_eq!(pair.host.claims().other(item), None);
+    assert!(
+        pair.host.claims().owns(item, true),
+        "the host owns it again"
+    );
 }

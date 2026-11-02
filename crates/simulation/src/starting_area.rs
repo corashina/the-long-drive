@@ -441,6 +441,8 @@ pub fn world_vehicle(
 
 /// Source electronics cutoff: `electronicsscript` output above it powers ignition.
 const ELECTRONICS_CUTOFF: f32 = 0.2;
+/// Body sounds that wait for the next net frame.
+const SHARED_SOUNDS: usize = 4;
 
 /// Per-copy inputs of a world car runtime.
 pub struct WorldCarParts {
@@ -756,6 +758,8 @@ pub struct GarageRuntime {
     pub urine: crate::interaction::fluid_contact::FluidContact,
     urine_reference: crate::reference::FluidParticleReference,
     urine_emission: [f32; 2],
+    /// Body sounds of the local player for multiplayer peers (source `SSound`). Net drains it each frame.
+    pub shared_sounds: Vec<crate::net::message::SoundMessage>,
     heat_haze: crate::heat_haze::OldHeatHaze,
     /// Source `BOldHeatHaze`. The driver sets it.
     pub old_heat_haze: bool,
@@ -945,6 +949,7 @@ impl GarageRuntime {
             urine,
             urine_reference,
             urine_emission: [0.; 2],
+            shared_sounds: Vec::with_capacity(SHARED_SOUNDS),
             heat_haze: crate::heat_haze::OldHeatHaze::new(&reference.small_items.heat_haze),
             old_heat_haze: false,
             ambient: crate::audio::AmbientState::new(&reference.ambient),
