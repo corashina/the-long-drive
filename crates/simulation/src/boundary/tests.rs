@@ -112,6 +112,7 @@ fn frame_round_trips() {
             prefab: 1,
             offset: [10., 0., 5.],
             heading: [0., 0., 0., 1.],
+            flags: PlaneRow::SEATED,
         }],
         creatures: vec![CreatureRow {
             id: 2,

@@ -50,7 +50,73 @@ pub struct GroundUfoReference {
     /// Source Start adds `road_height_offset`.
     pub visited_distance: f32,
     pub disappear_distance: f32,
+    /// Rigidbody mass. The body has no gravity and frozen rotation.
+    pub mass: f32,
+    /// fedoscript start `speedlerp`.
+    pub speed_lerp: f32,
+    /// Colliders in root space, port coordinates.
+    pub colliders: Vec<UfoCollider>,
+    pub seat: UfoSeat,
+    /// The stimulscript on the root sphere collider.
+    pub stimulus: UfoStimulus,
     pub evidence: ManagedEvidence,
+}
+/// The use of one Fedo01 collider.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UfoRole {
+    Body,
+    /// The seatscript collider.
+    Seat,
+    /// fedoscript `enableFollowRoad` usable: turn.
+    AutoPilot,
+    /// fedoscript `setHighSpeed` usable: tune.
+    Speed,
+    /// fedoscript `setAltitude` usable: tune.
+    Altitude,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UfoCollider {
+    pub source: SourceId,
+    pub role: UfoRole,
+    /// Under the fedoscript `rot` Transform: it turns with the rotor spin.
+    pub spin: bool,
+    /// Under fedoscript `seatedObj`: active only while the seat is in use.
+    pub seated: bool,
+    pub membership: u32,
+    pub filter: u32,
+    pub geometry: ColliderGeometry,
+}
+/// The Fedo01 seatscript. Positions are root space, port coordinates.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UfoSeat {
+    pub source: SourceId,
+    /// The seatscript Transform.
+    pub node: [f32; 3],
+    /// `sitPos`.
+    pub sit: [f32; 3],
+    pub rot_limit: f32,
+    pub yaw_unlimited: bool,
+    pub look_instead_of_lean: bool,
+    pub root_origin: bool,
+    pub default_pitch: f32,
+    pub min_exit_angle: f32,
+    pub exit_height: f32,
+    pub show_sleep_text: bool,
+    pub cant_push_from_seat: bool,
+    pub push_force_modifier: f32,
+    pub def_pose: u32,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UfoStimulus {
+    /// The stimulscript. `CreaturesReference::stimuli` holds its values.
+    pub source: SourceId,
+    /// Sphere collider center in root space, port coordinates.
+    pub center: [f32; 3],
+    pub radius: f32,
 }
 /// Source randomFlyer on RandomBat, a world prototype. Ranges are [min, max].
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -156,6 +222,8 @@ pub struct SkyPrefab {
     /// Audio voice IDs of the prefab AudioSources.
     pub voices: Vec<u32>,
     pub spin: Option<SkySpin>,
+    /// fedoscript `seatedObj`: shown only while the seat is in use.
+    pub seated: Option<NodeId>,
     /// The empscript on the prefab root.
     pub emp: Option<crate::electronics::EmpReference>,
 }
@@ -273,8 +341,50 @@ impl GroundUfoReference {
                 && 0. < self.speed
                 && self.speed <= self.high_speed
                 && self.target_distance > 0.
-                && self.disappear_distance > 0.,
+                && self.disappear_distance > 0.
+                && self.mass > 0.
+                && (0. ..=1.).contains(&self.speed_lerp)
+                && sky.prefabs[self.prefab].spin.is_some()
+                && sky.prefabs[self.prefab].seated.is_some(),
             "ground ufo",
+        )?;
+        let roles = [
+            UfoRole::Seat,
+            UfoRole::AutoPilot,
+            UfoRole::Speed,
+            UfoRole::Altitude,
+        ];
+        require(
+            roles
+                .iter()
+                .all(|r| self.colliders.iter().any(|c| c.role == *r))
+                && self.colliders.iter().all(|c| {
+                    c.seated
+                        == matches!(
+                            c.role,
+                            UfoRole::AutoPilot | UfoRole::Speed | UfoRole::Altitude
+                        )
+                }),
+            "ground ufo colliders",
+        )?;
+        let s = &self.seat;
+        let t = &self.stimulus;
+        require(
+            finite(&s.node)
+                && finite(&s.sit)
+                && finite(&[
+                    s.rot_limit,
+                    s.default_pitch,
+                    s.min_exit_angle,
+                    s.exit_height,
+                    s.push_force_modifier,
+                ])
+                && s.rot_limit >= 0.
+                && (-89. ..=89.).contains(&s.default_pitch)
+                && s.def_pose < 3
+                && finite(&t.center)
+                && t.radius > 0.,
+            "ground ufo seat",
         )
     }
 }
