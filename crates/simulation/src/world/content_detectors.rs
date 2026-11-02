@@ -2,6 +2,7 @@
 //! generated items.
 use super::WorldStream;
 use super::content_index::ContentSlot;
+use crate::electronics::{Electronics, Emp, NodeElectronics};
 use crate::interaction::items::ItemStore;
 use crate::interaction::{InteractionState, Knob};
 use crate::reference::{
@@ -45,6 +46,8 @@ pub struct DetectorBinding {
     random: UnityRandom,
     hits: Vec<(f32, u128)>,
     pub needle: DetectorNeedle,
+    /// The detector electronicsscript.
+    electronics: Option<NodeElectronics>,
 }
 impl DetectorBinding {
     pub fn heap_bytes(&self) -> usize {
@@ -302,6 +305,16 @@ impl WorldStream {
             knobs.push(id);
         }
         let hits = Vec::with_capacity(detector_rules.hits.max(16));
+        let electronics = optional(f, "electronics")?
+            .map(|e| -> Result<_, ReferenceError> {
+                let node = index(rules.root(reference, e)?)?;
+                Ok(NodeElectronics {
+                    node: node as u32,
+                    layer: u32::from(prototype.nodes[node].layer),
+                    state: Electronics::from_fields(rules.get(reference, e)?.fields)?,
+                })
+            })
+            .transpose()?;
         Ok(DetectorBinding {
             parent,
             slot,
@@ -313,6 +326,7 @@ impl WorldStream {
             random: UnityRandom::new(item.0 as i32),
             hits,
             needle,
+            electronics,
         })
     }
     /// usablescript.Turn on the onOffButton. Returns false when the knob is not a switch.
@@ -334,6 +348,16 @@ impl WorldStream {
             .iter()
             .find(|b| b.item == item)
             .map(|b| b.detector.on)
+    }
+    /// EMPs jam each detector at its item position.
+    pub fn expose_detectors(&mut self, emps: &[Emp], items: &ItemStore, dt: f32) {
+        for b in &mut self.detector_bindings {
+            let (Some(e), Some(item)) = (&mut b.electronics, items.get(b.item)) else {
+                continue;
+            };
+            e.state
+                .expose(emps, to_rapier(item.pose).translation, e.layer, dt);
+        }
     }
     /// metalDetectorScript.Update and its mutatoscript needle. Calls `beep` with the item,
     /// detector position, pitch and volume of each detector that is on.
@@ -360,6 +384,7 @@ impl WorldStream {
                 physics,
                 &mut b.random,
                 &mut b.hits,
+                b.electronics.as_ref().map_or(0., |e| e.state.jam),
             ) {
                 beep(b.item, transform.translation.to_array(), pitch, volume);
             }

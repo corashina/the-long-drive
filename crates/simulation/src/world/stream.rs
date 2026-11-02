@@ -304,6 +304,9 @@ pub struct WorldStream {
     follower_scan: Option<(u64, u64)>,
     /// Indices of world prototypes with followers.
     follower_prototypes: Vec<usize>,
+    electronics_bindings: Vec<content_electronics::ElectronicsBinding>,
+    /// Session and content revisions whose electronics are all bound.
+    electronics_scan: Option<(u64, u64)>,
     detector_bindings: Vec<content_detectors::DetectorBinding>,
     /// Session and active revision whose metal detectors are all bound.
     detector_scan: Option<(u64, u64)>,
@@ -368,6 +371,9 @@ pub struct WorldStream {
     /// Source breakablescript targets of active content.
     pub breakables: crate::damage::Breakables,
     evaluator: TerrainEvaluator,
+    /// `roads[0]` lateral curve and width for `road_point`.
+    road_curve: super::RoadCurve,
+    road_width: f32,
     color_foundations: Vec<super::FoundationPoint>,
     color_helpers: Vec<TerrainFoundation>,
     tiles: [TerrainTile; 3],
@@ -963,6 +969,8 @@ impl WorldStream {
                 .collect(),
             detector_bindings: Vec::new(),
             detector_scan: None,
+            electronics_bindings: Vec::new(),
+            electronics_scan: None,
             bus_door_bindings: Vec::new(),
             bus_door_scan: None,
             bus_door_scripts: Vec::new(),
@@ -1025,6 +1033,8 @@ impl WorldStream {
             boxes: Default::default(),
             breakables: Default::default(),
             evaluator,
+            road_curve: super::RoadCurve::new(world, seed),
+            road_width: world.road.width,
             color_foundations: Vec::new(),
             color_helpers: Vec::new(),
             tiles: [
@@ -3993,6 +4003,19 @@ impl WorldStream {
         let color = self.evaluator.color(xz, height);
         (height, super::forced_color(color, context.biome_override))
     }
+    /// Source `roads[0].OneCoord(position)` with Y at `above` over the base terrain height
+    /// (`GetTerrainHeightWorld(pb1: true, pb2: false, pb3: false)`). Absolute coordinates.
+    pub fn road_point(&self, position: [f64; 3], above: f32) -> [f64; 3] {
+        // OneCoord projects onto the identity world's forward axis. Source Z is the negated world Z.
+        let z = -position[2] as f32;
+        let x = self.road_curve.value(z.abs()) * self.road_width;
+        let height = self.evaluator.base_height([x, z], true);
+        [
+            f64::from(x),
+            f64::from(height) + f64::from(above),
+            position[2],
+        ]
+    }
     pub fn required_content(&self) -> super::RequiredContent<'_> {
         super::RequiredContent {
             request: self.request,
@@ -4595,6 +4618,10 @@ impl WorldStream {
             return Err(error);
         }
         if let Err(error) = self.sync_music_box_bindings(items, interaction, physics) {
+            self.binding_reserved = 0;
+            return Err(error);
+        }
+        if let Err(error) = self.sync_electronics_bindings() {
             self.binding_reserved = 0;
             return Err(error);
         }
@@ -5346,6 +5373,13 @@ impl WorldStream {
                     .sum::<usize>()
                 + self.follower_prototypes.capacity() * std::mem::size_of::<usize>()
                 + self.tools.heap_bytes()
+                + self.electronics_bindings.capacity()
+                    * std::mem::size_of::<content_electronics::ElectronicsBinding>()
+                + self
+                    .electronics_bindings
+                    .iter()
+                    .map(content_electronics::ElectronicsBinding::heap_bytes)
+                    .sum::<usize>()
                 + self.detector_bindings.capacity()
                     * std::mem::size_of::<content_detectors::DetectorBinding>()
                 + self
@@ -5646,6 +5680,8 @@ mod content_busdoors;
 mod content_detectors;
 #[path = "content_dials.rs"]
 mod content_dials;
+#[path = "content_electronics.rs"]
+mod content_electronics;
 #[path = "content_followers.rs"]
 pub mod content_followers;
 #[path = "content_musicboxes.rs"]
