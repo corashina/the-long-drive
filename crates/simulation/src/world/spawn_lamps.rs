@@ -2,7 +2,11 @@
 use super::spawn_contents::SpawnEvaluation;
 use super::spawn_rules::*;
 use super::{NodeAppearance, WorldLight};
+use crate::electronics::Electronics;
 use crate::reference::{ReferenceError, SourceId};
+/// `mainscript.lightTurnOffValue`.
+pub const LIGHT_TURN_OFF: f32 = 0.2;
+
 fn activity(node: SourceId, active: bool) -> NodeAppearance {
     NodeAppearance {
         primary: None,
@@ -191,8 +195,11 @@ impl SpawnEvaluation<'_> {
                         })?;
                         let original =
                             super::source_lights::light_record(self.reference, value_link(first)?)?;
-                        record.startup_intensity =
-                            original.startup_intensity * electronics_factor(electronics.fields)?;
+                        let mut state = Electronics::from_fields(electronics.fields)?;
+                        if let Some(jam) = self.initialization.jam(owner, component) {
+                            state.jam = jam;
+                        }
+                        record.startup_intensity = original.startup_intensity * state.factor();
                     }
                 }
                 let mut id = parent.id.clone();
@@ -216,11 +223,6 @@ impl SpawnEvaluation<'_> {
     }
 }
 
-pub fn electronics_factor(f: Fields<'_>) -> Result<f32, ReferenceError> {
-    let maximum = number(f, "overRideMaxJamValue")?;
-    let maximum = if maximum > 0. { maximum } else { 0.3 };
-    Ok(((maximum - number(f, "jamValue")?) / maximum).clamp(0., 1.))
-}
 fn lamp_power(
     reference: &crate::reference::WorldReference,
     rules: &SourceRules,
@@ -244,8 +246,11 @@ fn lamp_power(
     }
     match source {
         Some(source) => {
-            let f = rules.get(reference, source)?.fields;
-            Ok(number(f, "maxOutput")? * electronics_factor(f)? > 0.2)
+            let mut state = Electronics::from_fields(rules.get(reference, source)?.fields)?;
+            if let Some(jam) = initialization.jam(parent, source) {
+                state.jam = jam;
+            }
+            Ok(state.output() > LIGHT_TURN_OFF)
         }
         None => Ok(true),
     }

@@ -639,7 +639,7 @@ impl WorldStream {
             }
         }
     }
-    fn refresh_lamp_outputs(&mut self) {
+    pub(super) fn refresh_lamp_outputs(&mut self) {
         for content in self.contents.instances() {
             for light in &content.lights {
                 if let Some(current) = self.lights.iter_mut().find(|l| l.id == light.id) {
