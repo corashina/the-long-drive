@@ -115,6 +115,19 @@ impl Rig {
     pub fn nodes(&self) -> &[NodeId] {
         &self.nodes
     }
+    /// The nearest ancestor of `node` in `bones`, its index there, and the rest frame of `node`
+    /// under it.
+    pub fn under_bone(&self, mut node: usize, bones: &[usize]) -> Option<(usize, Frame)> {
+        let mut frame = Frame::IDENTITY;
+        loop {
+            frame = self.rest[node].mul(&frame);
+            node = self.parent[node]?;
+            if let Some(i) = bones.iter().position(|b| *b == node) {
+                return Some((i, frame));
+            }
+        }
+    }
+
     pub fn index(&self, node: NodeId) -> Option<usize> {
         self.index.get(&node).copied()
     }
