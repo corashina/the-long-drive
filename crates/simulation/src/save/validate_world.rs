@@ -331,20 +331,25 @@ impl SaveSnapshot {
             self.world.spawn.live.words != [0; 4],
             "Source live random state",
         )?;
-        let mut boundaries = HashSet::new();
-        for b in &self.world.spawn.boundaries {
-            generated(&b.parent)?;
-            source(&b.caller)?;
-            context(b.context)?;
+        let spawn = &self.world.spawn;
+        for id in &spawn.parents {
+            generated(id)?;
+        }
+        for s in &spawn.callers {
+            source(s)?;
+        }
+        for c in &spawn.contexts {
+            context(*c)?;
+        }
+        for p in spawn.pools.iter().flatten() {
+            source(&p.source)?;
+        }
+        // restore_history below rejects bad table indices and duplicate boundaries.
+        for b in &spawn.boundaries {
             data(b.random.words != [0; 4], "Source boundary random state")?;
-            links(
-                boundaries.insert((&b.parent, &b.caller, b.ordinal, b.phase as u8)),
-                "Duplicate source first-call boundary",
-            )?;
-            for p in &b.painting_pools {
-                source(&p.source)?;
-            }
-            let init = &b.initialization;
+            let Some(init) = &b.initialization else {
+                continue;
+            };
             for (id, s, _) in &init.paintings {
                 generated(id)?;
                 source(s)?;

@@ -2706,9 +2706,6 @@ impl WorldStream {
             }
         }
     }
-    pub fn spawn_boundaries(&self) -> &[super::SpawnBoundary] {
-        self.contents.state.boundaries()
-    }
     pub fn contents_initialized(&self, id: &super::GeneratedId) -> bool {
         self.contents.initialized(id)
     }

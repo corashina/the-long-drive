@@ -1640,16 +1640,20 @@ mod tests {
             [1, 0, 0, 0]
         );
         assert_eq!(contents.state.boundary_count(), 1);
-        let boundary = &contents.state.boundaries()[0];
-        assert_eq!(boundary.parent, contents.cursors[0].parent.id);
+        let history = contents.state.capture_history();
+        let boundary = &history.boundaries[0];
         assert_eq!(
-            boundary.caller,
+            history.parents[boundary.parent as usize],
+            contents.cursors[0].parent.id
+        );
+        assert_eq!(
+            history.callers[boundary.caller as usize],
             *contents.cursors[0].building.as_ref().unwrap()
         );
         assert_eq!(boundary.phase, SpawnPhase::SynchronousAndStarts);
         assert_eq!(boundary.ordinal, 0);
         assert_eq!(boundary.random, live);
-        assert_eq!(boundary.initialization, Default::default());
+        assert_eq!(boundary.initialization, None);
         assert_eq!(
             contents.state.live_state().words,
             [4005824999, 1007970560, 4283702805, 3403211127]

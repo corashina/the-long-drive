@@ -2,28 +2,30 @@
 use super::{GeneratedId, UnityRandom, UnityRandomState};
 use crate::reference::{ReferenceError, SourceId};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Inputs that can change source selection, captured at each first invocation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SpawnContext {
     pub current_car: i32,
     pub peaceful_enemies: i32,
     pub date: [i32; 3],
     pub chance_bits: Option<u32>,
 }
+/// One first invocation. `parent`, `caller`, `context` and `pools` index the history tables.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SpawnBoundary {
-    pub parent: GeneratedId,
-    pub caller: SourceId,
+    pub parent: u32,
+    pub caller: u32,
     pub ordinal: u32,
     pub phase: SpawnPhase,
     pub random: UnityRandomState,
-    pub context: SpawnContext,
-    pub painting_pools: Vec<PaintingPool>,
-    pub initialization: SpawnInitialization,
+    pub context: u32,
+    pub pools: u32,
+    /// None when the inputs are empty.
+    pub initialization: Option<Box<SpawnInitialization>>,
 }
 /// Mutable component inputs needed by a yielded slot continuation.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -222,59 +224,142 @@ pub enum SpawnPhase {
 }
 
 /// The supplied controlled startup state does not describe untouched game startup.
+/// Boundaries refer to the tables by index, so each identity, context and pool state is stored once.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SpawnHistory {
     pub live: UnityRandomState,
     pub painting_pools: Vec<PaintingPool>,
-    pub boundaries: Vec<SpawnBoundary>,
     pub context: SpawnContext,
+    pub parents: Vec<GeneratedId>,
+    pub callers: Vec<SourceId>,
+    pub contexts: Vec<SpawnContext>,
+    pub pools: Vec<Vec<PaintingPool>>,
+    pub boundaries: Vec<SpawnBoundary>,
 }
+/// Values stored once and referred to by index.
+struct Table<T: Eq + std::hash::Hash> {
+    values: Vec<Arc<T>>,
+    index: HashMap<Arc<T>, u32>,
+}
+impl<T: Eq + std::hash::Hash> Table<T> {
+    fn new() -> Self {
+        Self {
+            values: Vec::new(),
+            index: HashMap::new(),
+        }
+    }
+    fn find(&self, value: &T) -> Option<u32> {
+        self.index.get(value).copied()
+    }
+    /// The index of `value`, and its new heap bytes when `value` is new.
+    fn intern(&mut self, value: &T, bytes: impl FnOnce(&T) -> usize) -> (u32, usize)
+    where
+        T: Clone,
+    {
+        if let Some(i) = self.find(value) {
+            return (i, 0);
+        }
+        let i = self.values.len() as u32;
+        let value = Arc::new(value.clone());
+        self.values.push(value.clone());
+        self.index.insert(value.clone(), i);
+        (
+            i,
+            2 * std::mem::size_of::<usize>() + std::mem::size_of::<T>() + bytes(&value),
+        )
+    }
+    fn capacity_bytes(&self) -> usize {
+        self.values.capacity() * std::mem::size_of::<Arc<T>>()
+            + self.index.capacity() * (std::mem::size_of::<(Arc<T>, u32)>() + 1)
+    }
+    fn capture(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        self.values.iter().map(|v| T::clone(v)).collect()
+    }
+}
+type BoundaryKey = (u32, u32, u32, SpawnPhase);
 pub struct SourceSpawnState {
     live: UnityRandom,
     painting_pools: Vec<PaintingPool>,
-    parents: HashSet<GeneratedId>,
+    parents: Table<GeneratedId>,
+    callers: Table<SourceId>,
+    contexts: Table<SpawnContext>,
+    /// Pool states in first-use order. Equal consecutive states share one entry.
+    pools: Vec<Arc<Vec<PaintingPool>>>,
     boundaries: Vec<SpawnBoundary>,
-    /// Boundary indices by key hash. Lookups stay constant time on long trips.
-    index: HashMap<u64, Vec<usize>>,
-    /// Heap of boundaries, index buckets and parent identities.
+    /// Boundary index by key. Lookups stay constant time on long trips.
+    index: HashMap<BoundaryKey, u32>,
+    /// Heap of table values, pool states and boundary inputs.
     heap_bytes: usize,
     pub context: SpawnContext,
 }
-fn boundary_hash(parent: &GeneratedId, caller: &SourceId, ordinal: u32, phase: SpawnPhase) -> u64 {
-    let mut hasher = std::hash::DefaultHasher::new();
-    (parent, caller, ordinal, phase).hash(&mut hasher);
-    hasher.finish()
-}
 impl SourceSpawnState {
+    fn empty(live: UnityRandom, painting_pools: Vec<PaintingPool>, context: SpawnContext) -> Self {
+        Self {
+            live,
+            painting_pools,
+            parents: Table::new(),
+            callers: Table::new(),
+            contexts: Table::new(),
+            pools: Vec::new(),
+            boundaries: Vec::new(),
+            index: HashMap::new(),
+            heap_bytes: 0,
+            context,
+        }
+    }
     pub fn capture_history(&self) -> SpawnHistory {
         SpawnHistory {
             live: self.live.snapshot(),
             painting_pools: self.painting_pools.clone(),
-            boundaries: self.boundaries.clone(),
             context: self.context,
+            parents: self.parents.capture(),
+            callers: self.callers.capture(),
+            contexts: self.contexts.capture(),
+            pools: self.pools.iter().map(|p| Vec::clone(p)).collect(),
+            boundaries: self.boundaries.clone(),
         }
     }
     pub fn restore_history(history: SpawnHistory) -> Result<Self, ReferenceError> {
-        let mut state = Self {
-            live: UnityRandom::restore(history.live),
-            painting_pools: history.painting_pools,
-            boundaries: Vec::with_capacity(history.boundaries.len()),
-            index: HashMap::with_capacity(history.boundaries.len()),
-            heap_bytes: 0,
-            parents: HashSet::new(),
-            context: history.context,
-        };
+        let mut state = Self::empty(
+            UnityRandom::restore(history.live),
+            history.painting_pools,
+            history.context,
+        );
+        let invalid = || ReferenceError("Invalid spawn boundary table index".into());
         for boundary in history.boundaries {
-            if state.has_boundary(
-                &boundary.parent,
-                &boundary.caller,
-                boundary.ordinal,
-                boundary.phase,
-            ) {
+            let parent = history
+                .parents
+                .get(boundary.parent as usize)
+                .ok_or_else(invalid)?;
+            let caller = history
+                .callers
+                .get(boundary.caller as usize)
+                .ok_or_else(invalid)?;
+            let context = *history
+                .contexts
+                .get(boundary.context as usize)
+                .ok_or_else(invalid)?;
+            let pools = history
+                .pools
+                .get(boundary.pools as usize)
+                .ok_or_else(invalid)?;
+            if state.has_boundary(parent, caller, boundary.ordinal, boundary.phase) {
                 return Err(ReferenceError("Duplicate spawn boundary".into()));
             }
-            state.push(boundary);
+            state.push(
+                parent,
+                caller,
+                boundary.ordinal,
+                boundary.phase,
+                boundary.random,
+                context,
+                pools,
+                boundary.initialization,
+            );
         }
         Ok(state)
     }
@@ -295,71 +380,82 @@ impl SourceSpawnState {
         ordinal: u32,
         phase: SpawnPhase,
     ) -> Option<&SpawnBoundary> {
-        self.index
-            .get(&boundary_hash(parent, caller, ordinal, phase))?
-            .iter()
-            .map(|&i| &self.boundaries[i])
-            .find(|b| {
-                &b.parent == parent
-                    && &b.caller == caller
-                    && b.ordinal == ordinal
-                    && b.phase == phase
-            })
+        let key = (
+            self.parents.find(parent)?,
+            self.callers.find(caller)?,
+            ordinal,
+            phase,
+        );
+        self.index.get(&key).map(|&i| &self.boundaries[i as usize])
     }
-    fn push(&mut self, boundary: SpawnBoundary) {
-        let bucket = self
-            .index
-            .entry(boundary_hash(
-                &boundary.parent,
-                &boundary.caller,
-                boundary.ordinal,
-                boundary.phase,
-            ))
-            .or_default();
-        let before = bucket.capacity();
-        bucket.push(self.boundaries.len());
-        self.heap_bytes += (bucket.capacity() - before) * std::mem::size_of::<usize>()
-            + identity_bytes(&boundary.parent)
-            + boundary.caller.file.capacity()
-            + pools_bytes(&boundary.painting_pools)
-            + boundary.initialization.retained_bytes();
-        if !self.parents.contains(&boundary.parent) {
-            self.heap_bytes += identity_bytes(&boundary.parent);
-            self.parents.insert(boundary.parent.clone());
+    #[allow(clippy::too_many_arguments)]
+    fn push(
+        &mut self,
+        parent: &GeneratedId,
+        caller: &SourceId,
+        ordinal: u32,
+        phase: SpawnPhase,
+        random: UnityRandomState,
+        context: SpawnContext,
+        pools: &Vec<PaintingPool>,
+        initialization: Option<Box<SpawnInitialization>>,
+    ) {
+        let (parent, parent_bytes) = self.parents.intern(parent, identity_bytes);
+        let (caller, caller_bytes) = self.callers.intern(caller, |s| s.file.capacity());
+        let (context, _) = self.contexts.intern(&context, |_| 0);
+        if self.pools.last().is_none_or(|last| **last != *pools) {
+            self.heap_bytes += 2 * std::mem::size_of::<usize>()
+                + std::mem::size_of::<Vec<PaintingPool>>()
+                + pools_bytes(pools);
+            self.pools.push(Arc::new(pools.clone()));
         }
-        self.boundaries.push(boundary);
+        self.heap_bytes += parent_bytes
+            + caller_bytes
+            + initialization.as_ref().map_or(0, |i| {
+                std::mem::size_of::<SpawnInitialization>() + i.retained_bytes()
+            });
+        self.index.insert(
+            (parent, caller, ordinal, phase),
+            self.boundaries.len() as u32,
+        );
+        self.boundaries.push(SpawnBoundary {
+            parent,
+            caller,
+            ordinal,
+            phase,
+            random,
+            context,
+            pools: self.pools.len() as u32 - 1,
+            initialization,
+        });
     }
 
     pub fn supplied_controlled_startup(
         reference: &crate::reference::WorldSpawnContext,
         context: SpawnContext,
     ) -> Self {
-        Self {
-            live: UnityRandom::restore(UnityRandomState {
+        Self::empty(
+            UnityRandom::restore(UnityRandomState {
                 words: reference.startup_state,
             }),
-            boundaries: Vec::new(),
-            index: HashMap::new(),
-            heap_bytes: 0,
-            painting_pools: Vec::new(),
-            parents: HashSet::new(),
+            Vec::new(),
             context,
-        }
+        )
     }
     /// Constant time: per-boundary heap is summed when a boundary is pushed.
     pub fn retained_bytes(&self) -> usize {
         std::mem::size_of::<Self>()
             + pools_bytes(&self.painting_pools)
+            + self.parents.capacity_bytes()
+            + self.callers.capacity_bytes()
+            + self.contexts.capacity_bytes()
+            + self.pools.capacity() * std::mem::size_of::<Arc<Vec<PaintingPool>>>()
             + self.boundaries.capacity() * std::mem::size_of::<SpawnBoundary>()
-            + self.index.capacity() * std::mem::size_of::<(u64, Vec<usize>)>()
-            + self.parents.capacity() * std::mem::size_of::<GeneratedId>()
+            + self.index.capacity() * (std::mem::size_of::<(BoundaryKey, u32)>() + 1)
             + self.heap_bytes
     }
-    pub fn boundaries(&self) -> &[SpawnBoundary] {
-        &self.boundaries
-    }
     pub fn parent_count(&self) -> usize {
-        self.parents.len()
+        self.parents.values.len()
     }
     pub fn boundary_count(&self) -> usize {
         self.boundaries.len()
@@ -385,7 +481,8 @@ impl SourceSpawnState {
         ) -> Result<T, ReferenceError>,
     ) -> Result<T, ReferenceError> {
         if let Some(boundary) = self.find(parent, caller, ordinal, phase) {
-            let overlap = pools_bytes(&boundary.painting_pools);
+            let pools = &self.pools[boundary.pools as usize];
+            let overlap = pools_bytes(pools);
             if overlap > staging {
                 return Err(ReferenceError(
                     "Spawn replay pool clone exceeds staging".into(),
@@ -393,20 +490,22 @@ impl SourceSpawnState {
             }
             // Broken lamps are runtime state that the boundary does not keep: the live inputs
             // carry them on.
+            let empty = SpawnInitialization::default();
+            let stored = boundary.initialization.as_deref().unwrap_or(&empty);
             let restored;
             let inputs = if initialization.broken_lamps.is_empty() {
-                &boundary.initialization
+                stored
             } else {
                 restored = SpawnInitialization {
                     broken_lamps: initialization.broken_lamps.clone(),
-                    ..boundary.initialization.clone()
+                    ..stored.clone()
                 };
                 &restored
             };
             return call(
                 &mut UnityRandom::restore(boundary.random),
-                boundary.context,
-                &mut boundary.painting_pools.clone(),
+                *self.contexts.values[boundary.context as usize],
+                &mut Vec::clone(pools),
                 inputs,
                 staging - overlap,
             );
@@ -426,27 +525,30 @@ impl SourceSpawnState {
         self.boundaries
             .try_reserve_exact(1)
             .map_err(|_| ReferenceError("Source spawn replay metadata allocation failed".into()))?;
-        let boundary = SpawnBoundary {
-            parent: parent.clone(),
-            caller: caller.clone(),
-            ordinal,
-            phase,
-            random: self.live.snapshot(),
-            context: self.context,
-            painting_pools: self.painting_pools.clone(),
-            initialization: initialization.clone(),
-        };
-        let mut random = self.live;
+        let random = self.live.snapshot();
+        let captured = (self.context, self.painting_pools.clone());
+        let stored = (*initialization != SpawnInitialization::default())
+            .then(|| Box::new(initialization.clone()));
+        let mut live = self.live;
         let mut pools = self.painting_pools.clone();
         let value = call(
-            &mut random,
+            &mut live,
             self.context,
             &mut pools,
             initialization,
             staging - overlap,
         )?;
-        self.push(boundary);
-        self.live = random;
+        self.push(
+            parent,
+            caller,
+            ordinal,
+            phase,
+            random,
+            captured.0,
+            &captured.1,
+            stored,
+        );
+        self.live = live;
         self.painting_pools = pools;
         Ok(value)
     }
@@ -461,136 +563,152 @@ fn identity_bytes(id: &GeneratedId) -> usize {
 }
 
 #[cfg(test)]
-impl SourceSpawnState {
-    /// Diagnostic: retained and JSON bytes by part.
-    pub fn breakdown(&self) -> String {
-        let n = self.boundaries.len();
-        let mut ident = 0;
-        let mut pools = 0;
-        let mut pool_entries = 0;
-        let mut init = 0;
-        let mut counts = [0usize; 10];
-        let mut j_parent = 0;
-        let mut j_caller = 0;
-        let mut j_pools = 0;
-        let mut j_init = 0;
-        let mut j_rest = 0;
-        let mut distinct_pools = std::collections::HashSet::new();
-        let mut children = 0;
-        for b in &self.boundaries {
-            ident += identity_bytes(&b.parent) + b.caller.file.capacity();
-            pools += pools_bytes(&b.painting_pools);
-            pool_entries += b.painting_pools.iter().map(|p| p.available.len()).sum::<usize>();
-            init += b.initialization.retained_bytes();
-            children += b.parent.children.len();
-            let i = &b.initialization;
-            for (k, c) in [
-                i.paintings.len(), i.scales.len(), i.lamps.len(), i.conditions.len(),
-                i.initialized.len(), i.selectors.len(), i.activations.len(),
-                i.slot_parts.len(), i.door_speeds.len(), 0,
-            ].into_iter().enumerate() {
-                counts[k] += c;
-            }
-            let other_parent = [
-                i.initialized.iter().filter(|v| v.0 != b.parent).count(),
-                i.activations.iter().filter(|v| v.0 != b.parent).count(),
-            ];
-            counts[9] += other_parent[0] + other_parent[1];
-            j_parent += serde_json::to_string(&b.parent).unwrap().len();
-            j_caller += serde_json::to_string(&b.caller).unwrap().len();
-            let p = serde_json::to_string(&b.painting_pools).unwrap();
-            j_pools += p.len();
-            distinct_pools.insert(p);
-            j_init += serde_json::to_string(&b.initialization).unwrap().len();
-            j_rest += serde_json::to_string(&(b.ordinal, b.phase, b.random, b.context)).unwrap().len();
-        }
-        format!(
-            "boundaries {n} parents {} retained {} (structs {} ident {ident} pools {pools} [{pool_entries} entries, {} distinct] init {init}); \
-             init entries paint/scale/lamp/cond/init/sel/act/slot/door/other-parent {counts:?}; children {children}; \
-             json total {} (parent {j_parent} caller {j_caller} pools {j_pools} init {j_init} rest {j_rest})",
-            self.parents.len(),
-            self.retained_bytes(),
-            n * std::mem::size_of::<SpawnBoundary>(),
-            distinct_pools.len(),
-            serde_json::to_string(&self.capture_history()).unwrap().len(),
-        )
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
-    fn boundary(ordinal: u32, painting: usize) -> SpawnBoundary {
-        let source = SourceId {
+    fn source() -> SourceId {
+        SourceId {
             file: "level1".into(),
             path_id: 1,
-        };
-        SpawnBoundary {
-            parent: GeneratedId {
-                layer: super::super::WorldLayer::Building,
-                generator: source.clone(),
-                unit: [i64::from(ordinal / 3), 0],
-                ordinal: ordinal / 3,
-                children: Vec::new(),
-            },
-            caller: source.clone(),
-            ordinal,
-            phase: [
-                SpawnPhase::Synchronous,
-                SpawnPhase::ComponentStart,
-                SpawnPhase::SynchronousAndStarts,
-            ][ordinal as usize % 3],
-            random: UnityRandomState {
-                words: [ordinal; 4],
-            },
-            context: SpawnContext {
-                current_car: 0,
-                peaceful_enemies: 1,
-                date: [0; 3],
-                chance_bits: None,
-            },
-            painting_pools: vec![PaintingPool {
-                source,
-                available: vec![0; painting],
-            }],
-            initialization: SpawnInitialization::default(),
         }
     }
-    fn history(boundaries: Vec<SpawnBoundary>) -> SpawnHistory {
+    fn parent(ordinal: u32) -> GeneratedId {
+        GeneratedId {
+            layer: super::super::WorldLayer::Building,
+            generator: source(),
+            unit: [i64::from(ordinal / 3), 0],
+            ordinal: ordinal / 3,
+            children: Vec::new(),
+        }
+    }
+    fn phase(ordinal: u32) -> SpawnPhase {
+        [
+            SpawnPhase::Synchronous,
+            SpawnPhase::ComponentStart,
+            SpawnPhase::SynchronousAndStarts,
+        ][ordinal as usize % 3]
+    }
+    fn context() -> SpawnContext {
+        SpawnContext {
+            current_car: 0,
+            peaceful_enemies: 1,
+            date: [0; 3],
+            chance_bits: None,
+        }
+    }
+    /// A history with `count` boundaries, three per parent. Each boundary has its own pool state.
+    fn history(count: u32, painting: usize) -> SpawnHistory {
         SpawnHistory {
             live: UnityRandomState { words: [1; 4] },
             painting_pools: Vec::new(),
-            boundaries,
-            context: boundary(0, 0).context,
+            context: context(),
+            parents: (0..count.div_ceil(3)).map(|i| parent(i * 3)).collect(),
+            callers: vec![source()],
+            contexts: vec![context()],
+            pools: (0..count)
+                .map(|i| {
+                    vec![PaintingPool {
+                        source: source(),
+                        available: vec![i as i32; painting],
+                    }]
+                })
+                .collect(),
+            boundaries: (0..count)
+                .map(|i| SpawnBoundary {
+                    parent: i / 3,
+                    caller: 0,
+                    ordinal: i,
+                    phase: phase(i),
+                    random: UnityRandomState { words: [i; 4] },
+                    context: 0,
+                    pools: i,
+                    initialization: None,
+                })
+                .collect(),
         }
     }
 
     #[test]
     fn boundary_index_matches_scan() {
-        let boundaries: Vec<_> = (0..1000).map(|i| boundary(i, 1)).collect();
-        let state = SourceSpawnState::restore_history(history(boundaries.clone())).unwrap();
+        let history = history(1000, 1);
+        let state = SourceSpawnState::restore_history(history.clone()).unwrap();
         assert_eq!(state.parent_count(), 334);
-        for b in &boundaries {
+        for b in &history.boundaries {
             let found = state
-                .find(&b.parent, &b.caller, b.ordinal, b.phase)
+                .find(&parent(b.ordinal), &source(), b.ordinal, b.phase)
                 .unwrap();
             assert_eq!(found, b);
         }
-        let b = &boundaries[0];
-        assert!(!state.has_boundary(&b.parent, &b.caller, b.ordinal, SpawnPhase::ComponentStart));
-        assert_eq!(state.capture_history().boundaries, boundaries);
-        let mut duplicate = boundaries;
-        duplicate.push(duplicate[7].clone());
-        assert!(SourceSpawnState::restore_history(history(duplicate)).is_err());
+        assert!(!state.has_boundary(&parent(0), &source(), 0, SpawnPhase::ComponentStart));
+        assert_eq!(state.capture_history(), history);
+        let mut duplicate = history.clone();
+        duplicate.boundaries.push(duplicate.boundaries[7].clone());
+        assert!(SourceSpawnState::restore_history(duplicate).is_err());
+        let mut invalid = history;
+        invalid.boundaries[5].pools = 1000;
+        assert!(SourceSpawnState::restore_history(invalid).is_err());
     }
 
     #[test]
     fn large_spawn_history_restores() {
         // 3,000 boundaries with 8 KiB pools each is about 24 MiB, over the old 16 MiB cap.
-        let boundaries: Vec<_> = (0..3000).map(|i| boundary(i, 2048)).collect();
-        let state = SourceSpawnState::restore_history(history(boundaries)).unwrap();
+        let state = SourceSpawnState::restore_history(history(3000, 2048)).unwrap();
         assert!(state.retained_bytes() > 16 * 1024 * 1024);
         assert_eq!(state.boundary_count(), 3000);
+    }
+
+    #[test]
+    fn boundaries_share_tables() {
+        let mut state = SourceSpawnState::restore_history(history(0, 0)).unwrap();
+        let before = state.retained_bytes();
+        let initialization = SpawnInitialization {
+            initialized: vec![(parent(0), source())],
+            ..Default::default()
+        };
+        for i in 0..3000 {
+            let inputs = if i == 0 {
+                initialization.clone()
+            } else {
+                SpawnInitialization::default()
+            };
+            state
+                .invoke(
+                    &parent(i),
+                    &source(),
+                    i,
+                    phase(i),
+                    usize::MAX / 2,
+                    &inputs,
+                    |r, _, _, _, _| {
+                        r.value();
+                        Ok(())
+                    },
+                )
+                .unwrap();
+        }
+        let history = state.capture_history();
+        assert_eq!(history.parents.len(), 1000);
+        assert_eq!(
+            (
+                history.callers.len(),
+                history.contexts.len(),
+                history.pools.len()
+            ),
+            (1, 1, 1)
+        );
+        assert_eq!(
+            history.boundaries[0].initialization.as_deref(),
+            Some(&initialization)
+        );
+        assert!(history.boundaries[1].initialization.is_none());
+        // About 100 bytes per boundary with one identity per three boundaries.
+        assert!(
+            state.retained_bytes() - before < 3000 * 150,
+            "{}",
+            state.retained_bytes() - before
+        );
+        let restored = SourceSpawnState::restore_history(history.clone()).unwrap();
+        assert_eq!(restored.capture_history(), history);
+        assert_eq!(restored.live_state(), state.live_state());
     }
 }
