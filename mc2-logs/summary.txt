@@ -1,0 +1,11 @@
+commit c6be80ae4a6d5db02d7580ca896bdf5bce42cc0f
+00-build.log exit=0 seconds=354
+01-garage_start_car_drives_in_automatic.log exit=101 seconds=14
+02-tp_sa1_fill_start_drive_return_save_reload.log exit=101 seconds=23
+03-tp_cp7_turned_wheels_stay_after_save_and_load.log exit=0 seconds=18
+04-car07_drives_in_forced_automatic.log exit=0 seconds=13
+05-start_cars_drive_save_and_load.log exit=101 seconds=18
+06-two_ladas_drive_save_and_load.log exit=101 seconds=8
+07-lada_tows_the_trailer_and_the_hitch_saves.log exit=101 seconds=7
+08-start_car_driver_exits_in_garage.log exit=101 seconds=9
+09-r05_cargo_locks_in_trunk.log exit=101 seconds=14
