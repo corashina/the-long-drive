@@ -35,35 +35,50 @@ pub enum ObjectKey {
     Imported(ItemId),
     Generated(GeneratedId),
 }
-impl ObjectKey {
-    /// Stable 64-bit FNV-1a seed of the key. Each copy of one prototype gets its own seed.
+const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+fn mix(hash: &mut u64, bytes: &[u8]) {
+    for byte in bytes {
+        *hash = (*hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
+    }
+}
+fn mix_source(hash: &mut u64, id: &SourceId) {
+    mix(hash, id.file.as_bytes());
+    mix(hash, &id.path_id.to_le_bytes());
+}
+impl GeneratedId {
+    /// `ObjectKey::seed` of this key, without a copy of it.
     pub fn seed(&self) -> u64 {
-        fn mix(hash: &mut u64, bytes: &[u8]) {
-            for byte in bytes {
-                *hash = (*hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
-            }
-        }
-        fn source(hash: &mut u64, id: &SourceId) {
-            mix(hash, id.file.as_bytes());
-            mix(hash, &id.path_id.to_le_bytes());
-        }
-        let mut hash = 0xcbf29ce484222325;
-        match self {
-            Self::Imported(id) => mix(&mut hash, &id.0.to_le_bytes()),
-            Self::Generated(id) => {
-                mix(&mut hash, &[id.layer as u8]);
-                source(&mut hash, &id.generator);
-                mix(&mut hash, &id.unit[0].to_le_bytes());
-                mix(&mut hash, &id.unit[1].to_le_bytes());
-                mix(&mut hash, &id.ordinal.to_le_bytes());
-                for (child, ordinal) in &id.children {
-                    source(&mut hash, child);
-                    mix(&mut hash, &ordinal.to_le_bytes());
-                }
-            }
+        let mut hash = FNV_OFFSET;
+        mix(&mut hash, &[self.layer as u8]);
+        mix_source(&mut hash, &self.generator);
+        mix(&mut hash, &self.unit[0].to_le_bytes());
+        mix(&mut hash, &self.unit[1].to_le_bytes());
+        mix(&mut hash, &self.ordinal.to_le_bytes());
+        for (child, ordinal) in &self.children {
+            mix_source(&mut hash, child);
+            mix(&mut hash, &ordinal.to_le_bytes());
         }
         hash
     }
+}
+impl ObjectKey {
+    /// Stable 64-bit FNV-1a seed of the key. Each copy of one prototype gets its own seed.
+    pub fn seed(&self) -> u64 {
+        match self {
+            Self::Imported(id) => {
+                let mut hash = FNV_OFFSET;
+                mix(&mut hash, &id.0.to_le_bytes());
+                hash
+            }
+            Self::Generated(id) => id.seed(),
+        }
+    }
+}
+/// FNV-1a of `bytes`, the hash of `ObjectKey::seed`.
+pub fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash = FNV_OFFSET;
+    mix(&mut hash, bytes);
+    hash
 }
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

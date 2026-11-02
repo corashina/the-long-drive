@@ -94,7 +94,7 @@ impl WorldStream {
     }
     /// Destroy of a world content item. Items locked in it unlock at their current pose. The
     /// removal is saved.
-    pub(super) fn remove_item(
+    pub(crate) fn remove_item(
         &mut self,
         item: ItemId,
         items: &mut ItemStore,
