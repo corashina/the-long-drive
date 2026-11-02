@@ -82,6 +82,26 @@ class LibraryValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'records root'):
                 verify_library(output, self.snapshot.root)
 
+    def test_accepted_library_runs_the_full_check_once_per_manifest(self):
+        from tools.reference.library.validation import accepted_library
+        output = self.root / 'web/assets/library'
+        publish_library(self.snapshot, self.catalog, (self.export,), self.work, output)
+        stamp = self.cache / 'library-verified.json'
+        full = []
+        def verify(*args):
+            full.append(args)
+            return 'verified'
+        with patch('tools.reference.library.validation.verify_library', side_effect=verify), patch(
+                'tools.reference.library.validation.load_snapshot', return_value=self.snapshot):
+            self.assertEqual(accepted_library(output, self.snapshot.root, stamp), 'verified')
+            self.assertEqual(accepted_library(output, self.snapshot.root, stamp).exports, (self.export,))
+            self.assertEqual(len(full), 1)
+            manifest = json.loads((output / 'manifest.json').read_bytes())
+            manifest['standalone_files'] = ['changed']
+            (output / 'manifest.json').write_bytes(_json(manifest))
+            accepted_library(output, self.snapshot.root, stamp)
+            self.assertEqual(len(full), 2)
+
     def test_directory_swap_failure_restores_accepted_output(self):
         from tools.reference.library.validation import _publish_directory
         output = self.root / 'records/managed'

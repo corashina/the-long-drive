@@ -161,7 +161,8 @@ def publish_package(output, assets_root):
             source = output / name.removeprefix('reference/') if name.startswith('reference/') else output / name
             target = pending / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, target)
+            # Staging and the package share one volume. Exports never change a written file.
+            target.hardlink_to(source)
         verify_package(manifest, pending)
         pending.rename(destination)
     finally:
