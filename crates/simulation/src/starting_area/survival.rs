@@ -678,6 +678,18 @@ impl GarageRuntime {
         };
         let local = to_rapier(pose) * rapier3d::math::Vector::from_array(b.offset);
         let position = self.stream.origin.absolute(local.to_array());
+        use crate::audio::AudioKind::{Burp, Fart, Shit};
+        if matches!(kind, Burp | Fart | Shit)
+            && self.shared_sounds.len() < self.shared_sounds.capacity()
+        {
+            self.shared_sounds.push(crate::net::message::SoundMessage {
+                position,
+                kind: kind as u32,
+                clip: selection.0,
+                gain: selection.1,
+                pitch: selection.2,
+            });
+        }
         playback.survival_event(crate::audio::SurvivalAudioEvent {
             session: playback.session,
             emitter: 0,

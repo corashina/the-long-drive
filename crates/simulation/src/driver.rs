@@ -377,8 +377,12 @@ impl SimDriver {
             self.update_camera(reference, alpha);
         }
         self.runtime.fill_frame(reference, alpha, frame);
-        self.net
-            .fill(reference, &self.runtime, self.delta_seconds as f32, frame);
+        self.net.fill(
+            reference,
+            &mut self.runtime,
+            self.delta_seconds as f32,
+            frame,
+        );
         if self.input.held & keys::GRAB != 0 {
             frame.hud.flags &= !HudBlock::AUTOSAVE_SAFE;
         }

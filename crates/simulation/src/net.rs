@@ -2,6 +2,7 @@
 //! The simulation sends the local player and poses the remote players.
 pub mod message;
 pub mod remote;
+pub mod world;
 
 use crate::boundary::{PoseRow, RemoteRow, SimFrame};
 use crate::player::body::BodyState;
@@ -9,6 +10,7 @@ use crate::reference::ReferenceManifest;
 use crate::starting_area::GarageRuntime;
 use message::{BodyMessage, Message, PoseMessage};
 use remote::Remote;
+use world::WorldSync;
 
 /// Source `snTempPlayerSync.syncTime`.
 pub const SYNC_TIME: f32 = 0.15;
@@ -36,6 +38,7 @@ pub struct Net {
     /// Outbound packets, each with a u16 length. Bit `message::RELIABLE` of the length marks a reliable packet.
     outbox: Vec<u8>,
     remotes: Vec<Remote>,
+    world: WorldSync,
 }
 
 impl Net {
@@ -70,18 +73,24 @@ impl Net {
     pub fn fill(
         &mut self,
         reference: &ReferenceManifest,
-        runtime: &GarageRuntime,
+        runtime: &mut GarageRuntime,
         real_dt: f32,
         frame: &mut SimFrame,
     ) {
         frame.remotes.clear();
         frame.remote_joints.clear();
+        if let Some(audio) = &mut runtime.audio {
+            audio.broadcasts.set_remote(self.role == NetRole::Guest);
+        }
         if self.role == NetRole::Off {
+            runtime.shared_sounds.clear();
             return;
         }
         self.clock += real_dt as f64;
-        self.read_inbox(reference);
+        self.read_inbox(reference, runtime);
         self.send(runtime, real_dt);
+        self.world
+            .send(self.role, self.slot, runtime, real_dt, &mut self.outbox);
         let origin = &runtime.stream.origin;
         for remote in &mut self.remotes {
             let Some((pose, root)) = remote.step(self.clock, real_dt, origin) else {
@@ -100,7 +109,7 @@ impl Net {
         }
     }
 
-    fn read_inbox(&mut self, reference: &ReferenceManifest) {
+    fn read_inbox(&mut self, reference: &ReferenceManifest, runtime: &mut GarageRuntime) {
         let mut rest = &self.inbox[..];
         while let [a, b, tail @ ..] = rest {
             // The outbox flag is masked, so an outbox reads as an inbox.
@@ -120,6 +129,9 @@ impl Net {
                             continue;
                         };
                         self.remotes.push(Remote::new(slot, body));
+                        if self.role == NetRole::Host {
+                            self.world.joined();
+                        }
                         self.remotes.last_mut().unwrap()
                     }
                     None => continue,
@@ -129,6 +141,8 @@ impl Net {
                 && let Some(remote) = self.remotes.iter_mut().find(|r| r.slot == slot)
             {
                 remote.got_body(&body);
+            } else {
+                WorldSync::receive(self.role, packet, runtime);
             }
         }
         self.inbox.clear();
@@ -163,11 +177,6 @@ impl Net {
     }
 
     fn push<M: Message>(&mut self, message: &M) {
-        let mut n = (message::HEADER + size_of::<M>()) as u16;
-        if M::RELIABLE {
-            n |= message::RELIABLE;
-        }
-        self.outbox.extend_from_slice(&n.to_le_bytes());
-        message.encode(self.slot, &mut self.outbox);
+        message::push(self.slot, message, &mut self.outbox);
     }
 }
