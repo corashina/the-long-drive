@@ -47,6 +47,8 @@ impl GarageRuntime {
             |handle, physics: &crate::vehicle::PhysicsWorld| interaction.ai_usable(handle, physics);
         let mut doors = Vec::new();
         let r = &reference.creatures.human;
+        let now = self.simulation_seconds;
+        self.creatures.humans.voice_block(r, now, dt);
         self.creatures.humans.step_ai(
             r,
             &mut self.physics,
@@ -60,6 +62,7 @@ impl GarageRuntime {
             },
             &mut doors,
         );
+        self.creatures.humans.animate(r, &self.physics, now, dt);
         for door in doors {
             self.area
                 .interaction

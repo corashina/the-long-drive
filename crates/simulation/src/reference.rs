@@ -74,6 +74,8 @@ pub mod creatures;
 pub use creatures::*;
 pub mod human_ai;
 pub use human_ai::*;
+pub mod humanoid;
+pub use humanoid::*;
 pub mod wheel_effects;
 pub use wheel_effects::{EffectGains, SkidReference, WheelEffectsReference, WheelGains};
 pub mod plates;
