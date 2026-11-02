@@ -120,7 +120,7 @@ window.gameStartupTrace=()=>startup.snapshot();
 window.gameStartupDone=()=>startupDone;
 window.gameStartupFailureDetails=json=>{startupFailureDetails=JSON.parse(json);};
 window.gameStartupStage=(stage,started)=>{if(started){startup.begin(stage);cpuProfile.begin(stage);}else{startup.end(stage);cpuProfile.end(stage);}};
-window.gameLoadingProgress=(roads,total,rendering,world)=>loading.progress(roads,total,rendering,world);
+window.gameLoadingProgress=(...counts)=>loading.progress(...counts);
 window.gameLoadingBudget=(name,used,limit,unit)=>loading.budget(name,used,limit,unit);
 const bootStarted=performance.now();
 let wasmMemory,renderAudit,initialReadyMs=null,peakFrameMs=0,lastFrameTime=null,measureRequested=false;
@@ -214,10 +214,26 @@ window.gameSleep=(phase,eligible,showHint,charge,cooldownRemaining,progress)=>{
 function fail(message,notifyRenderer=true){if(failed)return;failed=true;if(/Draw distance [\d.]+ m does not fit/.test(message))slider?.clear();performancePanel.stop();startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.fail({...startupFailureDetails,message,loading:loading.snapshot()});startupDone=true;loading.fail();const text='Cannot start the game. '+message+' Reload to try again.';if(menu){menu.fail(text);status.textContent='';}else{status.textContent='';runtimeError.textContent=text;runtimeError.hidden=false;}if(notifyRenderer)renderFailure?.(message);}
 function finishStartup(){if(failed||startupDone||!startupReady||!input||!menu)return;startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.finish({inputReady:true});startupDone=true;}
 window.gameFailure=message=>fail(message,false);
-window.gameLoading=()=>{if(failed)return;loading.start();loading.stage('Loading the garage...');menu.loading();};
+window.gameLoading=()=>{if(failed)return;loading.start(true);menu.loading();};
 window.gameReady=()=>{if(failed||!worldAdmitted)return;if(initialReadyMs===null)initialReadyMs=performance.now()-bootStarted;loading.finish();menu.ready();multiplayer?.ready();startupReady=true;finishStartup();};
 window.addEventListener('error',event=>fail(event.message||'The runtime stopped.'));
 window.addEventListener('unhandledrejection',event=>fail(event.reason?.message||String(event.reason)));
+const mebibytes=bytes=>Math.round(bytes/1048576).toLocaleString('en-US');
+// Brotli hides the decoded size, so then the step shows only the received size.
+async function downloadManifest(response){
+ const encoding=response.headers.get('content-encoding')?.trim().toLowerCase();
+ const declared=Number(response.headers.get('content-length'));
+ const total=(!encoding||encoding==='identity')&&declared>0?declared:0;
+ let received=0;
+ const show=()=>loading.step('download',received,total,mebibytes(received)+(total?' / '+mebibytes(total):'')+' MiB');
+ const counted=response.body.pipeThrough(new TransformStream({transform(chunk,stream){received+=chunk.byteLength;stream.enqueue(chunk);}}));
+ show();const timer=setInterval(show,250);
+ try{
+  const bytes=new Uint8Array(await new Response(counted).arrayBuffer());
+  loading.step('download',1,1,mebibytes(bytes.byteLength)+' MiB');
+  return bytes;
+ }finally{clearInterval(timer);}
+}
 async function load(){
  cpuProfile.begin('startup');
  startup.begin('graphics');
@@ -231,11 +247,11 @@ async function load(){
  code.catch(()=>{});
  const response=await fetch('./assets/reference/manifest.json');
  if(!response.ok)throw Error('Cannot load reference manifest (HTTP '+response.status+').');
- const bytes=new Uint8Array(await response.arrayBuffer());
+ const bytes=await downloadManifest(response);
  status.textContent='Loading game code...';
- loading.stage(status.textContent);
+ loading.step('code',0);
  const [{default:init,run,manifest_shell,source_render_failure,source_render_audit,cpu_profile,request_thumbnail,wake_frame},module]=await code;
- const exports=await init({module_or_path:module});wasmMemory=exports.memory;renderFailure=source_render_failure;renderAudit=source_render_audit;
+ const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;
  rustCpuProfile=cpu_profile;if(startupCpuProfile)rustCpuProfile(true);
  window.gameThumbnailFrame=()=>thumbnail.frame();thumbnail.connect(request_thumbnail);
  // Rust copies only the shell fields, so JS does not parse the world records.
@@ -287,7 +303,7 @@ async function load(){
  {let inputs=settings.values.inputs;settings.listen(v=>{if(v.inputs!==inputs){inputs=v.inputs;input.setMaps(compileBindings(bindings,inputs));}});}
  bootstrap.manifestUtf16PayloadBytes=text.length*2;
  status.textContent='Loading interface assets...';
- loading.stage(status.textContent);
+ loading.step('interface',0);
  await loadUiAssets(manifest.ui);
   survival=createSurvival(manifest.ui,manifest.sleep.cooldown_seconds,settings,language,actionIds);survival.setSurvival(settings.values.survival);
  audio=createAudio(manifest.audio);installAudioBridge(window,audio);
@@ -307,7 +323,7 @@ async function load(){
  {const changed=outfit.changed;outfit.changed=()=>{changed();multiplayer.look(outfit.outfit);};}
  feedback=createFeedback(manifest.ui,manifest,settings,actionIds,language);
  startup.end('interface');
- if(failed)return;status.textContent='Loading the garage...';loading.stage(status.textContent);
+ if(failed)return;status.textContent='Loading the garage...';loading.step('interface',1);
  startup.begin('generation');startup.begin('decodeUpload');startup.begin('pipeline');
  const {world,startup:startupBytes,loadError}=await simulationStarted;
  if(world)menu.started(world.error||loadError,world.operation);

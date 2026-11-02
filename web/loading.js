@@ -4,48 +4,86 @@ export function formatBudget(used,limit,unit){
   : used.toLocaleString('en-US')+' / '+limit.toLocaleString('en-US');
 }
 
+// Weights follow the startup trace. Steps after `interface` run at the same time.
+export const STEPS=[
+ {id:'download',label:'Download game data',weight:3,boot:true},
+ {id:'code',label:'Start game code',weight:1,boot:true},
+ {id:'interface',label:'Load interface',weight:1,boot:true},
+ {id:'roads',label:'Build roads',weight:15},
+ {id:'assets',label:'Load garage assets',weight:35},
+ {id:'world',label:'Load world area',weight:35},
+ {id:'graphics',label:'Prepare graphics',weight:10},
+];
+const MARK={waiting:'○',active:'●',done:'✓'};
+
 export function createLoading(){
  const root=document.querySelector('#loading-details'),heading=document.querySelector('#loading-phase');
- const bar=document.querySelector('#loading-progress'),count=document.querySelector('#loading-count');
- const elapsed=document.querySelector('#loading-elapsed'),budgets=document.querySelector('#loading-budgets');
- const note=document.querySelector('#loading-budget-note'),rows=new Map(),budgetValues=new Map();
- let active=false,timer,started,lastChange,lastPaint=0,phase='',done=0,total=0,rendering=false,world=false,runtime=false;
+ const bar=document.querySelector('#loading-progress'),list=document.querySelector('#loading-steps');
+ const elapsed=document.querySelector('#loading-elapsed'),resources=document.querySelector('#loading-resources');
+ const budgets=document.querySelector('#loading-budgets'),rows=new Map(),budgetValues=new Map();
+ const steps=STEPS.map(step=>{
+  const node=document.createElement('li'),mark=document.createElement('span'),label=document.createElement('span'),count=document.createElement('span');
+  label.textContent=step.label;node.append(mark,label,count);list.append(node);
+  return {...step,node,mark,count,done:0,total:0,note:'',shown:''};
+ });
+ const byId=new Map(steps.map(step=>[step.id,step]));
+ let active=false,timer,started,lastChange,lastPaint=0,percent=0,worldOnly=false;
  const seconds=ms=>Math.floor(ms/60000)+'m '+Math.floor(ms/1000)%60+'s';
+ const state=step=>step.total>0&&step.done>=step.total?'done':step.total>0||step.note?'active':'waiting';
+ const visible=step=>!(worldOnly&&step.boot);
  function clock(){const now=performance.now();elapsed.textContent='Elapsed: '+seconds(now-started)+'\nLast change: '+seconds(now-lastChange)+' ago';}
+ function measure(){
+  let sum=0,weights=0;
+  for(const step of steps)if(visible(step)){weights+=step.weight;if(step.total>0)sum+=step.weight*Math.min(step.done/step.total,1);}
+  // The shown percent does not go down in one load. The step counts show the true values.
+  percent=Math.max(percent,Math.floor(100*sum/weights));
+ }
  function paint(){
-  heading.textContent=phase;
-  if(total>0&&(!runtime||done<total||(rendering&&world))){bar.max=total;bar.value=done;}else bar.removeAttribute('value');
-  count.textContent=total>0?'Road index: '+done.toLocaleString('en-US')+' / '+total.toLocaleString('en-US'):'';
-  if(runtime)count.textContent+='\nGarage rendering: '+(rendering?'ready':'preparing')+'\nWorld area: '+(world?'ready':'preparing');
+  heading.textContent='Loading '+percent+'%';bar.value=percent;
+  for(const step of steps){
+   const now=state(step),text=step.note||(step.total>1?step.done.toLocaleString('en-US')+' / '+step.total.toLocaleString('en-US'):'');
+   const shown=now+text;
+   if(step.shown===shown)continue;
+   step.shown=shown;step.node.dataset.state=now;step.mark.textContent=MARK[now];step.count.textContent=text;
+  }
   clock();lastPaint=performance.now();
  }
- function stage(text,completed=0,maximum=0){
-  if(!active)return;
-  const changed=phase!==text||done!==completed||total!==maximum;
-  const phaseChanged=phase!==text;
-  phase=text;done=completed;total=maximum;
-  if(changed)lastChange=performance.now();
-  if(phaseChanged||completed===maximum||performance.now()-lastPaint>=250)paint();
+ function set(id,done,total,note=''){
+  const step=byId.get(id);
+  done=Math.min(done,total);
+  if(step.done===done&&step.total===total&&step.note===note)return false;
+  step.done=done;step.total=total;step.note=note;lastChange=performance.now();return true;
  }
- function start(){
+ function update(changed,force=false){
+  if(!changed&&!force)return;
+  measure();
+  if(force||performance.now()-lastPaint>=250)paint();
+ }
+ function start(world=false){
   if(active)return;
-  active=true;runtime=false;started=lastChange=performance.now();root.hidden=false;
-  budgets.hidden=true;note.hidden=true;
+  active=true;worldOnly=world;percent=0;started=lastChange=performance.now();root.hidden=false;resources.hidden=true;
   budgetValues.clear();
   for(const node of rows.values())node.textContent='';
-  phase='';stage('Loading the game...');timer=setInterval(clock,1000);
+  for(const step of steps){
+   step.node.hidden=!visible(step);step.shown='';
+   if(!step.boot||!world){step.done=0;step.total=0;step.note='';}
+  }
+  update(true,true);timer=setInterval(paint,1000);
  }
  start();
  return {
-  stage,
   start,
-  progress(roads,maximum,renderReady,worldReady){
+  /** One boot step. `note` replaces the count, for example a download size. */
+  step(id,done,total=1,note=''){
    if(!active)return;
-   if(rendering!==renderReady||world!==worldReady)lastChange=performance.now();
-   runtime=true;rendering=renderReady;world=worldReady;
+   const step=byId.get(id);
+   update(set(id,done,total,note),state(step)==='done');
+  },
+  progress(roads,roadTotal,assets,assetTotal,world,worldTotal,gates,gateTotal){
+   if(!active)return;
    // The index goes on past the start roads. The count shows only the start roads.
-   roads=Math.min(roads,maximum);
-   stage(roads<maximum?'Indexing the world...':'Preparing the garage and world...',roads,maximum);
+   const changed=[set('roads',roads,roadTotal),set('assets',assets,assetTotal),set('world',world,worldTotal),set('graphics',gates,gateTotal)];
+   update(changed.some(Boolean));
   },
   budget(name,used,limit,unit){
    if(!active)return;
@@ -56,10 +94,10 @@ export function createLoading(){
    const text=formatBudget(used,limit,unit);
    if(node.textContent!==text){node.textContent=text;lastChange=performance.now();}
    node.title=used.toLocaleString('en-US')+' '+unit+' / '+limit.toLocaleString('en-US')+' '+unit;
-   budgets.hidden=false;note.hidden=false;
+   resources.hidden=false;
   },
   finish(){active=false;clearInterval(timer);root.hidden=true;},
-  fail(){if(!active)return;paint();active=false;clearInterval(timer);heading.textContent=phase+' (stopped)';},
-  snapshot(){return {phase,done,total,rendering,world,budgets:Array.from(budgetValues.values(),value=>({...value}))};},
+  fail(){if(!active)return;measure();paint();active=false;clearInterval(timer);heading.textContent='Loading stopped at '+percent+'%';},
+  snapshot(){return {percent,steps:steps.filter(visible).map(({id,done,total,note})=>({id,done,total,note})),budgets:Array.from(budgetValues.values(),value=>({...value}))};},
  };
 }
