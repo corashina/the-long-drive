@@ -9,8 +9,8 @@ use crate::vehicle::{PhysicsWorld, to_rapier};
 use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::{
-    ColliderHandle, FixedJointBuilder, ImpulseJointHandle, QueryFilter, RigidBodyBuilder,
-    RigidBodyHandle,
+    ColliderHandle, FixedJointBuilder, Group, ImpulseJointHandle, InteractionGroups, QueryFilter,
+    RigidBodyBuilder, RigidBodyHandle,
 };
 use std::collections::HashMap;
 
@@ -25,6 +25,35 @@ struct HeldState {
     gravity_scale: f32,
     /// Source `pickedUpPoint` in the item body frame. `None` follows `TpickedUpParent`.
     grip: Option<Pose>,
+    /// Collision groups of the item colliders before the pickup.
+    groups: Vec<(ColliderHandle, InteractionGroups)>,
+}
+
+/// Source `mainscript.pickedUpLayer`. Each exported filter is a row of the source layer matrix,
+/// so a full filter collides with exactly the layers that collide with this layer.
+const PICKED_UP_LAYER: u32 = 20;
+
+/// Source `pickupable.Pickup` `ChangeLayer2(pickedUpLayer)`: the carried item stops touching the
+/// player body. Returns the old groups.
+fn lift_layer(
+    body: RigidBodyHandle,
+    physics: &mut PhysicsWorld,
+) -> Vec<(ColliderHandle, InteractionGroups)> {
+    let colliders = physics.rapier().bodies[body].colliders().to_vec();
+    colliders
+        .into_iter()
+        .map(|handle| {
+            physics.edit_collider(handle, |collider| {
+                let groups = collider.collision_groups();
+                collider.set_collision_groups(InteractionGroups::new(
+                    Group::from_bits_retain(1 << PICKED_UP_LAYER),
+                    Group::ALL,
+                    groups.test_mode,
+                ));
+                (handle, groups)
+            })
+        })
+        .collect()
 }
 
 pub struct CarryState {
@@ -100,6 +129,7 @@ impl CarryState {
             local_pose: to_rapier(crate::save::local_pose(&saved.local_grip)),
             gravity_scale,
             grip: None,
+            groups: lift_layer(body, physics),
         });
         physics.edit_body(body, |body| {
             body.enable_ccd(true);
@@ -320,6 +350,9 @@ impl CarryState {
         physics.edit_body(held.body, |body| {
             body.set_gravity_scale(held.gravity_scale, true)
         });
+        for (handle, groups) in held.groups {
+            physics.try_edit_collider(handle, |c| c.set_collision_groups(groups));
+        }
         if let Some(item) = items.get_mut(held.item) {
             item.location = ItemLocation::World;
         }
@@ -440,6 +473,7 @@ impl CarryState {
             local_pose,
             gravity_scale,
             grip: Some(pose.inverse() * Pose::from_parts(Vector::from_array(point), camera)),
+            groups: lift_layer(body, physics),
         });
         item.location = ItemLocation::Held;
         self.cancel_input();
