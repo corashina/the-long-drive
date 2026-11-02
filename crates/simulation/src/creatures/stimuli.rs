@@ -1,7 +1,7 @@
 //! Source `stimulscript` sources that rabbits sense.
 //! The player head gives the visible stimulus. Each `PlayClipAtPoint` sound gives a sound
 //! stimulus of its volume while its clip plays. Engines, horns and radios give bound sound
-//! stimuli.
+//! stimuli. The player hum gives a sound stimulus on the head.
 use crate::reference::{CreaturesReference, StimulusKind, StimulusSource};
 use rapier3d::math::Vector;
 use rapier3d::prelude::RigidBodyHandle;
@@ -59,7 +59,7 @@ pub struct Stimuli {
 impl Stimuli {
     pub fn new() -> Self {
         Self {
-            list: Vec::with_capacity(SOUND_CAPACITY + BOUND_CAPACITY + 1),
+            list: Vec::with_capacity(SOUND_CAPACITY + BOUND_CAPACITY + 2),
             sounds: Vec::with_capacity(SOUND_CAPACITY),
             held: Vec::with_capacity(BOUND_CAPACITY),
             next_check: 0.,
@@ -79,12 +79,14 @@ impl Stimuli {
             end: now + f64::from(seconds),
         });
     }
-    /// Rebuilds the list. `head` is the player head stimulus and its body. `bound` holds the
-    /// live bound stimuli: their values refresh each `CHECK_INTERVAL`, their positions each step.
+    /// Rebuilds the list. `head` is the player head stimulus and its body. `hum` is the
+    /// `humStimul.SetAudioValue` volume. `bound` holds the live bound stimuli: their values
+    /// refresh each `CHECK_INTERVAL`, their positions each step.
     pub fn rebuild(
         &mut self,
         sources: &PlayerStimuli,
         head: (Vector, RigidBodyHandle),
+        hum: f32,
         bound: &[SoundStimulus],
         now: f64,
         local: impl Fn([f64; 3]) -> Vector,
@@ -103,6 +105,18 @@ impl Stimuli {
                 value: v.value,
                 visible: sources.head.visible,
                 sound: sources.head.sound,
+                radius: HEAD_RADIUS,
+                body: Some(head.1),
+            });
+        }
+        let value = hum * sources.hum.max_sound_value;
+        if value > 0. {
+            self.list.push(Stimulus {
+                position: head.0,
+                kind: sources.hum.stimuli[0].kind,
+                value,
+                visible: sources.hum.visible,
+                sound: sources.hum.sound,
                 radius: HEAD_RADIUS,
                 body: Some(head.1),
             });
@@ -143,6 +157,8 @@ pub struct PlayerStimuli {
     pub head: StimulusSource,
     /// The stimulus on the `mainscript.Audio` prefab.
     pub sound: StimulusSource,
+    /// `humStimul` on the player Head.
+    pub hum: StimulusSource,
 }
 
 impl PlayerStimuli {
@@ -150,6 +166,7 @@ impl PlayerStimuli {
         Some(Self {
             head: r.stimulus(&r.player_stimulus)?.clone(),
             sound: r.stimulus(&r.sound_stimulus)?.clone(),
+            hum: r.stimulus(&r.hum_stimulus)?.clone(),
         })
     }
 }
@@ -190,6 +207,7 @@ mod tests {
                 ..source()
             },
             sound: source(),
+            hum: source(),
         }
     }
 
@@ -203,16 +221,16 @@ mod tests {
         };
         let head = (Vector::ZERO, RigidBodyHandle::invalid());
         // An engine at gain 0.5 with maxSoundValue 60.
-        s.rebuild(&sources(), head, &[engine(30.)], 0., |_| Vector::ZERO);
+        s.rebuild(&sources(), head, 0., &[engine(30.)], 0., |_| Vector::ZERO);
         assert_eq!(s.list().len(), 1);
         assert_eq!(
             (s.list()[0].value, s.list()[0].position),
             (30., Vector::new(1., 0., 2.))
         );
         // The value holds until the next check.
-        s.rebuild(&sources(), head, &[engine(90.)], 0.4, |_| Vector::ZERO);
+        s.rebuild(&sources(), head, 0., &[engine(90.)], 0.4, |_| Vector::ZERO);
         assert_eq!(s.list()[0].value, 30.);
-        s.rebuild(&sources(), head, &[engine(90.)], 0.5, |_| Vector::ZERO);
+        s.rebuild(&sources(), head, 0., &[engine(90.)], 0.5, |_| Vector::ZERO);
         assert_eq!(s.list()[0].value, 90.);
     }
 }
