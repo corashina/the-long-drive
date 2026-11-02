@@ -54,6 +54,7 @@ Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix 
 - Export format changed (#X06c): each world prototype has `probes`, and `vehicle.probe` is gone. Re-export before the next run. Then stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
 - Export field added (#M04): the `voicechat` input binding (source `inputscript.IN.voicechat`). Until the re-export, voice chat has no push-to-talk key. The stored key bindings reset once.
 - Save schema 41 (#M04): rabbits keep their id (`RabbitSnapshot.id`). Old saves do not load.
+- Save schema 42 (#TP W02): spawn boundaries are compact. They store sources, contexts and pool states once in tables, and each parent as a compact key. Old saves do not load. The 3fd48db run measured 158,021 bytes/km (790 MB for 5,000 km). The first compaction step measured 64,352 bytes/km (322 MB). The final step is not measured yet: rerun `w02_` and check that the 5,000 km estimate is below 200 MB.
 
 Prepare once:
 
