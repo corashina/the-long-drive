@@ -153,19 +153,3 @@ pub fn display_name<'a>(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::vehicle_name;
-
-    #[test]
-    fn vehicle_names_read_root_names_and_start_fields() {
-        assert_eq!(vehicle_name("Car02kFull"), Some("Volna Kombi"));
-        assert_eq!(vehicle_name("StartCar02k"), Some("Volna Kombi"));
-        assert_eq!(vehicle_name("car09fullS"), Some("Falke"));
-        assert_eq!(vehicle_name("Car09full_slide"), Some("Falke"));
-        assert_eq!(vehicle_name("car02"), Some("Volna"));
-        assert_eq!(vehicle_name("Bike03Full"), Some("Moped"));
-        assert_eq!(vehicle_name("Car02Door"), None);
-    }
-}

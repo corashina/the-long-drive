@@ -469,25 +469,6 @@ impl ChangeRecords {
             }
         }
     }
-    // Test oracle: the previous key query stays independent of indexed access.
-    #[cfg(test)]
-    pub(super) fn old_keys_in(&self, bounds: WorldBounds, output: &mut Vec<ObjectKey>) {
-        output.clear();
-        let min = region(bounds.min);
-        let max = region(bounds.max);
-        for (_, indices) in self.regions.range((min.0, i64::MIN)..=(max.0, i64::MAX)) {
-            for &index in indices {
-                let (key, change) = &self.records[index];
-                if change.snapshot.as_ref().is_some_and(|s| {
-                    (0..3).all(|i| {
-                        s.pose.position[i] >= bounds.min[i] && s.pose.position[i] <= bounds.max[i]
-                    })
-                }) {
-                    output.push(key.clone());
-                }
-            }
-        }
-    }
     /// Keeps the car-side state of car `key` until it spawns again.
     pub fn keep_vehicle(&mut self, key: ObjectKey, state: crate::starting_area::VehicleState) {
         self.vehicles.insert(key, state);

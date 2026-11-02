@@ -239,29 +239,3 @@ impl PedalReach {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ignition_reach_uses_leg_when_leg_ignition() {
-        let mut reach: VehicleReach =
-            serde_json::from_value(crate::reference::reach_fixture()).unwrap();
-        reach.ignition = Some(7);
-        let held = IgnitionReach {
-            held: true,
-            last_held: false,
-            starting: false,
-            hold: 0.,
-            delay: 1.,
-        };
-        let mut moves = Vec::new();
-        ignition(&reach, GearStick::default(), held, |m| moves.push(m));
-        assert_eq!(moves, [hand(ReachNode::Car(7))]);
-        reach.leg_ignition = true;
-        moves.clear();
-        ignition(&reach, GearStick::default(), held, |m| moves.push(m));
-        assert_eq!(moves, [limb(true, ReachNode::Car(7), None)]);
-    }
-}

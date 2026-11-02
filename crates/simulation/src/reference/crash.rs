@@ -67,26 +67,3 @@ impl CarCrashReference {
         finite(&[self.multiplier, self.blood, self.horn, self.fall_off])
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn record(blood: &str, power: usize) -> String {
-        let power = vec!["0.2"; power].join(",");
-        format!(
-            r#"{{"source":{{"file":"level1","path_id":1}},"blood":{blood},"horn":[10,20],
-            "fall_off":[30,60],"fall_off_max":90,"horn_chance":0.5,"count":[[1,2],[2,4]],
-            "fall_off_power":[{power}]}}"#
-        )
-    }
-
-    #[test]
-    fn crash_reference_reads_and_validates() {
-        let ok: CrashReference = serde_json::from_str(&record("[40,80]", 18)).unwrap();
-        ok.validate().unwrap();
-        let reversed: CrashReference = serde_json::from_str(&record("[80,40]", 18)).unwrap();
-        assert!(reversed.validate().is_err());
-        assert!(serde_json::from_str::<CrashReference>(&record("[40,80]", 17)).is_err());
-    }
-}

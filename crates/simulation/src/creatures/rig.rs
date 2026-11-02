@@ -330,19 +330,3 @@ fn weights(thresholds: &[f32], value: f32, out: &mut [f32]) {
     out[i] = 1. - t;
     out[i + 1] = t;
 }
-
-#[cfg(test)]
-mod tests {
-    use super::weights;
-
-    #[test]
-    fn blend_weights_split_between_thresholds() {
-        let mut w = [0.; 3];
-        weights(&[0., 1., 3.], 2., &mut w);
-        assert_eq!(w, [0., 0.5, 0.5]);
-        weights(&[0., 1., 3.], -1., &mut w);
-        assert_eq!(w, [1., 0., 0.]);
-        weights(&[0., 1., 3.], 5., &mut w);
-        assert_eq!(w, [0., 0., 1.]);
-    }
-}

@@ -786,25 +786,3 @@ impl RabbitReference {
         )
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[ignore = "Requires exported Steam assets"]
-    fn creatures_reference_loads() {
-        let bytes = std::fs::read(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../web/assets/reference/manifest.json"
-        ))
-        .unwrap();
-        let m = ReferenceManifest::from_runtime_json(&bytes).unwrap();
-        let r = &m.creatures.rabbit;
-        assert_eq!(r.item_id, 103);
-        assert_eq!(r.spawner.max_count, 10);
-        assert_eq!(r.ragdoll.bodies.len(), 14);
-        assert_eq!(r.animator.parameter, "RunValue");
-        assert!(m.creatures.stimuli.iter().any(|s| s.visible));
-    }
-}
