@@ -1,30 +1,8 @@
 //! Source `newAiScript` voice: `SoundIdle`, `SoundChase`, `SoundNotice`, `SoundAttack`,
 //! `SoundDeath`, the voice block of `Update` and the `TVoice` mouth move.
 //! `SourceVoice.isPlaying` holds until the clip length divided by the pitch.
+use crate::reference::{HumanVoiceClip, HumanVoiceReference};
 use crate::weather::StormRandom;
-
-/// One voice clip: the audio clip id and its length in seconds.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct VoiceClip {
-    pub clip: u32,
-    pub seconds: f32,
-}
-
-/// `Sound_Idle`, `Sound_Chase`, `Sound_Notice`, `Sound_Attack` and `Sound_Death`, and the voice times.
-#[derive(Clone, Debug, PartialEq)]
-pub struct VoiceSet {
-    pub idle: Vec<VoiceClip>,
-    pub chase: Vec<VoiceClip>,
-    pub notice: Vec<VoiceClip>,
-    pub attack: Vec<VoiceClip>,
-    pub death: Vec<VoiceClip>,
-    /// `idleVoiceMinTime`, `idleVoiceMaxTime`.
-    pub idle_time: [f32; 2],
-    /// `chaseVoiceMinTime`, `chaseVoiceMaxTime`.
-    pub chase_time: [f32; 2],
-    /// `chaseChaseVoiceMinTime`, `chaseChaseVoiceMaxTime`.
-    pub seeing_time: [f32; 2],
-}
 
 /// A `SourceVoice.Play`. It stops the clip that plays.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -61,6 +39,8 @@ pub struct Voice {
     move_target: f32,
     /// `currentVoiceMove`: 0 is `TVoiceClose`, 1 is `TVoiceOpen`.
     pub mouth: f32,
+    /// The last clip that `SourceVoice` played.
+    pub current: Option<VoicePlay>,
 }
 
 /// `Random.Range(0, count)` for integers.
@@ -81,7 +61,7 @@ fn draw(list: &mut Vec<u8>, count: usize, random: &mut StormRandom) -> Option<us
 }
 
 impl Voice {
-    pub fn new(pitch: f32, s: &VoiceSet) -> Self {
+    pub fn new(pitch: f32, s: &HumanVoiceReference) -> Self {
         let capacity = [&s.idle, &s.chase, &s.notice, &s.attack].map(Vec::len);
         Self {
             pitch,
@@ -98,18 +78,20 @@ impl Voice {
         now < self.end
     }
 
-    fn play(&mut self, c: VoiceClip, pitch: f32, now: f64) -> VoicePlay {
+    fn play(&mut self, c: HumanVoiceClip, pitch: f32, now: f64) -> VoicePlay {
         self.end = now + f64::from(c.seconds / pitch.abs().max(1e-3));
-        VoicePlay {
+        let play = VoicePlay {
             clip: c.clip,
             pitch,
-        }
+        };
+        self.current = Some(play);
+        play
     }
 
     /// The mouth move and the voice block of `Update`. `input` holds the previous `Update` flags.
     pub(crate) fn update(
         &mut self,
-        s: &VoiceSet,
+        s: &HumanVoiceReference,
         input: VoiceInput,
         now: f64,
         dt: f32,
@@ -148,7 +130,7 @@ impl Voice {
     /// `SoundIdle`.
     fn sound_idle(
         &mut self,
-        s: &VoiceSet,
+        s: &HumanVoiceReference,
         now: f64,
         random: &mut StormRandom,
     ) -> Option<VoicePlay> {
@@ -161,7 +143,7 @@ impl Voice {
     /// `SoundChase`. The source plays `Sound_Chase[rs]` with the list index `rs`.
     fn sound_chase(
         &mut self,
-        s: &VoiceSet,
+        s: &HumanVoiceReference,
         seeing: bool,
         now: f64,
         random: &mut StormRandom,
@@ -183,7 +165,7 @@ impl Voice {
     /// `SoundAttack`.
     fn sound_attack(
         &mut self,
-        s: &VoiceSet,
+        s: &HumanVoiceReference,
         now: f64,
         random: &mut StormRandom,
     ) -> Option<VoicePlay> {
@@ -196,7 +178,7 @@ impl Voice {
     /// `SoundNotice`: the AI sees the player and was not chasing.
     pub(crate) fn notice(
         &mut self,
-        s: &VoiceSet,
+        s: &HumanVoiceReference,
         now: f64,
         random: &mut StormRandom,
     ) -> Option<VoicePlay> {
@@ -209,7 +191,7 @@ impl Voice {
     /// `SoundDeath`, from `Die(true)`.
     pub(crate) fn death(
         &mut self,
-        s: &VoiceSet,
+        s: &HumanVoiceReference,
         now: f64,
         random: &mut StormRandom,
     ) -> Option<VoicePlay> {
@@ -234,17 +216,28 @@ fn move_towards(current: f32, target: f32, delta: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::reference::{NodeId, Transform};
 
-    fn set() -> VoiceSet {
+    fn set() -> HumanVoiceReference {
         let clips = |base: u32| {
             (0..3)
-                .map(|i| VoiceClip {
+                .map(|i| HumanVoiceClip {
                     clip: base + i,
                     seconds: 1.,
                 })
                 .collect()
         };
-        VoiceSet {
+        let rest = Transform {
+            translation: [0.; 3],
+            rotation: [0., 0., 0., 1.],
+            scale: [1.; 3],
+        };
+        HumanVoiceReference {
+            voice: 1,
+            position: [0.; 3],
+            mouth: NodeId(1),
+            closed: rest,
+            open: rest,
             idle: clips(10),
             chase: clips(20),
             notice: clips(30),

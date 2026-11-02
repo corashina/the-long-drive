@@ -1,11 +1,15 @@
-//! Source `newAiScript` human monster: the live body, `Start`, `Die` and `save_newai`.
-//! Buildings spawn it through the `humanmonster` category. The world placement key names it.
+//! Source `newAiScript` human monster: the live body, `Start`, `Die`, `save_newai`, the
+//! `newAiAnim` Animator and the voice. Buildings spawn it through the `humanmonster` category.
+//! The world placement key names it.
+use super::human_voice::{Voice, VoiceInput, VoicePlay};
 use super::ragdoll::{self, Bone};
+use crate::animation::humanoid::{Humanoid, HumanoidInput, HumanoidPose};
 use crate::damage::BreakHealth;
 use crate::reference::{ColliderId, HumanReference, ItemId, NodeId, NodeRecord, ReferenceError};
 use crate::save::{AbsolutePose, HumanSnapshot};
 use crate::vehicle::{PhysicsWorld, collider_builder, step_surface_bits, tag_bits};
 use crate::world::spawn_state::HumanRoll;
+use crate::weather::StormRandom;
 use crate::world::{ObjectKey, WorldOrigin};
 use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{
@@ -36,6 +40,36 @@ pub struct Human {
     pub health: BreakHealth,
     /// Ragdoll bones after `Die`, in body order.
     pub bones: Vec<Bone>,
+    /// The AI output for the Animator and the voice. The AI sets it each step.
+    pub drive: HumanDrive,
+    pub animation: HumanoidPose,
+    pub voice: Voice,
+    /// `SourceVoice` played a new clip this step.
+    pub voice_started: bool,
+}
+
+/// What `newAiScript` gives `newAiAnim` and the voice block.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HumanDrive {
+    /// `anim.targetForward`, `anim.targetTurn` and `anim.duck`.
+    pub forward: f32,
+    pub turn: f32,
+    pub crouch: bool,
+    /// `anim.Hold` points of the left and right hand this step, local physics space.
+    pub holds: [Option<Vector>; 2],
+    /// `isChasing`, `isSeeing` and `isAttacking`.
+    pub chasing: bool,
+    pub seeing: bool,
+    pub attacking: bool,
+}
+
+/// A live human voice for audio: the clip that plays and the `SourceVoice` position.
+#[derive(Clone, Copy, Debug)]
+pub struct HumanSound {
+    pub id: u32,
+    pub play: VoicePlay,
+    pub started: bool,
+    pub position: Vector,
 }
 
 /// One human for the renderer.
@@ -53,6 +87,10 @@ pub struct Humans {
     /// Live collider poses under the prefab root, in `body.colliders` order.
     colliders: Vec<Pose>,
     next_id: u32,
+    rig: Humanoid,
+    /// The Animator Transform under the prefab root.
+    animator: Pose,
+    random: StormRandom,
 }
 
 /// Pose of `node` under the prefab `root`, from the rest transforms. Parent scales move the
@@ -97,6 +135,9 @@ impl Humans {
             far: Vec::new(),
             colliders,
             next_id: 1,
+            rig: Humanoid::new(nodes, r)?,
+            animator: model_pose(nodes, r.root, r.animator.root)?,
+            random: StormRandom(0x6e65_7741_6953_6372),
         })
     }
 
@@ -137,6 +178,10 @@ impl Humans {
             target: pose * TARGET_OFFSET,
             health: BreakHealth::new(&r.breakable),
             bones: Vec::new(),
+            drive: HumanDrive::default(),
+            animation: self.rig.pose(),
+            voice: Voice::new(roll.voice_pitch, &r.voice),
+            voice_started: false,
         });
         Ok(id)
     }
@@ -188,6 +233,91 @@ impl Humans {
             if h.sleeping && h.first {
                 h.sleeping = false;
             }
+        }
+    }
+
+    /// The voice block of `newAiScript.Update` with the previous drive, `newAiAnim.Update`, the
+    /// Animator and `LateUpdate`. Dead humans keep their ragdoll.
+    pub fn animate(&mut self, r: &HumanReference, physics: &PhysicsWorld, now: f64, dt: f32) {
+        for h in &mut self.humans {
+            h.voice_started = false;
+            if h.died {
+                continue;
+            }
+            let d = h.drive;
+            let input = VoiceInput {
+                died: false,
+                sleeping: h.sleeping,
+                chasing: d.chasing,
+                seeing: d.seeing,
+                attacking: d.attacking,
+            };
+            h.voice_started = h
+                .voice
+                .update(&r.voice, input, now, dt, &mut self.random)
+                .is_some();
+            let root = *physics.rapier().bodies[h.body].position() * self.animator;
+            self.rig.update(
+                &mut h.animation,
+                &HumanoidInput {
+                    now,
+                    dt,
+                    root,
+                    target_forward: d.forward,
+                    target_turn: d.turn,
+                    crouch: d.crouch,
+                    look: h.target,
+                    holds: d.holds,
+                    mouth: h.voice.mouth,
+                },
+            );
+        }
+    }
+
+    /// `SoundNotice`: the AI of human `id` sees the player and was not chasing.
+    pub fn notice_voice(&mut self, r: &HumanReference, id: u32, now: f64) {
+        if let Some(h) = self.humans.iter_mut().find(|h| h.id == id) {
+            h.voice_started |= h.voice.notice(&r.voice, now, &mut self.random).is_some();
+        }
+    }
+
+    /// `SoundDeath` of `Die(true)`. A saved dead human does not call it.
+    pub fn death_voice(&mut self, r: &HumanReference, id: u32, now: f64) {
+        if let Some(h) = self.humans.iter_mut().find(|h| h.id == id) {
+            h.voice_started |= h.voice.death(&r.voice, now, &mut self.random).is_some();
+        }
+    }
+
+    /// The voice of each human while its clip plays.
+    pub fn sounds<'a>(
+        &'a self,
+        r: &'a HumanReference,
+        physics: &'a PhysicsWorld,
+        now: f64,
+    ) -> impl Iterator<Item = HumanSound> + 'a {
+        let local = Vector::from_array(r.voice.position);
+        self.humans.iter().filter_map(move |h| {
+            let play = h.voice.current.filter(|_| h.voice.playing(now))?;
+            Some(HumanSound {
+                id: h.id,
+                play,
+                started: h.voice_started,
+                position: root_pose(physics, h) * local,
+            })
+        })
+    }
+
+    /// Animated rig node and pose under the view pose of each live human node.
+    pub fn each_animated(&self, id: u32, mut f: impl FnMut(NodeId, Pose)) {
+        let Some(h) = self.humans.iter().find(|h| h.id == id && !h.died) else {
+            return;
+        };
+        for i in 1..self.rig.len() {
+            let frame = self.rig.converted(&h.animation, i);
+            f(
+                self.rig.node(i),
+                self.animator * Pose::from_parts(frame.position, frame.rotation),
+            );
         }
     }
 
