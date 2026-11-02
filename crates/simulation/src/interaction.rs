@@ -110,6 +110,8 @@ pub enum InteractionAction {
     DialTune(ColliderId, f32),
     /// Look input (source X right, Y up) on a generated music box crank while used.
     Crank(ColliderId, [f32; 2]),
+    /// Source `Turn` (0) or the `tunedFloat` of a tune on a ground UFO usable.
+    Ufo(crate::ground_ufo::UfoControlTarget, f32),
 }
 
 /// A generated usablescript knob bound to a dial or a portable radio.
@@ -263,6 +265,8 @@ pub struct InteractionState {
     /// Hit colliders of world item seats.
     item_seats:
         HashMap<ColliderHandle, std::sync::Arc<crate::world::stream::content_seats::ItemSeat>>,
+    /// Usable colliders of the ground UFOs.
+    ufo_controls: HashMap<ColliderHandle, crate::ground_ufo::UfoControlTarget>,
     pub carry: carry::CarryState,
     pub equipment: equipment::EquipmentState,
     pub equipment_input: equipment_input::EquipmentInput,
@@ -363,6 +367,7 @@ impl InteractionState {
             + map(&self.dial_knobs)
             + map(&self.tune_icons)
             + map(&self.item_seats)
+            + map(&self.ufo_controls)
             + map(&self.kinds)
             + map(&self.wheel_slots)
             + self
@@ -624,6 +629,7 @@ impl InteractionState {
             sounds: [None; 64],
             sound_count: 0,
             item_seats: HashMap::new(),
+            ufo_controls: HashMap::new(),
             carry: carry::CarryState::new(reference)?,
             equipment: equipment::EquipmentState::new(reference),
             equipment_input: equipment_input::EquipmentInput::new(
@@ -813,6 +819,22 @@ impl InteractionState {
     }
     pub fn remove_item_seat(&mut self, collider: ColliderHandle) {
         self.item_seats.remove(&collider);
+    }
+    pub fn bind_ufo_control(
+        &mut self,
+        collider: ColliderHandle,
+        target: crate::ground_ufo::UfoControlTarget,
+    ) {
+        self.ufo_controls.insert(collider, target);
+    }
+    pub fn remove_ufo_control(&mut self, collider: ColliderHandle) {
+        self.ufo_controls.remove(&collider);
+    }
+    pub fn ufo_control(
+        &self,
+        collider: ColliderHandle,
+    ) -> Option<crate::ground_ufo::UfoControlTarget> {
+        self.ufo_controls.get(&collider).copied()
     }
     pub fn item_seats(
         &self,
@@ -1889,6 +1911,30 @@ impl InteractionState {
                     let direction = self.mechanisms.tune_direction(&knob_input);
                     if direction.is_finite() && direction != 0. {
                         action = Some(InteractionAction::DialTune(knob, direction.signum()));
+                    }
+                }
+                if let Some(control) = self.ufo_controls.get(&target.collider).copied() {
+                    use crate::ground_ufo::UfoControl;
+                    let use_pressed = use_input.pressed & keys::USE != 0
+                        || (use_input.pressed & keys::PRIMARY != 0 && availability.lmb_use);
+                    if control.control == UfoControl::AutoPilot {
+                        if use_pressed {
+                            action = Some(InteractionAction::Ufo(control, 0.));
+                        }
+                    } else {
+                        // Source: `tunedFloat` is the scroll, or `LOOKY` while use is held.
+                        let value = if use_input.wheel.is_finite() && use_input.wheel != 0. {
+                            use_input.wheel * self.scroll_sensitivity
+                        } else {
+                            let mut knob_input = use_input;
+                            if !availability.lmb_use {
+                                knob_input.held &= !keys::PRIMARY;
+                            }
+                            self.mechanisms.tune_direction(&knob_input)
+                        };
+                        if value.is_finite() && value != 0. {
+                            action = Some(InteractionAction::Ufo(control, value));
+                        }
                     }
                 }
                 if let Some(opening) = self.openings.iter_mut().find(|opening| {

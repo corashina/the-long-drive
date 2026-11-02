@@ -733,6 +733,12 @@ pub struct PlaneRow {
     pub prefab: u32,
     pub offset: [f32; 3],
     pub heading: [f32; 4],
+    /// `SEATED` bit.
+    pub flags: u32,
+}
+impl PlaneRow {
+    /// fedoscript `seat.inUse`: the prefab `seatedObj` shows.
+    pub const SEATED: u32 = 1;
 }
 
 /// One rabbit in physics space. The renderer samples the blend tree at `phase` and `value`,

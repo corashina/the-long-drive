@@ -8,6 +8,7 @@ from .particles import particle,validate_particle
 from .validation import record,array,number,u32,optional,string,boolean,source as source_shape
 from .weather import game_object
 from .world_biome_materials import scene_component
+from .collision import world_pose,geometry
 
 MAIN_OBJECT=('level1',425)
 # mainscript.randomFlyerPrefab: the RandomBat GameObject, its Animator controller and its one clip.
@@ -58,6 +59,14 @@ def spin(source,records,nodes):
     x,y,z=vector(d['rotaxis'])
     return {'node':nodes[key(rot)]['id'],'axis':[-x,-y,z],'degrees_per_second':d['rotspeed']}
 
+def seated(source,records,nodes):
+    """fedoscript.seatedObj node. Start sets it active only while the seat is in use."""
+    found=[c for n in records for c in n['components'] if c.type.name=='MonoBehaviour' and source.class_name(c)=='fedoscript']
+    if not found:return None
+    go=source.resolve(found[0],source.read(found[0])['seatedObj'])
+    if go is None or key(source.transform_for(go)) not in nodes:raise ValueError('Sky seated node missing')
+    return nodes[key(source.transform_for(go))]['id']
+
 def emp(source,records):
     found=[c for n in records for c in n['components'] if c.type.name=='MonoBehaviour' and source.class_name(c)=='empscript']
     if len(found)>1:raise ValueError('Sky prefab has several empscript')
@@ -81,7 +90,61 @@ def recover_ground_ufo(source, prefabs):
         'fedo':source_id(fedo),'speed':f['speed'],'high_speed':f['highspeed'],'target_distance':f['targetDist'],'road_height_offset':f['roadHeightOffset'],
         'ai_distance_range':[f['aiMinDist'],f['aiMaxDist']],'ai_multiplier_range':[f['aiMinMultiplier'],f['aiMaxMultiplier']],
         'visited_distance':f['aiVisitedDistance'],'disappear_distance':f['aiDisappearDistance'],
-        'evidence':managed_evidence(source,UFO_EVIDENCE)}
+        **ufo_body(source,prefabs[index],fedo,f),'evidence':managed_evidence(source,UFO_EVIDENCE)}
+
+def ufo_body(source,root,fedo,f):
+    """Fedo01 Rigidbody, colliders, seatscript and stimulscript. Positions are root space."""
+    records=source.hierarchy(root,activate_root=True)
+    rigid=[c for n in records for c in n['components'] if c.type.name=='Rigidbody']
+    if len(rigid)!=1 or key(rigid[0])!=key(source.resolve(fedo,f['RB'])) or key(source.transform_for(source.resolve(rigid[0],source.read(rigid[0])['m_GameObject'])))!=key(root):
+        raise ValueError('UFO Rigidbody is not the one root body')
+    r=source.read(rigid[0])
+    # Constraints 112 freeze all rotation. The port body keeps an identity rotation.
+    if r['m_IsKinematic'] or r['m_UseGravity'] or r['m_Constraints']!=112:raise ValueError('UFO Rigidbody differs')
+    root_pose=world_pose(source,root)
+    matrix=source.read(next(o for o in source.objects.values() if o.type.name=='PhysicsManager'))['m_LayerCollisionMatrix']
+    rot=source.resolve(fedo,f['rot']);seated_go=source.resolve(fedo,f['seatedObj'])
+    rd=source.read(rot)
+    if any(vector(rd['m_LocalPosition'])) or key(source.resolve(rot,rd['m_Father']))!=key(root):
+        raise ValueError('UFO rotor is not at the root')
+    seat=source.resolve(fedo,f['seat'])
+    usables={key(source.resolve(fedo,f[n])):role for n,role in (('enableFollowRoad','auto_pilot'),('setHighSpeed','speed'),('setAltitude','altitude'))}
+    parents={key(n['reader']):key(n['parent']) if n['parent'] is not None else None for n in records}
+    def under(reader,top):
+        node=key(reader)
+        while node is not None:
+            if node==key(top):return True
+            node=parents[node]
+        return False
+    colliders=[];stimulus=None
+    for n in records:
+        if not n['active']:raise ValueError('UFO has an inactive node')
+        layer=source.read(n['game_object'])['m_Layer']
+        group={(source.class_name(c) if c.type.name=='MonoBehaviour' else c.type.name):c for c in n['components']}
+        for c in n['components']:
+            if c.type.name not in ('BoxCollider','SphereCollider','CapsuleCollider'):continue
+            d=source.read(c)
+            if d['m_IsTrigger'] or not d['m_Enabled'] or source.resolve(c,d['m_Material']) is not None:raise ValueError('UFO collider state differs')
+            role='seat' if 'seatscript' in group and key(group['seatscript'])==key(seat) else usables.get(key(group['usablescript']),'body') if 'usablescript' in group else 'body'
+            colliders.append({'source':source_id(c),'role':role,'spin':under(n['reader'],rot),'seated':under(n['reader'],source.transform_for(seated_go)),
+                'membership':1<<layer,'filter':matrix[layer],'geometry':geometry(source,None,c,n['reader'],root_pose,True)})
+            if 'stimulscript' in group:
+                if stimulus is not None or c.type.name!='SphereCollider':raise ValueError('UFO stimulus differs')
+                g=colliders[-1]['geometry'];t=source.read(group['stimulscript'])
+                if not t['visible'] or t['smell'] or t['audioSources']:raise ValueError('UFO stimulus differs')
+                stimulus={'source':source_id(group['stimulscript']),'center':g['center'],'radius':g['radius']}
+    if stimulus is None:raise ValueError('UFO stimulus missing')
+    d=source.read(seat)
+    for link in ('LHpos','RHpos','LLpos','RLpos','mainseat'):
+        if source.resolve(seat,d[link]) is not None:raise ValueError('UFO seat link is not audited')
+    if d['BcantSitAngle']:raise ValueError('UFO seat angle is not audited')
+    seat_t=source.transform_for(source.resolve(seat,d['m_GameObject']));sit=source.resolve(seat,d['sitPos']) or seat_t
+    return {'mass':r['m_Mass'],'speed_lerp':f['speedlerp'],'colliders':colliders,'stimulus':stimulus,
+        'seat':{'source':source_id(seat),'node':world_pose(source,seat_t)['translation'],'sit':world_pose(source,sit)['translation'],
+            'rot_limit':d['rotLimit'],'yaw_unlimited':bool(d['limitLessRot']),'look_instead_of_lean':bool(d['lookInsteadOfLean']),
+            'root_origin':bool(d['rootOrigin']),'default_pitch':d['defYrot'],'min_exit_angle':d['minGetUpAnlge'],'exit_height':d['getOutHeight'],
+            'show_sleep_text':bool(d['showSleepText']),'cant_push_from_seat':bool(d['cantPushFromSeat']),
+            'push_force_modifier':d['pushForce'] if d['usePushForceModifier'] else 1.,'def_pose':d['defPose']}}
 
 def recover_sky(source, manifest, output):
     reader=spawner(source);d=source.read(reader)
@@ -99,7 +162,7 @@ def recover_sky(source, manifest, output):
             'contrail':particle(source,system,f'{name}_contrail',d['rate'],output,root) if system else None,
             # recover_audio replaces these AudioSource identities with voice ids.
             'voices':[source_id(c) for n in records for c in n['components'] if c.type.name=='AudioSource'],
-            'spin':spin(source,records,nodes),'emp':emp(source,records)})
+            'spin':spin(source,records,nodes),'seated':seated(source,records,nodes),'emp':emp(source,records)})
     result['ground_ufo']=recover_ground_ufo(source,prefabs(source,reader))
     source.lighting['textures']=list(source.lighting_textures.values())
     return result
@@ -171,7 +234,7 @@ def validate_sky(sky, manifest):
     voices={v['id']:v for v in manifest['audio']['voices']};emitters={e['id']:e for e in manifest['audio']['emitters']}
     def prefab(p):
         record(p,{'source':source_shape,'asset':u32,'root':u32,'contrail':optional(lambda c:validate_particle(c,textures)),'voices':array(u32),
-            'spin':optional(lambda s:record(s,{'node':u32,'axis':array(number,3),'degrees_per_second':number})),'emp':optional(emp_shape)})
+            'spin':optional(lambda s:record(s,{'node':u32,'axis':array(number,3),'degrees_per_second':number})),'seated':optional(u32),'emp':optional(emp_shape)})
     def key_shape(k):
         record(k,{'time':number,'value':number,'in_tangent':number,'out_tangent':number,'in_weight':number,'out_weight':number,'weighted_mode':u32})
     def emp_shape(e):
@@ -182,7 +245,13 @@ def validate_sky(sky, manifest):
         record(u,{'source':source_shape,'prefab':u32,'night_range':array(number,2),'nights_after_spawn':number,'chance':number,
             'back_range':array(number,2),'side_distance':number,'up_distance':number,'fedo':source_shape,'speed':number,'high_speed':number,
             'target_distance':number,'road_height_offset':number,'ai_distance_range':array(number,2),'ai_multiplier_range':array(number,2),
-            'visited_distance':number,'disappear_distance':number,'evidence':lambda e:record(e,{'assembly_sha256':string,'methods':array(string)})})
+            'visited_distance':number,'disappear_distance':number,'mass':number,'speed_lerp':number,
+            'colliders':array(lambda c:record(c,{'source':source_shape,'role':string,'spin':boolean,'seated':boolean,'membership':u32,'filter':u32,'geometry':lambda g:None})),
+            'seat':lambda t:record(t,{'source':source_shape,'node':array(number,3),'sit':array(number,3),'rot_limit':number,'yaw_unlimited':boolean,
+                'look_instead_of_lean':boolean,'root_origin':boolean,'default_pitch':number,'min_exit_angle':number,'exit_height':number,
+                'show_sleep_text':boolean,'cant_push_from_seat':boolean,'push_force_modifier':number,'def_pose':u32}),
+            'stimulus':lambda t:record(t,{'source':source_shape,'center':array(number,3),'radius':number}),
+            'evidence':lambda e:record(e,{'assembly_sha256':string,'methods':array(string)})})
     record(sky,{'source':source_shape,'chances':array(number),'max_planes':u32,'spawn_time_range':array(number,2),
         'spawn_distance':number,'height':number,'speed':number,'max_angle':number,'destroy_distance':number,'contrail_rate':number,
         'prefabs':array(prefab,len(PREFABS)),'evidence':lambda e:record(e,{'assembly_sha256':string,'methods':array(string)}),'ground_ufo':ufo_shape,'flyer':lambda f:None})
@@ -201,6 +270,9 @@ def validate_sky(sky, manifest):
         if s and (nodes.get(s['node'],{}).get('asset')!=p['asset'] or math.hypot(*s['axis'])==0):raise ValueError('Invalid sky spin')
     u=sky['ground_ufo']
     if (u['prefab']>=len(sky['prefabs']) or sky['prefabs'][u['prefab']]['emp'] is None or not 0<=u['night_range'][0]<=u['night_range'][1]
-            or not 0<=u['chance']<=1 or not 0<=u['back_range'][0]<=u['back_range'][1] or not 0<u['speed']<=u['high_speed']):
+            or not 0<=u['chance']<=1 or not 0<=u['back_range'][0]<=u['back_range'][1] or not 0<u['speed']<=u['high_speed']
+            or sky['prefabs'][u['prefab']]['seated'] is None or u['mass']<=0
+            or {c['role'] for c in u['colliders']}!={'body','seat','auto_pilot','speed','altitude'}
+            or any(c['seated']!=(c['role'] in ('auto_pilot','speed','altitude')) for c in u['colliders'])):
         raise ValueError('Invalid ground UFO')
     validate_flyer(sky['flyer'],manifest)

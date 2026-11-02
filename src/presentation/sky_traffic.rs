@@ -8,6 +8,7 @@ use bevy::ecs as bevy_ecs;
 use bevy::gltf::GltfExtras;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAssetRoot, WorldInstanceReady};
+use simulation::boundary::PlaneRow;
 use std::collections::HashMap;
 
 #[derive(Component)]
@@ -23,6 +24,8 @@ struct SkyInstance {
     primitives: Vec<Entity>,
     /// The spin node and its glTF rotation.
     spin: Option<(Entity, Quat)>,
+    /// fedoscript `seatedObj` node and whether it shows.
+    seated: Option<(Entity, bool)>,
 }
 
 #[derive(Resource, Default)]
@@ -63,6 +66,7 @@ pub(crate) fn sync(
     source_materials: Query<(), With<MeshMaterial3d<SourceMaterial>>>,
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility, With<SkyScene>>,
+    mut node_visibility: Query<&mut Visibility, Without<SkyScene>>,
 ) {
     if !visuals.bound {
         return;
@@ -121,6 +125,7 @@ pub(crate) fn sync(
                     nodes: Vec::new(),
                     primitives: Vec::new(),
                     spin: None,
+                    seated: None,
                 },
             );
             continue;
@@ -167,7 +172,25 @@ pub(crate) fn sync(
                 let (_, entity) = instance.nodes.iter().find(|(id, _)| *id == spin.node)?;
                 Some((*entity, transforms.get(*entity).ok()?.rotation))
             });
+            instance.seated = prefab.seated.and_then(|node| {
+                let (_, entity) = instance.nodes.iter().find(|(id, _)| *id == node)?;
+                Some((*entity, true))
+            });
             instance.bound = true;
+        }
+        // Source fedoscript: `seatedObj.SetActive(seat.inUse)`.
+        if let Some((entity, shown)) = &mut instance.seated {
+            let seated = plane.flags & PlaneRow::SEATED != 0;
+            if *shown != seated
+                && let Ok(mut v) = node_visibility.get_mut(*entity)
+            {
+                *v = if seated {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+                *shown = seated;
+            }
         }
         if !instance.shown {
             // Show the plane once its meshes use source materials, as other source meshes do.

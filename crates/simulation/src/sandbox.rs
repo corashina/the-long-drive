@@ -379,7 +379,7 @@ fn sit(
         SeatOwner::Vehicle(key) => runtime.vehicles.get(key).map_or("", |v| {
             prototype_name(&reference.world.prototypes[v.prototype])
         }),
-        SeatOwner::Item(_) => "",
+        SeatOwner::Item(_) | SeatOwner::Ufo(_) => "",
     };
     let seat = runtime
         .area
