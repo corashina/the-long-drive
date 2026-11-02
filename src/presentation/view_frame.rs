@@ -186,6 +186,8 @@ pub struct SourceViewFrame {
     pub scene: u32,
     pub probe_enabled: [bool; PROBE_COUNT],
     pub probe_position: [Vec3; PROBE_COUNT],
+    /// Capture near clip of each slot's probe.
+    pub probe_near: [f32; PROBE_COUNT],
     pub probe_checks: u32,
     pub probe_distance_squared: [f32; PROBE_COUNT],
     pub probe_index: usize,
@@ -468,7 +470,8 @@ pub(crate) fn snapshot(
             )
         } else {
             let p = &assets.record.probes[0];
-            (p.near, p.far, 90., p.mask, p.shadow_distance)
+            let near = scene.probe_near[clock.probe_index];
+            (near, p.far, 90., p.mask, p.shadow_distance)
         };
         let view = if index < WORLD_VIEWS {
             world_from_view.inverse()
@@ -529,6 +532,7 @@ pub(crate) fn snapshot(
         motion_revision: sim.frame.state.motion_revision,
         probe_enabled: activation.enabled,
         probe_position: scene.probe_position,
+        probe_near: scene.probe_near,
         probe_checks: activation.checks,
         probe_index: clock.probe_index,
         probe_distance_squared: activation.distance_squared,
@@ -762,19 +766,20 @@ pub(crate) fn append_probe_required_views(
     views: &mut crate::world::RequiredViews,
     records: &[crate::reference::render_lighting::ProbeRecord],
     positions: &[Vec3; PROBE_COUNT],
+    near: &[f32; PROBE_COUNT],
     enabled: &[bool; PROBE_COUNT],
     origin: [f64; 3],
     light_forward: [f32; 3],
     light_mask: u32,
 ) -> Result<(), crate::reference::ReferenceError> {
     const _: () = assert!(crate::world::REQUIRED_VIEW_CAPACITY == WORLD_VIEWS + PROBE_COUNT * 6);
-    // Every car probe shares the capture settings of the one probe record.
+    // Every probe shares the capture settings of the one probe record, except its near clip.
     let probe = &records[0];
     views.append_probe_faces(enabled, |index, face| {
         let snapshot = camera_snapshot(
             UVec2::splat(probe.resolution),
             Mat4::from_cols_array_2d(&capture_view_from_world(face, positions[index].to_array())),
-            probe.near,
+            near[index],
             probe.far,
             90.,
             probe.mask,

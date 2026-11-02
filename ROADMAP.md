@@ -26,7 +26,6 @@ The starting area, car parts, world and more cars sections are done. Only their 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
 | X03 | Creatures | XL | Ground UFO, EMP and green-eyed evil rabbits, human monster (attacks hurt the player), breakablescript `DamageFrom` for AI. Rabbits do not yet sense the player hum. |
-| X06c | Building reflection probes | S | Car probes are live. Check the original building prefabs for realtime `ReflectionProbe`s. Export any as prototype probes. The live probe slots then take them. |
 
 ### Multiplayer
 
@@ -55,6 +54,7 @@ Known failures on master e927770 (2026-10-31 headless run, export ee6554d), fix 
 - WD3: `tp_wd3_each_melee_weapon_swings_with_each_key_and_breaks_a_bottle` needs the next export. The exporter now links melee weapons through `pickupable.melee` (#WD3), which adds the katana, fly swatter and leg. The test passes on ee6554d with those records added.
 - WD20: `tp_wd20_a_hard_hit_breaks_a_tumbleweed_with_its_gib_and_it_stays_gone` needs the next export. The exporter now exports gib ParticleSystems (`behavior.gib_particles`, #WD20). The tumbleweed gib is particles only. The test passes on ee6554d with a stand-in particle record.
 - Export field added (#PB): `player.seat_push_force` (source `fpscontroller.seatPushForce`). Export ee6554d lacks it, so re-export before the next run.
+- Export format changed (#X06c): each world prototype has `probes`, and `vehicle.probe` is gone. Re-export before the next run. Then stand inside the cabin, the turret house and a petrol station. Building probes take slots (F3), metal surfaces reflect the room, and F3 frame time stays in the frame rate rule.
 
 Prepare once:
 

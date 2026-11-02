@@ -44,6 +44,10 @@ pub(super) fn moving_nodes_of(
     for body in &prototype.bodies {
         moving[body.node as usize] = true;
     }
+    // Probe nodes give the live slot check a position and an active state.
+    for probe in &prototype.probes {
+        moving[probe.node as usize] = true;
+    }
     // Follower nodes: Bus02 springs, axles and rams.
     if let Some(followers) = &prototype.followers {
         for f in &followers.followers {

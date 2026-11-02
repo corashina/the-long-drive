@@ -70,6 +70,57 @@ pub struct ProbeRecord {
     pub faces: Vec<CaptureFace>,
     pub mip_extents: Vec<u32>,
 }
+/// A realtime `ReflectionProbe` of a world prototype with source `reflectionsscript`.
+/// Cars and buildings carry them. The fields are those of `ProbeRecord`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorldProbeReference {
+    pub source: SourceId,
+    /// The probe node, a prototype node index.
+    pub node: u32,
+    pub enabled: bool,
+    pub bounds_size: [f32; 3],
+    pub bounds_offset: [f32; 3],
+    pub box_projection: bool,
+    pub blend_distance: f32,
+    pub intensity: f32,
+    pub importance: i32,
+    pub near: f32,
+    pub far: f32,
+    pub shadow_distance: f32,
+    pub mask: u32,
+    pub resolution: u32,
+    pub refresh: ProbeRefresh,
+    pub decode: [f32; 4],
+    pub faces: Vec<CaptureFace>,
+    pub mip_extents: Vec<u32>,
+}
+impl WorldProbeReference {
+    /// The capture values equal those of `shared`. Influence bounds and the near clip are per
+    /// probe: the source outhouse probes use 0.65, the others 0.84.
+    pub fn matches(&self, shared: &ProbeRecord) -> bool {
+        self.near > 0.
+            && self.near < shared.far
+            && self.enabled == shared.enabled
+            && self.box_projection == shared.box_projection
+            && self.blend_distance == shared.blend_distance
+            && self.intensity == shared.intensity
+            && self.importance == shared.importance
+            && self.far == shared.far
+            && self.shadow_distance == shared.shadow_distance
+            && self.mask == shared.mask
+            && self.resolution == shared.resolution
+            && self.refresh == shared.refresh
+            && self.decode == shared.decode
+            && self.faces.len() == shared.faces.len()
+            && self
+                .faces
+                .iter()
+                .zip(&shared.faces)
+                .all(|(a, b)| a.index == b.index && a.basis == b.basis)
+            && self.mip_extents == shared.mip_extents
+    }
+}
 pub(super) fn valid_source(source: &SourceId) -> bool {
     !source.file.is_empty() && source.path_id != 0
 }
