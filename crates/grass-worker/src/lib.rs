@@ -1,4 +1,8 @@
 //! Grass worker entry. Immutable input and planned output belong to this WASM instance.
+// DLmalloc spends seconds in many small reference allocations. Talc is much faster on WASM.
+#[cfg(target_arch = "wasm32")]
+#[global_allocator]
+static ALLOCATOR: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();
 use grass_mesh::{GrassDomain, GrassExpansion, GrassMeshData, GrassPatch, GrassSettings};
 use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 use wasm_bindgen::prelude::*;

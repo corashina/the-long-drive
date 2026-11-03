@@ -1,5 +1,9 @@
 //! Browser application: renderer and presentation over the simulation crate.
 #![recursion_limit = "256"]
+// DLmalloc spends seconds in many small reference allocations. Talc is much faster on WASM.
+#[cfg(target_arch = "wasm32")]
+#[global_allocator]
+static ALLOCATOR: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();
 
 pub use ::simulation::{
     animation, audio, conditions, damage, exhaust, fluids, flyers, interaction, inventory,

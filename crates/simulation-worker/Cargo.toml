@@ -11,3 +11,6 @@ crate-type = ["cdylib"]
 simulation = { path = "../simulation" }
 wasm-bindgen = "=0.2.129"
 console_error_panic_hook = "=0.1.7"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+talc = "=5.1.1"
