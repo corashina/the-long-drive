@@ -49,7 +49,7 @@ button:focus-visible {outline:2px solid #fff;outline-offset:3px;}
 .display-controls {position:absolute;left:16px;right:16px;bottom:16px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;font:18px Arial,sans-serif;}
 .display-controls label {display:flex;align-items:center;gap:8px;}
 #draw-distance-value {min-width:5.5em;}
-#fullscreen,#scene-resolution,#shadow-quality,#grass-quality,#biome {min-height:44px;padding:8px 16px;background:#b4804640;border:1px solid #b48046;font:inherit;color:#fff;}
+#fullscreen,#display-scene-scale,#display-shadows,#display-grass,#biome {min-height:44px;padding:8px 16px;background:#b4804640;border:1px solid #b48046;font:inherit;color:#fff;}
 #fullscreen {position:relative;align-self:flex-start;}
 #settings-screen #back,#game-mode-back {position:static;left:auto!important;top:auto!important;width:150px!important;height:44px!important;font-size:18px!important;}
 #menu:has(#save-screen:not([hidden])) h1 {visibility:hidden;}

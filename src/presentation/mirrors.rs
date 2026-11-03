@@ -7,14 +7,6 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::render::extract_resource::ExtractResource;
 use bevy::{ecs as bevy_ecs, prelude::*, render as bevy_render};
 
-/// The "Mirrors" and "Mirror draw distance" settings. Off until the browser sends them.
-#[derive(Resource, Default)]
-pub struct MirrorSettings {
-    pub on: bool,
-    /// Source `FMirrorDrawDistance`, meters.
-    pub draw_distance: f32,
-}
-
 /// One mirror camera of this frame.
 #[derive(Clone, Copy)]
 pub struct MirrorView {
@@ -84,15 +76,6 @@ pub(crate) fn slot_images(images: &mut Assets<Image>) -> Vec<Handle<Image>> {
         .collect()
 }
 
-/// Read the settings that the browser sends at start and after each change.
-pub(crate) fn poll(mut settings: ResMut<MirrorSettings>) {
-    let mut value = [0.; 2];
-    if crate::browser::game_mirrors(&mut value) {
-        settings.on = value[0] != 0.;
-        settings.draw_distance = value[1];
-    }
-}
-
 /// Source `Mathf.InverseLerp`.
 fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
     if a == b {
@@ -106,7 +89,7 @@ fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
 /// The source skips it while the cursor is free. The port keeps the mirrors live in menus.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn select(
-    settings: Res<MirrorSettings>,
+    settings: Res<crate::display_settings::DisplaySettings>,
     reference: Option<Res<crate::app::RuntimeReference>>,
     drive: Res<crate::app::Drive>,
     sim: Res<super::sim_frame::SimFrameResource>,
@@ -172,7 +155,7 @@ pub(crate) fn select(
     // Pass 1: the live mirrors and their views. Pass 2 gives new live mirrors free slots.
     let mut live: [Option<(usize, MirrorView)>; MIRROR_COUNT] = [None; MIRROR_COUNT];
     for (rank, candidate) in candidates.iter().enumerate().take(MIRROR_COUNT) {
-        if !settings.on || !near {
+        if !settings.mirrors || !near {
             break;
         }
         let record = &world.prototypes[candidate.prototype];
@@ -205,7 +188,7 @@ pub(crate) fn select(
         let visible = instances
             .mirror_renderers(candidate.instance, mirror.renderer)
             .any(|entity| visibility.get(entity).is_ok_and(|v| v.get()));
-        let far = settings.draw_distance * k;
+        let far = settings.mirror_distance * k;
         if skipped(far, mirror.near, up.dot(reflected), visible) {
             continue;
         }
@@ -307,10 +290,8 @@ pub(crate) fn select(
 
 pub(crate) fn install(app: &mut App) {
     use bevy::render::extract_resource::ExtractResourcePlugin;
-    app.init_resource::<MirrorSettings>()
-        .init_resource::<MirrorFrame>()
+    app.init_resource::<MirrorFrame>()
         .add_plugins(ExtractResourcePlugin::<MirrorFrame>::default())
-        .add_systems(Update, poll)
         .add_systems(
             PostUpdate,
             select

@@ -61,7 +61,6 @@ impl LampShadowUniform {
 /// Main world state, extracted each frame.
 #[derive(Resource, Clone, ExtractResource)]
 pub struct LampShadows {
-    pub on: bool,
     pub spheres: [Option<LampSphere>; LAMP_SLOTS],
     pub uniforms: [LampShadowUniform; LAMP_SLOTS],
     /// Light view matrices of each face: view_from_world and clip_from_view.
@@ -70,7 +69,6 @@ pub struct LampShadows {
 impl Default for LampShadows {
     fn default() -> Self {
         Self {
-            on: true,
             spheres: [None; LAMP_SLOTS],
             uniforms: [LampShadowUniform::default(); LAMP_SLOTS],
             views: [[(Mat4::IDENTITY, Mat4::IDENTITY); 6]; LAMP_SLOTS],
@@ -100,13 +98,6 @@ impl LampShadows {
     }
 }
 
-/// Read the setting that the browser sends at start and after each change.
-pub(crate) fn poll(mut lamps: ResMut<LampShadows>) {
-    if let Some(on) = crate::browser::game_lamp_shadows() {
-        lamps.on = on;
-    }
-}
-
 /// Reversed-depth perspective with a Y flip. The caster pipelines cull clockwise faces, like the sun cascades.
 fn face_projection(fov: f32, near: f32, far: f32) -> Mat4 {
     Mat4::from_scale(Vec3::new(1., -1., 1.)) * Mat4::perspective_rh(fov, 1., far, near)
@@ -128,6 +119,7 @@ pub(crate) fn select(
     frame: Res<SourceViewFrame>,
     mut source: ResMut<SourceLighting>,
     mut lamps: ResMut<LampShadows>,
+    display: Res<crate::display_settings::DisplaySettings>,
     mut candidates: Local<Vec<LampSphere>>,
 ) {
     let lamps = &mut *lamps;
@@ -138,7 +130,7 @@ pub(crate) fn select(
         let gpu = &mut source.uniform.lights[bound.index];
         gpu.mask.z = 0;
         let record = record_of(&reference, bound);
-        if !lamps.on
+        if !display.lamp_shadows
             || quality == 0
             || record.kind == LightKind::Directional
             || record.shadows.kind == 0
@@ -265,7 +257,6 @@ pub fn install(app: &mut App) {
         .add_plugins(bevy::render::extract_resource::ExtractResourcePlugin::<
             LampShadows,
         >::default())
-        .add_systems(Update, poll)
         .add_systems(
             PostUpdate,
             select

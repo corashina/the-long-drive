@@ -1,6 +1,6 @@
 // Settings store: one browser storage record of source `settingsscript.S` fields.
 // `reference` is the exported `settings` record. A stored slider value is the setting: slider value * multiplier.
-// `fields` adds values outside the Settings screen: name to {default, valid(value)}. Tab resets skip them.
+// `fields` adds values outside the source settings: name to {default, valid(value), tab}. A tab reset resets the fields of its tab.
 // `storage` returns the Storage. The browser throws on access when storage is blocked.
 import {actionName} from './bindings.js';
 const KEY='the-long-slop.settings';
@@ -44,6 +44,7 @@ export function createSettings(storage,reference,fields={}){
   reset(tab,inMenu){
    for(const [name,s] of Object.entries(reference.sliders))if(s.tab===tab&&(inMenu||!s.menu_only))values[name]=s.default*s.multiplier;
    for(const [name,t] of Object.entries(reference.toggles))if(t.tab===tab)values[name]=toggleDefault(name,t);
+   for(const [name,f] of Object.entries(fields))if(f.tab===tab)values[name]=f.default;
    changed();
   },
   listen(listener){listeners.add(listener);},
