@@ -48,8 +48,6 @@ pub(super) fn bind_arrays(
 #[derive(Clone)]
 struct Layer {
     source: SourceId,
-    path: String,
-    hash: String,
     batches: Arc<[TextureBatchReference]>,
 }
 #[derive(Clone)]
@@ -114,7 +112,6 @@ impl WorldTextures {
                 "layers": a.layers.len(), "next_layer": a.next_layer, "next_batch": a.next_batch, "failed": a.failed,
                 "gpu_bytes": a.bytes, "users": a.users, "owners": Arc::strong_count(&a.owner),
                 "image": a.image.as_ref().map(|h| format!("{:?}", h.id())),
-                "hashes": a.layers.iter().map(|l| &l.hash).collect::<Vec<_>>(),
                 "sources": a.layers.iter().map(|l| &l.source).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
             "counters": super::world_texture_upload::COUNTER_NAMES.iter().zip(queue.counters).map(|(n, c)| (n.to_string(), serde_json::Value::from(c))).collect::<serde_json::Map<_, _>>(),
@@ -207,8 +204,6 @@ impl WorldTextures {
                             .iter()
                             .map(|layer| {
                                 layer.source.file.capacity()
-                                    + layer.path.capacity()
-                                    + layer.hash.capacity()
                                     + layer.batches.len() * size_of::<TextureBatchReference>()
                                     + layer
                                         .batches
@@ -278,8 +273,11 @@ impl WorldTextures {
                             && array.layers.len() == layers.len()
                             && array.layers.iter().zip(layers).all(|(a, b)| {
                                 a.source == b.source
-                                    && a.hash == b.mip_data.sha256
-                                    && a.path == b.mip_data.path
+                                    && a.batches.len() == b.batches.len()
+                                    && a.batches
+                                        .iter()
+                                        .zip(&b.batches)
+                                        .all(|(x, y)| x.descriptor.sha256 == y.descriptor.sha256)
                             })
                     })
                 })
@@ -310,8 +308,6 @@ impl WorldTextures {
                         .map(|layer| {
                             std::mem::size_of::<Layer>()
                                 + layer.source.file.len()
-                                + layer.mip_data.path.len()
-                                + layer.mip_data.sha256.len()
                                 + layer.batches.len() * std::mem::size_of::<TextureBatchReference>()
                                 + layer
                                     .batches
@@ -369,8 +365,6 @@ impl WorldTextures {
                     .into_iter()
                     .map(|record| Layer {
                         source: record.source.clone(),
-                        path: record.mip_data.path.clone(),
-                        hash: record.mip_data.sha256.clone(),
                         batches: record.batches.clone().into(),
                     })
                     .collect();

@@ -136,17 +136,14 @@ def texture(source, reader, output):
     if reader is None or reader.type.name!='Texture2D':raise ValueError(f'Required lighting Texture2D: {key(reader) if reader else None}')
     identity=key(reader)
     if identity not in source.lighting_textures:
-        from PIL import Image
-        obj=source.texture_object(reader);name=f'lighting-{reader.assets_file.name}-{reader.path_id}.png'
-        path=output/name;obj.image.transpose(Image.Transpose.FLIP_TOP_BOTTOM).save(path)
+        obj=source.texture_object(reader)
         from .mips import decoded_mips
         payload=decoded_mips(obj)
-        mip_data=resource(reader,output,"smip",payload)
         s=obj.m_TextureSettings
-        source.lighting_textures[identity]={'id':len(source.lighting_textures)+1,'source':source_id(reader),'path':f'reference/{name}',
-            'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'width':obj.m_Width,'height':obj.m_Height,
+        # The browser loads only the row chunks. Do not export whole-texture copies.
+        source.lighting_textures[identity]={'id':len(source.lighting_textures)+1,'source':source_id(reader),'width':obj.m_Width,'height':obj.m_Height,
             'source_format':obj.m_TextureFormat,'sample_channel':'alpha' if obj.m_TextureFormat==1 else 'rgba','color_space':obj.m_ColorSpace,'filter_mode':s.m_FilterMode,'wrap_u':s.m_WrapU,'wrap_v':s.m_WrapV,
-            'chunks':texture_chunks(reader,output,payload),'mip_data':mip_data,'source_data':resource(reader,output,'texture.bin',obj.get_image_data()),'mip_count':obj.m_MipCount,'aniso':s.m_Aniso,'mip_bias':s.m_MipBias}
+            'chunks':texture_chunks(reader,output,payload),'mip_count':obj.m_MipCount,'aniso':s.m_Aniso,'mip_bias':s.m_MipBias}
     return source.lighting_textures[identity]['id']
 
 def sky_material(source, reader, output):
@@ -488,12 +485,6 @@ def validate_lighting_export(manifest: dict, output: Path) -> None:
         elif isinstance(value,list):
             for child in value:walk(child)
     walk(lighting)
-    from .mips import validate_mips
-    for t in lighting["textures"]:
-        mip=t.get("mip_data")
-        if not mip:fail(t["source"],"mip_data missing")
-        try:validate_mips((output/Path(mip["path"]).name).read_bytes(),t["width"],t["height"],t["mip_count"])
-        except ValueError as error:fail(t["source"],str(error))
     for a in manifest['assets']:
         for d in a['dependencies']:
             path=output/Path(d['file']).name

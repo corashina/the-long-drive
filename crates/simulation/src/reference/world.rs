@@ -1254,15 +1254,7 @@ impl WorldReference {
                 t.textures
                     .iter()
                     .chain(&self.material_textures)
-                    .flat_map(|x| {
-                        [
-                            (&x.path, &x.sha256),
-                            (&x.mip_data.path, &x.mip_data.sha256),
-                            (&x.source_data.path, &x.source_data.sha256),
-                        ]
-                        .into_iter()
-                        .chain(x.chunks.iter().map(|c| (&c.data.path, &c.data.sha256)))
-                    }),
+                    .flat_map(|x| x.chunks.iter().map(|c| (&c.data.path, &c.data.sha256))),
             )
             .collect();
         for (path, digest) in resources {

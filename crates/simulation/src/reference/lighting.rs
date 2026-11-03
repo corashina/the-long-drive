@@ -328,15 +328,6 @@ impl LightingRecord {
         for t in &self.textures {
             check(
                 t.id > 0
-                    && valid_resource(&t.source, &t.path, &t.sha256)
-                    && valid_resource(
-                        &t.source_data.source,
-                        &t.source_data.path,
-                        &t.source_data.sha256,
-                    )
-                    && valid_resource(&t.mip_data.source, &t.mip_data.path, &t.mip_data.sha256)
-                    && t.mip_data.source == t.source
-                    && t.mip_data.path.ends_with(".smip")
                     && t.mip_count <= 32 - t.width.max(t.height).leading_zeros()
                     && t.width > 0
                     && t.height > 0
