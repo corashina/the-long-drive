@@ -174,3 +174,35 @@ pub fn decode_view(input: &[u8]) -> Result<GrassView, String> {
     reader.done()?;
     Ok(view)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    /// web/grass.js reads this layout. tests/web/grass.test.mjs pins its constants to this file.
+    #[test]
+    fn dataset_layout() {
+        let patch = GrassPatch {
+            positions: [Vec3::ZERO; 3],
+            uvs: [Vec2::ZERO; 3],
+        };
+        let settings = GrassSettings {
+            edge_length: 1.0,
+            max_tessellation: 2,
+            max_height: 1.0,
+            fade_end: 10.0,
+            lod_start: 1.0,
+            lod_end: 5.0,
+            lod_max: 3,
+            smooth_domain: false,
+            thin_start: 5.0,
+            thin_floor: 0.5,
+        };
+        let patches = [patch; 3];
+        let mut out = Vec::new();
+        encode_dataset(&patches, settings, &mut out);
+        assert_eq!(out.len(), dataset_encoded_len(&patches).unwrap());
+        let header = dataset_encoded_len(&[]).unwrap();
+        assert_eq!(&out[header - 4..header], &3u32.to_le_bytes());
+        assert!(decode_dataset(&out).is_ok());
+    }
+}
