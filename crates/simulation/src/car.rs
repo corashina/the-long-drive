@@ -48,7 +48,7 @@ pub struct WorldCarParts {
     /// The item of the `carscript.InteractSwitchLights` usable.
     pub light_switch: Option<ItemId>,
     /// The item of the `carscript.InteractHandbrake` usable.
-    pub handbrake_lever: Option<ItemId>,
+    pub handbrake_switch: Option<ItemId>,
     /// Plate label texts in `WorldVehicleReference::plates` order.
     pub plates: Vec<String>,
     /// Source `carscript.blood`.
@@ -123,7 +123,7 @@ pub struct VehicleRuntime {
     /// The item of the `carscript.InteractSwitchLights` usable.
     pub light_switch: Option<ItemId>,
     /// The item of the `carscript.InteractHandbrake` usable.
-    pub handbrake_lever: Option<ItemId>,
+    pub handbrake_switch: Option<ItemId>,
     /// Plate label texts, in `WorldVehicleReference::plates` order.
     pub plates: Vec<String>,
     /// `carscript.kmhmeters` slots: (row, slot) pairs.
@@ -206,7 +206,7 @@ impl VehicleRuntime {
             powertrain: Powertrain::default(),
             requested_headlights: 0,
             light_switch: parts.light_switch,
-            handbrake_lever: parts.handbrake_lever,
+            handbrake_switch: parts.handbrake_switch,
             plates: parts.plates,
             kmh_slots: Vec::new(),
             balance: Default::default(),

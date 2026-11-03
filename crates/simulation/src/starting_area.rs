@@ -1169,16 +1169,16 @@ impl GarageRuntime {
         }
         if let Some(action) = self.area.interaction.mechanisms.take_control_action() {
             match action {
-                crate::interaction::mechanisms::ControlAction::ToggleHandbrake(lever) => {
+                crate::interaction::mechanisms::ControlAction::ToggleHandbrake(switch) => {
                     if let Some(vehicle) = self
                         .vehicles
                         .values_mut()
-                        .find(|v| v.handbrake_lever == Some(lever))
+                        .find(|v| v.handbrake_switch == Some(switch))
                     {
                         vehicle.handbrake = !vehicle.handbrake;
                         if let Some(key) = self.area.player.seat_vehicle().cloned()
                             && self.area.player.driving()
-                            && self.vehicles[&key].handbrake_lever == Some(lever)
+                            && self.vehicles[&key].handbrake_switch == Some(switch)
                         {
                             self.reach_seated_car(
                                 reference,
