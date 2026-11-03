@@ -569,7 +569,7 @@ impl CleaningTools {
             physics.refresh_queries();
         }
     }
-    pub fn reserves_lmb(&self, equipped: Option<ItemId>, _carried: Option<ItemId>) -> bool {
+    pub fn reserves_lmb(&self, equipped: Option<ItemId>) -> bool {
         equipped.is_some_and(|item| self.lmb_items.contains_key(&item) || self.is_brush(item))
     }
     /// Source `drotkefe`: the item has a brush.
@@ -1003,7 +1003,7 @@ impl CleaningTools {
             ToolOwner::Equipped(item) => (item, true),
             ToolOwner::Carried(item) => (item, false),
         };
-        let reserved = self.reserves_lmb(equipped.then_some(item), (!equipped).then_some(item));
+        let reserved = self.reserves_lmb(equipped.then_some(item));
         if !frame.active || !frame.dt.is_finite() || frame.dt <= 0. {
             return reserved;
         }
