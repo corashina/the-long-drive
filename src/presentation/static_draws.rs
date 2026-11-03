@@ -164,14 +164,18 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetSourceMeshBindGroup<I
     }
 }
 
-/// The static draw bundle of each view.
+/// The static draw bundle of each view, and the depth prepass bundle of each world view.
 #[derive(Resource)]
-pub struct StaticBundles(
-    pub [Mutex<super::render_bundles::DrawBundle>; super::surface_views::VIEW_COUNT],
-);
+pub struct StaticBundles {
+    pub views: [Mutex<super::render_bundles::DrawBundle>; super::surface_views::VIEW_COUNT],
+    pub depth: [Mutex<super::render_bundles::DrawBundle>; super::surface_views::WORLD_VIEWS],
+}
 impl Default for StaticBundles {
     fn default() -> Self {
-        Self(std::array::from_fn(|_| Mutex::default()))
+        Self {
+            views: std::array::from_fn(|_| Mutex::default()),
+            depth: std::array::from_fn(|_| Mutex::default()),
+        }
     }
 }
 

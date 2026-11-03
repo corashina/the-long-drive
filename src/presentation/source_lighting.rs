@@ -262,6 +262,33 @@ pub(crate) type DrawSourceMaterial = (
     SourceDrawMark<true, true>,
 );
 
+/// World view opaque draws after the depth prepass. The base draw compares Equal.
+pub(crate) type DrawSourceEqual = (
+    SourceDrawMark<false, false>,
+    super::surface_pass::SourcePairReady,
+    super::surface_pass::SetSourceEqualPipeline,
+    SetSourceViewCamera,
+    SetSourceViewLighting,
+    super::static_draws::SetSourceMeshBindGroup<2>,
+    bevy::pbr::SetMaterialBindGroup<3>,
+    DrawMesh,
+    SourceDrawMark<false, true>,
+    super::surface_pass::SetSourceAdditivePipeline,
+    SourceDrawMark<true, false>,
+    DrawMesh,
+    SourceDrawMark<true, true>,
+);
+/// World view depth prepass draws. A base without a prepass pipeline draws nothing.
+pub(crate) type DrawSourceDepth = (
+    super::surface_pass::SourcePairReady,
+    super::surface_pass::SetSourceDepthPipeline,
+    SetSourceViewCamera,
+    SetSourceViewLighting,
+    super::static_draws::SetSourceMeshBindGroup<2>,
+    bevy::pbr::SetMaterialBindGroup<3>,
+    DrawMesh,
+);
+
 /// Transparent passes are dispatched separately through the source comparator.
 pub(crate) type DrawSourceBase = (
     SourceDrawMark<false, false>,
@@ -406,6 +433,10 @@ impl Plugin for SourceLightingPlugin {
                 .add_render_command::<Transparent3d, DrawSourceWorld>()
                 .add_render_command::<Opaque3d, DrawSourceMaterial>()
                 .add_render_command::<AlphaMask3d, DrawSourceMaterial>()
+                .add_render_command::<Opaque3d, DrawSourceEqual>()
+                .add_render_command::<AlphaMask3d, DrawSourceEqual>()
+                .add_render_command::<Opaque3d, DrawSourceDepth>()
+                .add_render_command::<AlphaMask3d, DrawSourceDepth>()
                 .add_render_command::<Transmissive3d, DrawSourceMaterial>()
                 .add_render_command::<Transparent3d, DrawSourceBase>()
                 .add_render_command::<Transparent3d, DrawSourcePlate>()

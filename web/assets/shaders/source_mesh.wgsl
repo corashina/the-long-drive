@@ -17,8 +17,9 @@
 
 struct SourceVertexOutput {
     // This is `clip position` when the struct is used as a vertex stage output
-    // and `frag coord` when used as a fragment stage input
-    @builtin(position) position: vec4<f32>,
+    // and `frag coord` when used as a fragment stage input.
+    // Invariant: the depth prepass and the Equal opaque draw get bit-equal depth.
+    @invariant @builtin(position) position: vec4<f32>,
     @location(0) world_position: vec4<f32>,
     @location(1) world_normal: vec3<f32>,
     // x=first probe weight, y=renderer flags, z=first probe slot, w=second probe slot or -1.
