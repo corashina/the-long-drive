@@ -385,7 +385,8 @@ impl WorldTextures {
         let mut queue = self.uploads.lock().unwrap();
         queue.poll(server, batches);
         let mut failure = None;
-        // Owners in order. A later owner cannot advance array progress before an earlier one.
+        // The owners are in order. A later owner cannot advance array progress before an
+        // earlier one.
         let identities = queue.ownership.slots.map(|o| o.map(|o| o.identity));
         for identity in identities
             .into_iter()

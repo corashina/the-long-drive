@@ -116,8 +116,8 @@ fn prepare(
                     continue;
                 }
                 let clip = super::shadow_queue::cascade_projection(cascade, basis).0;
-                // Clip to this top-left atlas tile. Projection flip and world conversion
-                // are already in clip and must not be applied again.
+                // Clip to this top-left atlas tile. `clip` already holds the projection flip
+                // and the world conversion. Do not apply them again.
                 let offset = Vec2::new(
                     (index & 1) as f32 * 0.5 + 0.25,
                     (index >> 1) as f32 * 0.5 + 0.25,

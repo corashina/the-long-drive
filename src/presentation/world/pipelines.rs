@@ -169,7 +169,7 @@ impl WorldPipelines {
         if let Some(parent) = parent.as_ref() {
             parent.validate(stream)?;
         }
-        // This local Arc adds no allocation. It keeps the bank lock order bank -> pair.
+        // This local Arc adds no allocation. It keeps the bank lock order of bank, then pair.
         let mut shared = self.jobs.clone();
         let mut guard = shared.as_ref().map(|bank| bank.lock().unwrap());
         let append = guard.as_ref().and_then(|bank| {

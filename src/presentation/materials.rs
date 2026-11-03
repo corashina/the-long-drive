@@ -320,7 +320,7 @@ struct LoadingData {
     state: RenderingState,
     shadow_capacity: usize,
     transparent_pass_capacity: usize,
-    // A terminal prewarm boundary remains fixed until requests, seal, or state change.
+    // A terminal prewarm boundary stays fixed until the requests, the seal or the state change.
     terminal_prewarm_audit: Option<((usize, usize), MaterialPrewarmAudit)>,
 }
 #[derive(Resource, Default)]
@@ -729,7 +729,8 @@ pub(crate) fn bind_authored_materials(
                 .insert((bevy::render::batching::NoAutomaticBatching, sort));
         }
         let handle = if let Some(slot) = slot {
-            // `playermodeloutfitscript.Refresh`: one copy of the segment material with its own color.
+            // `playermodeloutfitscript.Refresh` makes one copy of the segment material
+            // with its own color.
             let (Some(segment), invisible) = (find(slot.material), slot.invisible.map(find)) else {
                 source.state = RenderingState::Failed(format!(
                     "Missing outfit material {}:{}",
@@ -860,7 +861,7 @@ pub struct OutfitSlot {
     pub segment: u8,
     /// glTF material index of the segment `default_material`.
     pub material: u32,
-    /// glTF material index of the invisible material. Only for a segment with `disable_able`.
+    /// glTF material index of the invisible material. Only a segment with `disable_able` has one.
     pub invisible: Option<u32>,
 }
 /// Materials of an outfit slot. The segment copy has a retained color.
@@ -919,7 +920,7 @@ fn make_material(
     if player {
         flags |= 1 << 9;
     }
-    // The ragdoll draws with `_Dist` 0 in every view: no head clip.
+    // The ragdoll draws with `_Dist` 0 in every view, so it has no head clip.
     if player && record.asset == source.ragdoll {
         flags |= 1 << 12;
     }
@@ -1367,7 +1368,7 @@ impl SourceMaterial {
         let bank = if data.flags.y & bit != 0 {
             data.banks[slot / 4][slot % 4]
         } else {
-            // Banks 4 and 5 are the normal and depth maps: their presence changes the pipeline.
+            // Banks 4 and 5 are the normal and depth maps. Their presence changes the pipeline.
             let used = |bank: u32| {
                 (0..9).any(|other| {
                     data.flags.y & (1 << other) != 0 && data.banks[other / 4][other % 4] == bank
@@ -1413,7 +1414,7 @@ const MAIN_SLOT: usize = 0;
 /// Index of `_EmissionMap` in `SLOTS`.
 const EMISSION_SLOT: usize = 4;
 /// Source `SetColor("_EmissionColor")` and, with `map`, `SetTexture("_EmissionMap")`.
-/// `None` keeps the current map. Only a changed value touches `assets`: an untouched
+/// `None` keeps the current map. Only a changed value touches `assets`. An untouched
 /// `assets` keeps its change tick, so the shadow scene does not walk every caster again.
 pub fn write_emission(
     assets: &mut ResMut<Assets<SourceMaterial>>,
@@ -1968,7 +1969,7 @@ pub fn bind_materials(
         {
             continue;
         }
-        // Authored primitives wait for their renderer record: it holds the pass sort order.
+        // Authored primitives wait for their renderer record. It holds the pass sort order.
         if extras.is_some() && renderer.is_none() {
             continue;
         }

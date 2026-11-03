@@ -1,4 +1,4 @@
-//! Source RenderTextureDisplacement camera target. Writer meshes are admitted by world presentation.
+//! Source RenderTextureDisplacement camera target. World presentation admits the writer meshes.
 use crate::reference::{ReferenceError, WorldReference, WorldValue};
 use bevy::{
     ecs as bevy_ecs,
@@ -74,7 +74,7 @@ impl GrassCamera {
             pixels_high: height as u32,
         })
     }
-    /// Source Update follows the accepted camera. OnPreCull snaps with truncating remainder.
+    /// Source Update follows the accepted camera. OnPreCull snaps with a truncating remainder.
     pub fn frame(self, source_camera: Vec3, runtime_origin: Vec3, time: f32) -> GrassFrameUniform {
         let mut position = source_camera + Vec3::Y * self.height;
         let step_x = 2. * self.size / self.width as f32;
@@ -89,7 +89,7 @@ impl GrassCamera {
             2. * self.size / aspect,
         );
         let runtime = Vec3::new(position.x, position.y, -position.z) - runtime_origin;
-        // Source +Z looks down after X90; source camera +Y maps toward runtime -Z.
+        // Source +Z looks down after X90. Source camera +Y maps toward runtime -Z.
         let world_from_view = Mat4::from_rotation_translation(
             Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2),
             runtime,

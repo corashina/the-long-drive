@@ -488,7 +488,7 @@ impl SourcePrototypes {
                             "Source primitive count changed after preflight".into(),
                         ));
                     }
-                    // Keep both main-world data and render extraction/upload copies charged.
+                    // Keep both main-world data and render extraction and upload copies charged.
                     let cpu = loaded.mesh_bytes * 2
                         + loaded.skin_bytes * 2
                         + retained_plan_bytes(plan)

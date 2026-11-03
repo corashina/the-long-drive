@@ -38,7 +38,7 @@ pub(super) struct UploadQueue {
     pub ownership: BatchQueue,
     pub jobs: [Option<Upload>; SLOTS],
     pub next_request: u64,
-    /// Main frames by queue state. Startup audit only. See `COUNTER_NAMES`.
+    /// Main frames by queue state. Only the startup audit reads it. See `COUNTER_NAMES`.
     pub counters: [u64; COUNTER_NAMES.len()],
 }
 pub(super) const COUNTER_NAMES: [&str; 10] = [
@@ -183,7 +183,7 @@ fn upload(
         shared.ownership.submit(owner.identity);
     }
 }
-/// Writes the rows of one ready batch. False while its image is not on the GPU.
+/// Writes the rows of one ready batch. Returns false while its image is not on the GPU.
 fn upload_job(
     shared: &UploadQueue,
     identity: BatchIdentity,

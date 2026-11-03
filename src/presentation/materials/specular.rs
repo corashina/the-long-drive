@@ -135,7 +135,8 @@ impl SpecularMaterial {
             .ok_or_else(|| ReferenceError("Missing specular _MainTex_ST".into()))?;
         uniform.uv = [Vec4::from_array(uv); 9];
         uniform.defaults[1] = Vec4::new(0.5, 0.5, 1., 1.);
-        // Checked shader's null emission default is white; its source emission color is zero.
+        // The null emission default of the checked shader is white.
+        // Its source emission color is zero.
         if uniform.emission.truncate() != Vec3::ZERO {
             return Err(ReferenceError(
                 "Unresolved nonzero null specular emission".into(),
@@ -271,7 +272,7 @@ impl Material for SpecularMaterial {
     }
 }
 impl AsBindGroup for SpecularMaterial {
-    /// Reflected transform and GPU prop rows.
+    /// Flags for a reflected transform and for GPU prop rows.
     type Data = (bool, bool);
     type Param = (
         <SourceReceiver as AsBindGroup>::Param,

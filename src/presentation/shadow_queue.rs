@@ -177,7 +177,7 @@ fn base_pipeline(
             .binary_search_by_key(&cache_key, |entry| entry.key)
             .unwrap_err();
     }
-    // Full immutable material key is passed on cache misses. No Arc clone occurs on steady hits.
+    // A cache miss passes the full immutable material key. A steady hit clones no Arc.
     let properties = material.properties.clone();
     let layout = mesh.layout.clone();
     let full = ErasedMaterialPipelineKey {
