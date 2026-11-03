@@ -75,7 +75,7 @@ pub struct SmallItems {
     /// fpscontroller.lastReloadTime.
     last_reload: f64,
     /// `ItemPrompt` bits of the bottle refill.
-    refill_prompt: u8,
+    refill_prompt: u16,
 }
 /// Player input of the bottle refill (fpscontroller RayStuff).
 #[derive(Clone, Copy, Debug, Default)]
@@ -701,7 +701,7 @@ impl WorldStream {
         }
         self.small_items.last_reload = last;
     }
-    pub fn refill_prompt(&self) -> u8 {
+    pub fn refill_prompt(&self) -> u16 {
         self.small_items.refill_prompt
     }
     /// Saved spray ammo and lamp value. They are None at the spawn value.

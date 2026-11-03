@@ -454,7 +454,7 @@ pub struct GunState {
     /// The player holds R with a gun. `fpscontroller.reloading` blocks look and scroll.
     pub reloading: bool,
     /// `ItemPrompt` bits of the gun reload.
-    pub prompt: u8,
+    pub prompt: u16,
     /// The gun whose flash light is on.
     lit: Option<ItemId>,
 }
@@ -676,6 +676,19 @@ impl GunState {
         }
         self.reload_hold = None;
         hold.is_some_and(|h| h < HOLD_BUTTON_TIME)
+    }
+    /// `R = Rtext` of a `letorhetocso` gun. Source `Rtext` is opencylinder on the revolver
+    /// and breakbarrel on the other breakable guns.
+    pub fn open_prompt(&self, item: ItemId) -> u16 {
+        let Some(rt) = self.runtimes.get(&item) else {
+            return 0;
+        };
+        let r = &self.guns[rt.gun].record;
+        match r.kind {
+            _ if !r.fr.breakable => 0,
+            GunKind::Revolver { .. } => super::feedback::ItemPrompt::OPEN_CYLINDER,
+            _ => super::feedback::ItemPrompt::BREAK_BARREL,
+        }
     }
     /// The gun's own ammo as a reload source, when `HasMag` lets it give rounds.
     pub fn gun_ammo(&self, item: ItemId) -> Option<AmmoItem> {
