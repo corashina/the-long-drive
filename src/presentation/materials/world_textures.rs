@@ -571,8 +571,8 @@ impl WorldTextures {
             selected.truncate(jobs.max(1));
             // Every request runs, so the report asks for all credit of the batches at once.
             let claims = ledger.can_request_independent(selected.len());
-            // Ask ahead for the credit of every free slot. Credit takes a stream round trip, so
-            // a slot that asks only when it fills waits several frames for each batch.
+            // Ask ahead for the claims and jobs of every free slot. Credit takes a stream round
+            // trip, so a slot that asks only when it fills waits several frames for each batch.
             let ahead = queue
                 .ownership
                 .slots
@@ -621,7 +621,13 @@ impl WorldTextures {
                 .available_staging_bytes()
                 .min(cpu_available.saturating_sub(metadata + queue.ownership.bytes()));
             let requested = selected.iter().map(|s| s.4).sum::<usize>();
-            let ahead_bytes = requested.max(requested / selected.len() * ahead);
+            // Staging asked ahead stays within two batches, so stream generation keeps its room.
+            let batch_bytes = selected.iter().map(|s| s.4).max().unwrap_or(0);
+            let ahead_bytes = requested.max(
+                (2 * batch_bytes)
+                    .saturating_sub(queue.ownership.bytes())
+                    .min(batch_bytes * ahead),
+            );
             // Short credit waits. The report asks the stream for the rest.
             ledger.request_staging(ahead_bytes);
             ledger.request_prototype(ahead_bytes, 0);
