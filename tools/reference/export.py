@@ -211,7 +211,8 @@ def validate_runtime_manifest(content: bytes) -> None:
 def verify_reference(output: Path, library) -> None:
     from .library.reader import checked
     from .gltf import check_gltf
-    content = (output / 'manifest.json').read_bytes()
+    from .runtime_package import MANIFEST, manifest_bytes
+    content = manifest_bytes(output)
     manifest = json.loads(content)
     if library is None or manifest.get('library') != provenance(library):
         raise ValueError('Missing or mismatched runtime library provenance')
@@ -231,7 +232,7 @@ def verify_reference(output: Path, library) -> None:
     for record in evidence_receipts:checked(output,record)
     if json.loads((output/'conditions-evidence.json').read_bytes())['conditions']!=manifest['conditions']:
         raise ValueError('Condition evidence differs from runtime records')
-    names = {'manifest.json','geometry-evidence.json','parameter-evidence.json','library-selection.json','lighting-evidence.json','material-evidence.json','plate-evidence.json','flashlights-evidence.json','storage-evidence.json','driving-evidence.json','conditions-evidence.json'}
+    names = {MANIFEST,'geometry-evidence.json','parameter-evidence.json','library-selection.json','lighting-evidence.json','material-evidence.json','plate-evidence.json','flashlights-evidence.json','storage-evidence.json','driving-evidence.json','conditions-evidence.json'}
     for asset in manifest['assets']:
         for record in [asset, *asset['dependencies']]:
             name = record.get('file', record.get('path')).removeprefix('reference/')
@@ -443,10 +444,10 @@ def _export_selected(source, output: Path, library, snapshot) -> None:
     }
     parameters['player_markers']=[{'source':{'file':'level1','path_id':pid},'fields':source.read(source.get('level1',pid))} for pid in (39823,23339)]
     (output/'parameter-evidence.json').write_text(json.dumps(parameters,indent=2,allow_nan=False),encoding='utf-8')
-    from .runtime_package import prepare_package
+    from .runtime_package import prepare_package, write_manifest
     # Package preparation also checks and catalogs texture batch descriptors.
     prepare_package(manifest, output)
-    (output/'manifest.json').write_text(json.dumps(manifest,separators=(',',':'),allow_nan=False),encoding='utf-8')
+    write_manifest(output, manifest)
     from dataclasses import asdict
     selection = {name:[asdict(v) for v in sorted(values)] for name,values in (
         ('records',library.selected_records),('meshes',library.selected_meshes),
@@ -694,8 +695,8 @@ def main(argv=None):
                 receipt = stage_library(arguments.steam_root, arguments.output)
         if arguments.verify:
             verify_reference(arguments.output, receipt)
-            from .runtime_package import verify_package, package_id
-            manifest = json.loads((arguments.output / 'manifest.json').read_bytes())
+            from .runtime_package import verify_package, package_id, read_manifest
+            manifest = read_manifest(arguments.output)
             verify_package(manifest, arguments.output.parent / 'runtime' / package_id(manifest))
         else:
             from .library.archive import load_snapshot

@@ -114,12 +114,12 @@ def convert_package(accepted, destination, library_path):
     from .library.reader import LibraryReader
     from .library.types import LibraryReceipt
     from .source import LibrarySource
-    from .runtime_package import file_receipt, prepare_package, publish_package, verify_package, package_id
+    from .runtime_package import file_receipt, prepare_package, publish_package, verify_package, package_id, read_manifest, write_manifest
     raw = library_path.read_bytes()
     metadata = json.loads(raw)
     library = LibraryReceipt(library_path, hashlib.sha256(raw).hexdigest(), metadata['catalog_sha256'], metadata['source_manifest_sha256'], ())
     source = LibrarySource(LibraryReader(library))
-    manifest = json.loads((accepted / 'reference/manifest.json').read_bytes())
+    manifest = read_manifest(accepted / 'reference')
     from .export import provenance
     if manifest['library'] != provenance(library):
         raise ValueError('Accepted package source provenance differs')
@@ -221,7 +221,7 @@ def convert_package(accepted, destination, library_path):
                 raise ValueError('Primary dependency closure differs')
     for entry in manifest['plates']['material']['textures']: validate_storage(entry, files)
     unchanged = sum(r == files.get(name) for name, r in receipts.items() if name in files)
-    (output / 'manifest.json').write_text(json.dumps(manifest, separators=(',', ':'), allow_nan=False), encoding='utf-8')
+    write_manifest(output, manifest)
     publish_package(output, destination)
     native = [v for v in unique.values() if v['kind'] == 'native_bc']
     fixed = {}
@@ -252,13 +252,13 @@ def verify_native_package(package, accepted, library_path):
     from .library.reader import LibraryReader
     from .library.types import LibraryReceipt
     from .source import LibrarySource
-    from .runtime_package import file_receipt, verify_package, package_id
+    from .runtime_package import file_receipt, verify_package, package_id, read_manifest
     from .export import provenance
     raw = library_path.read_bytes(); metadata = json.loads(raw)
     library = LibraryReceipt(library_path, hashlib.sha256(raw).hexdigest(), metadata['catalog_sha256'], metadata['source_manifest_sha256'], ())
     source = LibrarySource(LibraryReader(library))
-    current = json.loads((package / 'reference/manifest.json').read_bytes())
-    baseline = json.loads((accepted / 'reference/manifest.json').read_bytes())
+    current = read_manifest(package / 'reference')
+    baseline = read_manifest(accepted / 'reference')
     if current['library'] != baseline['library'] or current['library'] != provenance(library):
         raise ValueError('Native package source provenance differs')
     root = package / 'runtime' / package_id(current)

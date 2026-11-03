@@ -10,12 +10,6 @@ use crate::starting_area::GarageRuntime;
 use rapier3d::math::{Rotation, Vector};
 use serde_json::{Value, json};
 
-/// Path of the installed export.
-const MANIFEST: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../web/assets/reference/manifest.json"
-);
-
 thread_local! {
     /// Surface renderer claim kept across frames, as the WASM presentation keeps it.
     static CLAIM: std::cell::RefCell<Option<(WorldRequest, SurfaceKey)>> = const { std::cell::RefCell::new(None) };
@@ -26,13 +20,17 @@ thread_local! {
 }
 
 pub(crate) fn reference() -> ReferenceManifest {
-    ReferenceManifest::from_runtime_json(&std::fs::read(MANIFEST).unwrap()).unwrap()
+    ReferenceManifest::from_runtime_json(
+        &crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap(),
+    )
+    .unwrap()
 }
 
-/// The save stamp of the installed export.
+/// The save stamp of the installed export. The browser hashes the unpacked manifest.
 pub(crate) fn roadside_stamp(reference: &ReferenceManifest) -> SourceStamp {
-    let digest = std::process::Command::new("sha256sum")
-        .arg(MANIFEST)
+    let digest = std::process::Command::new("sh")
+        .args(["-c", "gzip -dc \"$0\" | sha256sum"])
+        .arg(crate::reference::INSTALLED_MANIFEST)
         .output()
         .unwrap();
     assert!(digest.status.success());

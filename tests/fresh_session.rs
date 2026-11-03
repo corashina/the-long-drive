@@ -17,7 +17,9 @@ fn fresh_permit_is_bound_to_request_session_and_generation() {
 #[ignore = "requires the installed source export"]
 fn first_permit_retains_runtime_and_commits_once_paused() {
     use the_long_slop::{reference::ReferenceManifest, starting_area::GarageRuntime};
-    let bytes = std::fs::read("web/assets/reference/manifest.json").unwrap();
+    let bytes =
+        the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
+            .unwrap();
     let reference = ReferenceManifest::from_runtime_json(&bytes).unwrap();
     let mut runtime = GarageRuntime::new(
         &reference,

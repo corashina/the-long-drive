@@ -4,8 +4,8 @@ fn reference() -> &'static WorldReference {
     static REFERENCE: std::sync::OnceLock<WorldReference> = std::sync::OnceLock::new();
     REFERENCE.get_or_init(|| {
         let path = std::env::var("FRONTIER_MANIFEST")
-            .unwrap_or("web/assets/reference/manifest.json".into());
-        let bytes = std::fs::read(path).unwrap();
+            .unwrap_or(the_long_slop::reference::INSTALLED_MANIFEST.into());
+        let bytes = the_long_slop::reference::read_manifest(path).unwrap();
         #[derive(serde::Deserialize)]
         struct Manifest {
             world: WorldReference,

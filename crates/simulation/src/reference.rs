@@ -921,8 +921,26 @@ pub struct PhysicsSettings {
     pub sleep_threshold: f32,
 }
 
-/// The manifest with all world vehicle prototypes is about 295 MB.
+/// The manifest with all world vehicle prototypes is about 146 MB.
 pub const MAX_MANIFEST_BYTES: usize = 384 * 1024 * 1024;
+
+/// The installed export. The manifest is gzip at rest.
+#[cfg(not(target_arch = "wasm32"))]
+pub const INSTALLED_MANIFEST: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../web/assets/reference/manifest.json.gz"
+);
+
+/// Reads and unpacks a gzip manifest file.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn read_manifest(path: impl AsRef<std::path::Path>) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(path)?)
+        .take(MAX_MANIFEST_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
