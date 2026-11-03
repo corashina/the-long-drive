@@ -3,3 +3,5 @@
 mod known_failures;
 #[path = "roadmap_tests/multiplayer.rs"]
 mod multiplayer;
+#[path = "roadmap_tests/start_items.rs"]
+mod start_items;
