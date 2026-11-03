@@ -2,7 +2,6 @@
 import copy
 import hashlib
 import json
-import math
 import re
 import shutil
 from pathlib import Path
@@ -868,134 +867,21 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
     horns=[p['vehicle']['audio']['horn'] for p in manifest['world']['prototypes'] if p.get('vehicle') and p['vehicle']['audio']['horn']]
     print(f"Sound stimuli: {sum(e['stimulus'] is not None for e in engines)}/{len(engines)} engines, "
           f"{sum(h['stimulus'] is not None for h in horns)}/{len(horns)} horns, {len(audio['radio_stimuli'])} radio voices",flush=True)
-    validate_audio_export(audio,output,manifest)
+    validate_audio_export(audio,output)
     for identity in sorted(getattr(source, 'item_clips', set())):
         clip(source.get(*identity), 'effect')
     return audio
 
 
-def validate_audio_export(audio: dict, output: Path, manifest: dict) -> None:
-    clock = audio['radio']['clock']
-    if (clock['kind'] != 'scaled'
-            or [(clock[name]['class'], clock[name]['method']) for name in
-                ('selected', 'music_start', 'talk_start', 'multiplayer')]
-            != [('mainscript', 'RADIO'), ('radioCH', 'SelectRandomMusic'),
-                ('radioCH', 'SelectRandomTalk'), ('mainscript', 'RADIO2')]):
-        raise ValueError('Source radio clock differs from selected single-player clock')
-    ids=set()
+def validate_audio_export(audio: dict, output: Path) -> None:
+    """Check each exported clip file against its record. The Rust contract owns the record schema."""
+    from .library.audio import validate_wav
     for c in audio['clips']:
-        if c['id'] in ids:raise ValueError('Duplicate audio clip')
-        ids.add(c['id']);name=c['path'].removeprefix('reference/')
+        name=c['path'].removeprefix('reference/')
         checked(output,{'file':name,'bytes':c['bytes'],'sha256':c['sha256']})
-        from .library.audio import validate_wav
         actual=validate_wav(output/name,{'m_Channels':c['channels'],'m_Frequency':c['frequency'],
             'm_BitsPerSample':c['bits_per_sample'],'m_Length':c['source_duration_seconds']})
         if any(c[k]!=v for k,v in actual.items()):raise ValueError('Runtime WAV metadata mismatch')
-    emitters = {v['id'] for v in audio['emitters']}
-    mixers = {v['id'] for v in audio['mixers']}
-    for v in audio['voices']:
-        if v['clip'] is not None and v['clip'] not in ids:raise ValueError('Unresolved voice clip')
-        if v['authored_clip'] is not None and v['authored_clip'] not in ids:raise ValueError('Unresolved authored voice clip')
-        if v['emitter'] not in emitters or v['mixer'] not in mixers:raise ValueError('Unresolved voice owner or mixer')
-        if not v['methods'] or any(not m['sha256'] or m['line_start']<=0 for m in v['methods']):raise ValueError('Missing voice method evidence')
-        if set(v['curves'])!={'rolloff','spatial_blend','spread','reverb_mix'}:raise ValueError('Missing voice curves')
-        # Linear rolloff is defined from distance 0. The airplane source starts there.
-        if not math.isfinite(v['min_distance']) or not math.isfinite(v['max_distance']) or not 0<=v['min_distance']<=v['max_distance'] or v['max_distance']<=0 or v['min_distance']==0 and v['rolloff_mode']!=1:
-            raise ValueError('Invalid audio distance')
-    radios={tuple(sorted(r.items())) for g in audio['portable_radios'] for r in g['sources']}
-    for r in audio['radio_stimuli']:
-        if (tuple(sorted(r['radio'].items())) not in radios or r['voice'] not in (0,1,2) or len(r['offset'])!=3
-                or not all(map(math.isfinite,[*r['offset'],r['max_sound_value']])) or r['max_sound_value']<0):
-            raise ValueError('Invalid radio stimulus')
-    # The runtime indexes car voice templates by id.
-    if [v['id'] for v in audio['car_voices']]!=list(range(1,len(audio['car_voices'])+1)):
-        raise ValueError('Car voice ids must run 1..n')
-    for v in audio['car_voices']:
-        s=v['settings']
-        if (v['clip'] is not None and v['clip'] not in ids) or v['mixer'] not in mixers:raise ValueError('Unresolved car voice clip or mixer')
-        if not all(map(math.isfinite,(s['gain'],s['pitch'],s['min_distance'],s['max_distance']))) or not 0<s['min_distance']<=s['max_distance']:
-            raise ValueError('Invalid car voice settings')
-    for b in audio['bindings']:
-        if not b['clips'] or any(c not in ids for c in b['clips']):raise ValueError('Unresolved event clip')
-        if b['emitter'] not in emitters or b['mixer'] not in mixers:raise ValueError('Unresolved event owner or mixer')
-    settings=audio['shared']['settings']
-    if (not all(math.isfinite(settings[k]) for k in ('gain','pitch','min_distance','max_distance','spatial_blend'))
-            or settings['gain']<0 or settings['pitch']<=0
-            or not 0<settings['min_distance']<=settings['max_distance']
-            or not 0<=settings['spatial_blend']<=1
-            or not 0<=settings['rolloff_mode']<=2):
-        raise ValueError('Invalid shared audio source settings')
-    for name in ('rolloff_curve','spatial_blend_curve'):
-        keys=settings[name]['keys']
-        if (not keys or any(not all(math.isfinite(key[field]) for field in
-                ('time','value','in_tangent','out_tangent','in_weight','out_weight'))
-                or not 0<=key['weighted_mode']<=3 for key in keys)
-                or any(a['time']>=b['time'] for a,b in zip(keys,keys[1:]))):
-            raise ValueError(f'Invalid shared audio curve: {name}')
-    validate_hit_audio(audio, ids, manifest['world']['pickup_hits'])
-    validate_storm_audio(audio, ids)
-    validate_footsteps(audio, ids, manifest)
-    validate_ambience_zones(audio, ids)
-
-
-def validate_storm_audio(audio: dict, ids: set) -> None:
-    for role,kind in (('storm',6),('storm_inside',16)):
-        found=[r for r in audio['survival'] if r['role']==role]
-        if (len(found)!=1 or found[0]['kind']!=kind or found[0]['one_shot'] or not found[0]['settings']['loop']
-                or len(found[0]['clips'])!=1 or set(found[0]['clips'])-ids or found[0]['gain'][0]!=found[0]['gain'][1]):
-            raise ValueError(f'Invalid storm audio: {role}')
-
-
-def validate_hit_audio(audio: dict, ids: set, pickup_hits: list) -> None:
-    tiers=audio['collisions']['car_tiers']
-    if [t['threshold'] for t in tiers]!=TIER_THRESHOLDS or [t['fixed_gain'] for t in tiers]!=[1.,None,None,None]:
-        raise ValueError('Car hit tiers differ from source')
-    if any(not t['clips'] or set(t['clips'])-ids for t in tiers):raise ValueError('Unresolved car hit clip')
-    roles={r['role']:r for r in audio['survival']}
-    if any(r['one_shot']!=(r['role'] in ONE_SHOT) for r in audio['survival']):raise ValueError('Survival one-shot flag differs')
-    for role,kind in ONE_SHOT.items():
-        r=roles.get(role)
-        if r is None or r['kind']!=kind or not r['clips'] or set(r['clips'])-ids or r['settings']['spatial_blend']!=1:
-            raise ValueError(f'Invalid one-shot audio: {role}')
-        if role!='music_box' and r['settings']['priority']!=ONE_SHOT_PRIORITY.get(role,PRIORITIES[7]):raise ValueError(f'Invalid one-shot priority: {role}')
-    if not {c for t in tiers for c in t['clips']}<=set(roles['car_hit']['clips']):raise ValueError('Car hit record lacks tier clips')
-    if any(h['collision_clip'] not in roles['item_hit']['clips'] or not h['collision_gain']>=0 for h in pickup_hits):
-        raise ValueError('Invalid world pickup hit')
-    if len(audio['ambience'])!=1:raise ValueError('Selected world needs one rock ambience')
-    for a in audio['ambience']:
-        if (not a['clips'] or set(a['clips'])-ids or not set(a['clips'])<=set(roles['rock_heat']['clips'])
-                or not a['phases'] or set(a['phases'])-{name for name,_,_ in PHASES}
-                or any(not 0<=low<=high<=1 for low,high in a['phases'].values())
-                or not 0<=a['interval'][0]<=a['interval'][1] or not 0<=a['chance']<=1
-                or not 0<=a['gain'][0]<=a['gain'][1] or a['priority']!=PRIORITIES[7]):
-            raise ValueError('Invalid rock ambience')
-
-
-def validate_ambience_zones(audio: dict, ids: set) -> None:
-    rows=[r for r in audio['survival'] if r['kind']==19]
-    if len(rows)!=bool(audio['ambience_zones']):raise ValueError('Ambience zones need one playback row')
-    for z in audio['ambience_zones']:
-        values=[z['min_distance'],z['max_distance'],z['volume'],*z['pose']['translation']]
-        if (not all(map(math.isfinite,values)) or not 0<=z['min_distance']<z['max_distance'] or not 0<=z['volume']<=1
-                or z['clip'] not in ids or z['clip'] not in rows[0]['clips']):
-            raise ValueError('Invalid ambience zone')
-    for r in rows:
-        if (r['role']!='ambience_zone' or r['one_shot'] or not r['settings']['loop'] or r['settings']['spatial_blend']!=0
-                or set(r['clips'])-ids):
-            raise ValueError('Invalid ambience zone playback')
-
-
-def validate_footsteps(audio: dict, ids: set, manifest: dict) -> None:
-    f=audio['footsteps'];played=set(next(r['clips'] for r in audio['survival'] if r['role']=='footstep'))
-    if ([s['name'] for s in f['surfaces']]!=list(STEP_SURFACES)
-            or any(not s['clips'] or not set(s['clips'])<=ids&played or not s['volume']>=0 for s in f['surfaces'])
-            or not f['step_gain']>=0 or not f['ray_distance']>0 or not isinstance(f['ray_mask'],int)
-            or len(f['local_position'])!=3 or not all(map(math.isfinite,f['local_position']))
-            or f['sand_layers']!=[17,19] or not isinstance(f['method'],list) or not f['method']):
-        raise ValueError('Invalid footstep audio')
-    owners=[*manifest['item_prototypes'],*manifest['world']['prototypes'],*manifest['survival']['foods']]
-    colliders=[*manifest['colliders'],*(c for p in owners for c in p['colliders'])]
-    if any(c['step_surface'] not in (*STEP_SURFACES,'sand','wood_tag',None) for c in colliders):raise ValueError('Invalid collider step surface')
 
 
 def recover_ambient(source):

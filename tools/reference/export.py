@@ -261,7 +261,7 @@ def verify_reference(output: Path, library) -> None:
         checked(output, {'file':name, 'bytes':path.stat().st_size, 'sha256':sprite['sha256']})
         names.add(name)
     from .audio import validate_audio_export
-    validate_audio_export(manifest['audio'], output, manifest)
+    validate_audio_export(manifest['audio'], output)
     names.update(c['path'].removeprefix('reference/') for c in manifest['audio']['clips'])
     from .lighting import validate_lighting_export
     validate_lighting_export(manifest, output)
@@ -301,9 +301,9 @@ def _export_selected(source, output: Path, library, snapshot) -> None:
     roots['items'].append(source.transform_for(source.resolve(spare,source.read(spare)['m_GameObject'])))
     roots['items'].append(transform(3542))
     from .survival import prepare_food, recover_survival, bind_survival
-    from .particles import recover_particles, recover_outlet_particles, validate_particles_export
+    from .particles import recover_particles, recover_outlet_particles
     from .audio import recover_ambient
-    from .weather import recover_weather, validate_weather_export
+    from .weather import recover_weather
     prepare_food(source, roots)
     food_roots=roots.pop('food')
     from .world import LADA
@@ -330,7 +330,7 @@ def _export_selected(source, output: Path, library, snapshot) -> None:
     roots['sky']=[clouds]
     roots['food']=food_roots
     source.lighting_prototype_roots.update(key(root) for root in food_roots)
-    from .item_prototypes import prepare_item_prototypes, recover_item_prototypes, validate_item_prototypes
+    from .item_prototypes import prepare_item_prototypes, recover_item_prototypes
     prepare_item_prototypes(source, roots)
     recover_survival(source,roots,output)
     particles=recover_particles(source,output)
@@ -339,9 +339,9 @@ def _export_selected(source, output: Path, library, snapshot) -> None:
     source.lighting_prototype_roots.add(('level1',39843))
     from .ragdoll import prepare_ragdoll
     prepare_ragdoll(source, roots)
-    from .sky import prepare_sky, recover_sky, recover_flyer, validate_sky
+    from .sky import prepare_sky, recover_sky, recover_flyer
     prepare_sky(source, roots)
-    from .creatures import prepare_creatures, recover_creatures, validate_creatures
+    from .creatures import prepare_creatures, recover_creatures
     prepare_creatures(source, roots)
     from .world import prepare_home_cable
     prepare_home_cable(source)
@@ -385,29 +385,27 @@ def _export_selected(source, output: Path, library, snapshot) -> None:
     manifest['particles']=particles
     manifest['ambient']=recover_ambient(source)
     manifest['lighting']['textures']=list(source.lighting_textures.values())
-    validate_particles_export(particles,manifest)
     manifest['weather']=weather
-    validate_weather_export(weather,manifest)
     manifest['sky']=recover_sky(source,manifest,output)
     manifest['sky']['flyer']=recover_flyer(source,manifest)
     manifest['item_prototypes'] = recover_item_prototypes(source, manifest, output)
-    from .small_items import recover_small_items, validate_small_items
+    from .small_items import recover_small_items
     manifest['small_items'] = recover_small_items(source, manifest, output)
     from .conditions import recover_prototype_tools
     manifest['conditions']['prototype_tools'] = recover_prototype_tools(source, manifest, output)
-    from .computer import recover_computer, validate_computer
+    from .computer import recover_computer
     manifest['computer'] = recover_computer(source, manifest)
-    from .melee import recover_melee, validate_melee
+    from .melee import recover_melee
     manifest['melee'] = recover_melee(source, manifest, output)
     from .particles import recover_food_particles
     manifest['survival']['food_particles'] = recover_food_particles(source, output)
-    from .guns import recover_guns, validate_guns
+    from .guns import recover_guns
     # Before audio and UI: gun clips join source.item_clips, crosshair icons join the UI sprites.
     manifest['guns'] = recover_guns(source, manifest, output)
-    from .explosions import recover_explosions, validate_explosions
+    from .explosions import recover_explosions
     # Before audio: explosion and ear ring clips join source.item_clips.
     manifest['explosions'] = recover_explosions(source, manifest, output)
-    from .crash import recover_crash, validate_crash
+    from .crash import recover_crash
     manifest['crash'] = recover_crash(source, manifest, output)
     from .breakables import recover_breakables, recover_gib_constants
     # Before audio: breakable clips join source.item_clips.
@@ -419,9 +417,9 @@ def _export_selected(source, output: Path, library, snapshot) -> None:
     manifest['physics']={'source':source_id(physics),'sleep_threshold':source.read(physics)['m_SleepThreshold']}
     # Before audio: the rabbit die clips get clip ids there.
     manifest['creatures'] = recover_creatures(source, manifest, output)
-    from .wheel_effects import recover_skid, validate_skid
+    from .wheel_effects import recover_skid
     manifest['skid'] = recover_skid(source, output)
-    from .clothing import recover_clothing,validate_clothing
+    from .clothing import recover_clothing
     manifest['clothing'] = recover_clothing(source,manifest,output)
     manifest['lighting']['textures']=list(source.lighting_textures.values())
     resources={entry['file'] for entry in manifest['assets'][0]['dependencies']}
@@ -434,17 +432,6 @@ def _export_selected(source, output: Path, library, snapshot) -> None:
     from .acquisition import recover_acquisition, validate_acquisition
     manifest['acquisition'] = recover_acquisition(source, manifest)
     validate_acquisition(manifest['acquisition'], manifest)
-    validate_item_prototypes(manifest['item_prototypes'], manifest)
-    validate_sky(manifest['sky'], manifest)
-    validate_creatures(manifest['creatures'], manifest)
-    validate_small_items(manifest['small_items'], manifest)
-    validate_computer(manifest['computer'], manifest)
-    validate_melee(manifest['melee'], manifest)
-    validate_guns(manifest['guns'], manifest)
-    validate_explosions(manifest['explosions'], manifest)
-    validate_crash(manifest['crash'], manifest)
-    validate_skid(manifest['skid'])
-    validate_clothing(manifest['clothing'],manifest)
     evidence=json.loads((output/'conditions-evidence.json').read_bytes())
     evidence['conditions']=manifest['conditions']
     (output/'conditions-evidence.json').write_text(json.dumps(evidence,indent=2,allow_nan=False),encoding='utf-8')

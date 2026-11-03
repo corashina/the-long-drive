@@ -66,18 +66,6 @@ def recover_particles(source, output):
     source.lighting['textures']=list(source.lighting_textures.values())
     return particles
 
-def validate_particles_export(particles,manifest):
-    if len(particles)!=2+2*len(manifest['openings']) or len({p['role'] for p in particles})!=len(particles):raise ValueError('Missing selected particles')
-    textures={t['id'] for t in manifest['lighting']['textures']}
-    for p in particles:validate_particle(p,textures)
-
-def validate_particle(p,textures):
-    if not 0<p['capacity']<=1000000 or p['rate_over_time']<0 or p['rate_over_distance']<0:raise ValueError('Invalid particle capacity or rate')
-    if p['capacity']!=p['scalars']['InitialModule.maxNumParticles']:raise ValueError('Particle authored capacity differs')
-    if not p['materials'] or 'InitialModule.startLifetime' not in p['curves']:raise ValueError('Missing particle data')
-    for material in p['materials']:
-        if any(t['texture'] not in textures for t in material['textures']):raise ValueError('Missing particle texture')
-
 # Modules that crates/simulation/src/particles.rs runs. ShapeModule and EmissionModule feed emission; the others change live particles.
 EXHAUST_MODULES=frozenset({'InitialModule','ShapeModule','EmissionModule','VelocityModule','ForceModule',
     'InheritVelocityModule','SizeModule','ColorModule','RotationModule','CollisionModule','UVModule'})
@@ -125,17 +113,16 @@ def recover_food_particles(source,output):
         p=particle(source,system,f'food_{name}',0.,output)
         p['local_pose']={'translation':[0.,0.,0.],'rotation':[0.,0.,0.,1.],'scale':[1.,1.,1.]}
         if p['module_flags']['EmissionModule']:raise ValueError(f'Food particle emission is on: {name}')
-        validate_runtime_particle(p,EXHAUST_MODULES,1)
+        validate_runtime_particle(p,EXHAUST_MODULES)
         result.append(p)
     return result
 
-def validate_runtime_particle(p,modules=EXHAUST_MODULES,simulation_space=2):
+def validate_runtime_particle(p,modules=EXHAUST_MODULES):
     unsupported=sorted(k for k,v in p['module_flags'].items() if v and k not in modules)
     if unsupported:raise ValueError(f"Unsupported particle modules {p['role']}: {unsupported}")
     # The runtime plays a whole grid sheet over lifetime only.
     if p['module_flags'].get('UVModule') and any(p['scalars'][f'UVModule.{k}']!=0 for k in ('mode','animationType','timeMode')):
         raise ValueError(f"Unsupported texture sheet {p['role']}")
-    validate_particle_data(p,simulation_space)
 
 def relative_pose(source, root, owner):
     from .gltf import transform_point
@@ -171,40 +158,3 @@ def recover_outlet_particles(source,manifest,output):
         for p in cap_particles(source,source.get(opening['source']['file'],opening['source']['path_id']),opening['id'],output)]
 
 
-
-def validate_curve(c):
-    from .validation import record,array,number,i32,integer
-    def key(k):
-        record(k,{**dict.fromkeys(('time','value','in_tangent','out_tangent','in_weight','out_weight'),number),
-                  'weighted_mode':integer(0,3)})
-    record(c,{'keys':array(key),'pre_wrap_mode':i32,'post_wrap_mode':i32})
-    if any(a['time']>=b['time'] for a,b in zip(c['keys'],c['keys'][1:])):raise ValueError('Unordered curve keys')
-
-
-def validate_particle_data(p, simulation_space):
-    from .validation import record,array,mapping,number,u32,integer,boolean,string,source,pose
-    from .lighting import validate_gradient,validate_sky_material
-    def particle_curve(c):
-        record(c,{'mode':integer(0,3),'min_scalar':number,'scalar':number,'min_curve':validate_curve,'max_curve':validate_curve})
-        if c['mode'] in (1,2) and not c['max_curve']['keys'] or c['mode']==2 and not c['min_curve']['keys']:
-            raise ValueError('Missing particle curve keys')
-    def particle_color(c):
-        record(c,{'mode':integer(0,4),'min_color':array(number,4),'max_color':array(number,4),
-                  'min_gradient':validate_gradient,'max_gradient':validate_gradient})
-    def limit(l):record(l,{'source':source,'module':string,'visible_effect':string})
-    record(p,{'source':source,'role':string,'capacity':u32,'rate_over_time':number,'rate_over_distance':number,
-              'duration':number,'simulation_space':integer(0,255),'local_pose':pose,'module_flags':mapping(boolean),
-              'curves':mapping(particle_curve),'colors':mapping(particle_color),'vectors':mapping(array(number,3)),
-              'scalars':mapping(number),'flags':mapping(boolean),'links':mapping(source),
-              'materials':array(validate_sky_material,1),'limits':array(limit)})
-    if not 0<p['capacity']<=1000000 or p['scalars'].get('InitialModule.maxNumParticles')!=p['capacity']:
-        raise ValueError('Particle capacity')
-    if p['rate_over_time']<0 or p['rate_over_distance']<0 or p['duration']<=0 or p['simulation_space']!=simulation_space:
-        raise ValueError('Particle rates and simulation space')
-    if p['module_flags'].get('InitialModule') is not True or 'InitialModule.startLifetime' not in p['curves']:
-        raise ValueError('Required particle initial module')
-    mat=p['materials'][0];tint='_TintColor' if mat['shader']['name']=='Legacy Shaders/Particles/Alpha Blended' else '_Color'
-    if tint not in mat['colors'] or not any(t['property']=='_MainTex' for t in mat['textures']):raise ValueError('Particle material payload')
-    for l in p['limits']:
-        if l['source']!=p['source'] or not l['visible_effect'] or not (p['module_flags'].get(l['module']) or l['module'] in ('material.soft_particles','material.distortion')):
-            raise ValueError('Particle limit')

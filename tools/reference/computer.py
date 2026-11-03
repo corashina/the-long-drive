@@ -235,26 +235,3 @@ def _shape(value, fields):
 def _number(*values):
     if any(type(v) not in (int,float) or type(v) is bool or not math.isfinite(v) for v in values):raise ValueError('Computer number differs')
 
-
-def validate_computer(record, manifest) -> None:
-    _shape(record,'computer display')
-    c=record['computer']
-    _shape(c,'item prototype source x_size y_size cursor_step volume pitch_difference_chance pitch_difference screen')
-    s=c['screen']
-    _shape(s,'size back front text cursor front_rect cursor_size advance line_height glyphs')
-    _shape(s['glyphs'],'first cell offset coverage')
-    _number(*s['back'],*s['front'],*s['text'],*s['cursor'],*s['front_rect'],*s['cursor_size'],s['line_height'])
-    g=s['glyphs']
-    if g['first']!=FIRST_GLYPH or len(g['coverage'])!=GLYPH_COUNT*g['cell'][0]*g['cell'][1] or any(type(v) is not int or not 0<=v<=255 for v in g['coverage']):
-        raise ValueError('Computer glyph atlas differs')
-    if not (0<s['size'][0]<=4096 and 0<s['size'][1]<=4096 and s['advance']>0 and s['line_height']>0):raise ValueError('Computer screen values differ')
-    _number(*c['cursor_step'],c['volume'],c['pitch_difference_chance'],c['pitch_difference'])
-    if (c['item'],c['source']['path_id'])!=COMPUTER[::2] or not (0<c['x_size']<=256 and 0<c['y_size']<=256):raise ValueError('Computer values differ')
-    if not (0<=c['volume']<=1 and 0<=c['pitch_difference_chance']<=1 and c['pitch_difference']>=0):raise ValueError('Computer music values differ')
-    t=record['display']
-    _shape(t,'item prototype source screen renderer emission startup_on switch')
-    _shape(t['switch'],'source node clip volume')
-    _number(t['switch']['volume'],*t['emission'])
-    if (t['item'],t['source']['path_id'])!=DISPLAY[::2] or len(t['emission'])!=4:raise ValueError('Display values differ')
-    clips={(x['source']['file'],x['source']['path_id']) for x in manifest['audio']['clips']}
-    if (t['switch']['clip']['file'],t['switch']['clip']['path_id']) not in clips:raise ValueError('Display switch clip is not exported')

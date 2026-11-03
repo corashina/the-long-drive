@@ -550,29 +550,6 @@ def validate_lighting_export(manifest: dict, output: Path) -> None:
     json.dumps(lighting,allow_nan=False)
 
 
-def validate_gradient(g):
-    from .validation import record,array,number,integer
-    def color(k):record(k,{'time':number,'value':array(number,4)})
-    def alpha(k):record(k,{'time':number,'value':number})
-    record(g,{'mode':integer(0,1),'colors':array(color),'alphas':array(alpha)})
-    for keys in (g['colors'],g['alphas']):
-        if not keys or any(not 0<=k['time']<=1 for k in keys) or any(a['time']>b['time'] for a,b in zip(keys,keys[1:])):
-            raise ValueError('Invalid gradient keys')
-
-
-def validate_sky_material(m):
-    from .validation import record,array,mapping,number,u32,string,source
-    def resource(r):
-        record(r,{'source':source,'path':string,'sha256':string})
-        if not r['path'] or len(r['sha256'])!=64 or any(c not in '0123456789abcdef' for c in r['sha256']):raise ValueError('Required material resource')
-    def shader(s):
-        record(s,{'source':source,'path':string,'sha256':string,'compiled_data':resource,'name':string})
-        resource({k:s[k] for k in ('source','path','sha256')})
-    def texture(t):record(t,{'property':string,'texture':u32,'scale':array(number,2),'offset':array(number,2)})
-    record(m,{'source':source,'shader':shader,'source_data':resource,'floats':mapping(number),
-              'colors':mapping(array(number,4)),'textures':array(texture)})
-
-
 def light_payload(source,light,node,light_id,startup_intensity):
     """One Light component as a light record. `node` is its node id, `light_id` its id in its own table."""
     ld=source.read(light);shadow=ld['m_Shadows']
@@ -583,14 +560,3 @@ def light_payload(source,light,node,light_id,startup_intensity):
         'full_cone_degrees':ld['m_SpotAngle'],'inner_cone_degrees':ld['m_InnerSpotAngle'],'enabled':bool(ld['m_Enabled']),
         'culling_mask':ld['m_CullingMask']['m_Bits'],'shadows':{'kind':shadow['m_Type'],'strength':shadow['m_Strength'],
         'bias':shadow['m_Bias'],'normal_bias':shadow['m_NormalBias'],'near_plane':shadow['m_NearPlane'],'resolution':shadow['m_Resolution'],'custom_resolution':shadow['m_CustomResolution']},'cookie':None,'cookie_size':ld['m_CookieSize']}
-
-def validate_light_payload(l):
-    from .validation import record,array,number,u32,i32,integer,boolean,string,source,pose,optional
-    def shadow(s):
-        record(s,{'kind':integer(0,2),'strength':number,'bias':number,'normal_bias':number,'near_plane':number,'resolution':i32,'custom_resolution':i32})
-        if not 0<=s['strength']<=1 or any(s[k]<0 for k in ('bias','normal_bias','near_plane')):raise ValueError('Light shadow values')
-    record(l,{'id':u32,'source':source,'node':optional(u32),'pose':pose,'kind':string,'color':array(number,4),
-              'serialized_intensity':number,'startup_intensity':number,'range_meters':number,'full_cone_degrees':number,
-              'inner_cone_degrees':number,'enabled':boolean,'culling_mask':u32,'shadows':shadow,'cookie':optional(u32),'cookie_size':number})
-    if l['kind'] not in ('spot','directional','point','area') or l['range_meters']<=0 or not 0<=l['inner_cone_degrees']<=l['full_cone_degrees']<=180 or l['full_cone_degrees']==0 or not l['culling_mask']:
-        raise ValueError('Light source values')
