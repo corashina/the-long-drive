@@ -6,12 +6,14 @@ use super::figure_stage::StageCamera;
 use super::materials::SourceMaterial;
 use super::materials::specular::SpecularMaterial;
 use super::world::instances::{CarMaterial, CarSurface, CarTarget, SourceInstances};
+use super::world::node_plan::matrix_transform;
 use crate::app::RuntimeReference;
 use bevy::asset::UntypedAssetId;
 use bevy::camera::primitives::MeshAabb;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{CameraOutputMode, ClearColorConfig, Exposure};
 use bevy::ecs as bevy_ecs;
+use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use bevy::render::view::NoIndirectDrawing;
 use bevy::window::PrimaryWindow;
@@ -67,6 +69,7 @@ pub(crate) fn sync(
     globals: Query<&GlobalTransform>,
     parents: Query<&ChildOf>,
     inherited: Query<&InheritedVisibility>,
+    skins: Query<&SkinnedMesh>,
     mut transforms: Query<&mut Transform>,
     mut car: ResMut<MenuCar>,
 ) {
@@ -105,6 +108,9 @@ pub(crate) fn sync(
         HashMap::<(UntypedAssetId, Option<[u32; 4]>), Handle<StandardMaterial>>::new();
     let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for surface in surfaces.iter() {
+        // A skinned surface draws from its joints. The copy gets joints at the same pose
+        // relative to the surface, so it draws the current pose on the stage.
+        let mut skin = None;
         let (world, color) = match surface.target {
             CarTarget::Entity(entity) => {
                 // LOD hides the renderer itself. The node chain above it says whether the part is on.
@@ -118,6 +124,18 @@ pub(crate) fn sync(
                 };
                 if !on {
                     continue;
+                }
+                if let Ok(skinned) = skins.get(entity) {
+                    let inverse = global.affine().inverse();
+                    let Some(joints) = skinned
+                        .joints
+                        .iter()
+                        .map(|joint| globals.get(*joint).ok().map(|g| inverse * g.affine()))
+                        .collect::<Option<Vec<_>>>()
+                    else {
+                        continue;
+                    };
+                    skin = Some((skinned.inverse_bindposes.clone(), joints));
                 }
                 (global.affine(), None)
             }
@@ -150,7 +168,7 @@ pub(crate) fn sync(
                 max = max.max(point);
             }
         }
-        copies.push((surface.mesh.clone(), local, material));
+        copies.push((surface.mesh.clone(), local, material, skin));
     }
     if copies.is_empty() || min.x > max.x {
         error!("Menu car: the start car has no drawn surfaces");
@@ -182,15 +200,31 @@ pub(crate) fn sync(
             ChildOf(turntable),
         ))
         .id();
-    for (mesh, local, material) in copies {
-        commands.spawn((
-            Mesh3d(mesh),
-            MeshMaterial3d(material),
-            Transform::from_matrix(Mat4::from(local)),
-            Visibility::Inherited,
-            layer.clone(),
-            ChildOf(body),
-        ));
+    for (mesh, local, material, skin) in copies {
+        let copy = commands
+            .spawn((
+                Mesh3d(mesh),
+                MeshMaterial3d(material),
+                matrix_transform(Mat4::from(local)),
+                Visibility::Inherited,
+                layer.clone(),
+                ChildOf(body),
+            ))
+            .id();
+        if let Some((inverse_bindposes, joints)) = skin {
+            let joints = joints
+                .into_iter()
+                .map(|pose| {
+                    commands
+                        .spawn((matrix_transform(Mat4::from(pose)), ChildOf(copy)))
+                        .id()
+                })
+                .collect();
+            commands.entity(copy).insert(SkinnedMesh {
+                inverse_bindposes,
+                joints,
+            });
+        }
     }
     let extent = max - min;
     car.size = Vec2::new(extent.xz().length() * 0.5, extent.y);
