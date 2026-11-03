@@ -1635,16 +1635,24 @@ impl InteractionState {
         fluid_scale: f32,
     ) -> InteractionOutcome {
         self.finish_cancelled_input(player, physics);
+        // The carry owns the wheel of a carried item: `route_frame_input` moves it to `carry`.
+        let wheel =
+            if input.wheel == 0. && input.carry.owner.is_some_and(|o| Some(o) == self.held()) {
+                input.carry.wheel
+            } else {
+                input.wheel
+            };
         let binoculars = self.binoculars.step(
             self.equipment.item(),
             self.held(),
             input.held & keys::PRIMARY != 0,
-            input.wheel,
+            wheel,
             dt,
         );
         if binoculars.is_some() {
             // fpscontroller: BcanTune. The wheel focuses and does not move the carried item.
             input.wheel = 0.;
+            input.carry.wheel = 0.;
         }
         if self.reserves_lmb() {
             input.held &= !keys::PRIMARY;
