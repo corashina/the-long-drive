@@ -19,6 +19,7 @@ const types = new Map([
   ['.ttf', 'font/ttf'],
   ['.otf', 'font/otf'],
   ['.glb', 'model/gltf-binary'],
+  ['.gz', 'application/gzip'],
 ]);
 const hashPattern = /^[a-f0-9]{64}$/;
 const eligible = path => ['.wasm', '.json'].includes(extname(path));

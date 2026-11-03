@@ -206,7 +206,9 @@ async function downloadManifest(response){
  const counted=response.body.pipeThrough(new TransformStream({transform(chunk,stream){received+=chunk.byteLength;stream.enqueue(chunk);}}));
  show();const timer=setInterval(show,250);
  try{
-  const bytes=new Uint8Array(await new Response(counted).arrayBuffer());
+  const packed=new Uint8Array(await new Response(counted).arrayBuffer());
+  // The file is gzip at rest. A host that sends Content-Encoding: gzip gives plain JSON here.
+  const bytes=packed[0]===0x1f&&packed[1]===0x8b?new Uint8Array(await new Response(new Blob([packed]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()):packed;
   loading.step('download',1,1,mebibytes(bytes.byteLength)+' MiB');
   return bytes;
  }finally{clearInterval(timer);}
@@ -222,7 +224,7 @@ async function load(){
   return WebAssembly.compileStreaming(response);
  })]);
  code.catch(()=>{});
- const response=await fetch('./assets/reference/manifest.json');
+ const response=await fetch('./assets/reference/manifest.json.gz');
  if(!response.ok)throw Error('Cannot load reference manifest (HTTP '+response.status+').');
  const bytes=await downloadManifest(response);
  loading.step('code',0);
@@ -269,7 +271,7 @@ async function load(){
   reloadWith(NEW_GAME_KEY,String(window.gameSeed()));return true;
  };
  simulationStarted.catch(()=>{});
- fetched({path:'assets/reference/manifest.json',requiredBytes:bytes.byteLength,receivedBytes:bytes.byteLength});
+ fetched({path:'assets/reference/manifest.json.gz',requiredBytes:bytes.byteLength,receivedBytes:bytes.byteLength});
  startup.build({sourceBuildId:manifest.build_id,manifestSha256:manifestHash,wasm:'release'});
  configureAssetCatalog(manifest.content_base,manifest.file_catalog,fetched);worldAdmitted=true;
  startup.end('manifest');startup.begin('interface');

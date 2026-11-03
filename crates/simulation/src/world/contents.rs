@@ -1585,11 +1585,7 @@ mod tests {
         &REFERENCE
             .get_or_init(|| {
                 crate::reference::ReferenceManifest::from_runtime_json(
-                    &std::fs::read(concat!(
-                        env!("CARGO_MANIFEST_DIR"),
-                        "/../../web/assets/reference/manifest.json"
-                    ))
-                    .unwrap(),
+                    &crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap(),
                 )
                 .unwrap()
             })
@@ -1656,11 +1652,7 @@ mod tests {
             world: WorldReference,
         }
         let reference: WorldOnly = serde_json::from_slice(
-            &std::fs::read(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../web/assets/reference/manifest.json"
-            ))
-            .unwrap(),
+            &crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap(),
         )
         .unwrap();
         let mut contents = cursors(&reference.world);

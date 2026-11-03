@@ -805,11 +805,7 @@ mod world_sync_tests {
     fn world_sync_activation_follows_rebound_item_membership() {
         use crate::starting_area::GarageRuntime;
         let reference = ReferenceManifest::from_runtime_json(
-            &std::fs::read(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../web/assets/reference/manifest.json"
-            ))
-            .unwrap(),
+            &crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap(),
         )
         .unwrap();
         let mut run = GarageRuntime::new_default(&reference).unwrap();
@@ -865,11 +861,7 @@ mod world_sync_tests {
     fn world_sync_unloads_a_spawned_weed_off_the_loaded_world() {
         use crate::starting_area::{GarageRuntime, spawned};
         let reference = ReferenceManifest::from_runtime_json(
-            &std::fs::read(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../web/assets/reference/manifest.json"
-            ))
-            .unwrap(),
+            &crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap(),
         )
         .unwrap();
         let mut run = GarageRuntime::new_default(&reference).unwrap();

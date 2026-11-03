@@ -3,7 +3,9 @@ use the_long_slop::reference::{MAX_MANIFEST_BYTES, ReferenceManifest};
 #[test]
 #[ignore = "requires the installed source export"]
 fn installed_startup_selects_only_garage_lada() {
-    let bytes = std::fs::read("web/assets/reference/manifest.json").unwrap();
+    let bytes =
+        the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
+            .unwrap();
     ReferenceManifest::from_runtime_json(&bytes).unwrap();
     let mut manifest: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert!(
@@ -31,7 +33,9 @@ fn installed_startup_selects_only_garage_lada() {
 #[test]
 #[ignore = "requires the installed source export"]
 fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
-    let bytes = std::fs::read("web/assets/reference/manifest.json").unwrap();
+    let bytes =
+        the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
+            .unwrap();
     let mut reference = ReferenceManifest::from_runtime_json(&bytes).unwrap();
     let index = reference
         .world

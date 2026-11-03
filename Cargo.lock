@@ -4258,6 +4258,7 @@ dependencies = [
  "base64",
  "bevy_platform",
  "bytemuck",
+ "flate2",
  "glam 0.32.1",
  "grass-mesh",
  "js-sys",
