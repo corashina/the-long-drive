@@ -16,7 +16,7 @@ tools/reference/.venv/Scripts/python.exe -m unittest discover -s tools/reference
 
 Install host PowerShell (`pwsh`). The verified host uses PowerShell 7.6.5 and .NET 10.0.11.
 Python packages and the Docker image do not supply these host tools.
-Use ICSharpCode.Decompiler NuGet package **11.1.0.9782**.
+Use ICSharpCode.Decompiler NuGet package 11.1.0.9782.
 It needs System.Collections.Immutable and System.Reflection.Metadata version 9.0.0 or later.
 The verified PowerShell host supplies version 10.0.0.0 for both assemblies.
 
@@ -147,7 +147,7 @@ The assembly estimate adds 25 percent and 64 MiB for acceptance metadata and all
 Runtime staging reserves 128 MiB. Existing output remains allocated until promotion succeeds.
 Export or verification failure removes only the new staging directory. Promotion failure retains staging for recovery.
 Existing accepted output and recovery directories remain intact.
-Estimates cover file bytes and headroom; other processes can change available space during export.
+Estimates cover file bytes and headroom. Other processes can change available space during export.
 Repeated catalog commands verify accepted records and keep managed analysis. Invalid stages fail without rebuilding accepted data.
 
 The accepted source archive contains 183 files and 529,237,089 bytes.
@@ -161,14 +161,14 @@ Category indexes: [images](../../web/assets/library/images/index.json), [models]
 These local links require an accepted export.
 Read [coverage](../../web/assets/library/coverage.json) for per-type native and source-empty counts.
 Read each category record's `reason`, `runtime`, and `details` fields for conversion and adapter limits.
-Keep the shared cache: native records depend on its bound `records/manifest.json` receipt.
+Keep the shared cache. Native records depend on its bound `records/manifest.json` receipt.
 
 ## Selected runtime rules
 
 The home link comes from `homesickscript.FirstHome`.
 The Lada is the world prototype `sharedassets1.assets` 82556. The startup entry `StartCar02` places it at the scene Lada spot.
 Each `START_CARS` field of `TerrainGenerationSettings` gives one startup entry with `start_car` set. Only `StartCar02` spawns.
-The plate font and material and the reflection probe come from the Lada. The radio settings come from the car radios; they must be equal.
+The plate font and material and the reflection probe come from the Lada. The radio settings come from the car radios. All car radios must have equal settings.
 
 `Source` caches resolved object IDs and generated type trees.
 It repairs the MonoBehaviour header and generated array container types.
@@ -221,13 +221,13 @@ Bevy loaded representative static and skinned glTF assets with all dependencies 
 Chrome rendered the static cup. Skinned rendering and animation playback remain unverified.
 Chrome loaded embedded Liberation Sans and decoded a representative WAV in the isolated media fixture.
 The WAV reached its end with muted playback. This check does not establish audible output or game audio integration.
-Six cubemap PNG previews decoded. Native BC6H DDS data preserves HDR values; browser HDR rendering remains unverified.
+Six cubemap PNG previews decoded. Native BC6H DDS data keeps HDR values. Browser HDR rendering is not verified.
 The synthetic rotated sprite matched six expected pixels. The installed sprite index contains no packed rotation.
 All 42 source clips have validated normalized tracks. Sixteen have bound glTF packages.
 The remaining 26 clips retain native records and normalized tracks with binding limits.
 The source contains no morph channels. Synthetic morph fixtures cover geometry and channel validation.
 Animation playback, humanoid retargeting, Unity shaders, particles, live reflections, and native UI adapters remain unverified.
-See [final browser and command evidence](../../docs/verification.md).
+
 ## Lighting authority and checks
 
 Use selected scene component links from build 11140890.
@@ -267,7 +267,7 @@ The world contract uses the source minimum draw distance of 500 metres.
 The garage spawn context (frozen clock and Unity random states) is a constant in `world.py`.
 The world export needs no runtime capture of the source game.
 Managed methods and exported assets remain outside Git.
-Synthetic fixtures test contract rejection; they do not prove world generation parity.
+Synthetic fixtures test contract rejection. They do not prove world generation parity.
 
 World selection includes the active object pools, active building types, and supported recursive physical props.
 The catalog retains source weights, recursive category indices, null categories, and invalid source category outcomes.
@@ -298,7 +298,3 @@ Backing ArrayBuffers can exceed their views. This payload bound does not measure
 SHA-256 work, fetch buffers, parser objects, and browser allocator overhead remain outside that copy bound.
 The JavaScript manifest text and parsed object can overlap Rust manifest decoding.
 The 128 MiB manifest input limit does not establish a bootstrap or process memory bound.
-
-The final implementation used static tracing and product compilation under the user's Ignore tests instruction.
-No final fixture, source comparison, browser, or driving acceptance ran.
-See [verification](../../docs/verification.md#source-world-implementation-2026-10-13).

@@ -63,7 +63,7 @@ Run a release build only when requested or at an agreed milestone:
 The build script writes the browser package to `web/pkg`.
 To iterate on a bug, use `./scripts/build.ps1 -Fast`. It skips LTO, wasm-opt and Brotli, so a rebuild takes about 1 minute.
 Fast packages are larger and slower. Do not use them for F3 numbers or test passes.
-It also prepares Brotli downloads in `.cache/http-compression`. Keep that directory with the server deployment.
+The build script also prepares Brotli downloads in `.cache/http-compression`. Keep that directory with the server deployment.
 After replacing an export without rebuilding WASM, prepare its downloads and restart the server:
 
 ```powershell
@@ -84,31 +84,31 @@ Library assets do not add gameplay.
 | --- | --- | --- |
 | WASD | Move | Accelerate, brake, steer |
 | Mouse | Look | Look |
-| Shift | Run | — |
+| Shift | Run |  |
 | Space | Jump | Toggle handbrake |
 | E | Use cap, switch, or seat | Use control or leave seat |
 | Hold LMB + mouse | Move an aimed mechanism | Move an aimed mechanism |
-| F | Carry or remove a part; release to install; tap to drop | — |
-| Hold F, then release | Charge and throw a held item | — |
-| Hold F at the car body | Push while held | — |
-| F at the steering grip | Latch grip; WASD pushes and steers; F releases | — |
-| Mouse wheel / Tab | Change carry distance / recenter | — |
-| Hold MMB / RMB + mouse | Rotate / move held item | — |
-| Hold MMB and RMB + mouse | Roll held item | — |
-| X | Split a wheel | — |
+| F | Carry or remove a part. Release F to install. Tap F to drop |  |
+| Hold F, then release | Charge and throw a held item |  |
+| Hold F at the car body | Push while held |  |
+| F at the steering grip | Hold the grip. WASD pushes and steers. F releases |  |
+| Mouse wheel / Tab | Change carry distance / recenter |  |
+| Hold MMB / RMB + mouse | Rotate / move held item |  |
+| Hold MMB and RMB + mouse | Roll held item |  |
+| X | Split a wheel |  |
 | Hold LMB | Fill an open container | Use an aimed switch |
-| I | — | Tap ignition; hold starter |
+| I |  | Tap for ignition. Hold for the starter |
 | Left Ctrl / Right Ctrl / Numpad 0 | Crouch with Ctrl | Clutch |
-| Up arrow / Down arrow | — | Shift up / down |
-| R / Numpad + | — | Select reverse |
-| 0 / Numpad - / N | — | Select neutral |
-| 1–6 / Numpad 1–6 | — | Select a forward gear, when available |
-| L | — | Cycle headlights: off, low beam, high beam |
-| H / Numpad 8 | — | Horn |
+| Up arrow / Down arrow |  | Shift up / down |
+| R / Numpad + |  | Select reverse |
+| 0 / Numpad - / N |  | Select neutral |
+| 1 to 6 / Numpad 1 to 6 |  | Select a forward gear, when available |
+| L |  | Cycle headlights: off, low beam, high beam |
+| H / Numpad 8 |  | Horn |
 | Hold V | Sleep, when eligible | Sleep, when eligible |
 | Hold P | Urinate | Urinate |
 | B | Burp or fart | Burp or fart |
-| C | — | Switch first person / chase view |
+| C |  | Switch first person / chase view |
 | Backspace | Hide or show feedback | Hide or show feedback |
 | Esc | Pause menu | Pause menu |
 
@@ -120,7 +120,7 @@ Some source items, including the fuel can, cannot rotate.
 Carry a fuel can. Open the fuel cap. Aim at the opening and hold LMB to fill it.
 Direct fill moves fluid from the carried container into the selected open container.
 Aim at an open supply valve to fill the supply from your carried container.
-Open containers spill when tilted. Supplies keep their current mixture and stock.
+An open container spills when it tilts. Supplies keep their current mixture and stock.
 The Lada starts with 0.5 L gasoline, 2.5 L oil, and 3.6 L water.
 Its capacities are 39 L fuel, 5 L oil, and 5 L coolant.
 The Skoda starts with the same fluids. Its capacities are 32 L fuel, 5 L oil, and 5 L coolant.
