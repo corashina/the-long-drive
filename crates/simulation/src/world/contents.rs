@@ -518,6 +518,8 @@ impl SourceContents {
             // A fixed startup placement evaluates from a copy of the startup random. It never
             // advances the live random, so it needs no boundary and replays the same contents.
             let startup = parent.id.layer == super::WorldLayer::Startup;
+            // A StartSpawnItems copy keeps its scene tank fluids and buried flag.
+            let row = reference.startup_row(&parent.id);
             if cursor.replay_only
                 && !startup
                 && !self.state.has_boundary(
@@ -542,6 +544,10 @@ impl SourceContents {
                 e.staging = staging;
                 e.admit_initialization(parent)?;
                 e.initialization = initialization.clone();
+                let tanks = match row {
+                    Some(r) => e.start_tanks(r)?,
+                    None => Vec::new(),
+                };
                 e.output.push(SpawnedContent {
                     inputs: super::spawn_state::SpawnInitialization::default(),
                     placement: parent.clone(),
@@ -553,8 +559,8 @@ impl SourceContents {
                         .unwrap_or_default(),
                     lights: Vec::new(),
                     fluid: None,
-                    tanks: Vec::new(),
-                    buried: false,
+                    tanks,
+                    buried: row.is_some_and(|r| r.buried),
                     distance_offset: [0.; 3],
                     ammo: None,
                 });

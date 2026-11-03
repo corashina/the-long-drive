@@ -9,16 +9,10 @@ SPIRIT_LEVEL=(401,'waterlevel',147652,'bubbleLevelScript')
 SPRAY_BOTTLE=(121,'jizzonit',142096,'spricniscript')
 GENIE_LAMP=(211,'ginlamp',152760,'ginlampscript')
 BINOCULARS=(85,'binoculars',144842,'tavcsoscript')
-# StartSpawnItems copies: script and ammoscript.
-START_BOTTLES=((71175,78224),(71176,78226))
+# StartSpawnItems cigarette packs: cigiscript and ammoscript. world.start_items spawns the other copies.
 START_PACKS=((80187,77156),(70712,70989),(70715,70994))
-# The garage binoculars tavcsoscript.
-START_BINOCULARS=72758
-BINOCULAR_FIELDS=('eyeDist','focusDistance','focusDistanceSens','minfocusDistance','maxfocusDistance','minfov','maxfov')
 START_GROUP=21481
 PLAYER=80125
-SPRAY_FIELDS=('cleaningType','text','angleSpeed','triggerMaxAngle','triggerSetAngle','triggerResetAngle','invert',
-    'volumeSet','volumeReset','gain','distance','washRadius')
 EVIDENCE=[
     'value = Mathf.Lerp(value, bubbleCurve.Evaluate(Mathf.InverseLerp(-1f, 1f, Vector3.Dot((t2.position - t1.position).normalized, Vector3.up))), lerp * Time.deltaTime);',
     'bubble.position += up * moveXY * moveXYCurve.Evaluate(value);',
@@ -115,9 +109,9 @@ def recover_small_items(source, manifest, output) -> dict:
         'invert':bool(d['invert']),'trigger':source_id(link(d,'trigger','Transform')),'hole':source_id(link(d,'hole','Transform')),
         'set_clip':source_id(clips[0]),'reset_clip':source_id(clips[1]),'set_volume':d['volumeSet'],'reset_volume':d['volumeReset'],
         'mask':d['LM']['m_Bits'],'gain':d['gain'],'distance':d['distance'],'wash_radius':d['washRadius'],'wash_mask':d['washMask']['m_Bits'],
-        'spray':effect('particle','spray_bottle_spray'),'splash':effect('particle2','spray_bottle_splash'),'startup':[]}
+        'spray':effect('particle','spray_bottle_spray'),'splash':effect('particle2','spray_bottle_splash')}
     group=source.get('level1',START_GROUP)
-    def start_copy(script_id, ammo_id, cname, prefab=None):
+    def start_copy(script_id, ammo_id, cname):
         copy=source.get('level1',script_id);cd=source.read(copy)
         if source.class_name(copy)!=cname:raise ValueError(f'{key(copy)} is not {cname}')
         go=source.resolve(copy,cd['m_GameObject']);root=source.transform_for(go)
@@ -125,13 +119,8 @@ def recover_small_items(source, manifest, output) -> dict:
             raise ValueError(f'{key(copy)} is not an active StartSpawnItems child')
         holder=source.resolve(copy,cd['ammo']) if 'ammo' in cd else component(source,root,'ammoscript')
         if key(holder)!=('level1',ammo_id):raise ValueError(f'{key(copy)} ammo link differs')
-        if prefab is not None and (any(cd[f]!=prefab[1][f] for f in SPRAY_FIELDS) or cd['LM']!=prefab[1]['LM'] or cd['washMask']!=prefab[1]['washMask']
-                or any(key(source.resolve(copy,cd[f]))!=key(source.resolve(prefab[0],prefab[1][f])) for f in ('particle','particle2','triggerSet','triggerReset'))):
-            raise ValueError(f'{key(copy)} differs from its catalog prefab')
         save=source.read(component(source,root,'tosaveitemscript'))
         return {'source':source_id(copy),'transform':source_id(root),'item_id':save['id'],'ammo':ammo(source,holder)}
-    for script_id,ammo_id in START_BOTTLES:
-        spray_bottle['startup'].append(start_copy(script_id,ammo_id,'spricniscript',(reader,d)))
 
     record,reader,d,link=owner(GENIE_LAMP)
     wash=link(d,'washTrigger','MonoBehaviour')
@@ -150,15 +139,8 @@ def recover_small_items(source, manifest, output) -> dict:
     # makeinvisible.R holds every renderer, so the runtime hides the whole item.
     if {key(source.resolve(hidden,r)) for r in hd['R']}!=renderers:raise ValueError(f'{key(hidden)} renderers differ from the item')
     if not d['minfocusDistance']<d['maxfocusDistance'] or not 0<d['minfov']<d['maxfov']:raise ValueError(f'{key(reader)} focus range differs')
-    copy=source.get('level1',START_BINOCULARS);cd=source.read(copy)
-    copy_root=source.transform_for(source.resolve(copy,cd['m_GameObject']))
-    if (source.class_name(copy)!='tavcsoscript' or key(source.resolve(copy_root,source.read(copy_root)['m_Father']))!=key(group)
-            or not source.read(source.resolve(copy,cd['m_GameObject']))['m_IsActive'] or any(cd[f]!=d[f] for f in BINOCULAR_FIELDS)):
-        raise ValueError(f'{key(copy)} differs from its catalog prefab')
     binoculars={**record,'camera':source_id(camera),'focus_distance':d['focusDistance'],'focus_sensitivity':d['focusDistanceSens'],
-        'min_focus':d['minfocusDistance'],'max_focus':d['maxfocusDistance'],'min_fov':d['minfov'],'max_fov':d['maxfov'],
-        'startup':[{'source':source_id(copy),'transform':source_id(copy_root),
-            'item_id':source.read(component(source,copy_root,'tosaveitemscript'))['id']}]}
+        'min_focus':d['minfocusDistance'],'max_focus':d['maxfocusDistance'],'min_fov':d['minfov'],'max_fov':d['maxfov']}
 
     start_packs=[start_copy(script_id,ammo_id,'cigiscript') for script_id,ammo_id in START_PACKS]
     washes,wash_effects=recover_washes(source,manifest,output,genie_lamp['wash_trigger'])
