@@ -173,6 +173,18 @@ struct OpeningRules {
     /// `UiReference::sprites` index of the cap `img`.
     tune_icon: Option<u32>,
     presentation: FluidPresentation,
+    /// Source `tankcapscript` clips of a generated cap. Imported caps play through audio bindings.
+    clips: Option<CapClips>,
+}
+/// Source `tankcapscript.openSound`, `closeSound`, `tekerSound` and their volumes.
+/// `USE` and `TUNE` play them with `mainscript.PlayClipAtPoint` at the cap.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CapClips {
+    pub open: Option<crate::reference::SourceId>,
+    pub close: Option<crate::reference::SourceId>,
+    pub tune: Option<crate::reference::SourceId>,
+    pub open_volume: f32,
+    pub close_volume: f32,
 }
 impl OpeningRules {
     fn new(opening: &OpeningRecord, ui: &crate::reference::UiReference) -> Self {
@@ -192,6 +204,7 @@ impl OpeningRules {
             tune_rate: opening.tune_rate,
             tune_icon: opening.tune_icon.as_ref().and_then(|icon| ui.sprite(icon)),
             presentation: opening.presentation.clone(),
+            clips: None,
         }
     }
 }
@@ -1244,6 +1257,7 @@ impl InteractionState {
                 tune_rate: 0.0,
                 tune_icon: None,
                 presentation: o.presentation.clone(),
+                clips: None,
             },
             local_pose: transform_pose(&end.pose),
             tilt_axis: Vector::from_array(o.tilt_axis),
@@ -1331,6 +1345,13 @@ impl InteractionState {
             }
             Ok(value)
         };
+        let link = |record: &crate::reference::WorldSourceRecord, name: &str| match record
+            .fields
+            .get(name)
+        {
+            Some(crate::reference::WorldValue::Link(clip)) => Some(clip.clone()),
+            _ => None,
+        };
         let radius = number(cap_record, "radius")?;
         let flow =
             radius * radius * std::f32::consts::PI * 0.025 * reference.fluid_rules.pour_speed;
@@ -1364,6 +1385,13 @@ impl InteractionState {
                 number(cap_record, "noText")? != 0.0,
                 reference.language.names.len(),
             )?,
+            clips: Some(CapClips {
+                open: link(cap_record, "openSound"),
+                close: link(cap_record, "closeSound"),
+                tune: link(cap_record, "tekerSound"),
+                open_volume: number(cap_record, "openVolume")?,
+                close_volume: number(cap_record, "closeVolume")?,
+            }),
         };
         let tank_rules = TankRules {
             no_drink: number(tank_record, "noDrink")? != 0.0,
@@ -1505,6 +1533,11 @@ impl InteractionState {
     }
     pub fn opening_valves(&self) -> impl Iterator<Item = (OpeningId, f32)> + '_ {
         self.openings.iter().map(|o| (o.reference.id, o.valve))
+    }
+    /// The clips and the cap item of a generated cap.
+    pub fn cap_clips(&self, id: OpeningId) -> Option<(&CapClips, ItemId)> {
+        let opening = self.openings.iter().find(|o| o.reference.id == id)?;
+        Some((opening.reference.clips.as_ref()?, opening.reference.cap))
     }
     pub fn tuning_opening(&self) -> Option<OpeningId> {
         self.tuning_opening
