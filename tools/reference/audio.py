@@ -673,12 +673,12 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
     survival_groups+=[('item_hit',11,main,unique(item_clips),prefab,[1.,1.],[1.,1.]),
         ('car_hit',12,main,unique(r for tier in tiers for r in tier),prefab,[1.,1.],list(audio['shared']['random_pitch'])),
         ('rock_heat',13,rocks[0],readers(rocks[0],source.read(rocks[0])['clipsReggel']),prefab,rock['gain'],rock['pitch'])]
-    # meleeweaponscript plays mainscript.meleeHitSounds; the runtime picks the group and its hitVolume gain.
+    # meleeweaponscript plays mainscript.meleeHitSounds. The runtime picks the group and its hitVolume gain.
     survival_groups.append(('melee_hit',17,main,unique(source.get(c['file'],c['path_id']) for group in manifest['melee']['hit_clips'] for c in group),prefab,[1.,1.],[1.,1.]))
     # breakablescript.Break plays one of its clips through mainscript.PlayClipAtPoint at AudioPriorities[6].
     break_clips=unique(source.get(c['file'],c['path_id']) for b in manifest['breakables'] for c in b['clips'])
     survival_groups.append(('break',22,main,break_clips,prefab,[1.,1.],[1.,1.]))
-    # metalDetectorScript.Source loops one beep; UpdSound sets its pitch and volume each frame.
+    # metalDetectorScript.Source loops one beep. UpdSound sets its pitch and volume each frame.
     detectors=[source.get(r['source']['file'],r['source']['path_id']) for r in manifest['world']['records'] if r['class_name']=='metalDetectorScript']
     beeps=[source.resolve(r,source.read(r)['Source']) for r in detectors]
     if not beeps:raise ValueError('Missing metal detector prefabs')

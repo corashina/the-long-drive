@@ -10,7 +10,7 @@ from .lighting import rgba, sky_material
 from .gltf import convert_point
 
 MAIN=('level1',64919)
-# mainscript static arrays. They are not serialized; managed evidence checks them.
+# mainscript static arrays. They are not serialized. Managed evidence checks them.
 AMMO_MASS=[0.0005,0.0102,0.,0.,0.01,0.,0.006]
 AMMO_VELOCITY=[300.,376.4,0.,0.,641.3,0.,365.]
 EVIDENCE=[
@@ -157,7 +157,7 @@ def recover_guns(source, manifest, output) -> dict:
     for name,field in (('start','ParticleShootStart'),('end','ParticleShootEnd')):
         system=source.resolve(main,d[field])
         if system is None or system.type.name!='ParticleSystem':raise ValueError(f'mainscript {field} is not ParticleSystem')
-        # ShootStart/ShootEnd move the shared system and call Emit(1); emission does not run.
+        # ShootStart/ShootEnd move the shared system and call Emit(1). Emission does not run.
         tracer[name]=particle(source,system,f'gun_tracer_{name}',0.,output)
     decals=[_decal(source,source.resolve(main,p),output) for p in d['ShootDecals']]
     # Every world prototype node with a weaponscript is a gun.

@@ -1,7 +1,7 @@
 """Player ragdoll prefab (fpscontroller.prefabRagdol): bodies, colliders, joints, and the pose map.
 
 Body poses are in ragdoll root space. Collider geometry and joint anchors and axes are in body space.
-Joint axes are axial: a positive source angle about the source axis stays positive about the exported axis.
+Joint axes are axial. A positive source angle about the source axis stays positive about the exported axis.
 Joint limits are in degrees.
 """
 import math
@@ -125,7 +125,7 @@ def recover_pose_map(source, own, live, node):
 
 def recover_rig(source, root, by_node, parents, rigid, collider, sensor):
     """Bodies and colliders under `root`. `rigid(reader, data)` and `collider(reader)` select the records.
-    `sensor` overrides the collider trigger flag; None keeps it. Gives bodies, colliders and body world poses."""
+    `sensor` overrides the collider trigger flag, and None keeps it. Return the bodies, colliders and body world poses."""
     from .gltf import GltfExporter
     matrix = source.read(next(r for r in source.objects.values() if r.type.name == 'PhysicsManager'))['m_LayerCollisionMatrix']
     root_pose = world_pose(source, root)

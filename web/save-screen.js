@@ -21,7 +21,7 @@ export class SaveScreenState {
  escape(){if(this.selected===null)return 'back';this.selected=null;this.confirm=null;return null;}
  saveShown(){return !this.inMenu&&!this.dead&&this.selected!=='autosave'&&!this.sleeping&&!this.seated;}
  canSave(){const name=trimName(this.name);return this.saveShown()&&name!==''&&name!==AUTOSAVE;}
- // Returns true when the operation runs now; otherwise it opens its Yes/No or does nothing.
+ // Returns true when the operation runs now. Otherwise it opens its Yes/No or does nothing.
  request(kind){
   this.confirm=null;
   if(kind==='save'){if(!this.canSave())return false;const name=trimName(this.name);if(this.saves.some(entry=>entry.name===name)){this.confirm='save';return false;}return true;}

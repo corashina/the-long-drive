@@ -1,5 +1,5 @@
-// Multiplayer peers of source `sns` and `snl`. PeerJS runs on the page thread: Chrome has no WebRTC in workers.
-// Star like the source: guests talk only to the host. The host forwards guest messages to the other guests.
+// Multiplayer peers of source `sns` and `snl`. PeerJS runs on the page thread, because Chrome has no WebRTC in workers.
+// The peers form a star like the source. Guests talk only to the host. The host forwards guest messages to the other guests.
 // Each guest has a `reliable` connection for the session messages and the save, and a `pose` connection for
 // the simulation packets. A packet is the type byte, the sender slot byte, then a body that only Rust reads.
 // Bit `RELIABLE` of an outbound packet length sends the packet on `reliable` as `{t:'sim',data}`, like source `EP2PSendReliable`.
@@ -22,7 +22,7 @@ export function chatText(text){
 }
 
 // `Peer`: the PeerJS class. `capture()`: the host save record as a string.
-// Voice (source `SVoice`, host forwards): each peer sends its microphone in a PeerJS media call. A guest calls the host.
+// Voice (source `SVoice`, host forwards). Each peer sends its microphone in a PeerJS media call. A guest calls the host.
 // The host calls each guest once per other speaker, with that speaker's stream and `metadata.slot`.
 // Events: `voice(slot,stream|null)`, `packet(bytes)`, `leave(slot)`, `looks(Map slot→{name,outfit})`, `chat({name,text})`, `status(text)`,
 // `save(bytes)`, `session(role,slot)`, `peers([{slot,name,ping}])`.
@@ -35,7 +35,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  const guestBySlot=s=>[...guests.values()].find(g=>g.slot===s);
  const setLook=(s,look)=>{if(look)looks.set(s,look);else looks.delete(s);emit('looks',new Map(looks));peers();};
  function stop(status){
-  // Role first: the closes below fire close events that must not stop again.
+  // Clear the role first. The closes below fire close events that must not stop again.
   const was=role;role=ROLE.OFF;slot=0;looks.clear();
   if(timer!==null)clearTimer(timer);timer=null;
   const closing=[...guests.values()];guests.clear();
@@ -245,7 +245,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
    for(let at=0;at+2<=packets.length;){
     const raw=packets[at]|packets[at+1]<<8,n=raw&~RELIABLE,packet=packets.subarray(at+2,at+2+n);at+=2+n;
     if(raw&RELIABLE){
-     // A copy: the outbox buffer is reused by the next frame.
+     // Copy the packet, because the next frame reuses the outbox buffer.
      const message={t:'sim',data:packet.slice()};
      if(role===ROLE.HOST){for(const g of guests.values())if(g.welcomed)g.reliable.send(message);}
      else if(host?.welcomed)host.reliable.send(message);

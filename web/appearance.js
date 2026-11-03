@@ -40,7 +40,7 @@ export function createAppearance({target,document,canvas,edit,characters,languag
   parts.querySelectorAll('button').forEach((button,i)=>button.classList.toggle('selected',i===index));
   tracks();
  }
- // `UpdButtons`: two columns; the first column takes the extra part.
+ // `UpdButtons`: two columns. The first column takes the extra part.
  function list(){
   const segments=characters[outfit.character].segments;
   parts.style.gridTemplateRows='repeat('+Math.ceil(segments.length/2)+',auto)';

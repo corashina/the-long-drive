@@ -27,7 +27,7 @@ def owners(source, manifest):
 
 
 def breakable(source, c, actor=False) -> dict:
-    """One breakablescript, as Start leaves it. `actor`: the creature runtime owns its AI link."""
+    """One breakablescript, as Start leaves it. `actor` is true when the creature runtime owns the AI link."""
     d = source.read(c)
     if not actor and (d['AI']['m_PathID'] or d['newAI']['m_PathID']):
         raise ValueError(f'breakablescript AI link is not supported before X03: {key(c)}')
@@ -62,7 +62,7 @@ def breakable(source, c, actor=False) -> dict:
                          'own_modifier': bool(f['ownModifier']), 'modifier': f['modifier']})
     return {'source': source_id(c), 'owners': [], **{k: d[v] for k, v in NUMBERS.items()},
             **{k: bool(d[v]) for k, v in FLAGS.items()},
-            # breakablescript.Start: massModifier 0 becomes 1.
+            # breakablescript.Start changes a massModifier of 0 to 1.
             'mass_modifier': d['massModifier'] or 1., 'children': children,
             'gib': gib('Gib'), 'reduced_gib': gib('reducedGib'), 'clips': clips, 'lamp': None}
 

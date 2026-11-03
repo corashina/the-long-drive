@@ -1,5 +1,5 @@
 import {readPackageAsset} from '../world-assets.js';
-// Accepted Ogg Opus bytes are checked before browser decoding.
+// This module checks accepted Ogg Opus bytes before browser decoding.
 export class ClipCache {
  constructor(context,raw,current,fail){this.context=context;this.clips=new Map(raw.clips.map(c=>[c.id,c]));this.current=current;this.fail=fail;this.buffers=new Map();this.pending=new Map();this.failed=new Set();this.controllers=new Set();this.generation=0;this.radioBuffers=new Map();this.radioPending=new Map();this.radioWanted=new Set();this.radioDemand=[];this.radioDirty=true;}
  async effect(id,session){

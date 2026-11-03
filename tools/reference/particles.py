@@ -66,7 +66,7 @@ def recover_particles(source, output):
     source.lighting['textures']=list(source.lighting_textures.values())
     return particles
 
-# Modules that crates/simulation/src/particles.rs runs. ShapeModule and EmissionModule feed emission; the others change live particles.
+# Modules that crates/simulation/src/particles.rs runs. ShapeModule and EmissionModule feed emission. The others change live particles.
 EXHAUST_MODULES=frozenset({'InitialModule','ShapeModule','EmissionModule','VelocityModule','ForceModule',
     'InheritVelocityModule','SizeModule','ColorModule','RotationModule','CollisionModule','UVModule'})
 
