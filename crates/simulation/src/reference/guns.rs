@@ -337,15 +337,7 @@ impl GunReference {
             .find(|p| p.source == self.prototype.0)
             .ok_or_else(|| error("world prototype"))?;
         let node = |s: &SourceId| prototype.nodes.iter().any(|n| n.source == *s);
-        let clips = m.audio["clips"].as_array();
-        let clip = |s: &SourceId| {
-            clips.is_some_and(|clips| {
-                clips.iter().any(|c| {
-                    c["source"]["file"].as_str() == Some(s.file.as_str())
-                        && c["source"]["path_id"].as_i64() == Some(s.path_id)
-                })
-            })
-        };
+        let clip = |s: &SourceId| m.audio.gameplay.clip(s).is_some();
 
         check((self.ammo.r#type as usize) < AMMO_TYPES, "ammo type")?;
         let mut nodes = vec![&self.muzzle];

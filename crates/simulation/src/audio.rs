@@ -168,7 +168,7 @@ pub struct AudioState {
     pub voice_loops: Vec<cars::CarSignal>,
     /// Loot tool loops of this step. A loop that is missing stops.
     pub tool_loops: Vec<cars::CarSignal>,
-    pub reference: AudioReference,
+    pub reference: std::sync::Arc<AudioReference>,
     pub session: u32,
     pub game_seconds: f64,
     pub outside_gain: f32,
@@ -198,7 +198,7 @@ pub struct AudioState {
     footsteps: footsteps::FootstepState,
 }
 impl AudioState {
-    pub fn new(reference: AudioReference, session: u32) -> Self {
+    pub fn new(reference: std::sync::Arc<AudioReference>, session: u32) -> Self {
         let outside = &reference.mixer_controls.outside;
         let sphere = outside.sensor.radius.map(Ball::new);
         let sensor = SensorLatch::new(

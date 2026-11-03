@@ -941,14 +941,12 @@ impl GarageRuntime {
         area.commit_poses(&physics, true);
         stream.initialize_imported_changes(reference, &area.items, &area.interaction, &physics);
         let lighting = crate::lighting::LightingState::new(&reference.lighting, &distances);
-        let audio = crate::reference::AudioReference::from_value(&reference.audio, reference)
-            .ok()
-            .map(|r| {
-                let mut state = crate::audio::AudioState::new(r, 1);
-                state.bind_game(reference, &area, &physics);
-                state.sync_lamps(&reference.lighting, &lighting);
-                state
-            });
+        let audio = reference.audio.playback().ok().map(|r| {
+            let mut state = crate::audio::AudioState::new(r.clone(), 1);
+            state.bind_game(reference, &area, &physics);
+            state.sync_lamps(&reference.lighting, &lighting);
+            state
+        });
         let weather_bindings = weather::WeatherBindings::new(
             &physics,
             area.player.body_handle(),
@@ -978,8 +976,7 @@ impl GarageRuntime {
             urine_splash,
             0x70697373,
         );
-        let audio_gameplay =
-            crate::reference::AudioGameplayReference::from_value(&reference.audio)?;
+        let audio_gameplay = reference.audio.gameplay.clone();
         let mut run = Self {
             driving_assists: reference.driving.default_assists,
             options: Default::default(),
