@@ -141,10 +141,13 @@ fn sun_shadow_visibility(world_position: vec3<f32>) -> f32 {
 fn direct_attenuation(world_position: vec3<f32>,view_depth: f32,receive_shadows: bool) -> f32 {
     let cookie_uv=(lighting.cookie_from_world*vec4(world_position,1.0)).xy;
     let cookie=textureSample(sun_cookie,sun_cookie_sampler,cookie_uv).a;
-    let shadow=sun_shadow_visibility(world_position);
     let sphere_distance=distance(world_position,lighting.shadow_fade_center.xyz);
     let distance=mix(view_depth,sphere_distance,lighting.shadow_fade_center.w);
     let fade=clamp(distance*lighting.shadow_fade.z+lighting.shadow_fade.w,0.0,1.0);
+    // The result is not used when the surface ignores shadows or the fade is full.
+    // Compare samples are valid in non-uniform control flow.
+    var shadow=1.0;
+    if(receive_shadows && fade<1.0) { shadow=sun_shadow_visibility(world_position); }
     return cookie*select(1.0,mix(shadow,1.0,fade),receive_shadows);
 }
 // The shadow of one lamp. `slot` is the lamp mask.z: 0 has no shadow.

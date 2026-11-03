@@ -1,13 +1,16 @@
-//! Source four-cascade atlas dispatch over the persistent caster phase.
+//! Source four-cascade atlas dispatch over the persistent caster phase of each tile bit.
 use super::{
     lamp_shadows::{LampShadowUniform, LampShadows, TILES, tile_bit},
     lighting_assets::LightingRenderAssets,
     materials::MaterialLoading,
     readiness::RendererStateHandle,
+    render_bundles::BundleTarget,
     render_targets::{SHADOW_FORMAT, SourceViewTargets},
-    shadow_phase::{CasterSet, ShadowDrawState, SourceShadow},
+    shadow_phase::{CasterSet, ShadowBundles, ShadowDrawState, SourceShadow},
     shadow_queue::ShadowQueues,
     shadow_scene::ShadowScene,
+    shadow_tiles::{ShadowTileViews, TILE_BITS},
+    static_draws::StaticDraws,
     surface_graph::SurfaceViewTargets,
     surface_views::{SourceSurfaceView, WORLD_VIEWS},
     view_frame::SourceViewFrame,
@@ -20,10 +23,9 @@ use crate::reference::{
 };
 use bevy::render::{
     Render, RenderApp, RenderSystems,
-    render_phase::{TrackedRenderPass, ViewBinnedRenderPhases},
+    render_phase::{BinnedRenderPhase, TrackedRenderPass, ViewBinnedRenderPhases},
     render_resource::{binding_types::texture_depth_2d, *},
     renderer::{RenderContext, RenderDevice, ViewQuery},
-    view::ExtractedView,
 };
 use bevy::{ecs as bevy_ecs, prelude::*};
 use std::sync::Arc;
@@ -285,14 +287,50 @@ fn tile_pass<'a>(label: &'static str, attachment: &'a TextureView) -> RenderPass
         ..default()
     }
 }
+/// The view inputs of `draw_casters`.
+type Casters<'a> = (
+    &'a [Option<&'a BinnedRenderPhase<SourceShadow>>; TILE_BITS],
+    Entity,
+    &'a StaticDraws<'a>,
+    &'a ShadowDrawState,
+    &'a ShadowBundles,
+);
+/// Draw the entity casters of one tile. Static draws run as the tile bundle, the others after it.
+/// The draw commands run each frame, so `MarkDraw` counts bundled draws too.
+fn draw_casters<'w>(
+    world: &'w World,
+    pass: &mut TrackedRenderPass<'w>,
+    (phases, entity, draws, state, bundles): Casters,
+    tile: usize,
+    set: CasterSet,
+) -> Result<(), String> {
+    // Tile bit N draws from phase N. Lamp faces of one slot share the phase of the slot.
+    let phase = phases[tile_bit(tile)].ok_or_else(|| format!("no caster phase for tile {tile}"))?;
+    state.select(tile, set);
+    let bundle = &bundles.0[tile][usize::from(set == CasterSet::Animated)];
+    let target = BundleTarget {
+        color: None,
+        depth: SHADOW_FORMAT,
+        samples: 1,
+    };
+    bundle
+        .lock()
+        .unwrap()
+        .draw(world.resource(), target, pass, |pass| {
+            phase.render_filtered(pass, world, entity, |e| draws.contains(e))
+        })?
+        .and_then(|_| phase.render_filtered(pass, world, entity, |e| !draws.contains(e)))
+        .map_err(|error| format!("{error:?}"))
+}
 pub(crate) fn render_atlas(
     world: &World,
     view: ViewQuery<(
-        &ExtractedView,
         &SurfaceViewTargets,
         &ShadowDrawState,
         &SourceSurfaceView,
         &ShadowCadence,
+        &ShadowBundles,
+        &ShadowTileViews,
     )>,
     pipelines: Option<Res<AtlasPipelines>>,
     phases: Res<ViewBinnedRenderPhases<SourceShadow>>,
@@ -309,7 +347,7 @@ pub(crate) fn render_atlas(
         return;
     }
     let entity = view.entity();
-    let (view, targets, state, source, cadence) = view.into_inner();
+    let (targets, state, source, cadence, bundles, tiles) = view.into_inner();
     if frame.views[source.index].is_none()
         || cadence.frame != frame.frame
         || queues.frame != frame.frame
@@ -317,9 +355,13 @@ pub(crate) fn render_atlas(
     {
         return;
     }
-    let Some(phase) = phases.get(&view.retained_view_entity) else {
-        return;
-    };
+    let mut tile_phases = [None; TILE_BITS];
+    for bit in 0..tiles.count {
+        let Some(phase) = phases.get(&tiles.retained[bit]) else {
+            return;
+        };
+        tile_phases[bit] = Some(phase);
+    }
     let Some((clear, restore)) = pipelines.and_then(|p| {
         Some((
             cache.get_render_pipeline(p.clear)?,
@@ -329,15 +371,18 @@ pub(crate) fn render_atlas(
         return;
     };
     // Pipeline preparation is asynchronous. No partial atlas can be published.
-    if phase
-        .batchable_meshes
-        .keys()
-        .chain(phase.unbatchable_meshes.keys())
-        .any(|(key, _)| cache.get_render_pipeline(key.pipeline).is_none())
-    {
+    if tile_phases.iter().flatten().any(|phase| {
+        phase
+            .batchable_meshes
+            .keys()
+            .chain(phase.unbatchable_meshes.keys())
+            .any(|(key, _)| cache.get_render_pipeline(key.pipeline).is_none())
+    }) {
         return;
     }
     state.begin();
+    let draws = StaticDraws::new(world);
+    let casters = (&tile_phases, entity, &draws, state, bundles);
     let viewport = |pass: &mut TrackedRenderPass, cascade| {
         let [x, y, width, height] = tile_rect(targets.0.atlas_size, cascade);
         pass.set_viewport(x as f32, y as f32, width as f32, height as f32, 0., 1.);
@@ -350,12 +395,12 @@ pub(crate) fn render_atlas(
             &targets.0.static_atlas.attachment,
         ));
         for cascade in (0..4).filter(|&c| cadence.plan.draw[c]) {
-            state.select(cascade, CasterSet::Static);
             viewport(&mut pass, cascade);
             pass.set_render_pipeline(clear);
             pass.draw(0..3, 0..1);
-            if let Err(error) = phase.render(&mut pass, world, entity) {
-                status.fail(format!("Source shadow atlas draw: {error:?}"));
+            if let Err(error) = draw_casters(world, &mut pass, casters, cascade, CasterSet::Static)
+            {
+                status.fail(format!("Source shadow atlas draw: {error}"));
                 return;
             }
             let (attempted, issued) = super::prop_draws::draw_cascade(
@@ -381,13 +426,14 @@ pub(crate) fn render_atlas(
             &targets.0.atlas.attachment,
         ));
         for cascade in (0..4).filter(|&c| cadence.plan.refresh[c]) {
-            state.select(cascade, CasterSet::Animated);
             viewport(&mut pass, cascade);
             pass.set_render_pipeline(restore);
             pass.set_bind_group(0, &cadence.restore, &[]);
             pass.draw(0..3, 0..1);
-            if let Err(error) = phase.render(&mut pass, world, entity) {
-                status.fail(format!("Source shadow atlas draw: {error:?}"));
+            if let Err(error) =
+                draw_casters(world, &mut pass, casters, cascade, CasterSet::Animated)
+            {
+                status.fail(format!("Source shadow atlas draw: {error}"));
                 return;
             }
         }
@@ -408,12 +454,11 @@ pub(crate) fn render_atlas(
             &resources.targets.lamp_static_atlas.attachment,
         ));
         for tile in (4..TILES).filter(|tile| lamp_draw(*tile)) {
-            state.select(tile, CasterSet::Static);
             lamp_viewport(&mut pass, tile);
             pass.set_render_pipeline(clear);
             pass.draw(0..3, 0..1);
-            if let Err(error) = phase.render(&mut pass, world, entity) {
-                status.fail(format!("Source lamp shadow draw: {error:?}"));
+            if let Err(error) = draw_casters(world, &mut pass, casters, tile, CasterSet::Static) {
+                status.fail(format!("Source lamp shadow draw: {error}"));
                 return;
             }
             let (attempted, issued) = super::prop_draws::draw_cascade(
@@ -441,13 +486,12 @@ pub(crate) fn render_atlas(
             &resources.targets.lamp_atlas.attachment,
         ));
         for tile in (4..TILES).filter(|tile| lamp_refresh(*tile)) {
-            state.select(tile, CasterSet::Animated);
             lamp_viewport(&mut pass, tile);
             pass.set_render_pipeline(restore);
             pass.set_bind_group(0, lamp_restore, &[]);
             pass.draw(0..3, 0..1);
-            if let Err(error) = phase.render(&mut pass, world, entity) {
-                status.fail(format!("Source lamp shadow draw: {error:?}"));
+            if let Err(error) = draw_casters(world, &mut pass, casters, tile, CasterSet::Animated) {
+                status.fail(format!("Source lamp shadow draw: {error}"));
                 return;
             }
         }

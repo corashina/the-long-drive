@@ -18,6 +18,7 @@ const types = new Map([
   ['.wav', 'audio/wav'],
   ['.ttf', 'font/ttf'],
   ['.otf', 'font/otf'],
+  ['.woff2', 'font/woff2'],
   ['.glb', 'model/gltf-binary'],
   ['.gz', 'application/gzip'],
 ]);

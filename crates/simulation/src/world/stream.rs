@@ -4193,10 +4193,7 @@ impl WorldStream {
         interaction: &mut crate::interaction::InteractionState,
         physics: &mut PhysicsWorld,
         wheels: &mut crate::interaction::wheels::WheelAssemblies,
-        vehicles: &mut std::collections::BTreeMap<
-            super::ObjectKey,
-            crate::starting_area::VehicleRuntime,
-        >,
+        vehicles: &mut std::collections::BTreeMap<super::ObjectKey, crate::car::VehicleRuntime>,
         powertrain: &mut crate::simulation::powertrain::PowertrainParts,
     ) -> Result<(), ReferenceError> {
         self.sync_static_controls(reference, items, interaction, physics, wheels)?;
@@ -4237,10 +4234,7 @@ impl WorldStream {
         interaction: &mut crate::interaction::InteractionState,
         physics: &mut PhysicsWorld,
         wheels: &mut crate::interaction::wheels::WheelAssemblies,
-        vehicles: &mut std::collections::BTreeMap<
-            super::ObjectKey,
-            crate::starting_area::VehicleRuntime,
-        >,
+        vehicles: &mut std::collections::BTreeMap<super::ObjectKey, crate::car::VehicleRuntime>,
         powertrain: &mut crate::simulation::powertrain::PowertrainParts,
     ) -> Result<(), ReferenceError> {
         let owned = owned_binding_bytes(items, interaction, wheels, physics);
@@ -4425,10 +4419,7 @@ impl WorldStream {
         items: &mut crate::interaction::items::ItemStore,
         interaction: &mut crate::interaction::InteractionState,
         wheels: &mut crate::interaction::wheels::WheelAssemblies,
-        vehicles: &mut std::collections::BTreeMap<
-            super::ObjectKey,
-            crate::starting_area::VehicleRuntime,
-        >,
+        vehicles: &mut std::collections::BTreeMap<super::ObjectKey, crate::car::VehicleRuntime>,
         powertrain: &mut crate::simulation::powertrain::PowertrainParts,
     ) -> Result<(), ReferenceError> {
         if self.recovery.is_some()

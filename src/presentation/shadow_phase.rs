@@ -1,19 +1,22 @@
 //! Persistent source shadow items use Bevy's mesh extraction and instance buffers.
 use super::caster::CasterViews;
-use super::lamp_shadows::{TILES, tile_bit};
+use super::lamp_shadows::TILES;
 use bevy::ecs as bevy_ecs;
 use bevy::ecs::{query::ROQueryItem, system::SystemParamItem};
-use bevy::pbr::{DrawMesh, SetMeshBindGroup};
+use bevy::pbr::DrawMesh;
 use bevy::prelude::*;
 use bevy::render::{
     render_phase::*, render_resource::CachedRenderPipelineId, sync_world::MainEntity,
 };
 use std::{
     ops::Range,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::{
+        Mutex,
+        atomic::{AtomicU32, Ordering},
+    },
 };
 
-/// All members use the same draw state and recovered cascade membership.
+/// All members use the same draw state. Each tile bit has its own phase.
 pub type ShadowBatchKey = super::shadow_batch::ShadowBatchKey<
     CachedRenderPipelineId,
     DrawFunctionId,
@@ -155,6 +158,16 @@ impl ShadowDrawState {
         )
     }
 }
+/// The static caster bundle of each tile. Index 0 holds the static set, index 1 the animated set.
+#[derive(Component)]
+pub struct ShadowBundles(pub [[Mutex<super::render_bundles::DrawBundle>; 2]; TILES]);
+impl Default for ShadowBundles {
+    fn default() -> Self {
+        Self(std::array::from_fn(|_| {
+            std::array::from_fn(|_| Mutex::default())
+        }))
+    }
+}
 struct SelectCaster;
 impl RenderCommand<SourceShadow> for SelectCaster {
     type Param = ();
@@ -174,7 +187,7 @@ impl RenderCommand<SourceShadow> for SelectCaster {
         } else {
             CasterSet::Animated
         };
-        if item.key.split_mask & (1 << tile_bit(cascade)) == 0 || set == excluded as u32 {
+        if set == excluded as u32 {
             return RenderCommandResult::Skip;
         }
         pass.set_bind_group(1, views.binding(cascade), &[]);
@@ -218,7 +231,7 @@ type DrawSourceShadow = (
     SetItemPipeline,
     MarkDraw<false>,
     super::source_lighting::SetSourceViewCamera,
-    SetMeshBindGroup<2>,
+    super::static_draws::SetSourceMeshBindGroup<2>,
     super::caster_material::SetCasterMaterial,
     DrawMesh,
     MarkDraw<true>,

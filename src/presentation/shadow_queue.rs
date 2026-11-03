@@ -6,6 +6,7 @@ use super::{
     readiness::RendererStateHandle,
     shadow_phase::{self, ShadowBatchKey, ShadowDrawState, SourceShadow},
     shadow_scene::ShadowScene,
+    shadow_tiles::{ShadowTileViews, TILE_BITS},
     surface_views::SourceSurfaceView,
     view_frame::SourceViewFrame,
 };
@@ -40,6 +41,8 @@ struct QueuedShadow {
     specialization: SpecializationKey,
     base: CachedRenderPipelineId,
     seen: u64,
+    /// Tile bits whose phase holds this caster.
+    mask: u8,
 }
 struct CachedSpecialization {
     key: SpecializationKey,
@@ -50,18 +53,25 @@ struct CachedSpecialization {
 }
 #[derive(Resource)]
 pub struct ShadowQueues {
-    query: QueryState<(Entity, &'static SourceSurfaceView, &'static ExtractedView)>,
+    query: QueryState<(
+        Entity,
+        &'static SourceSurfaceView,
+        &'static ExtractedView,
+        Option<&'static ShadowTileViews>,
+    )>,
     specializations: Vec<CachedSpecialization>,
     queued: [MainEntityHashMap<QueuedShadow>; VIEW_COUNT],
-    retained: [Option<RetainedViewEntity>; VIEW_COUNT],
+    /// The tile view phases of each source view, one for each tile bit.
+    retained: [[Option<RetainedViewEntity>; TILE_BITS]; VIEW_COUNT],
     // Keep idle face and mirror bins out of Bevy's per-frame instance preparation.
-    idle_probe_phases: [Option<BinnedRenderPhase<SourceShadow>>; VIEW_COUNT - PROBE_START],
+    idle_probe_phases:
+        [[Option<BinnedRenderPhase<SourceShadow>>; TILE_BITS]; VIEW_COUNT - PROBE_START],
     epoch: Option<(u64, u32)>,
     revision: u64,
     /// Queued instances of each caster mask bit: 4 cascades, then 4 lamp slots.
-    pub instances: [[u32; 8]; VIEW_COUNT],
+    pub instances: [[u32; TILE_BITS]; VIEW_COUNT],
     /// The animated part of `instances`.
-    pub animated: [[u32; 8]; VIEW_COUNT],
+    pub animated: [[u32; TILE_BITS]; VIEW_COUNT],
     pub ready: [bool; VIEW_COUNT],
     pub frame: u32,
 }
@@ -71,12 +81,12 @@ impl FromWorld for ShadowQueues {
             query: world.query(),
             specializations: Vec::new(),
             queued: std::array::from_fn(|_| MainEntityHashMap::default()),
-            retained: [None; VIEW_COUNT],
-            idle_probe_phases: std::array::from_fn(|_| None),
+            retained: [[None; TILE_BITS]; VIEW_COUNT],
+            idle_probe_phases: std::array::from_fn(|_| std::array::from_fn(|_| None)),
             epoch: None,
             revision: 0,
-            instances: [[0; 8]; VIEW_COUNT],
-            animated: [[0; 8]; VIEW_COUNT],
+            instances: [[0; TILE_BITS]; VIEW_COUNT],
+            animated: [[0; TILE_BITS]; VIEW_COUNT],
             ready: [false; VIEW_COUNT],
             frame: 0,
         }
@@ -191,8 +201,8 @@ fn base_pipeline(
 pub fn queue(world: &mut World) {
     world.resource_scope(|world, mut state: Mut<ShadowQueues>| {
         state.ready = [false; VIEW_COUNT];
-        state.instances = [[0; 8]; VIEW_COUNT];
-        state.animated = [[0; 8]; VIEW_COUNT];
+        state.instances = [[0; TILE_BITS]; VIEW_COUNT];
+        state.animated = [[0; TILE_BITS]; VIEW_COUNT];
         state.revision += 1;
         let revision = state.revision;
         state.frame = 0;
@@ -208,12 +218,21 @@ pub fn queue(world: &mut World) {
                     .specializations
                     .reserve_exact(scene.capacity() * VIEW_COUNT);
             }
-            let mut views: [Option<(Entity, RetainedViewEntity, MeshPipelineKey)>; VIEW_COUNT] =
-                [None; VIEW_COUNT];
-            for (entity, source, view) in state.query.iter(world) {
+            #[allow(clippy::type_complexity)]
+            let mut views: [Option<(
+                Entity,
+                [RetainedViewEntity; TILE_BITS],
+                usize,
+                MeshPipelineKey,
+            )>; VIEW_COUNT] = [None; VIEW_COUNT];
+            for (entity, source, view, tiles) in state.query.iter(world) {
                 if world.resource::<SourceViewFrame>().views[source.index].is_none() {
                     continue;
                 }
+                // `prepare_tile_views` adds the tile views before the queue.
+                let Some(tiles) = tiles else {
+                    continue;
+                };
                 let Some(key) = world
                     .resource::<ViewKeyCache>()
                     .get(&view.retained_view_entity)
@@ -221,7 +240,7 @@ pub fn queue(world: &mut World) {
                 else {
                     return;
                 };
-                views[source.index] = Some((entity, view.retained_view_entity, key));
+                views[source.index] = Some((entity, tiles.retained, tiles.count, key));
             }
             let draw = shadow_phase::draw_id(world.resource::<DrawFunctions<SourceShadow>>());
             world.resource_scope(
@@ -230,61 +249,81 @@ pub fn queue(world: &mut World) {
                     let epoch = (frame.session, frame.scene);
                     if state.epoch != Some(epoch) {
                         // Old bins and pointer keys belong to the previous scene.
-                        for retained in state.retained.iter().flatten() {
+                        for retained in state.retained.iter().flatten().flatten() {
                             phases.remove(retained);
                         }
                         for queued in &mut state.queued {
                             queued.clear();
                         }
                         state.specializations.clear();
-                        state.retained = [None; VIEW_COUNT];
-                        state.idle_probe_phases = std::array::from_fn(|_| None);
+                        state.retained = [[None; TILE_BITS]; VIEW_COUNT];
+                        state.idle_probe_phases =
+                            std::array::from_fn(|_| std::array::from_fn(|_| None));
                         state.epoch = Some(epoch);
                     }
                     for index in PROBE_START..VIEW_COUNT {
                         if world.resource::<SourceViewFrame>().skip_preparation(index) {
-                            if let Some(phase) =
-                                state.retained[index].and_then(|retained| phases.remove(&retained))
-                            {
-                                state.idle_probe_phases[index - PROBE_START] = Some(phase);
+                            for bit in 0..TILE_BITS {
+                                if let Some(phase) = state.retained[index][bit]
+                                    .and_then(|retained| phases.remove(&retained))
+                                {
+                                    state.idle_probe_phases[index - PROBE_START][bit] = Some(phase);
+                                }
                             }
                         }
                     }
                     for (index, view) in views.into_iter().enumerate() {
-                        let Some((entity, retained, key)) = view else {
+                        let Some((entity, tiles, count, key)) = view else {
                             continue;
                         };
-                        if state.retained[index] != Some(retained) {
-                            if let Some(previous) = state.retained[index].replace(retained) {
-                                phases.remove(&previous);
+                        let tiles = &tiles[..count];
+                        let mut fresh = false;
+                        for (bit, &retained) in tiles.iter().enumerate() {
+                            if state.retained[index][bit] != Some(retained) {
+                                if let Some(previous) = state.retained[index][bit].replace(retained)
+                                {
+                                    phases.remove(&previous);
+                                }
+                                phases.remove(&retained);
+                                if index >= PROBE_START {
+                                    state.idle_probe_phases[index - PROBE_START][bit] = None;
+                                }
                             }
-                            phases.remove(&retained);
                             if index >= PROBE_START {
-                                state.idle_probe_phases[index - PROBE_START] = None;
+                                if let Some(phase) =
+                                    state.idle_probe_phases[index - PROBE_START][bit].take()
+                                {
+                                    phases.insert(retained, phase);
+                                }
                             }
+                            fresh |= !phases.contains_key(&retained);
                         }
-                        if index >= PROBE_START {
-                            if let Some(phase) = state.idle_probe_phases[index - PROBE_START].take()
-                            {
-                                phases.insert(retained, phase);
+                        // Queued casters must be in each phase of their mask. Rebuild all tiles together.
+                        if fresh {
+                            for retained in tiles {
+                                phases.remove(retained);
                             }
-                        }
-                        if !phases.contains_key(&retained) {
                             state.queued[index].clear();
-                            world.entity_mut(entity).insert(ShadowDrawState::default());
+                            world.entity_mut(entity).insert((
+                                ShadowDrawState::default(),
+                                shadow_phase::ShadowBundles::default(),
+                            ));
                         }
-                        // Source views carry NoIndirectDrawing, so their work items are direct.
-                        phases.prepare_for_new_frame(
-                            retained,
-                            GpuPreprocessingMode::PreprocessingOnly,
-                        );
-                        let phase = phases.get_mut(&retained).unwrap();
+                        for &retained in tiles {
+                            // Source views carry NoIndirectDrawing, so their work items are direct.
+                            phases.prepare_for_new_frame(
+                                retained,
+                                GpuPreprocessingMode::PreprocessingOnly,
+                            );
+                        }
+                        let tile_mask = ((1u16 << count) - 1) as u8;
                         let queued = &mut state.queued[index];
                         queued.reserve(scene.capacity().saturating_sub(queued.len()));
                         let mut ready = true;
                         // Rows outside the marked list have a zero mask.
                         for &item in &scene.marked[index] {
-                            let mask = scene.masks[index][item as usize];
+                            // Only the world view has lamp slot bits.
+                            let mask = scene.masks[index][item as usize] & tile_mask;
                             // GPU prop rows draw from their own buffers.
                             let crate::presentation::shadow_scene::CasterKey::Entity(main) =
                                 scene.caster_data.entities[item as usize]
@@ -344,7 +383,6 @@ pub fn queue(world: &mut World) {
                                     pipeline,
                                     draw,
                                     material,
-                                    split_mask: mask,
                                     animated,
                                     indexed: base.1,
                                 },
@@ -354,15 +392,26 @@ pub fn queue(world: &mut World) {
                                 specialization: base.2,
                                 base: base.0,
                                 seen: revision,
+                                mask,
                             };
-                            if previous.as_ref().is_none_or(|old| {
-                                old.key != next.key
-                                    || old.mesh != mesh
-                                    || old.input != input
-                                    || old.batchable != batchable
-                            }) {
-                                phase.remove(main);
-                                phase.add(
+                            // Remove the caster from the tiles it left. Add it to the tiles it joined.
+                            let (left, joined) = match &previous {
+                                Some(old)
+                                    if old.key == next.key
+                                        && old.mesh == mesh
+                                        && old.input == input
+                                        && old.batchable == batchable =>
+                                {
+                                    (old.mask & !mask, mask & !old.mask)
+                                }
+                                Some(old) => (old.mask, mask),
+                                None => (0, mask),
+                            };
+                            for bit in (0..count).filter(|bit| left & (1 << bit) != 0) {
+                                phases.get_mut(&tiles[bit]).unwrap().remove(main);
+                            }
+                            for bit in (0..count).filter(|bit| joined & (1 << bit) != 0) {
+                                phases.get_mut(&tiles[bit]).unwrap().add(
                                     next.key.clone(),
                                     mesh,
                                     (Entity::PLACEHOLDER, main),
@@ -379,7 +428,7 @@ pub fn queue(world: &mut World) {
                             } else {
                                 state.queued[index].insert(main, next);
                             }
-                            for bit in 0..8 {
+                            for bit in 0..TILE_BITS {
                                 let member = u32::from(mask & (1 << bit) != 0);
                                 state.instances[index][bit] += member;
                                 state.animated[index][bit] += member * u32::from(animated);
@@ -389,7 +438,9 @@ pub fn queue(world: &mut World) {
                             if queued.seen == revision {
                                 return true;
                             }
-                            phase.remove(*main);
+                            for bit in (0..count).filter(|bit| queued.mask & (1 << bit) != 0) {
+                                phases.get_mut(&tiles[bit]).unwrap().remove(*main);
+                            }
                             false
                         });
                         state.ready[index] = ready;

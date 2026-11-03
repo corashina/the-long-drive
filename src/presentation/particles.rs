@@ -301,7 +301,7 @@ fn car_particle(
     prototype: usize,
     source: usize,
 ) -> &crate::reference::ParticleReference {
-    let record = crate::starting_area::world_vehicle(reference, prototype);
+    let record = crate::car::world_vehicle(reference, prototype);
     match system {
         ParticleGroupRow::CAR_EXHAUST => &record.exhaust[source],
         ParticleGroupRow::CAR_STEAM => {

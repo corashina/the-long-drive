@@ -888,7 +888,7 @@ pub fn car_particle_sources(
     reference: &ReferenceManifest,
     prototype: usize,
 ) -> impl Iterator<Item = (u32, usize)> + '_ {
-    let record = crate::starting_area::world_vehicle(reference, prototype);
+    let record = crate::car::world_vehicle(reference, prototype);
     let exhaust = (0..record.exhaust.len()).map(|i| (ParticleGroupRow::CAR_EXHAUST, i));
     let wheels = record
         .wheel_effects
