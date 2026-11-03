@@ -495,14 +495,8 @@ impl HumanReference {
             "human animator nodes",
         )?;
         let v = &self.voice;
-        let clips = m.audio["clips"].as_array();
-        let clip = |c: &HumanVoiceClip| {
-            c.seconds > 0.
-                && clips.is_some_and(|l| {
-                    l.iter()
-                        .any(|x| x["id"].as_u64() == Some(u64::from(c.clip)))
-                })
-        };
+        let audio = &m.audio.gameplay;
+        let clip = |c: &HumanVoiceClip| c.seconds > 0. && audio.has_clip(c.clip);
         require(
             [&v.idle, &v.chase, &v.notice, &v.attack, &v.death]
                 .iter()
@@ -512,11 +506,7 @@ impl HumanReference {
                 && range(&v.seeing_time)
                 && finite(&v.position)
                 && self.local(m, v.mouth)
-                && m.audio["car_voices"].as_array().is_some_and(|l| {
-                    l.iter().any(|x| {
-                        x["id"].as_u64() == Some(u64::from(v.voice)) && x["one_shot"] == false
-                    })
-                }),
+                && audio.car_voice(v.voice).is_some_and(|x| !x.one_shot),
             "human voice",
         )
     }
@@ -753,10 +743,8 @@ impl RabbitReference {
             "rabbit actions",
         )?;
         let e = &self.evil;
-        let clips = m.audio["clips"].as_array();
-        let clip = |id: &u32| {
-            clips.is_some_and(|c| c.iter().any(|c| c["id"].as_u64() == Some(u64::from(*id))))
-        };
+        let audio = &m.audio.gameplay;
+        let clip = |id: &u32| audio.has_clip(*id);
         require(
             finite(&[
                 e.attack_angle,
@@ -785,14 +773,8 @@ impl RabbitReference {
         )?;
         require(
             !self.die_clips.is_empty()
-                && self.die_clips.iter().all(|id| {
-                    clips.is_some_and(|c| c.iter().any(|c| c["id"].as_u64() == Some(*id as u64)))
-                })
-                && m.audio["car_voices"].as_array().is_some_and(|v| {
-                    v.iter().any(|v| {
-                        v["id"].as_u64() == Some(u64::from(self.die_voice)) && v["one_shot"] == true
-                    })
-                }),
+                && self.die_clips.iter().all(clip)
+                && audio.car_voice(self.die_voice).is_some_and(|v| v.one_shot),
             "rabbit die sounds",
         )
     }
