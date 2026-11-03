@@ -13,7 +13,7 @@ use super::{
     view_frame::SourceViewFrame,
 };
 use crate::reference::{
-    lamp_shadows::{LAMP_FACES, LampFace, LampHistory},
+    lamp_shadows::{LAMP_FACES, LampFace, LampHistory, LampPlan},
     shadow_cadence::{
         CascadeEpoch, CascadeHistory, CascadeInputs, CascadePlan, plan_cascades as plan_tiles,
     },
@@ -36,9 +36,11 @@ pub struct ShadowCadence {
     restore: BindGroup,
     history: CascadeHistory,
     pub plan: CascadePlan,
+    /// The static lamp atlas, for the face copy. Only the world view has it.
+    lamp_restore: Option<BindGroup>,
     lamp_history: LampHistory,
-    /// Lamp face tiles that draw this frame. Only the world view draws lamp faces.
-    pub lamp_draw: [bool; LAMP_FACES],
+    /// Lamp face tiles that draw or refresh this frame. Only the world view draws lamp faces.
+    pub lamp: LampPlan,
     pub frame: u32,
     /// Changes when a tile gets a different fit.
     pub revision: u64,
@@ -53,17 +55,19 @@ impl ShadowCadence {
         encoded: u32,
         lamps: &LampShadows,
     ) {
-        if index < WORLD_VIEWS {
+        if index < WORLD_VIEWS && self.lamp_restore.is_some() {
             let current = std::array::from_fn(|tile| {
                 let (slot, face) = (tile / 6, tile % 6);
                 let uniform = &lamps.uniforms[slot];
                 (face < lamps.faces(slot)).then(|| LampFace {
                     clip_from_world: uniform.faces[face].to_cols_array().map(f32::to_bits),
                     point: uniform.point(),
-                    contents: scene.lamp_contents[slot],
+                    contents: scene.lamp_contents[tile],
                 })
             });
-            self.lamp_draw = self.lamp_history.plan(encoded != self.frame, &current);
+            self.lamp =
+                self.lamp_history
+                    .plan(encoded != self.frame, &current, &scene.lamp_animated);
         }
         self.plan = CascadePlan::ALL;
         let Some(fit) = &scene.fits[index] else {
@@ -99,6 +103,7 @@ pub(crate) fn plan_cascades(
     device: Res<RenderDevice>,
     cache: Res<PipelineCache>,
     lamps: Res<LampShadows>,
+    resources: Option<Res<super::surface_views::SurfaceResources>>,
     mut views: Query<(
         Entity,
         &SourceSurfaceView,
@@ -139,18 +144,35 @@ pub(crate) fn plan_cascades(
             continue;
         }
         // A new atlas has no history, so all cascades render.
+        let layout = cache.get_bind_group_layout(&restore_layout());
         let restore = device.create_bind_group(
             "source_shadow_restore",
-            &cache.get_bind_group_layout(&restore_layout()),
+            &layout,
             &BindGroupEntries::with_indices(((2, &targets.0.static_atlas.attachment),)),
         );
+        let lamp_restore = resources
+            .as_ref()
+            .filter(|_| view.index < WORLD_VIEWS)
+            .map(|r| {
+                device.create_bind_group(
+                    "source_lamp_shadow_restore",
+                    &layout,
+                    &BindGroupEntries::with_indices(
+                        ((2, &r.targets.lamp_static_atlas.attachment),),
+                    ),
+                )
+            });
         let mut cadence = ShadowCadence {
             targets: targets.0.clone(),
             restore,
             history: CascadeHistory::default(),
             plan: CascadePlan::ALL,
+            lamp_restore,
             lamp_history: LampHistory::default(),
-            lamp_draw: [false; LAMP_FACES],
+            lamp: LampPlan {
+                draw: [false; LAMP_FACES],
+                refresh: [false; LAMP_FACES],
+            },
             frame: 0,
             revision: 0,
         };
@@ -370,29 +392,24 @@ pub(crate) fn render_atlas(
             }
         }
     }
-    let lamp_faces = |tile: usize| tile >= 4 && cadence.lamp_draw[tile - 4];
-    if (4..TILES).any(lamp_faces) {
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("source_lamp_shadow_atlas"),
-            color_attachments: &[],
-            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                view: &resources.targets.lamp_atlas.attachment,
-                // Faces that do not draw keep their depth. Drawn faces clear first.
-                depth_ops: Some(Operations {
-                    load: LoadOp::Load,
-                    store: StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            ..default()
-        });
-        for tile in (4..TILES).filter(|tile| lamp_faces(*tile)) {
-            let slot = (tile - 4) / 6;
-            state.select(tile, CasterSet::All);
-            let [x, y, width, height] =
-                LampShadowUniform::viewport(slot, (tile - 4) % 6, lamps.uniforms[slot].point());
-            pass.set_viewport(x as f32, y as f32, width as f32, height as f32, 0., 1.);
-            pass.set_scissor_rect(x, y, width, height);
+    let lamp_draw = |tile: usize| tile >= 4 && cadence.lamp.draw[tile - 4];
+    let lamp_refresh = |tile: usize| tile >= 4 && cadence.lamp.refresh[tile - 4];
+    let lamp_viewport = |pass: &mut TrackedRenderPass, tile: usize| {
+        let slot = (tile - 4) / 6;
+        let [x, y, width, height] =
+            LampShadowUniform::viewport(slot, (tile - 4) % 6, lamps.uniforms[slot].point());
+        pass.set_viewport(x as f32, y as f32, width as f32, height as f32, 0., 1.);
+        pass.set_scissor_rect(x, y, width, height);
+    };
+    // Static casters and GPU props draw into the static face.
+    if (4..TILES).any(lamp_draw) {
+        let mut pass = context.begin_tracked_render_pass(tile_pass(
+            "source_lamp_shadow_static_atlas",
+            &resources.targets.lamp_static_atlas.attachment,
+        ));
+        for tile in (4..TILES).filter(|tile| lamp_draw(*tile)) {
+            state.select(tile, CasterSet::Static);
+            lamp_viewport(&mut pass, tile);
             pass.set_render_pipeline(clear);
             pass.draw(0..3, 0..1);
             if let Err(error) = phase.render(&mut pass, world, entity) {
@@ -415,19 +432,39 @@ pub(crate) fn render_atlas(
             }
         }
     }
+    // The atlas face copies the static face, then the animated casters draw.
+    if let Some(lamp_restore) = &cadence.lamp_restore
+        && (4..TILES).any(lamp_refresh)
+    {
+        let mut pass = context.begin_tracked_render_pass(tile_pass(
+            "source_lamp_shadow_atlas",
+            &resources.targets.lamp_atlas.attachment,
+        ));
+        for tile in (4..TILES).filter(|tile| lamp_refresh(*tile)) {
+            state.select(tile, CasterSet::Animated);
+            lamp_viewport(&mut pass, tile);
+            pass.set_render_pipeline(restore);
+            pass.set_bind_group(0, lamp_restore, &[]);
+            pass.draw(0..3, 0..1);
+            if let Err(error) = phase.render(&mut pass, world, entity) {
+                status.fail(format!("Source lamp shadow draw: {error:?}"));
+                return;
+            }
+        }
+    }
     let (epoch, attempted, issued) = state.counts();
     let instances = state.instance_counts();
     // Skipped cascades and skipped lamp faces draw no instances.
     let required: [u32; TILES] = std::array::from_fn(|tile| {
         let bit = tile_bit(tile);
         let all = queues.instances[source.index][bit];
-        if tile < 4 {
-            let animated = queues.animated[source.index][bit];
-            (all - animated) * u32::from(cadence.plan.draw[tile])
-                + animated * u32::from(cadence.plan.refresh[tile])
+        let animated = queues.animated[source.index][bit];
+        let (draw, refresh) = if tile < 4 {
+            (cadence.plan.draw[tile], cadence.plan.refresh[tile])
         } else {
-            all * u32::from(lamp_faces(tile))
-        }
+            (lamp_draw(tile), lamp_refresh(tile))
+        };
+        (all - animated) * u32::from(draw) + animated * u32::from(refresh)
     });
     if attempted != issued || instances[0] != required || instances[1] != required {
         status.fail(format!(

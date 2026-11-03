@@ -14,7 +14,7 @@ use super::{
     },
 };
 use crate::reference::{
-    lamp_shadows::{LAMP_BIT, LAMP_SLOTS, LampMasks},
+    lamp_shadows::{LAMP_FACES, LampMasks, face_planes, scan_faces},
     shadow_bounds::{BoundsKey, WorldBoundsCache},
     shadow_candidates::CandidateState,
     shadow_frame::{CasterInput, ShadowViewCache},
@@ -25,6 +25,7 @@ use crate::reference::{
 };
 use bevy::camera::visibility::{SetViewVisibility, ViewVisibility};
 use bevy::{ecs as bevy_ecs, prelude::*};
+use std::hash::{Hash, Hasher};
 
 /// A caster is a renderer entity or a GPU prop row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -62,8 +63,14 @@ pub struct ShadowScene {
     mask_revisions: [u64; VIEW_COUNT],
     /// Changes when a lamp bit of the world view masks changes.
     lamp_revision: u64,
-    /// Caster content counter of each lamp slot. It changes when the face content would change.
-    pub lamp_contents: [u64; LAMP_SLOTS],
+    /// Pose hash of each caster row: identity, transform, bounds, assets and cast state.
+    poses: Vec<u64>,
+    /// Changes when a material or mesh asset changes. Every lamp face content includes it.
+    lamp_epoch: u64,
+    /// Static caster content of each lamp face tile. It changes when the face content would change.
+    pub lamp_contents: [u64; LAMP_FACES],
+    /// Lamp face tiles with an animated caster.
+    pub lamp_animated: [bool; LAMP_FACES],
     /// Held sun rotation of the shadow fit. It follows the sun in steps of `SUN_STEP`.
     pub sun: Quat,
     /// Static caster content counter of each view and cascade. It changes when the static tile content would change.
@@ -102,6 +109,8 @@ impl ShadowScene {
         self.generated_capacity = generated;
         let count = self.capacity();
         self.caster_data.reserve(count);
+        self.poses
+            .reserve_exact(count.saturating_sub(self.poses.len()));
         for masks in &mut self.masks {
             masks.reserve_exact(count.saturating_sub(masks.len()));
         }
@@ -203,6 +212,7 @@ pub(super) fn prepare_scene(
         }
         let scene = &mut *scene;
         scene.index.clear(&mut scene.caster_data);
+        scene.poses.clear();
         scene.bounds.clear();
         scene.animated.clear();
         for mesh in &meshes {
@@ -331,8 +341,9 @@ pub(super) fn prepare_scene(
             *content += u64::from(dirty >> cascade & 1);
         }
     }
-    // Lamp slots draw only in the world view atlas. Both revisions only grow, so their sum changes with either.
-    let mut lamp_dirty = 0xf0;
+    // Lamp slots draw only in the world view atlas.
+    // Asset edits can change caster geometry without a pose change.
+    scene.lamp_epoch += u64::from(materials.changed() || materials.meshes_changed());
     if frame.views[0].is_some() {
         let changed = scene.lamp_masks.write(
             &scene.caster_data.casters,
@@ -343,23 +354,32 @@ pub(super) fn prepare_scene(
         if changed != 0 {
             scene.lamp_revision += 1;
         }
-        if !all_changed {
-            let masks = &scene.masks[0];
-            lamp_dirty = scene
-                .touched
-                .iter()
-                .chain(&scene.animated)
-                .fold(changed, |dirty, &row| dirty | (masks[row as usize] & 0xf0));
-        }
+        // Face clip matrices use the render frame. Caster bounds use the source frame (z negated).
+        let flip = Mat4::from_scale(Vec3::new(1., 1., -1.));
+        let faces = std::array::from_fn(|slot| {
+            std::array::from_fn(|face| {
+                (face < lamps.faces(slot)).then(|| {
+                    face_planes((lamps.uniforms[slot].faces[face] * flip).to_cols_array_2d())
+                })
+            })
+        });
+        let scan = scan_faces(
+            &scene.lamp_masks,
+            &scene.caster_data.casters,
+            &scene.poses,
+            &scene.animated,
+            &faces,
+            scene.lamp_epoch,
+        );
+        scene.lamp_contents = scan.contents;
+        scene.lamp_animated = scan.animated;
         let marked = &mut scene.marked[0];
         marked.extend(scene.lamp_masks.rows());
         marked.sort_unstable();
         marked.dedup();
     } else {
         scene.lamp_masks.clear();
-    }
-    for (slot, content) in scene.lamp_contents.iter_mut().enumerate() {
-        *content += u64::from(lamp_dirty >> (LAMP_BIT as usize + slot) & 1);
+        scene.lamp_animated = [false; LAMP_FACES];
     }
     scene.mask_revisions[0] = scene.views[0].revision() + scene.lamp_revision;
     drop(changes);
@@ -431,24 +451,35 @@ fn update_caster(
             bounds.half_extents.to_array(),
         )
     })?;
-    let row = scene.index.update(
-        &mut scene.caster_data,
-        key,
-        CasterInput {
-            bounds,
-            state: CandidateState {
-                shadow_casting_mode: mesh.record.0.cast_shadows,
-                layer,
-                renderer_present: true,
-                disabled: !mesh.inherited.get(),
-                force_off: false,
-                lod_group: 0,
-                lod_index_mask: 0,
-                active_lod: 0,
-            },
-            material_has_caster: has_caster,
+    let input = CasterInput {
+        bounds,
+        state: CandidateState {
+            shadow_casting_mode: mesh.record.0.cast_shadows,
+            layer,
+            renderer_present: true,
+            disabled: !mesh.inherited.get(),
+            force_off: false,
+            lod_group: 0,
+            lod_index_mask: 0,
+            active_lod: 0,
         },
-    ) as u32;
+        material_has_caster: has_caster,
+    };
+    let row = scene.index.update(&mut scene.caster_data, key, input) as u32;
+    let mut hasher = pose_hasher(key, &input);
+    world.to_cols_array().map(f32::to_bits).hash(&mut hasher);
+    mesh.bounds
+        .center
+        .to_array()
+        .map(f32::to_bits)
+        .hash(&mut hasher);
+    mesh.bounds
+        .half_extents
+        .to_array()
+        .map(f32::to_bits)
+        .hash(&mut hasher);
+    mesh.hash_assets(&mut hasher);
+    set_pose(&mut scene.poses, row, hasher.finish());
     if rebuilding {
         if animated {
             scene.animated.push(row);
@@ -497,25 +528,43 @@ fn update_row(scene: &mut ShadowScene, props: &GpuProps, slot: u32) {
     if row.batch == NO_BATCH {
         return;
     }
-    let index = scene.index.update(
-        &mut scene.caster_data,
-        CasterKey::Row(slot),
-        CasterInput {
-            bounds: row.bounds,
-            state: CandidateState {
-                shadow_casting_mode: row.cast_shadows,
-                layer: row.layer,
-                renderer_present: true,
-                disabled: row.hidden,
-                force_off: false,
-                lod_group: 0,
-                lod_index_mask: 0,
-                active_lod: 0,
-            },
-            material_has_caster: scene.batch_casters[row.batch as usize],
+    let key = CasterKey::Row(slot);
+    let input = CasterInput {
+        bounds: row.bounds,
+        state: CandidateState {
+            shadow_casting_mode: row.cast_shadows,
+            layer: row.layer,
+            renderer_present: true,
+            disabled: row.hidden,
+            force_off: false,
+            lod_group: 0,
+            lod_index_mask: 0,
+            active_lod: 0,
         },
-    );
-    scene.touched.push(index as u32);
+        material_has_caster: scene.batch_casters[row.batch as usize],
+    };
+    let index = scene.index.update(&mut scene.caster_data, key, input) as u32;
+    let mut hasher = pose_hasher(key, &input);
+    row.words().hash(&mut hasher);
+    row.batch.hash(&mut hasher);
+    set_pose(&mut scene.poses, index, hasher.finish());
+    scene.touched.push(index);
+}
+/// Hasher of a caster pose, with its identity and cast state.
+fn pose_hasher(key: CasterKey, input: &CasterInput) -> std::hash::DefaultHasher {
+    let mut hasher = std::hash::DefaultHasher::new();
+    key.hash(&mut hasher);
+    let s = &input.state;
+    (s.shadow_casting_mode, s.layer, s.disabled).hash(&mut hasher);
+    input.material_has_caster.hash(&mut hasher);
+    hasher
+}
+fn set_pose(poses: &mut Vec<u64>, row: u32, pose: u64) {
+    let row = row as usize;
+    if poses.len() <= row {
+        poses.resize(row + 1, 0);
+    }
+    poses[row] = pose;
 }
 /// Copy bounded arrays into retained render-world storage. No manifest, material, or handle clones.
 pub fn extract_scene(
@@ -555,5 +604,6 @@ pub fn extract_scene(
     output.animated.clear();
     output.animated.extend_from_slice(&input.animated);
     output.lamp_contents = input.lamp_contents;
+    output.lamp_animated = input.lamp_animated;
     output.frame = input.frame;
 }

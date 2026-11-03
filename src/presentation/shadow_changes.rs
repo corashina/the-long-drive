@@ -24,6 +24,7 @@ pub(super) struct ShadowMesh {
     pub transform: &'static GlobalTransform,
     pub inherited: &'static InheritedVisibility,
     pub record: &'static SourceRenderer,
+    pub mesh: Option<&'static Mesh3d>,
     pub layers: Option<&'static RenderLayers>,
     pub skinned: Has<SkinnedMesh>,
     pub material: Option<&'static MeshMaterial3d<SourceMaterial>>,
@@ -37,6 +38,16 @@ impl ShadowMeshItem<'_, '_> {
     /// Grass sways with time and skinned meshes follow their joints. Their tiles draw each frame.
     pub fn animated(&self) -> bool {
         self.grass.is_some() || self.skinned
+    }
+    /// Mesh and material identity, for the lamp face pose hash.
+    pub fn hash_assets(&self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        self.mesh.map(|m| m.id()).hash(hasher);
+        self.material.map(|m| m.id()).hash(hasher);
+        self.specular.map(|m| m.id()).hash(hasher);
+        self.terrain.map(|m| m.id()).hash(hasher);
+        self.grass.map(|m| m.id()).hash(hasher);
+        self.impostor.map(|m| m.id()).hash(hasher);
     }
 }
 
