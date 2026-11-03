@@ -862,12 +862,8 @@ pub struct LightingTextureRecord {
     pub batches: Vec<super::texture_batch::TextureBatchReference>,
     #[serde(default)]
     pub chunks: Vec<LightingTextureChunk>,
-    pub mip_data: ResourceReference,
-    pub source_data: ResourceReference,
     pub id: u32,
     pub source: SourceId,
-    pub path: String,
-    pub sha256: String,
     pub width: u32,
     pub height: u32,
     pub source_format: u32,

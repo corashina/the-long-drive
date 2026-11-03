@@ -27,10 +27,3 @@ def decoded_mips(obj):
         payload.extend(image.tobytes())
     if kind in (1,3,4) and offset!=len(raw):raise ValueError("Source mip stream byte count")
     return bytes(payload)
-
-
-def validate_mips(payload,width,height,count):
-    if len(payload)<16 or struct.unpack('<4sIII',payload[:16])!=(b'SMIP',width,height,count):
-        raise ValueError('Decoded source mip header')
-    expected=16+sum(max(1,width>>i)*max(1,height>>i)*4 for i in range(count))
-    if len(payload)!=expected:raise ValueError('Decoded source mip byte count')
