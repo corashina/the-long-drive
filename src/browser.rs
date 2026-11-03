@@ -205,7 +205,12 @@ extern "C" {
     #[wasm_bindgen(js_namespace = window, js_name = gameCpuSubmitted)]
     pub fn game_cpu_submitted(token: u32);
     #[wasm_bindgen(js_namespace = window, js_name = gamePerformanceFrame)]
-    pub fn game_performance_frame(physics_ms: f64, world_ms: f64) -> bool;
+    pub fn game_performance_frame(
+        physics_ms: f64,
+        world_ms: f64,
+        update_ms: f64,
+        render_ms: f64,
+    ) -> bool;
     #[wasm_bindgen(js_namespace = window, js_name = gamePerformanceCounters)]
     pub fn game_performance_counters(
         steps: u32,

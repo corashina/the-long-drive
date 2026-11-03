@@ -125,7 +125,7 @@ window.gameLoadingBudget=(name,used,limit,unit)=>loading.budget(name,used,limit,
 const bootStarted=performance.now();
 let wasmMemory,renderAudit,initialReadyMs=null,peakFrameMs=0,lastFrameTime=null,measureRequested=false;
 const performancePanel=createPerformance(()=>wasmMemory?.buffer.byteLength,()=>renderAudit&&JSON.parse(renderAudit()),()=>worldDrawDistance,()=>simulation.stats());
-window.gamePerformanceFrame=(physicsMs,worldMs)=>performancePanel.frame(performance.now(),physicsMs,worldMs);
+window.gamePerformanceFrame=(physicsMs,worldMs,updateMs,renderMs)=>performancePanel.frame(performance.now(),physicsMs,worldMs,updateMs,renderMs);
 window.gamePerformanceCounters=performancePanel.counters;
 const measurementWaiters=[];
 const bootstrap={manifestUtf16PayloadBytes:0,dependencyGate:worldBootstrapMeasurements};
