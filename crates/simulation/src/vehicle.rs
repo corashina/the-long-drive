@@ -907,3 +907,53 @@ fn source_collider(
         Vector::new(size, 1.0, size),
     ))
 }
+
+#[cfg(test)]
+mod resting_tests {
+    use super::*;
+    use rapier3d::prelude::RigidBodyBuilder;
+
+    /// The garage barrel: a 32-sided hull. The oil can stands near its rim.
+    #[test]
+    fn box_rests_on_many_sided_hull() {
+        let mut physics = PhysicsWorld::empty(0, 2);
+        physics.sleep_speed = (2f32 * 0.01).sqrt();
+        physics.insert_collider(
+            ColliderBuilder::cuboid(5., 0.1, 5.).translation(Vector::new(0., -0.1, 0.)),
+        );
+        let ring = |y: f32| {
+            (0..32).map(move |i| {
+                let a = i as f32 * std::f32::consts::TAU / 32.;
+                Vector::new(0.237 * a.cos(), y, 0.237 * a.sin())
+            })
+        };
+        let hull: Vec<_> = ring(-0.4).chain(ring(0.4)).collect();
+        let barrel = physics.insert_body(
+            RigidBodyBuilder::dynamic()
+                .additional_mass(20.)
+                .translation(Vector::new(0., 0.4, 0.)),
+        );
+        physics.insert_collider_with_parent(
+            ColliderBuilder::convex_hull(&hull)
+                .unwrap()
+                .density(0.)
+                .build(),
+            barrel,
+        );
+        let can = physics.insert_body(
+            RigidBodyBuilder::dynamic()
+                .additional_mass(5.)
+                .translation(Vector::new(0.13, 0.96, 0.08)),
+        );
+        physics.insert_collider_with_parent(
+            ColliderBuilder::cuboid(0.05, 0.15, 0.1).density(0.).build(),
+            can,
+        );
+        for _ in 0..(5. / FIXED_DT) as usize {
+            physics.step_physics();
+        }
+        let rapier = physics.rapier();
+        assert!(rapier.bodies[barrel].is_sleeping() && rapier.bodies[can].is_sleeping());
+        assert!((rapier.bodies[can].translation().y - 0.95).abs() < 0.01);
+    }
+}
