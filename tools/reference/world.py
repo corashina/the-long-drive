@@ -122,8 +122,8 @@ def car_prototypes(source, catalog):
     return cars
 
 def start_placements(source, settings_owner, settings, catalog, cars):
-    """One start car candidate per START_CARS field, at the scene pose of the car root in its group.
-    The scene root is a copy of the prefab of the catalog item. The placement uses the prefab."""
+    """One start car candidate and its spare wheel per START_CARS field, at their scene poses in the group.
+    Each scene root is a copy of the prefab of a catalog item. The placement uses the prefab."""
     rows=[]
     for field,item in START_CARS.items():
         group=source.resolve(settings_owner,settings[field])
@@ -140,7 +140,26 @@ def start_placements(source, settings_owner, settings, catalog, cars):
         if key(prototype) not in cars:raise ValueError('{}:{} {}: start car prefab is not an allowed car'.format(*key(prototype),field))
         rows.append({'group':field,'source':source_id(car['reader']),'pose':world_pose(source,car['reader']),
             'prototype':source_id(prototype),'start_car':True,'conditions':start_conditions(source,car['reader'],prototype)})
+        # Each group holds the spare rim and tire of its car. Source DestroyOthers keeps the picked group only.
+        top=source.transform_for(group)
+        spares=[n for n in source.hierarchy(top) if n['parent'] is not None and key(n['parent'])==key(top) and 'wheelscript' in script_classes(source,[n])]
+        if len(spares)!=1:raise ValueError('{}:{} {}: {} spare wheels in the start car group'.format(*key(group),field,len(spares)))
+        spare=spares[0]['reader'];prefab=spare_prefab(source,catalog,spares[0])
+        rows.append({'group':field,'source':source_id(spare),'pose':world_pose(source,spare),
+            'prototype':source_id(prefab),'start_car':False,'conditions':start_conditions(source,spare,prefab)})
     return rows
+
+def spare_prefab(source, catalog, node):
+    """The rimtire catalog prefab of a scene spare wheel. Built scenes keep no prefab link: the names match."""
+    name=source.read(node['game_object'])['m_Name']
+    if name.endswith(')') and ' (' in name:name=name.rsplit(' (',1)[0]
+    matches=[]
+    for index in category_items(catalog,'rimtire'):
+        item=catalog['items'][index]
+        root=_source_root(source,source.get(item['source']['file'],item['source']['path_id']))
+        if source.read(source.components(root)[0])['m_Name']==name:matches.append(root)
+    if len(matches)!=1:raise ValueError('{}:{} spare wheel: {} rimtire prefab matches'.format(*key(node['reader']),len(matches)))
+    return matches[0]
 
 def start_conditions(source, car, prototype):
     """Scene values of the partconditionscript random start fields that differ from the prefab.
@@ -460,6 +479,8 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
         visit(root,None,'',True)
         return result
     for identity in sorted(cars):add(source.get(*identity),'nested')
+    for row in starts:
+        if not row['start_car']:add(source.get(row['prototype']['file'],row['prototype']['path_id']),'nested')
     scanned=set()
     startup_pending=[source.get(r['source']['file'],r['source']['path_id']) for r in startup if r['prototype'] is None and r['source']['path_id'] not in (21819,39843)]
     while startup_pending or set(roots)-scanned:

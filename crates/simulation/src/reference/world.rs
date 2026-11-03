@@ -548,9 +548,10 @@ pub struct WorldStartupReference {
     pub group: String,
     pub source: SourceId,
     pub pose: Transform,
-    /// Fixed placement of this world prototype at `pose`. Helper frames have none.
+    /// Fixed placement of this world prototype at `pose`: a start car or its spare wheel.
+    /// `group` is then the source start car field. Only the picked group spawns. Helper frames have none.
     pub prototype: Option<SourceId>,
-    /// A start car candidate. `group` is its source start car field. Only the picked one spawns.
+    /// A start car candidate.
     pub start_car: bool,
     /// Scene random start fields of prefab conditions. Start cars start worn; their prefabs start new.
     pub conditions: Vec<WorldStartCondition>,
@@ -1528,7 +1529,7 @@ impl WorldReference {
             )?;
             for c in &frame.conditions {
                 require(
-                    frame.start_car
+                    frame.prototype.is_some()
                         && checked_record(&record_map, &c.source, &["partconditionscript"]).is_ok()
                         && (0..=c.random_max).contains(&c.random_min)
                         && c.override_min.is_none_or(|v| (0..=4).contains(&v))
