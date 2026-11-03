@@ -2,8 +2,8 @@
 //! carries, holds or stores. A stored item hides. A carried or held item rides on that player and
 //! moves smoothly to each pose (`SmoothMove`).
 use super::items::Out;
-use super::message::{InventoryMessage, ItemPoseMessage};
-use super::objects::ObjectIndex;
+use super::message::{InventoryMessage, ItemPoseMessage, Message};
+use super::objects::{NetKey, ObjectIndex};
 use crate::interaction::items::ItemLocation;
 use crate::reference::ItemId;
 use crate::starting_area::GarageRuntime;
@@ -101,8 +101,16 @@ impl InventorySync {
         std::mem::swap(&mut self.sent, &mut self.current);
     }
 
-    /// Source `UpdInventory`.
-    pub fn got(&mut self, runtime: &mut GarageRuntime, item: ItemId, slot: u8, flags: u32) {
+    /// Source `UpdInventory` of another peer.
+    pub fn receive(&mut self, runtime: &mut GarageRuntime, index: &ObjectIndex, packet: &[u8]) {
+        if let Ok((slot, m)) = InventoryMessage::decode(packet)
+            && let Some(item) = index.item(NetKey(m.key))
+        {
+            self.got(runtime, item, slot, m.flags);
+        }
+    }
+
+    fn got(&mut self, runtime: &mut GarageRuntime, item: ItemId, slot: u8, flags: u32) {
         let Some(state) = runtime.area.items.get(item) else {
             return;
         };
