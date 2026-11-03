@@ -31,13 +31,11 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #performance-values {margin:0;font:inherit;white-space:pre-wrap;}
 #performance p {margin:8px 0 0;color:#bbb;font:11px/1.4 Arial,sans-serif;}
 /* Pause menu: one column of buttons over the dimmed world. */
-.pause-menu {position:absolute;z-index:2;left:clamp(16px,6vw,96px);top:50%;display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:auto;transform:translateY(-50%);}
+.pause-menu {position:absolute;z-index:2;inset:0;display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100% - 32px));height:fit-content;max-height:calc(100dvh - 32px);margin:auto;overflow:auto;}
 .pause-menu button {position:static;height:46px;padding:0 18px;border-left-width:3px;border:1px solid var(--seam);border-radius:4px;background:var(--asphalt-glass);color:var(--bleach);font-size:18px;text-align:left;text-shadow:none;transition:background-color .15s,border-color .15s;}
 .pause-menu button:hover:enabled {border-color:var(--paint);background:var(--shoulder);filter:none;}
 .pause-menu #resume {border-color:var(--paint);background:var(--paint);color:var(--ink);font-weight:700;}
 .pause-menu #resume:hover:enabled {background:var(--paint-hi);}
-.pause-menu #pause-new-game {margin-top:8px;}
-.pause-menu #settings {margin-top:8px;}
 /* Start menu: the garage car turns on its stage (canvas) in the middle. The buttons sit centered under it. */
 #menu.showroom :is(#menu-art,#menu-frame) {display:none;}
 #menu.showroom::before {content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 70% 65% at 50% 42%,transparent 55%,#0009 100%),linear-gradient(transparent 62%,#000a);}
