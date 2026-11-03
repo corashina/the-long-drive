@@ -69,7 +69,7 @@ pub struct WorldReference {
     #[serde(deserialize_with = "compact_vec")]
     pub records: Vec<WorldSourceRecord>,
     #[serde(deserialize_with = "compact_vec")]
-    pub receipts: Vec<WorldSourceReceipt>,
+    pub receipts: Vec<SourceId>,
     #[serde(deserialize_with = "compact_vec")]
     pub exclusions: Vec<WorldExclusion>,
     #[serde(deserialize_with = "compact_vec")]
@@ -502,20 +502,9 @@ impl TriggerRole {
         }
     }
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WorldSourceReceipt {
-    pub source: SourceId,
-    pub sha256: String,
-}
 /// Preserve caller fields and explicit null selections without unresolved Unity pointers.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(
-    tag = "kind",
-    content = "value",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
+/// The JSON form is plain: see `fields.rs`.
+#[derive(Clone, Debug)]
 pub enum WorldValue {
     Empty,
     Bool(bool),
@@ -523,7 +512,7 @@ pub enum WorldValue {
     Number(f64),
     Text(String),
     Link(SourceId),
-    Array(#[serde(deserialize_with = "compact_vec")] Vec<WorldValue>),
+    Array(Vec<WorldValue>),
     Record(WorldFields),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -574,7 +563,6 @@ pub struct WorldStartCondition {
 #[serde(deny_unknown_fields)]
 pub struct WorldCollisionRules {
     pub source: SourceId,
-    pub record_sha256: String,
     pub layers: [u32; 32],
 }
 
@@ -584,7 +572,6 @@ pub struct WorldStartupHole {
     pub component: SourceId,
     pub filter: SourceId,
     pub mesh: SourceId,
-    pub mesh_sha256: String,
     /// Exact first four vertices, before coordinate conversion.
     pub vertices: [[f32; 3]; 4],
 }
@@ -931,15 +918,15 @@ impl WorldReference {
                 &format!("{} world source hash", h.file),
             )?;
         }
-        let receipts: HashSet<_> = self.receipts.iter().map(|r| &r.source).collect();
+        let receipts: HashSet<_> = self.receipts.iter().collect();
         require(
             !receipts.is_empty() && receipts.len() == self.receipts.len(),
             "world source receipt identities",
         )?;
         for r in &self.receipts {
             require(
-                source_valid(&r.source, &self.source_hashes) && hash(&r.sha256),
-                &field(&r.source, "record receipt"),
+                source_valid(r, &self.source_hashes),
+                &field(r, "record receipt"),
             )?;
         }
         self.initialization.validate(self, &receipts)?;
@@ -1093,8 +1080,7 @@ impl WorldReference {
         };
         require(rows.len() == 32 && rows.iter().zip(self.collision_rules.layers).all(|(value, row)|
             matches!(value, WorldValue::Integer(value) if *value == row as i64))
-            && self.receipts.iter().any(|receipt| receipt.source == self.collision_rules.source
-                && receipt.sha256 == self.collision_rules.record_sha256), "source collision matrix receipt and rows")?;
+            && receipts.contains(&self.collision_rules.source), "source collision matrix receipt and rows")?;
         require(
             self.prototypes
                 .iter()
@@ -1105,7 +1091,7 @@ impl WorldReference {
         for binding in &self.painting_materials {
             checked_record(&record_map, &binding.material, &["Material"])?;
             require(
-                self.receipts.iter().any(|r| r.source == binding.texture),
+                receipts.contains(&binding.texture),
                 "Painting texture receipt",
             )?;
             require(
@@ -1125,8 +1111,7 @@ impl WorldReference {
         for binding in &self.initial_materials {
             binding.validate(&record_map)?;
         }
-        self.grass_displacement
-            .validate(&record_map, &self.receipts)?;
+        self.grass_displacement.validate(&record_map, &receipts)?;
         let mut hole_components = HashSet::new();
         for hole in &self.startup_holes {
             let component = checked_record(&record_map, &hole.component, &["digholescript2"])?;
@@ -1136,10 +1121,7 @@ impl WorldReference {
                     && record_link(component, "m_GameObject")
                         == record_link(filter, "m_GameObject")
                     && record_link(filter, "m_Mesh") == Some(&hole.mesh)
-                    && self
-                        .receipts
-                        .iter()
-                        .any(|r| r.source == hole.mesh && r.sha256 == hole.mesh_sha256)
+                    && receipts.contains(&hole.mesh)
                     && hole.vertices.iter().all(|v| finite(v)),
                 &field(&hole.component, "startup hole mesh"),
             )?;
@@ -1813,7 +1795,7 @@ impl WorldReference {
                 receipts.contains(&c.source) && collider_sources.insert(&c.source)
                     && c.material
                         .as_ref()
-                        .is_none_or(|s| self.receipts.iter().any(|r| &r.source == s))
+                        .is_none_or(|s| receipts.contains(s))
                     && c.body.is_none_or(|i| (i as usize) < p.bodies.len())
                     && (c.node as usize) < p.nodes.len()
                     && ([c.deformed_skin.is_some(), c.geometry.is_some(), c.source_empty_mesh.is_some()].into_iter().filter(|v| *v).count() == 1)
