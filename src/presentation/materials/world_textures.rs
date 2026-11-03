@@ -571,6 +571,20 @@ impl WorldTextures {
             selected.truncate(jobs.max(1));
             // Every request runs, so the report asks for all credit of the batches at once.
             let claims = ledger.can_request_independent(selected.len());
+            // Ask ahead for the credit of every free slot. Credit takes a stream round trip, so
+            // a slot that asks only when it fills waits several frames for each batch.
+            let ahead = queue
+                .ownership
+                .slots
+                .iter()
+                .filter(|slot| slot.is_none())
+                .count()
+                .max(selected.len());
+            ledger.can_request_independent(ahead);
+            ledger.request(crate::world::PresentationAllocation {
+                jobs: ahead,
+                ..Default::default()
+            });
             let shared = if let Some((owner, _, _, _)) = &last {
                 let path = &queue
                     .jobs
@@ -607,9 +621,10 @@ impl WorldTextures {
                 .available_staging_bytes()
                 .min(cpu_available.saturating_sub(metadata + queue.ownership.bytes()));
             let requested = selected.iter().map(|s| s.4).sum::<usize>();
+            let ahead_bytes = requested.max(requested / selected.len() * ahead);
             // Short credit waits. The report asks the stream for the rest.
-            ledger.request_staging(requested);
-            ledger.request_prototype(requested, 0);
+            ledger.request_staging(ahead_bytes);
+            ledger.request_prototype(ahead_bytes, 0);
             if !claims || jobs == 0 {
                 queue.counters[7] += 1;
                 return Ok(());
