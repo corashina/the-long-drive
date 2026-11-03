@@ -49,7 +49,10 @@ button:focus-visible {outline:2px solid #fff;outline-offset:3px;}
 .start-secondary button:hover:enabled {border-bottom-color:#b48046;color:#fff;}
 @media (max-width:640px) {.start-primary {flex-direction:column;align-items:stretch;}.start-primary button {max-width:none;flex:0 0 48px;height:48px;}.start-secondary {gap:4px 20px;}}
 @media (prefers-reduced-motion:reduce) {.start-menu {animation:none;}}
-#session-distance {margin:8px 0 0;color:#bdb5aa;font-size:15px;text-shadow:1px 1px 2px #000;}
+/* Pause menu: the session distance is a large readout in the lower right corner. */
+#session-distance {position:absolute;z-index:2;right:clamp(16px,6vw,96px);bottom:clamp(16px,7vh,72px);display:grid;gap:2px;padding:14px 22px 16px;border:1px solid #ffffff30;border-left:3px solid #b48046;border-radius:4px;background:#141210cc;text-align:right;}
+#session-distance-label {color:#b48046;font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;}
+#session-distance-value {color:#ece7e0;font-size:clamp(32px,4.5vw,52px);font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums;}
 #menu:has(#settings-screen:not([hidden]),#game-mode-screen:not([hidden]),#multiplayer-screen:not([hidden])) #status {visibility:hidden;}
 /* Menu screens (Settings, Game mode, Saves, Multiplayer): a solid window in the middle of a dimmed screen. */
 .menu-screen {position:absolute;inset:0;z-index:3;display:grid;place-items:center;padding:16px;background:#000b;}
