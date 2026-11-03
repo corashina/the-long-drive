@@ -38,6 +38,8 @@ use bevy::{
 };
 use std::sync::{Arc, Mutex};
 const ROW_SCRATCH: usize = 5 * (1024 * 1024 + 16);
+/// Fixed rows that load at once. A chunk load waits several frames, mostly not on the CPU.
+const ROW_JOBS: usize = 3;
 use crate::reference::fixed_reservation::{FIXED_SHADER_PATHS as SHADERS, shader_input};
 type RootState = SelectedMetadata<Handle<SourcePlan>, Handle<Gltf>>;
 struct Root {
@@ -946,7 +948,7 @@ impl SourceFixedAssets {
             self.shaders_bound = true;
         }
         for index in 0..self.rows.len() {
-            if self.rows.iter().any(|r| r.load.is_some()) {
+            if self.rows.iter().filter(|r| r.load.is_some()).count() >= ROW_JOBS {
                 break;
             }
             let row = &self.rows[index];
