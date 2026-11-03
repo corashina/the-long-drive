@@ -217,7 +217,7 @@ impl Rig {
                         f.rotation
                     };
                     out.position += f.position * w;
-                    out.rotation = out.rotation + r * w;
+                    out.rotation += r * w;
                     out.scale += f.scale * w;
                 }
             }

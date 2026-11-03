@@ -750,7 +750,7 @@ pub fn fluid_reference(
 ) -> crate::reference::FluidParticleReference {
     crate::reference::FluidParticleReference {
         source: p.source.clone(),
-        local_pose: p.local_pose.clone(),
+        local_pose: p.local_pose,
         capacity: p.capacity,
         cone_degrees: p.scalars["ShapeModule.angle"],
         cone_radius: p.scalars["ShapeModule.radius.value"],
