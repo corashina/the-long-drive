@@ -1,6 +1,6 @@
-use bevy_platform::collections::HashSet;
-use rapier3d::math::Pose;
-use rapier3d::prelude::{RigidBody, RigidBodyHandle, RigidBodyType};
+use bevy_platform::collections::{HashMap, HashSet};
+use rapier3d::math::{Pose, Vector};
+use rapier3d::prelude::{RigidBody, RigidBodyHandle, RigidBodySet, RigidBodyType};
 
 #[derive(Clone, Copy, PartialEq)]
 pub(super) struct BodyPresentationState {
@@ -27,6 +27,8 @@ impl BodyPresentationState {
 pub(super) struct PresentationBodies {
     handles: Vec<RigidBodyHandle>,
     queued: HashSet<RigidBodyHandle>,
+    /// Pose before and after the last step of each body that the step moved.
+    steps: HashMap<RigidBodyHandle, (Pose, Pose)>,
 }
 
 impl PresentationBodies {
@@ -47,6 +49,48 @@ impl PresentationBodies {
         }
     }
 
+    /// Keeps the pose of each active body before the step.
+    pub(super) fn begin_step(
+        &mut self,
+        bodies: &RigidBodySet,
+        active: impl Iterator<Item = RigidBodyHandle>,
+    ) {
+        self.steps.clear();
+        for handle in active {
+            let pose = *bodies[handle].position();
+            self.steps.insert(handle, (pose, pose));
+        }
+    }
+
+    /// Keeps the pose of each body after the step.
+    pub(super) fn end_step(&mut self, bodies: &RigidBodySet) {
+        for (handle, (_, after)) in &mut self.steps {
+            if let Some(body) = bodies.get(*handle) {
+                *after = *body.position();
+            }
+        }
+    }
+
+    pub(super) fn rebase(&mut self, shift: Vector) {
+        for (before, after) in self.steps.values_mut() {
+            before.translation -= shift;
+            after.translation -= shift;
+        }
+    }
+
+    /// The pose of `body` at `alpha` between the last two steps.
+    /// A sleeping body, or a body moved after the step, shows its current pose.
+    fn presented(&self, handle: RigidBodyHandle, body: &RigidBody, alpha: f32) -> Pose {
+        let current = *body.position();
+        match self.steps.get(&handle) {
+            Some((before, after)) if *after == current && !body.is_sleeping() => Pose::from_parts(
+                before.translation.lerp(current.translation, alpha),
+                before.rotation.slerp(current.rotation, alpha),
+            ),
+            _ => current,
+        }
+    }
+
     fn clear(&mut self) {
         self.handles.clear();
         self.queued.clear();
@@ -60,7 +104,9 @@ impl PresentationBodies {
                 * (std::mem::size_of::<RigidBodyHandle>() + 1)
                 + 16
         };
-        self.handles.capacity() * std::mem::size_of::<RigidBodyHandle>() + table
+        self.handles.capacity() * std::mem::size_of::<RigidBodyHandle>()
+            + table
+            + self.steps.capacity() * (std::mem::size_of::<(RigidBodyHandle, (Pose, Pose))>() + 1)
     }
 }
 
@@ -75,6 +121,12 @@ impl super::PhysicsWorld {
         )
     }
 
+    /// The pose of `body` at `alpha` between the last two steps, as the seat camera sees it.
+    pub fn presented_pose(&self, handle: RigidBodyHandle, alpha: f32) -> Pose {
+        self.presentation_bodies
+            .presented(handle, &self.physics.bodies[handle], alpha)
+    }
+
     /// Clear after presentation sync. Query refreshes use separate queues.
     pub fn clear_presentation_bodies(&mut self) {
         self.presentation_bodies.clear();
@@ -82,5 +134,37 @@ impl super::PhysicsWorld {
 
     pub fn presentation_retained_bytes(&self) -> usize {
         self.presentation_bodies.retained_bytes()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::vehicle::PhysicsWorld;
+    use rapier3d::math::Vector;
+    use rapier3d::prelude::RigidBodyBuilder;
+
+    #[test]
+    fn a_moving_body_shows_between_the_last_two_steps() {
+        let mut physics = PhysicsWorld::empty_for_tests();
+        let body = physics.insert_body(
+            RigidBodyBuilder::dynamic()
+                .linvel(Vector::new(10., 0., 0.))
+                .additional_mass(1.),
+        );
+        // The first step puts the new body in an island.
+        physics.step_physics();
+        let before = physics.rapier().bodies[body].translation().x;
+        physics.step_physics();
+        let x = physics.rapier().bodies[body].translation().x;
+        assert!(x > before);
+        let half = physics.presented_pose(body, 0.5).translation.x;
+        assert!(
+            (half - (before + x) * 0.5).abs() < 1e-5,
+            "{half} {before} {x}"
+        );
+        assert_eq!(physics.presented_pose(body, 1.).translation.x, x);
+        // A body moved after the step shows its new pose at once.
+        physics.edit_body(body, |b| b.set_translation(Vector::new(5., 0., 0.), true));
+        assert_eq!(physics.presented_pose(body, 0.5).translation.x, 5.);
     }
 }

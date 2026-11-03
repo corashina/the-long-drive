@@ -450,8 +450,11 @@ impl PhysicsWorld {
             self.query_bounds.mark_simulated_body(body);
             self.presentation_bodies.mark(body);
         }
+        self.presentation_bodies
+            .begin_step(&self.physics.bodies, self.physics.islands.active_bodies());
         self.physics
             .step_with_events(&self.ignored, &self.hit_collector);
+        self.presentation_bodies.end_step(&self.physics.bodies);
         self.hit_collector.take(&mut self.hits);
         self.hit_collector.take_enters(&mut self.trigger_enters);
         for body in self.physics.islands.active_bodies() {
@@ -761,6 +764,7 @@ impl PhysicsWorld {
 
     pub fn rebase(&mut self, shift: [f32; 3]) {
         let shift = Vector::from_array(shift);
+        self.presentation_bodies.rebase(shift);
         for (handle, body) in self.physics.bodies.iter_mut() {
             if self.inactive_bodies.contains(&handle) {
                 continue;
