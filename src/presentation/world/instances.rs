@@ -4,7 +4,7 @@ use super::{
     grass_jobs::GrassJobs,
     instance_materials::{InstanceMaterial, InstanceMaterials, RendererMaterial, ready},
     lod::{LodInstance, LodOwner, LodSchedule, LodTable},
-    node_plan::{NodePlan, anchor_local},
+    node_plan::{NodePlan, anchor_local, matrix_transform},
     pipelines::{PipelineTicket, WorldPipelines},
     prototype_loader::SourceGltf,
     prototypes::SourcePrototypes,
@@ -794,10 +794,7 @@ impl SourceInstances {
                             ledger.claim_structure(request, placement.id.clone());
                         let root_pose = local_root(placement, stream.origin);
                         let root = commands
-                            .spawn((
-                                Transform::from_matrix(root_pose.as_mat4()),
-                                Visibility::Hidden,
-                            ))
+                            .spawn((matrix_transform(root_pose.as_mat4()), Visibility::Hidden))
                             .id();
                         let mut owned_bindings = Vec::with_capacity(primitives);
                         let mut owned_rows = Vec::new();
@@ -867,7 +864,7 @@ impl SourceInstances {
                                 nodes[node] = Some(
                                     commands
                                         .spawn((
-                                            Transform::from_matrix(flat.rest[node]),
+                                            matrix_transform(flat.rest[node]),
                                             if visible {
                                                 Visibility::Inherited
                                             } else {
@@ -1113,7 +1110,7 @@ impl SourceInstances {
                                         None => (
                                             flat.anchors[node.index as usize]
                                                 .map_or(root, |a| nodes[a as usize].unwrap()),
-                                            Transform::from_matrix(flat.rest[node.index as usize]),
+                                            matrix_transform(flat.rest[node.index as usize]),
                                         ),
                                     };
                                     let chain_active = nodes[node.index as usize].is_some()
@@ -1613,8 +1610,7 @@ impl SourceInstances {
                             instance.source_worlds[index] = source_world;
                             let anchor = instance.anchor_world(index, origin);
                             if let Ok(mut transform) = transforms.get_mut(instance.entity(index)?) {
-                                *transform =
-                                    Transform::from_matrix((anchor.inverse() * world).as_mat4());
+                                *transform = matrix_transform((anchor.inverse() * world).as_mat4());
                             }
                         }
                     }
@@ -1637,9 +1633,8 @@ impl SourceInstances {
                         );
                         let anchor = instance.anchor_world(index, origin);
                         if let Ok(mut transform) = transforms.get_mut(instance.entity(index)?) {
-                            transform.set_if_neq(Transform::from_matrix(
-                                (anchor.inverse() * world).as_mat4(),
-                            ));
+                            transform
+                                .set_if_neq(matrix_transform((anchor.inverse() * world).as_mat4()));
                         }
                     }
                 }
@@ -2086,7 +2081,7 @@ fn override_local(
     if rotation.is_none() && scale.is_none() {
         return local;
     }
-    let mut transform = Transform::from_matrix(local);
+    let mut transform = matrix_transform(local);
     if let Some(rotation) = rotation {
         transform.rotation = Quat::from_array(rotation);
     }
