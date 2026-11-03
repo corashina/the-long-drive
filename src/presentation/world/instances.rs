@@ -237,6 +237,9 @@ impl LodOwner for Instance {
 pub struct SourceInstances {
     instances: Vec<Instance>,
     pending: Option<Placement>,
+    /// Where the pending owner waits, and since which frame. Startup audit only.
+    owner_stage: (&'static str, u64),
+    prepare_calls: u64,
     bindings_dirty: bool,
     origin: Option<[f64; 3]>,
     /// Instances of each structure slot.
@@ -314,6 +317,8 @@ impl SourceInstances {
     pub(crate) fn startup_audit(&self, grass: &GrassJobs) -> serde_json::Value {
         serde_json::json!({
             "pending_owner": self.pending.as_ref().map(|p| &p.prototype),
+            "owner_stage": self.owner_stage.0,
+            "owner_frames": self.prepare_calls - self.owner_stage.1,
             "unready": self.instances.iter().filter(|i| !i.ready).count(),
             "grass_waits": self.instances.iter().filter(|i| !i.ready).flat_map(|i| &i.renderers)
                 .filter(|r| r.entity().is_some_and(|e| r.settings.is_some() && !grass.ready(e))).count(),
@@ -581,6 +586,12 @@ impl SourceInstances {
                 })
                 .cloned();
         }
+        self.prepare_calls += 1;
+        let mut stage = if self.pending.is_some() {
+            "claim"
+        } else {
+            "none"
+        };
         // Full pending ownership must drain through publication before another instance starts.
         // Continue polling existing renderer work below, including its readiness transfer.
         if let Some(placement) = self.pending.as_ref().filter(|placement| {
@@ -601,6 +612,7 @@ impl SourceInstances {
                 .index(&placement.prototype)
                 .ok_or_else(|| ReferenceError("Missing generated structure prototype".into()))?;
             let prototype = &reference.world.prototypes[prototype_index];
+            stage = "plan";
             let admitted = prototypes
                 .plan(stream.frame().request.session, &placement.prototype)
                 .is_some()
@@ -614,14 +626,24 @@ impl SourceInstances {
                         .plan(stream.frame().request.session, &placement.prototype)
                         .unwrap(),
                 )?;
+            if prototypes
+                .plan(stream.frame().request.session, &placement.prototype)
+                .is_some()
+            {
+                stage = "materials";
+            }
             if admitted {
-                prototypes.admit_payload(
+                stage = if prototypes.admit_payload(
                     stream,
                     ledger,
                     reference,
                     server,
                     &placement.prototype,
-                )?;
+                )? {
+                    "payload"
+                } else {
+                    "payload_credit"
+                };
                 let lods = prototypes.lods(
                     stream.frame().request.session,
                     &placement.prototype,
@@ -665,6 +687,7 @@ impl SourceInstances {
                     node_plan,
                 ) {
                     if let Some(asset) = assets.get(&loaded.asset) {
+                        stage = "construct";
                         let count = loaded.plan.nodes.len();
                         let primitives = loaded
                             .plan
@@ -1306,6 +1329,9 @@ impl SourceInstances {
                     }
                 }
             }
+        }
+        if self.owner_stage.0 != stage {
+            self.owner_stage = (stage, self.prepare_calls);
         }
         // Visit not ready instances in instance order.
         self.not_ready.sort_unstable();
