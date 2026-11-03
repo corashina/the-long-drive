@@ -1,17 +1,18 @@
 //! Source `tosaveitemscript.MultiUpd` and `snItemsync`: the owner sends item poses and velocity, the
 //! other peers move their copy there.
 use super::claim::{ClaimChange, Claims};
+use super::inventory::InventorySync;
 use super::message::{
-    self, ClaimMessage, ItemPoseMessage, Message, PushMessage, RemoveMessage, RequestMessage,
-    VelocityMessage,
+    self, BrokeMessage, ClaimMessage, ItemPoseMessage, Message, PushMessage, RemoveMessage,
+    RequestMessage, VelocityMessage,
 };
 use super::objects::{NetKey, ObjectIndex};
 use crate::interaction::items::ItemLocation;
 use crate::player::SeatOwner;
-use crate::reference::ItemId;
+use crate::reference::{ItemId, ReferenceManifest};
 use crate::starting_area::GarageRuntime;
 use crate::vehicle::{VehiclePose, to_rapier};
-use rapier3d::math::{Rotation, Vector};
+use rapier3d::math::{Pose, Rotation, Vector};
 use std::collections::{HashMap, HashSet};
 
 /// Source `itemPlaceRemoveScript.checkInterval`.
@@ -62,8 +63,70 @@ impl ItemSync {
         };
     }
 
+    /// Item poses, velocity, requests, claims, removes, pushes and breaks of another peer.
+    /// `figures`: each remote figure pose in stream space.
+    #[allow(clippy::too_many_arguments)]
+    pub fn receive(
+        &mut self,
+        reference: &ReferenceManifest,
+        runtime: &mut GarageRuntime,
+        index: &mut ObjectIndex,
+        inventory: &mut InventorySync,
+        figures: &[(u8, Pose)],
+        host: bool,
+        packet: &[u8],
+    ) {
+        let item = |index: &ObjectIndex, key| index.item(NetKey(key));
+        if let Ok((_, m)) = ItemPoseMessage::decode(packet) {
+            if let Some(id) = item(index, m.key) {
+                if !inventory.target(runtime, figures, id, &m) {
+                    apply_pose(runtime, &self.claims, id, &m);
+                }
+            } else if spawn(reference, runtime, &m).is_some() {
+                // Later packets of this frame name the new item.
+                index.refresh(&runtime.area.items, &runtime.area.spawned);
+            } else if host {
+                self.keep(NetKey(m.key), Some(m), None);
+            }
+        } else if let Ok((_, m)) = VelocityMessage::decode(packet) {
+            if let Some(id) = item(index, m.key) {
+                apply_velocity(runtime, &self.claims, id, &m);
+            } else if host {
+                self.keep(NetKey(m.key), None, Some(m));
+            }
+        } else if let Ok((_, m)) = RequestMessage::decode(packet) {
+            if host {
+                self.requested(m.keys());
+            }
+        } else if let Ok((slot, m)) = ClaimMessage::decode(packet) {
+            if let Some(id) = item(index, m.key) {
+                self.claims.got(id, slot, m.claim != 0);
+            }
+        } else if let Ok((_, m)) = RemoveMessage::decode(packet) {
+            // Source `RemoveItem`: Destroy with `removeFromMemory`.
+            if let Some(id) = item(index, m.key) {
+                remove(runtime, id);
+            }
+        } else if let Ok((_, m)) = PushMessage::decode(packet) {
+            // Source `Push`: `pushablescript.PushLocal` on the owner.
+            if let Some(id) = item(index, m.key)
+                && self.claims.owns(id, host)
+            {
+                apply_push(runtime, id, &m);
+            }
+        } else if let Ok((_, m)) = BrokeMessage::decode(packet) {
+            // Source `Broke`: the host breaks the item.
+            if host
+                && let Some(id) = item(index, m.key)
+                && (m.record as usize) < reference.breakables.len()
+            {
+                runtime.break_item(reference, m.record as usize, id);
+            }
+        }
+    }
+
     /// Host: a pose or velocity of an item that it has not loaded. It applies when the item binds.
-    pub fn keep(
+    fn keep(
         &mut self,
         key: NetKey,
         pose: Option<ItemPoseMessage>,
@@ -78,7 +141,7 @@ impl ItemSync {
         }
     }
     /// Host: source `requestData` keys.
-    pub fn requested(&mut self, keys: &[u64]) {
+    fn requested(&mut self, keys: &[u64]) {
         self.requested.extend(keys.iter().map(|k| NetKey(*k)));
     }
 
@@ -298,7 +361,7 @@ impl ItemSync {
 }
 
 /// Source `UpdInWorld`: an item that this peer does not claim moves to the pose.
-pub fn apply_pose(runtime: &mut GarageRuntime, claims: &Claims, item: ItemId, m: &ItemPoseMessage) {
+fn apply_pose(runtime: &mut GarageRuntime, claims: &Claims, item: ItemId, m: &ItemPoseMessage) {
     let Some(state) = runtime.area.items.get(item) else {
         return;
     };
@@ -324,12 +387,7 @@ pub fn apply_pose(runtime: &mut GarageRuntime, claims: &Claims, item: ItemId, m:
 }
 
 /// Source `VelocityUpd`.
-pub fn apply_velocity(
-    runtime: &mut GarageRuntime,
-    claims: &Claims,
-    item: ItemId,
-    m: &VelocityMessage,
-) {
+fn apply_velocity(runtime: &mut GarageRuntime, claims: &Claims, item: ItemId, m: &VelocityMessage) {
     let Some(state) = runtime.area.items.get(item) else {
         return;
     };
@@ -359,8 +417,8 @@ fn angle(a: &[f32; 4], b: &[f32; 4]) -> f32 {
 }
 
 /// Source `UpdOrSpawnItem` and `AddObj`: a runtime spawn that this peer does not have.
-pub fn spawn(
-    reference: &crate::reference::ReferenceManifest,
+fn spawn(
+    reference: &ReferenceManifest,
     runtime: &mut GarageRuntime,
     m: &ItemPoseMessage,
 ) -> Option<ItemId> {
@@ -423,8 +481,22 @@ pub(super) fn send_pushes(
     }
 }
 
+fn remove(runtime: &mut GarageRuntime, item: ItemId) {
+    let area = &mut runtime.area;
+    if area.spawned.contains(item) {
+        let _ = crate::starting_area::spawned::despawn(area, &mut runtime.physics, item);
+    } else {
+        let _ = runtime.stream.remove_item(
+            item,
+            &mut area.items,
+            &mut area.interaction.storage,
+            &mut runtime.physics,
+        );
+    }
+}
+
 /// Source `PushLocal`: the owner applies the impulse of another player.
-pub fn apply_push(runtime: &mut GarageRuntime, item: ItemId, m: &PushMessage) {
+fn apply_push(runtime: &mut GarageRuntime, item: ItemId, m: &PushMessage) {
     let impulse = Vector::from_array(m.impulse);
     let local = Vector::from_array(m.point);
     let Some(body) = runtime.area.items.get(item).and_then(|i| i.body) else {
