@@ -18,6 +18,8 @@ pub(crate) struct SharedMaterialKey {
     pub reflected: bool,
     /// GPU prop rows use their own material. Its pipeline reads the row buffers.
     pub gpu: bool,
+    /// Entity condition color as sRGBA bits. Entities with the same color share one material.
+    pub color: Option<[u32; 4]>,
 }
 impl SharedMaterialKey {
     fn heap_bytes(&self) -> usize {
