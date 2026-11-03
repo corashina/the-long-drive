@@ -21,6 +21,8 @@ pub struct PrimaryOwnership {
     pending: usize,
     staging: usize,
 }
+/// Renderer steps an added image may wait for its GPU upload before the chain loads again.
+const STALLED_STEPS: u32 = 600;
 fn payload(texture: &TextureRecord) -> Result<usize, ReferenceError> {
     texture.payload_bytes()
 }
@@ -241,6 +243,7 @@ impl SourceMaterials {
                         payload_bytes,
                         cpu_reservation,
                         image: None,
+                        stalled: 0,
                         label: format!(
                             "source material {}:{} {}",
                             record.source.file, record.source.path_id, texture.slot
@@ -295,7 +298,23 @@ impl SourceMaterials {
         materials: &mut Assets<SourceMaterial>,
     ) -> Result<(), ReferenceError> {
         let mut failure = None;
-        for texture in self.textures.iter_mut().filter(|t| t.image.is_none()) {
+        for texture in self.textures.iter_mut() {
+            if texture.image.is_some() && texture.chain.is_none() && !texture.upload.completed() {
+                texture.stalled = texture.stalled.saturating_add(1);
+                if texture.stalled == STALLED_STEPS {
+                    warn!(
+                        "{}: GPU upload not complete after {STALLED_STEPS} steps \
+                         (main image {}, render receipt {}). Loading it again.",
+                        texture.label,
+                        images.contains(texture.image.as_ref().unwrap().id()),
+                        if texture.upload.registered() {
+                            "registered"
+                        } else {
+                            "not registered"
+                        },
+                    );
+                }
+            }
             if let Some(handle) = &texture.chain {
                 if let LoadState::Failed(error) = server.load_state(handle.id()) {
                     if !texture.failed {
@@ -336,9 +355,11 @@ impl SourceMaterials {
         if !self.preparation.cancelled() && failure.is_none() && stream.frame().failure.is_none() {
             for index in 0..self.textures.len() {
                 let texture = &self.textures[index];
+                // A stalled image loads its chain again into the same image.
+                let retry = texture.image.is_some() && texture.stalled >= STALLED_STEPS;
                 if texture.failed
                     || (texture.persistent && !self.fixed_admitted)
-                    || texture.image.is_some()
+                    || (texture.image.is_some() && !retry)
                     || texture.chain.is_some()
                 {
                     continue;
@@ -353,7 +374,12 @@ impl SourceMaterials {
                 let job = ledger.available_external_jobs() > 0;
                 let claim = ledger.can_request_independent(1);
                 let input = ledger.request_staging(staging);
-                let decoded = texture_cpu_reservation(texture);
+                // A retry keeps the CPU credit of its incomplete upload.
+                let decoded = if retry {
+                    0
+                } else {
+                    texture_cpu_reservation(texture)
+                };
                 // Without credit the load waits. Retired prototypes give their credit back.
                 let prototype = ledger.request_prototype(decoded, 0);
                 if !job {
@@ -368,7 +394,7 @@ impl SourceMaterials {
                     self.world_primary.cpu + decoded,
                     gpu,
                     self.world_primary.jobs + 1,
-                    self.pending_primary() + 1,
+                    self.pending_primary() + usize::from(!retry),
                     self.world_primary.staging + staging,
                 )?;
                 let texture = &mut self.textures[index];
@@ -714,6 +740,7 @@ impl SourceMaterials {
                 payload_bytes,
                 cpu_reservation,
                 image: None,
+                stalled: 0,
                 label: file.clone(),
             });
         }
@@ -758,6 +785,7 @@ impl SourceMaterials {
                 "source": t.record.source, "path": t.record.file(), "payload_bytes": t.payload_bytes, "storage": match &t.record.storage { source::TextureStorage::PngChain { .. } => "png_chain", source::TextureStorage::NativeBc { format: source::NativeBcFormat::Bc1, .. } => "bc1", source::TextureStorage::NativeBc { .. } => "bc3" },
                 "persistent": t.persistent, "users": t.users, "owners": Arc::strong_count(&t.owner),
                 "failed": t.failed, "upload_complete": t.upload.completed(),
+                "upload_registered": t.upload.registered(), "stalled_steps": t.stalled,
                 "cpu_reservation": pending_texture_cpu(t), "input_staging": t.input_staging,
                 "image": t.image.as_ref().map(|h| format!("{:?}", h.id())),
                 "chain": t.chain.as_ref().map(|h| format!("{:?}", h.id())),
