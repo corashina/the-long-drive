@@ -38,7 +38,7 @@ enum Action {
     /// Replaces the fuel of the seated car, or the nearest car within 10 m, with `liters` of `fluid` (0 to 5).
     Fill { fluid: u8, liters: f32 },
     /// Sits on the nearest loaded seat. `car` limits it to cars whose name contains `car`.
-    /// `seat` limits it to the driver or a passenger seat.
+    /// `seat` limits it to the driver or a passenger seat. A seated player changes seat in the same car.
     Seat {
         car: Option<String>,
         seat: Option<SeatKind>,
@@ -362,6 +362,7 @@ fn fill(runtime: &mut GarageRuntime, fluid: u8, liters: f32) -> Result<(String, 
 }
 
 /// Sits on the nearest seat that `car` and `kind` allow, as release E on the seat does.
+/// A seated player moves to another seat of the same owner, as press E on the seat does.
 /// Returns the owner name.
 fn sit(
     runtime: &mut GarageRuntime,
@@ -369,9 +370,7 @@ fn sit(
     car: Option<&str>,
     kind: Option<SeatKind>,
 ) -> Result<String, String> {
-    if runtime.area.player.seated() {
-        return Err("Get out of the seat first.".into());
-    }
+    let seated = runtime.area.player.seated();
     let player = Vector::from_array(runtime.area.player.body_pose(&runtime.physics).position);
     let wanted = car.map(str::to_lowercase);
     let bodies = &runtime.physics.rapier().bodies;
@@ -389,6 +388,7 @@ fn sit(
             wanted.as_ref().is_none_or(|w| car_matches(name(seat), w))
                 && kind.is_none_or(|k| seat.seat.driver == matches!(k, SeatKind::Driver))
                 && seat.can_sit(&runtime.physics)
+                && (!seated || runtime.area.player.can_switch_to(seat))
         })
         .map(|seat| {
             let at = *bodies[seat.body].position() * to_rapier(seat.pose);
@@ -398,11 +398,13 @@ fn sit(
         .map(|(seat, _)| seat.clone())
         .ok_or("No loaded seat matches. Spawn or teleport to the car first.")?;
     let found = name(&seat).to_string();
-    if !runtime
-        .area
-        .player
-        .enter_item_seat(&seat, &mut runtime.physics)
-    {
+    let player = &mut runtime.area.player;
+    let sat = if seated {
+        player.switch_item_seat(&seat, &mut runtime.physics)
+    } else {
+        player.enter_item_seat(&seat, &mut runtime.physics)
+    };
+    if !sat {
         return Err("Cannot sit there.".into());
     }
     Ok(found)

@@ -1850,9 +1850,21 @@ impl InteractionState {
                             && (opening.reference.can_toggle || opening.reference.can_tune)
                     })
             });
+        let switch_seat = use_target
+            .and_then(|target| self.item_seats.get(&target.collider))
+            .filter(|seat| player.can_switch_to(seat) && seat.can_sit(physics));
         if action.is_none() {
             action = light_action.map(InteractionAction::LightControl);
             if !ray_actions_blocked
+                && use_input.pressed & keys::USE != 0
+                && !can_use_target
+                && let Some(seat) = switch_seat
+            {
+                if player.switch_item_seat(seat, physics) {
+                    self.seat_action_latched = true;
+                    action = Some(InteractionAction::Seat);
+                }
+            } else if !ray_actions_blocked
                 && use_input.pressed & keys::USE != 0
                 && player.seated()
                 && !can_use_target
