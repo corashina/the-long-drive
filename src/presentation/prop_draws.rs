@@ -48,8 +48,10 @@ const PASSES: usize = 9;
 const ALIGN: u64 = 256;
 const ROW_BYTES: u64 = ROW_WORDS as u64 * 4;
 const ARGS_BYTES: u64 = 20;
-/// Planes, counts and view index of `CullView` in source_props_cull.wgsl.
-const CULL_WORDS: usize = 32;
+/// Planes, counts, view index and probes of `CullView` in source_props_cull.wgsl.
+const CULL_WORDS: usize = 64;
+/// One packed lamp mask and probe pair per camera-visible entry. See object_lighting.rs.
+const LIGHT_BYTES: u64 = 16;
 /// Visible rows per pass. Sixteen words per view.
 const TOTAL_WORDS: usize = 16;
 /// More dirty ranges than this upload all rows. Fading rows give one range per few rows.
@@ -106,6 +108,10 @@ pub fn draw_layout() -> BindGroupLayoutDescriptor {
                 (50, storage_buffer_read_only_sized(false, None)),
                 (51, storage_buffer_read_only_sized(true, None)),
                 (52, uniform_buffer_sized(true, NonZeroU64::new(16))),
+                (
+                    53,
+                    storage_buffer_read_only_sized(true, None).visibility(ShaderStages::VERTEX),
+                ),
             ),
         ),
     )
@@ -123,6 +129,8 @@ fn cull_layout() -> BindGroupLayoutDescriptor {
                 storage_buffer_sized(false, None),
                 uniform_buffer_sized(true, NonZeroU64::new(CULL_WORDS as u64 * 4)),
                 storage_buffer_read_only_sized(true, None),
+                uniform_buffer::<super::lighting::LightingUniform>(false),
+                storage_buffer_sized(true, None),
             ),
         ),
     )
@@ -190,6 +198,7 @@ impl Buffers {
         rows: u32,
         batches: u32,
         stride: u32,
+        lamps: &Buffer,
     ) -> Self {
         let buffer = |label: &'static str, size: u64, usage: BufferUsages| {
             device.create_buffer(&BufferDescriptor {
@@ -244,6 +253,12 @@ impl Buffers {
             views * TOTAL_WORDS as u64 * 4,
             BufferUsages::STORAGE | BufferUsages::COPY_SRC,
         );
+        // Camera list values, one region of `stride` entries per view. The bind groups own it.
+        let lights = buffer(
+            "source_prop_lights",
+            views * u64::from(stride) * LIGHT_BYTES,
+            BufferUsages::STORAGE,
+        );
         let cull = device.create_bind_group(
             "source_prop_cull",
             &cache.get_bind_group_layout(&cull_layout()),
@@ -255,6 +270,8 @@ impl Buffers {
                 totals.as_entire_binding(),
                 sized(&cull_views, CULL_WORDS as u64 * 4),
                 sized(&masks, mask_region),
+                lamps.as_entire_binding(),
+                sized(&lights, u64::from(stride) * LIGHT_BYTES),
             )),
         );
         let draw = device.create_bind_group(
@@ -264,6 +281,7 @@ impl Buffers {
                 (50, rows_buffer.as_entire_binding()),
                 (51, sized(&visible, u64::from(stride) * 4)),
                 (52, sized(&batch_offsets, 16)),
+                (53, sized(&lights, u64::from(stride) * LIGHT_BYTES)),
             )),
         );
         Self {
@@ -286,6 +304,9 @@ impl Buffers {
     }
     fn list_offset(&self, view: usize, pass: usize) -> u32 {
         (view as u64 * self.visible_region + pass as u64 * u64::from(self.stride) * 4) as u32
+    }
+    fn lights_offset(&self, view: usize) -> u32 {
+        (view as u64 * u64::from(self.stride) * LIGHT_BYTES) as u32
     }
     fn args_offset(&self, view: usize, pass: usize, batch: usize, batches: usize) -> u64 {
         view as u64 * self.args_region + ((pass * batches + batch) as u64) * ARGS_BYTES
@@ -438,7 +459,9 @@ impl PropDraws {
         if world.resource::<ShadowScene>().frame != frame {
             return Ok(());
         }
-        self.prepare_buffers(world);
+        if !self.prepare_buffers(world) {
+            return Ok(());
+        }
         let mut views = [None; VIEW_COUNT];
         for (view, extracted) in self.query.iter(world) {
             if world.resource::<SourceViewFrame>().views[view.index].is_none() {
@@ -535,7 +558,8 @@ impl PropDraws {
         self.batch_upload |= changed;
         true
     }
-    fn prepare_buffers(&mut self, world: &World) {
+    /// Returns false while the lamp uniform has no buffer.
+    fn prepare_buffers(&mut self, world: &World) -> bool {
         let device = world.resource::<RenderDevice>();
         let queue = world.resource::<RenderQueue>();
         let rows = self.rows();
@@ -553,12 +577,20 @@ impl PropDraws {
                 .max(old.map_or(16, |b| b.batch_capacity))
                 .next_power_of_two();
             let stride = stride.max(old.map_or(64, |b| b.stride)).next_power_of_two();
+            let Some(lamps) = world
+                .resource::<super::lighting::LightingGpu>()
+                .uniform
+                .buffer()
+            else {
+                return false;
+            };
             self.buffers = Some(Buffers::new(
                 device,
                 world.resource::<PipelineCache>(),
                 rows,
                 batches,
                 stride,
+                lamps,
             ));
             self.full = true;
             self.batch_upload = true;
@@ -598,6 +630,7 @@ impl PropDraws {
             }
             self.batch_upload = false;
         }
+        true
     }
     fn prepare_view(
         &mut self,
@@ -715,6 +748,17 @@ impl PropDraws {
             buffers.stride,
             index as u32,
         ]);
+        if let Some(scene) = world
+            .resource::<super::lighting_scene::SourceSceneLighting>()
+            .0
+        {
+            let probes = scene.probe_center.iter().chain(&scene.probe_extents);
+            for (words, probe) in cull[32..].chunks_mut(4).zip(probes) {
+                for (word, value) in words.iter_mut().zip(probe.to_array()) {
+                    *word = value.to_bits();
+                }
+            }
+        }
         queue.write_buffer(
             &buffers.cull_views,
             index as u64 * ALIGN,
@@ -820,6 +864,7 @@ pub(crate) fn cull(
         (index as u64 * buffers.visible_region) as u32,
         (index as u64 * ALIGN) as u32,
         (index as u64 * buffers.mask_region) as u32,
+        buffers.lights_offset(index),
     ];
     let encoder = context.command_encoder();
     {
@@ -884,6 +929,7 @@ fn bind_batch<'w>(
     world: &'w World,
     pass: &mut TrackedRenderPass<'w>,
     buffers: &'w Buffers,
+    view: usize,
     list: u32,
     batch: usize,
     mesh: AssetId<Mesh>,
@@ -898,7 +944,15 @@ fn bind_batch<'w>(
     };
     pass.set_vertex_buffer(0, vertices.buffer.slice(..));
     pass.set_index_buffer(indices.buffer.slice(..), format);
-    pass.set_bind_group(2, &buffers.draw, &[list, (batch as u64 * ALIGN) as u32]);
+    pass.set_bind_group(
+        2,
+        &buffers.draw,
+        &[
+            list,
+            (batch as u64 * ALIGN) as u32,
+            buffers.lights_offset(view),
+        ],
+    );
     true
 }
 fn material_group(world: &World, id: bevy::asset::UntypedAssetId) -> Option<&BindGroup> {
@@ -993,6 +1047,7 @@ pub(crate) fn draw_camera<'w>(
                         world,
                         pass,
                         buffers,
+                        index,
                         buffers.list_offset(index, 0),
                         batch,
                         entry.key.mesh,
@@ -1085,6 +1140,7 @@ pub(crate) fn draw_cascade<'w>(
                     world,
                     pass,
                     buffers,
+                    index,
                     buffers.list_offset(index, 1 + cascade),
                     batch,
                     entry.key.mesh,

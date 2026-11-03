@@ -287,6 +287,7 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
             presentation::plates::PlateTextPlugin,
             presentation::conditions::ConditionPlugin,
             presentation::source_lighting::SourceLightingPlugin,
+            presentation::object_lighting::ObjectLightingPlugin,
             presentation::frame_graph::SourceFramePlugin,
             presentation::particles::SourceParticlePlugin,
             presentation::decals::SourceDecalPlugin,

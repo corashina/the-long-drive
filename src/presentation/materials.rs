@@ -1669,8 +1669,6 @@ impl MaterialExtension for SourceExtension {
         if state.gpu_props {
             descriptor.layout[2] = super::prop_draws::draw_layout();
         }
-        attributes.push(super::renderers::SOURCE_BOUNDS_CENTER.at_shader_location(8));
-        attributes.push(super::renderers::SOURCE_BOUNDS_EXTENTS.at_shader_location(9));
         descriptor.vertex.buffers = vec![layout.0.get_layout(&attributes)?];
         for (name, value) in [
             ("SOURCE_STANDARD", state.standard),

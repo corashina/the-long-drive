@@ -272,30 +272,10 @@ impl RendererRecord {
             "template shadow source mode",
         )
     }
-    /// Two constant vertex attributes. Flags are small integers, exactly represented by f32.
-    pub fn attributes(&self) -> [[f32; 4]; 2] {
-        [
-            [
-                self.bounds_center[0],
-                self.bounds_center[1],
-                self.bounds_center[2],
-                f32::from(self.reflection_probe_usage),
-            ],
-            [
-                self.bounds_extents[0],
-                self.bounds_extents[1],
-                self.bounds_extents[2],
-                f32::from(
-                    u8::from(self.cast_shadows != 0)
-                        | ((self.receive_shadows as u8) << 1)
-                        | (self.motion_vectors << 2),
-                ),
-            ],
-        ]
-    }
-    /// Include every shader-visible field when caching startup mesh variants.
-    pub fn mesh_variant_key(&self) -> [u32; 8] {
-        let attributes = self.attributes();
-        std::array::from_fn(|i| attributes[i / 4][i % 4].to_bits())
+    /// Shader flags: cast, receive << 1, motion vectors << 2.
+    pub fn shader_flags(&self) -> u32 {
+        u32::from(self.cast_shadows != 0)
+            | (u32::from(self.receive_shadows) << 1)
+            | (u32::from(self.motion_vectors) << 2)
     }
 }

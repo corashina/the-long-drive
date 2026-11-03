@@ -1064,6 +1064,9 @@ impl SourceInstances {
                                                 fade: 1.0,
                                                 color,
                                                 source_position,
+                                                renderer: super::gpu_props::RowRenderer::new(
+                                                    record,
+                                                ),
                                                 batch: 0,
                                             },
                                         );

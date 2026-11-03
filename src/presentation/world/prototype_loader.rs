@@ -209,17 +209,6 @@ impl AssetLoader for SourceGltfLoader {
                     size += values.capacity() * 4;
                     mesh.insert_indices(Indices::U32(values));
                 }
-                let [center, extents] = renderer.attributes();
-                let vertices = mesh.count_vertices();
-                mesh.insert_attribute(
-                    crate::presentation::renderers::SOURCE_BOUNDS_CENTER,
-                    vec![center; vertices],
-                );
-                mesh.insert_attribute(
-                    crate::presentation::renderers::SOURCE_BOUNDS_EXTENTS,
-                    vec![extents; vertices],
-                );
-                size += vertices * 32;
                 result.mesh_bytes = result
                     .mesh_bytes
                     .checked_add(size)

@@ -8,12 +8,11 @@
     view_transformations::position_world_to_clip,
 }
 
-#import source_view_lighting::{lighting, probe_blend, fog_factor}
-#ifdef SOURCE_LAMPS
-#import "shaders/source_lighting.wgsl"::object_light_mask
-#endif
+#import source_view_lighting::{lighting, fog_factor}
 #ifdef SOURCE_GPU_PROPS
-#import source_props::{prop_row, prop_world_from_local, prop_normal_local_to_world, prop_tangent_local_to_world}
+#import source_props::{prop_row, prop_object, prop_world_from_local, prop_normal_local_to_world, prop_tangent_local_to_world}
+#else
+#import source_view_lighting::object_lighting
 #endif
 
 struct SourceVertexOutput {
@@ -83,7 +82,7 @@ fn morph_vertex(vertex_in: Vertex, instance_index: u32) -> Vertex {
 #endif
 
 @vertex
-fn vertex(vertex_no_morph: Vertex, @location(8) bounds_center_usage: vec4<f32>, @location(9) bounds_extents_flags: vec4<f32>) -> SourceVertexOutput {
+fn vertex(vertex_no_morph: Vertex) -> SourceVertexOutput {
     var out: SourceVertexOutput;
 
 #ifdef MORPH_TARGETS
@@ -175,18 +174,17 @@ fn vertex(vertex_no_morph: Vertex, @location(8) bounds_center_usage: vec4<f32>, 
 #ifdef SOURCE_TRANSPARENT
     out.position = lighting.clip_from_world * out.world_position;
 #endif
-    let probes = probe_blend(world_from_local,bounds_center_usage,bounds_extents_flags);
-    out.source_renderer = vec4(probes.x,bounds_extents_flags.w,probes.zw);
+    // Lamp mask and probe pair of the object. Layout in object_lighting.rs.
+#ifdef SOURCE_GPU_PROPS
+    let object = prop_object(vertex_no_morph.instance_index);
+#else
+    let object = object_lighting[mesh_functions::get_tag(vertex_no_morph.instance_index)];
+#endif
+    let second = (object.z >> 8u) & 0xffu;
+    out.source_renderer = vec4(bitcast<f32>(object.w), f32(object.z >> 16u), f32(object.z & 0xffu),
+        select(f32(second), -1.0, second == 0xffu));
 #ifdef SOURCE_LAMPS
-    // Authored bounds do not prove the full extent of skinning or morph displacement.
-    var bounded = true;
-#ifdef SKINNED
-    bounded = false;
-#endif
-#ifdef MORPH_TARGETS
-    bounded = false;
-#endif
-    out.source_lights = object_light_mask(mesh_world_from_local, bounds_center_usage.xyz, bounds_extents_flags.xyz, bounded);
+    out.source_lights = object.xy;
 #endif
     out.source_fog = out.position.z;
 #ifdef SOURCE_UNLIT

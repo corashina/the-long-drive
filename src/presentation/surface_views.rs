@@ -106,6 +106,15 @@ impl SurfaceResources {
     }
 }
 
+/// Probe faces sample the capture cubes. Other views sample the published cubes.
+fn probe_cubes(resources: &SurfaceResources, index: usize) -> &TextureView {
+    if !probe_view(index) {
+        &resources.published.view
+    } else {
+        &resources.published.capture_view
+    }
+}
+
 pub(crate) fn prepare_views(
     mut commands: Commands,
     frame: Res<super::view_frame::SourceViewFrame>,
@@ -130,6 +139,7 @@ pub(crate) fn prepare_views(
     status: Res<RendererStateHandle>,
     antialiasing: Res<super::antialiasing::Antialiasing>,
     lamps: Res<super::lamp_shadows::LampShadows>,
+    objects: Res<super::object_lighting::ObjectLightingGpu>,
 ) {
     if status.failure().is_some() {
         return;
@@ -274,13 +284,24 @@ pub(crate) fn prepare_views(
                 return;
             }
             binding.write(uniform, &device, &queue);
+            binding.rebind(
+                &device,
+                &cache,
+                (&cookie.texture_view, &cookie.sampler),
+                (
+                    probe_cubes(&resources, source.index),
+                    &resources.probe_sampler,
+                ),
+                (
+                    target.atlas.sampled.as_ref().unwrap(),
+                    &resources.shadow_compare,
+                ),
+                resources.targets.lamp_atlas.sampled.as_ref().unwrap(),
+                &objects,
+            );
             continue;
         }
-        let cubes = if !probe_view(source.index) {
-            &resources.published.view
-        } else {
-            &resources.published.capture_view
-        };
+        let cubes = probe_cubes(&resources, source.index);
         // Only MSAA views keep the resolved camera depth free of the transparent attachment.
         let camera_depth = target
             .multisample_depth
@@ -309,6 +330,7 @@ pub(crate) fn prepare_views(
                     &resources.shadow_compare,
                 ),
                 resources.targets.lamp_atlas.sampled.as_ref().unwrap(),
+                &objects,
             ),
             SourceTransparentPasses::new(capacity),
         ));
