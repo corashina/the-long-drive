@@ -289,10 +289,9 @@ extern "C" {
     /// False while the appearance screen is closed.
     #[wasm_bindgen(js_namespace = window, js_name = gameAppearancePreview)]
     pub fn game_appearance_preview(rect: &mut [f32]) -> bool;
-    /// Fills the start menu mouse: x and y in canvas fractions, held buttons and buttons pressed since the last call.
-    /// Bit 1 is the left button, bit 2 the right. False while the start menu is closed.
-    #[wasm_bindgen(js_namespace = window, js_name = gameMenuFigure)]
-    pub fn game_menu_figure(input: &mut [f32]) -> bool;
+    /// True while the start menu shows the start car stage.
+    #[wasm_bindgen(js_namespace = window, js_name = gameMenuCar)]
+    pub fn game_menu_car() -> bool;
     /// Fills 4 pads × 8 axes and 4 pads × 32 button bits (`GamepadFrame`).
     #[wasm_bindgen(js_namespace = window, js_name = gameGamepad)]
     pub fn game_gamepad(axes: &mut [f32], buttons: &mut [u32]);

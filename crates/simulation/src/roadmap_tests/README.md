@@ -21,3 +21,4 @@ Each test stays under 60 s in release. The kit uses the default game seed and th
 | --- | --- | --- |
 | `multiplayer` | MP | Multiplayer |
 | `known_failures` | K | Known failures |
+| `start_items` | SI | Start house items |

@@ -148,6 +148,22 @@ impl Renderer {
         }
     }
 }
+/// One drawn surface of the start car, for the start menu car stage.
+pub(crate) struct CarSurface {
+    pub mesh: Handle<Mesh>,
+    pub material: CarMaterial,
+    pub target: CarTarget,
+}
+pub(crate) enum CarMaterial {
+    Primary(Handle<crate::presentation::materials::SourceMaterial>),
+    Specular(Handle<crate::presentation::materials::specular::SpecularMaterial>),
+}
+pub(crate) enum CarTarget {
+    /// The renderer entity. Its `GlobalTransform` and parent visibility apply.
+    Entity(Entity),
+    /// A GPU prop row: world matrix in the render-origin frame and linear surface color.
+    Row { world: Mat4, color: Vec4 },
+}
 struct Instance {
     retirement: crate::ownership::renderer_pending::RendererRetirement,
     continuation: Option<crate::ownership::renderer_pending::PipelineContinuation>,
@@ -366,6 +382,58 @@ impl SourceInstances {
                     && i.renderers.iter().any(|r| r.mirror)
             })
             .map(|(index, i)| (index, i.root, i.prototype, i.nodes.as_slice()))
+    }
+    /// The ready start car: a Startup layer vehicle. Writes the active surfaces of the car and
+    /// of its slot parts (ids with the car id as prefix) to `out` and returns the car root.
+    /// None while the car or one of its parts is not ready. Mirror glass is left out.
+    pub(crate) fn start_car(
+        &self,
+        prototypes: &crate::reference::WorldPrototypes,
+        out: &mut Vec<CarSurface>,
+    ) -> Option<Entity> {
+        out.clear();
+        let shown = |i: &Instance| i.ready && i.visible && !i.retirement.started();
+        let car = self.instances.iter().find(|i| {
+            i.placement.id.layer == crate::world::WorldLayer::Startup
+                && prototypes[i.prototype].vehicle.is_some()
+        })?;
+        let id = &car.placement.id;
+        let parts = self.instances.iter().filter(|i| {
+            let part = &i.placement.id;
+            part.layer == id.layer
+                && part.generator == id.generator
+                && part.unit == id.unit
+                && part.ordinal == id.ordinal
+                && part.children.starts_with(&id.children)
+        });
+        for instance in parts {
+            if !shown(instance) {
+                return None;
+            }
+            for renderer in instance.renderers.iter().filter(|r| r.active && !r.mirror) {
+                let material = match &renderer.binding.visible {
+                    InstanceMaterial::Primary(h) => CarMaterial::Primary(h.clone()),
+                    InstanceMaterial::Specular(h) => CarMaterial::Specular(h.clone()),
+                    InstanceMaterial::Impostor(_) | InstanceMaterial::Grass(_) => continue,
+                };
+                let target = match renderer.target {
+                    Target::Entity(entity) => CarTarget::Entity(entity),
+                    Target::Row { slot, .. } => {
+                        let row = &self.props.rows()[slot as usize];
+                        CarTarget::Row {
+                            world: row.world,
+                            color: row.color,
+                        }
+                    }
+                };
+                out.push(CarSurface {
+                    mesh: renderer.mesh.clone(),
+                    material,
+                    target,
+                });
+            }
+        }
+        Some(car.root)
     }
     /// Entity of glTF node `node` in instance `index`. Static nodes have none.
     pub(crate) fn node_entity(&self, index: usize, node: u32) -> Option<Entity> {

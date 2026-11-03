@@ -5,14 +5,26 @@ Directions and positions use the converted space: Unity z is negated. Angles are
 """
 import math
 from .source import key, source_id, vector
-from .gltf import convert_point
-from .collision import geometry, step_surface, collider_tag, world_pose
+from .gltf import convert_point, transform_point
+from .collision import geometry, step_surface, collider_tag, world_pose, quaternion_product
 from .survival import component, managed_evidence
 from .acquisition_motion import motion_clips
 from .breakables import breakable
 from .humanoid import humanoid_record, voice_record
-from .menu_figure import relative_pose
 from .library.types import ObjectId
+
+
+def relative_pose(source, reader, stage):
+    """Pose of Transform `reader` in the space of `stage`, which has unit scale. They need not be related."""
+    s, n = world_pose(source, stage), world_pose(source, reader)
+    if any(abs(v - 1) > 1e-5 for v in s['scale']):
+        raise ValueError('Creature stage scale')
+    x, y, z, w = s['rotation']
+    inverse = (-x, -y, -z, w)
+    offset = tuple(n['translation'][i] - s['translation'][i] for i in range(3))
+    return {'translation': list(transform_point(offset, (0., 0., 0.), inverse, (1., 1., 1.))),
+        'rotation': list(quaternion_product(inverse, n['rotation'])), 'scale': n['scale']}
+
 
 RABBIT = ('sharedassets1.assets', 33572)
 # The newAiScript prefab GameObject. Buildings spawn it through the `humanmonster` category.
