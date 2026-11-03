@@ -50,6 +50,26 @@ impl StartingArea {
         physics.refresh_queries();
         Ok(true)
     }
+    /// Source `DropFromInv`: a stored item leaves its slot into the world at its stored pose.
+    pub fn drop_from_inventory(&mut self, id: ItemId, physics: &mut PhysicsWorld) {
+        let Some(slot) = self.inventory.slots.iter().position(|s| *s == Some(id)) else {
+            return;
+        };
+        let Some(item) = self.items.get_mut(id) else {
+            return;
+        };
+        if !matches!(item.location, ItemLocation::Stored(_)) {
+            return;
+        }
+        item.location = ItemLocation::World;
+        if let Some(body) = item.body {
+            physics.edit_body(body, |b| b.set_enabled(true));
+        }
+        self.inventory.slots[slot] = None;
+        self.inventory_offsets[slot] = None;
+        self.items.mark_dirty(id);
+        physics.refresh_queries();
+    }
     pub fn sync_inventory(&mut self) {
         for slot in &mut self.inventory.slots {
             if slot.is_some_and(|id| {

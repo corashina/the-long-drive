@@ -45,6 +45,10 @@ impl GarageRuntime {
             guns.wheel(gun, input.wheel);
         }
         self.reload_guns(reference, input, tap);
+        if let Some(gun) = active {
+            let guns = &mut self.area.interaction.guns;
+            guns.prompt |= guns.open_prompt(gun);
+        }
         let interaction = &mut self.area.interaction;
         let held = hand_gun.and_then(|item| {
             let rule = interaction.carry.rule(item)?;
@@ -278,13 +282,12 @@ impl GarageRuntime {
         {
             let fits = |a: &AmmoItem| a.ammo.kind == kind && a.ammo.count > 0.;
             let source = ammo(carried).filter(|(_, a)| fits(a)).or_else(|| {
-                // Magazines in the inventory need DropFromInv, which this port does not have.
                 self.area
                     .inventory
                     .slots
                     .into_iter()
                     .filter_map(ammo)
-                    .find(|(_, a)| fits(a) && !a.is_mag)
+                    .find(|(_, a)| fits(a))
             });
             if let Some((s, other)) = source
                 && guns.can_reload(g, &other)
@@ -307,7 +310,7 @@ impl GarageRuntime {
             .or_else(|| self.area.spawned.ammo(id))
     }
     /// `weaponscript.Reload(source, unload)`. A used magazine leaves the player and the world.
-    /// A magazine gun drops its old magazine at `magPos`.
+    /// A magazine gun drops its old magazine at `magPos`. A stored magazine leaves the inventory.
     fn reload_gun(
         &mut self,
         reference: &ReferenceManifest,
@@ -318,6 +321,10 @@ impl GarageRuntime {
         let Some(mut other) = self.ammo_item(source) else {
             return;
         };
+        // ReloadFromInventory: DropFromInv takes a stored magazine out before it goes in.
+        if other.is_mag && !unload {
+            self.area.drop_from_inventory(source, &mut self.physics);
+        }
         let interaction = &self.area.interaction;
         let held =
             interaction.held() == Some(source) || interaction.equipment.item() == Some(source);

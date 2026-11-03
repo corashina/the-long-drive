@@ -585,7 +585,7 @@ pub struct Feedback {
     pub order: u32,
     pub light_control: u32,
     pub lmb_use: bool,
-    pub prompts: u8,
+    pub prompts: u16,
     pub computer: u8,
     /// `interaction::crosshair::Crosshair` layer bits.
     pub crosshair: u32,

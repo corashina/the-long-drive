@@ -618,7 +618,7 @@ impl InteractionState {
         filling_target: Option<AimTarget>,
         items: &ItemStore,
         physics: &PhysicsWorld,
-    ) -> (u8, Option<OpeningId>) {
+    ) -> (u16, Option<OpeningId>) {
         let Some(index) = self.hoses.find(held) else {
             return (0, None);
         };
