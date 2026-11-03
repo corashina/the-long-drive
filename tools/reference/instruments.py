@@ -78,7 +78,9 @@ class Meters:
             for led in d['leds']:
                 lamps.append({'source':source_id(r),'node':self.node(r,led['r'],True),'signal':d['vname'],
                     'on':self.material(r,led['on']),'off':self.material(r,led['off']),'min_value':led['minValue'],
-                    'max_value':led['maxValue'],'stay_on':bool(led['stayOnAfterMaximum'])})
+                    'max_value':led['maxValue'],'stay_on':bool(led['stayOnAfterMaximum']),
+                    'multiplier':d['multiplier'],'smoothing':d['debouncegainlerp'],
+                    'clamp':[d['minValue'],d['maxValue']] if d['clamp'] else None})
         return {'backlight':self.switch(meter,md),'needles':needles,'lamps':lamps}
 
     def gauge(self, meter, node):
