@@ -67,7 +67,7 @@ fn vertex(input:GrassVertex)->GrassOutput {
     let bend=source_wind(anchor.xz)+disorder*grass.options.y*top;
     // Selected _ColorMap slots are null with the checked shader default white.
     let fade=grass_smooth((distance-grass.fade_lod.y)/(grass.fade_lod.x-grass.fade_lod.y));
-    var height=fade*mix(grass.shape.y,grass.shape.z,grass_hash(anchor.xz))*alpha;
+    var height=fade*input.blade.w*mix(grass.shape.y,grass.shape.z,grass_hash(anchor.xz))*alpha;
     var width=grass.shape.x*top;
     if grass.smoothing.x!=0u {height*=input.blade.z;}
     if grass.smoothing.y!=0u {width*=input.blade.z;}

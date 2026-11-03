@@ -73,13 +73,8 @@ impl WorldSync {
         }
     }
 
-    /// Applies one packet. False when it is not a world message.
-    pub fn receive(
-        role: NetRole,
-        packet: &[u8],
-        index: &ObjectIndex,
-        runtime: &mut GarageRuntime,
-    ) -> bool {
+    /// Applies one world message of another peer.
+    pub fn receive(role: NetRole, packet: &[u8], index: &ObjectIndex, runtime: &mut GarageRuntime) {
         // Only the host sends the clock and the stations.
         let from_host = |slot: u8| slot == 0 && role == NetRole::Guest;
         if let Ok((slot, time)) = TimeMessage::decode(packet) {
@@ -107,10 +102,7 @@ impl WorldSync {
             }
         } else if let Ok((slot, sound)) = SoundMessage::decode(packet) {
             play(runtime, slot, &sound);
-        } else {
-            return false;
         }
-        true
     }
 }
 
