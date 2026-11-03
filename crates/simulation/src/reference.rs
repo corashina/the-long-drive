@@ -1058,6 +1058,10 @@ fn ids<T: Eq + std::hash::Hash>(
 fn hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
+/// Error field name prefixed by its source ID.
+fn field(source: &SourceId, name: &str) -> String {
+    format!("{}:{} {name}", source.file, source.path_id)
+}
 /// The source has a nonzero path ID in a hashed source file.
 fn source_valid(source: &SourceId, hashes: &[SourceHash]) -> bool {
     source.path_id != 0 && hashes.iter().any(|h| h.file == source.file)

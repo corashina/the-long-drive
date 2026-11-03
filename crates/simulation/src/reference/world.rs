@@ -10,8 +10,8 @@ use super::{
     AssetId, AssetRecord, AssetUsage, ColliderGeometry, EngineGlobals, EnginePartReference,
     GaugePartReference, LibraryProvenance, NodeId, PrototypeBounds, RadiatorPartReference,
     ReferenceError, ReferenceManifest, SourceHash, SourceId, Transform, WorldFollowersReference,
-    WorldHitchReference, WorldTrailerReference, WorldVehicleReference, finite, hash, require,
-    source_valid, transform,
+    WorldHitchReference, WorldTrailerReference, WorldVehicleReference, field, finite, hash,
+    require, source_valid, transform,
 };
 pub use grass::*;
 pub use initial_materials::*;
@@ -859,9 +859,6 @@ impl WorldReference {
         }
         Ok(())
     }
-}
-fn field(source: &SourceId, name: &str) -> String {
-    format!("{}:{} {name}", source.file, source.path_id)
 }
 fn values_valid(value: &WorldValue, receipts: &HashSet<&SourceId>) -> bool {
     match value {

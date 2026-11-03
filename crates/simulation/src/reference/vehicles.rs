@@ -688,7 +688,7 @@ impl PrototypeBounds<'_> {
 }
 
 fn check(source: &SourceId, name: &str, ok: bool) -> Result<(), ReferenceError> {
-    require(ok, &format!("{}:{} {name}", source.file, source.path_id))
+    require(ok, &field(source, name))
 }
 
 fn curve_valid(c: &TorqueCurve) -> bool {

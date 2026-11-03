@@ -690,7 +690,7 @@ impl AudioReference {
             s.node.is_none_or(|n| game.nodes.iter().any(|v| v.id == n))
                 && method(&s.method)
                 && s.radius.is_none_or(|r| r.is_finite() && r > 0.0)
-                && s.local_position.is_none_or(|p| values(p))
+                && s.local_position.is_none_or(values)
         };
         require(
             r.tuning_repeat_seconds.is_finite()
