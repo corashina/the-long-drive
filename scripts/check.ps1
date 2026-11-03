@@ -24,16 +24,17 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 try {
     if ($Full -or $WebTest) {
-        $suites = if ($Full) {
-            @('loading', 'save-storage', 'save-session', 'save-bridge', 'save-screen', 'autosave', 'world-assets', 'simulation', 'game-mode', 'mirrors', 'net', 'bindings')
-        } else { $WebTest }
-        $webFiles = @(foreach ($suite in $suites) {
-            $file = "$root/tests/web/$suite.test.mjs"
-            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
-                throw "Unknown web test suite: $suite"
-            }
-            $file
-        })
+        $webFiles = if ($Full) {
+            @(Get-ChildItem -LiteralPath "$root/tests/web" -Filter '*.test.mjs' | ForEach-Object FullName)
+        } else {
+            @(foreach ($suite in $WebTest) {
+                $file = "$root/tests/web/$suite.test.mjs"
+                if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+                    throw "Unknown web test suite: $suite"
+                }
+                $file
+            })
+        }
         & npm run --silent lint
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         & node --test @webFiles

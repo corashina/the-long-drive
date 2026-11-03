@@ -2,6 +2,7 @@
 
 use crate::fluids::FluidContainer;
 use crate::reference::{ConsumptionEffect, NeedValues, SurvivalReference};
+use crate::simulation::dials::inverse_lerp;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ToiletInput {
@@ -403,10 +404,6 @@ impl SurvivalState {
             self.show_stats();
         }
     }
-}
-
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    ((value - a) / (b - a)).clamp(0., 1.)
 }
 
 fn lerp(a: f32, b: f32, fraction: f32) -> f32 {

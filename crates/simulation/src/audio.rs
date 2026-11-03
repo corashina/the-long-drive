@@ -1,6 +1,7 @@
 //! Source audio signals and bounded completed-action events.
 use crate::interaction::{InteractionAction, WheelAction};
 use crate::reference::{AudioReference, ColliderId, ItemId, NodeId, ReferenceManifest};
+use crate::simulation::dials::inverse_lerp;
 use crate::starting_area::StartingArea;
 use crate::vehicle::{PhysicsWorld, to_rapier};
 use crate::world::WorldStream;
@@ -103,9 +104,6 @@ fn insert_event(queue: &mut [Option<AudioEvent>; 64], length: &mut usize, event:
     }
     queue[*length] = Some(event);
     *length += 1;
-}
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    ((value - a) / (b - a)).clamp(0., 1.)
 }
 struct MechanismSound {
     item: ItemId,

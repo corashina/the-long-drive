@@ -349,6 +349,7 @@ fn command_merge_keeps_edges_and_sums_deltas() {
         seq: 2,
         delta_seconds: 0.5,
         ready: true,
+        old_heat_haze: true,
         ..Default::default()
     };
     second.input.held = 2;
@@ -360,6 +361,7 @@ fn command_merge_keeps_edges_and_sums_deltas() {
         (2, 0.75, true)
     );
     assert_eq!(first.actions, SimCommand::PAUSE);
+    assert!(first.old_heat_haze);
     assert_eq!(
         (first.input.held, first.input.pressed, first.input.released),
         (2, 1, 1)
