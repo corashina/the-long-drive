@@ -2,7 +2,8 @@
 //! The car step reads `remote`, writes `sent`, and takes the received changes.
 use super::items::Out;
 use super::message::{
-    CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage, Message, PoseMessage,
+    CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage, CarLampsMessage,
+    Message, PoseMessage,
 };
 use crate::reference::ReferenceManifest;
 use crate::starting_area::{GarageRuntime, VehicleRuntime};
@@ -50,10 +51,11 @@ impl CarFloats {
     }
 }
 
-/// Handbrake, gear and ignition that the peers know.
+/// Handbrake, headlights, gear and ignition that the peers know.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CarShared {
     pub handbrake: bool,
+    pub headlights: u8,
     pub gear: usize,
     pub ignition: bool,
     pub starter: bool,
@@ -114,6 +116,7 @@ pub fn with_remote(
 pub fn shared(vehicle: &VehicleRuntime) -> CarShared {
     CarShared {
         handbrake: vehicle.handbrake,
+        headlights: vehicle.requested_headlights,
         gear: vehicle.net.gear.unwrap_or(vehicle.drivetrain.gear()),
         ignition: vehicle.ignition.ignition,
         starter: vehicle.ignition.starter,
@@ -184,6 +187,8 @@ impl CarSync {
             }
         } else if let Ok((_, m)) = CarHandbrakeMessage::decode(packet) {
             got_handbrake(runtime, m.car, m.handbrake);
+        } else if let Ok((_, m)) = CarLampsMessage::decode(packet) {
+            got_headlights(runtime, m.car, m.headlights);
         } else if let Ok((_, m)) = CarGearMessage::decode(packet) {
             got_gear(reference, runtime, m.car, m.gear as usize);
         } else if let Ok((_, m)) = CarIgnitionMessage::decode(packet) {
@@ -228,6 +233,13 @@ impl CarSync {
                     pad: 0,
                 });
             }
+            if now.headlights != was.headlights {
+                out.push(&CarLampsMessage {
+                    car: net.key,
+                    headlights: now.headlights.into(),
+                    pad: 0,
+                });
+            }
             if now.gear != was.gear {
                 out.push(&CarGearMessage {
                     car: net.key,
@@ -267,6 +279,18 @@ fn got_handbrake(runtime: &mut GarageRuntime, car: u64, handbrake: f32) {
         v.handbrake = handbrake > 0.5;
         if let Some(shared) = &mut v.net.shared {
             shared.handbrake = v.handbrake;
+        }
+    }
+}
+
+/// Port addition: the headlight mode of source `lampak`, 0 to 2.
+fn got_headlights(runtime: &mut GarageRuntime, car: u64, headlights: u32) {
+    if let Some(v) = find(runtime, car)
+        && headlights < 3
+    {
+        v.requested_headlights = headlights as u8;
+        if let Some(shared) = &mut v.net.shared {
+            shared.headlights = v.requested_headlights;
         }
     }
 }
