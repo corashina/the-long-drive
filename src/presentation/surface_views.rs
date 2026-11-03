@@ -108,10 +108,10 @@ impl SurfaceResources {
 
 /// Probe faces sample the capture cubes. Other views sample the published cubes.
 fn probe_cubes(resources: &SurfaceResources, index: usize) -> &TextureView {
-    if !probe_view(index) {
-        &resources.published.view
-    } else {
+    if probe_view(index) {
         &resources.published.capture_view
+    } else {
+        &resources.published.view
     }
 }
 
