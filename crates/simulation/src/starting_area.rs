@@ -1528,7 +1528,7 @@ impl GarageRuntime {
         self.area.sync_portable_mass(&mut self.physics);
         if seated
             && input.pressed & keys::USE != 0
-            && matches!(action, None | Some(InteractionAction::Seat))
+            && action.is_none()
             && self.area.interaction.dragging_mechanism().is_none()
             && self.area.interaction.tuning_opening().is_none()
         {
