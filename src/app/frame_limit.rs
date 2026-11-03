@@ -1,8 +1,8 @@
 //! Source `Application.targetFrameRate`. With a limit, a frame runs only when `web/frame-pacer.js` calls `wake_frame`.
 //! The pacer wakes in step with animation frames. Timed updates run off the display refresh and lose frames.
 use crate::browser::game_frame_limit;
-use bevy::prelude::*;
 use bevy::winit::{EventLoopProxyWrapper, UpdateMode, WinitSettings, WinitUserEvent};
+use bevy::{ecs as bevy_ecs, prelude::*};
 use std::cell::OnceCell;
 use wasm_bindgen::prelude::*;
 use winit::event_loop::EventLoopProxy;
@@ -27,9 +27,25 @@ pub fn wake_frame() {
     });
 }
 
-pub(super) fn update(mut winit: ResMut<WinitSettings>) {
+/// The frame time target of Auto scene scale. Without an FPS limit, the target is 60 FPS.
+#[derive(Resource)]
+pub(crate) struct FrameBudget {
+    pub ms: f32,
+}
+impl Default for FrameBudget {
+    fn default() -> Self {
+        Self { ms: 1000. / 60. }
+    }
+}
+
+pub(super) fn update(mut winit: ResMut<WinitSettings>, mut budget: ResMut<FrameBudget>) {
     let Some(limit) = game_frame_limit() else {
         return;
+    };
+    *budget = if limit > 0. {
+        FrameBudget { ms: 1000. / limit }
+    } else {
+        FrameBudget::default()
     };
     let mode = if limit > 0. {
         UpdateMode::Reactive {
