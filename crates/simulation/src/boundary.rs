@@ -1185,6 +1185,7 @@ impl SimCommand {
         self.options = next.options.or(self.options);
         self.player_settings = next.player_settings.or(self.player_settings);
         self.calendar = next.calendar;
+        self.old_heat_haze = next.old_heat_haze;
         self.measure |= next.measure;
         self.world.merge(next.world);
         self.save.extend(next.save);
