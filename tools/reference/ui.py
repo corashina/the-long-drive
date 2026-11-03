@@ -40,12 +40,10 @@ def export_ui(source, output, library):
         return [source.resolve(go,c['component']) for c in source.read(go)['m_Component']]
     def rect_for(go):
         return next(c for c in components(go) if c.type.name=='RectTransform')
-    def layout(reader,role,parent_button=False):
+    def layout(reader,role):
         data=source.read(reader)
         go=source.resolve(reader,data['m_GameObject']); rt=rect_for(go)
         textdata=data
-        if parent_button:
-            parent=source.resolve(rt,source.read(rt)['m_Father']);go=source.resolve(parent,source.read(parent)['m_GameObject']);rt=parent
         ancestry=[]; canvas=None
         current=rt
         while current:
@@ -81,33 +79,6 @@ def export_ui(source, output, library):
             'sprite':sprite(source.resolve(image,im['m_Sprite']),role) if im and im['m_Sprite']['m_PathID'] else None,
             'image_color':[im['m_Color'][channel] for channel in 'rgba'] if im else [1.,1.,1.,1.]}
     menu=source.get('level1',74691);md=source.read(menu)
-    main=source.get('level0',16795);main_data=source.read(main)
-    def label_of(go):
-        rt=rect_for(go)
-        for ptr in source.read(rt)['m_Children']:
-            child=source.resolve(rt,ptr);cg=source.resolve(child,source.read(child)['m_GameObject'])
-            text=next((c for c in components(cg) if c.type.name=='MonoBehaviour' and source.class_name(c) in ('Text','TextMeshProUGUI')),None)
-            if text:return text
-        raise ValueError(f'Missing source button label: {key(go)}')
-    def find_button(go,method,arg=None,target_id=None):
-        rt=rect_for(go)
-        for record in source.hierarchy(rt):
-            for c in record['components']:
-                if c.type.name!='MonoBehaviour' or not source.read(c)['m_Script']['m_PathID'] or source.class_name(c)!='Button':continue
-                for call in source.read(c)['m_OnClick']['m_PersistentCalls']['m_Calls']:
-                    if call['m_MethodName']==method and (arg is None or call['m_Arguments']['m_StringArgument']==arg) and (target_id is None or call['m_Target']['m_PathID']==target_id):
-                        return record['game_object']
-        raise ValueError(f'Missing source menu button: {method}')
-    start_go=source.resolve(main,main_data['MainMenuStuff'])
-    pause_go=source.resolve(menu,md['DisappearWhenExit'])
-    for role,go in [('start',find_button(start_go,'PressedLoadScene','SceneNewRandom')),
-                    ('start-controls',find_button(start_go,'Open',target_id=main_data['Settings']['m_PathID'])),
-                    ('continue',find_button(pause_go,'PressedContinue')),
-                    ('controls',find_button(pause_go,'PressedSettings')),
-                    ('restart',find_button(pause_go,'Open')),
-                    ('recover',source.resolve(menu,md['ButtonExit']))]:
-        layout(label_of(go),role,True)
-    layout(source.get('level1',67604),'back',True)
     # ThelpText is the black shadow copy of the help lines. ThelpText2 draws the visible lines.
     fields={'use':'TextE','pickup':'TextPickup','mount':'TextMount','fill':'LMB',
             'carry':'TextMoveRotateHelp','help':'ThelpText2','fluid':'TTankCap','reticle':'GCDef','foot':'TextCF1','driving':'TextCC1'}
