@@ -16,7 +16,7 @@ use super::{
     taa::TaaPass,
     uber::{MainInputs, UberPass},
 };
-use crate::presentation::screen_effects::Lut;
+use crate::display_settings::Lut;
 use crate::reference::postprocessing::{
     DeadGrading, DeadProfile, GlassesProfile, GradingSaturation, GradingSettings, Lens,
     PostprocessingRecord, Tonemapper,

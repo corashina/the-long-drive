@@ -1,4 +1,4 @@
-//! The "Antialiasing" display setting. Default high.
+//! The "Antialiasing" display setting at page load.
 //! Pipelines are prepared once for the view sample count, so a change applies after a reload.
 use bevy::{
     ecs as bevy_ecs, prelude::*, render as bevy_render, render::extract_resource::ExtractResource,
@@ -39,7 +39,7 @@ impl Antialiasing {
 
 pub fn install(app: &mut App) {
     app.insert_resource(Antialiasing::from_setting(
-        crate::browser::game_antialiasing(),
+        crate::display_settings::loaded().antialiasing,
     ))
     .add_plugins(bevy::render::extract_resource::ExtractResourcePlugin::<
         Antialiasing,
