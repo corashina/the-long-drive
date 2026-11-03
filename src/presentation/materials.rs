@@ -155,6 +155,33 @@ struct SourceTexture {
     stalled: u32,
     label: String,
 }
+impl SourceTexture {
+    /// A texture that waits for its first load.
+    fn new(
+        record: TextureRecord,
+        input_staging: usize,
+        persistent: bool,
+        label: String,
+    ) -> Result<Self, source::ReferenceError> {
+        let payload_bytes = record.payload_bytes()?;
+        let cpu_reservation = source::fixed_reservation::png_cpu(payload_bytes, input_staging)?;
+        Ok(Self {
+            owner: Arc::new(()),
+            upload: default(),
+            failed: false,
+            persistent,
+            users: 0,
+            record: Arc::new(record),
+            chain: None,
+            input_staging,
+            payload_bytes,
+            cpu_reservation,
+            image: None,
+            stalled: 0,
+            label,
+        })
+    }
+}
 #[derive(Resource, Clone)]
 pub struct SourceMaterials {
     pub preparation: super::gpu_prepare::GpuPreparation,
@@ -499,27 +526,13 @@ pub fn load_materials(
                 continue;
             }
             let input_staging = primary::primary_staging(texture, &reference.file_catalog)?;
-            let payload_bytes = texture.payload_bytes()?;
-            let cpu_reservation = source::fixed_reservation::png_cpu(payload_bytes, input_staging)?;
+            let label = format!(
+                "material {}:{} {}",
+                record.source.file, record.source.path_id, texture.slot
+            );
+            let entry = SourceTexture::new(texture.clone(), input_staging, true, label)?;
             texture_indices.insert(texture.file().to_owned(), textures.len());
-            textures.push(SourceTexture {
-                owner: Arc::new(()),
-                upload: default(),
-                failed: false,
-                persistent: true,
-                users: 0,
-                record: Arc::new(texture.clone()),
-                chain: None,
-                input_staging,
-                payload_bytes,
-                cpu_reservation,
-                image: None,
-                stalled: 0,
-                label: format!(
-                    "material {}:{} {}",
-                    record.source.file, record.source.path_id, texture.slot
-                ),
-            });
+            textures.push(entry);
         }
     }
     for texture in &reference.plates.material.textures {
@@ -527,25 +540,10 @@ pub fn load_materials(
             continue;
         }
         let input_staging = primary::primary_staging(texture, &reference.file_catalog)?;
-        let payload_bytes = texture.payload_bytes()?;
-        let cpu_reservation = source::fixed_reservation::png_cpu(payload_bytes, input_staging)?;
-
+        let label = format!("source texture {}", texture.file());
+        let entry = SourceTexture::new(texture.clone(), input_staging, true, label)?;
         texture_indices.insert(texture.file().to_owned(), textures.len());
-        textures.push(SourceTexture {
-            owner: Arc::new(()),
-            upload: default(),
-            failed: false,
-            persistent: true,
-            users: 0,
-            record: Arc::new(texture.clone()),
-            chain: None,
-            input_staging,
-            payload_bytes,
-            cpu_reservation,
-            image: None,
-            stalled: 0,
-            label: format!("source texture {}", texture.file()),
-        });
+        textures.push(entry);
     }
     let mut source = SourceMaterials {
         preparation: default(),
