@@ -65,8 +65,8 @@ pub struct ShadowScene {
     lamp_revision: u64,
     /// Pose hash of each caster row: identity, transform, bounds, assets and cast state.
     poses: Vec<u64>,
-    /// Changes when a material or mesh asset changes. Every lamp face content includes it.
-    lamp_epoch: u64,
+    /// Changes each frame. A row with an edited mesh or material asset hashes it into its pose.
+    edit_stamp: u64,
     /// Static caster content of each lamp face tile. It changes when the face content would change.
     pub lamp_contents: [u64; LAMP_FACES],
     /// Lamp face tiles with an animated caster.
@@ -163,42 +163,35 @@ pub(super) fn prepare_scene(
     let fail = |message: &str| {
         status.fail(message.into());
     };
-    // Asset resources include same-frame edits, before AssetEvent delivery in Last.
-    // A material edit refreshes eligibility without rebuilding unchanged membership.
+    // Asset events of this frame arrive before this system. An asset edit refreshes only its
+    // renderers: eligibility, and the pose that keys their cascade and lamp face tiles.
+    scene.edit_stamp += 1;
+    let batch_edits = changes.batch_materials_changed();
     if !rebuild {
-        if materials.changed() {
-            for mesh in &meshes {
-                match update_caster(&mut scene, &materials, mesh, false) {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        rebuild = true;
-                        break;
-                    }
-                    Err(error) => {
-                        fail(error);
-                        return;
-                    }
+        let updates = changes
+            .changed
+            .iter()
+            .map(|entity| (entity, false))
+            .chain(changes.edited.iter().map(|entity| (entity, true)));
+        for (entity, edited) in updates {
+            let Ok(mesh) = meshes.get(entity) else {
+                continue;
+            };
+            match update_caster(&mut scene, &materials, mesh, false, edited) {
+                Ok(true) => {}
+                Ok(false) => {
+                    rebuild = true;
+                    break;
                 }
-            }
-        } else {
-            for entity in &changes.changed {
-                let Ok(mesh) = meshes.get(entity) else {
-                    continue;
-                };
-                match update_caster(&mut scene, &materials, mesh, false) {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        rebuild = true;
-                        break;
-                    }
-                    Err(error) => {
-                        fail(error);
-                        return;
-                    }
+                Err(error) => {
+                    fail(error);
+                    return;
                 }
             }
         }
-        if !rebuild && let Err(error) = update_rows(&mut scene, &materials, props, false) {
+        if !rebuild
+            && let Err(error) = update_rows(&mut scene, &materials, props, false, batch_edits)
+        {
             fail(error);
             return;
         }
@@ -216,12 +209,13 @@ pub(super) fn prepare_scene(
         scene.bounds.clear();
         scene.animated.clear();
         for mesh in &meshes {
-            if let Err(error) = update_caster(scene, &materials, mesh, true) {
+            let edited = changes.edited.contains(mesh.entity);
+            if let Err(error) = update_caster(scene, &materials, mesh, true, edited) {
                 fail(error);
                 return;
             }
         }
-        if let Err(error) = update_rows(scene, &materials, props, true) {
+        if let Err(error) = update_rows(scene, &materials, props, true, batch_edits) {
             fail(error);
             return;
         }
@@ -252,7 +246,6 @@ pub(super) fn prepare_scene(
         scene.sun = live.sun_rotation;
     }
     let rotation = scene.sun;
-    let all_changed = rebuild || materials.changed() || materials.meshes_changed();
     let h = |v: Vec3| [v.x, v.y, -v.z];
     let light_basis = [
         h(rotation * Vec3::X),
@@ -323,7 +316,7 @@ pub(super) fn prepare_scene(
         scene.marked[index].clear();
         scene.marked[index].extend_from_slice(scene.views[index].rows());
         let masks = &scene.masks[index];
-        let dirty = if all_changed {
+        let dirty = if rebuild {
             0b1111
         } else {
             scene.views[index].split_changes()
@@ -342,8 +335,6 @@ pub(super) fn prepare_scene(
         }
     }
     // Lamp slots draw only in the world view atlas.
-    // Asset edits can change caster geometry without a pose change.
-    scene.lamp_epoch += u64::from(materials.changed() || materials.meshes_changed());
     if frame.views[0].is_some() {
         let changed = scene.lamp_masks.write(
             &scene.caster_data.casters,
@@ -369,7 +360,6 @@ pub(super) fn prepare_scene(
             &scene.poses,
             &scene.animated,
             &faces,
-            scene.lamp_epoch,
         );
         scene.lamp_contents = scan.contents;
         scene.lamp_animated = scan.animated;
@@ -416,6 +406,7 @@ fn update_caster(
     materials: &ShadowMaterials,
     mesh: ShadowMeshItem<'_, '_>,
     rebuilding: bool,
+    edited: bool,
 ) -> Result<bool, &'static str> {
     let key = CasterKey::Entity(mesh.entity);
     let Some(has_caster) = materials.has_caster(&mesh)? else {
@@ -479,6 +470,9 @@ fn update_caster(
         .map(f32::to_bits)
         .hash(&mut hasher);
     mesh.hash_assets(&mut hasher);
+    if edited {
+        scene.edit_stamp.hash(&mut hasher);
+    }
     set_pose(&mut scene.poses, row, hasher.finish());
     if rebuilding {
         if animated {
@@ -495,13 +489,15 @@ fn update_caster(
 }
 /// Rows enter the caster list after the entities, in slot order.
 /// `all` reads every row. Else only changed rows, or every row when a batch material changes its caster state.
+/// Row materials are shared and keep their content. Row data holds color and LOD fade.
 fn update_rows(
     scene: &mut ShadowScene,
     materials: &ShadowMaterials,
     props: &GpuProps,
     mut all: bool,
+    batch_edits: bool,
 ) -> Result<(), &'static str> {
-    if all || materials.changed() {
+    if all || batch_edits {
         scene.batch_casters.resize(props.batches().len(), false);
         for (batch, caster) in props.batches().iter().zip(&mut scene.batch_casters) {
             let next = batch.rows != 0 && materials.row_caster(batch.key.material)?;
