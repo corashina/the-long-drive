@@ -15,7 +15,8 @@ pub struct GrassQuality {
 /// High keeps the source spacing and fade. Lower steps make blades sparser, fade them nearer
 /// and thin them out sooner with distance.
 pub fn quality() -> GrassQuality {
-    let (spacing, distance, thin_start, thin_floor) = match crate::browser::game_grass_quality() {
+    let (spacing, distance, thin_start, thin_floor) = match crate::display_settings::loaded().grass
+    {
         0 => (1., 1., 0.5, 0.5),
         1 => (1.5, 0.75, 0.4, 0.35),
         _ => (2., 0.5, 0.3, 0.2),
