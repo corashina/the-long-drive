@@ -170,6 +170,7 @@ impl Plugin for SourceFramePlugin {
         super::view_frame::install(app);
         super::mirrors::install(app);
         super::shadow_queue::install(app);
+        super::shadow_tiles::install(app);
         super::lamp_shadows::install(app);
         super::caster_material::install(app);
         super::shadow_atlas::install(app);

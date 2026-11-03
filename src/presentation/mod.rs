@@ -75,6 +75,7 @@ pub mod shadow_collector;
 pub mod shadow_phase;
 pub(crate) mod shadow_preparation;
 pub mod shadow_queue;
+pub(crate) mod shadow_tiles;
 pub mod shadow_scene;
 pub mod source_effects;
 pub mod source_images;

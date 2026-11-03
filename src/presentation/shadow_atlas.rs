@@ -1,4 +1,4 @@
-//! Source four-cascade atlas dispatch over the persistent caster phase.
+//! Source four-cascade atlas dispatch over the persistent caster phase of each tile bit.
 use super::{
     lamp_shadows::{LampShadowUniform, LampShadows, TILES, tile_bit},
     lighting_assets::LightingRenderAssets,
@@ -9,6 +9,7 @@ use super::{
     shadow_phase::{CasterSet, ShadowBundles, ShadowDrawState, SourceShadow},
     shadow_queue::ShadowQueues,
     shadow_scene::ShadowScene,
+    shadow_tiles::{ShadowTileViews, TILE_BITS},
     static_draws::StaticDraws,
     surface_graph::SurfaceViewTargets,
     surface_views::{SourceSurfaceView, WORLD_VIEWS},
@@ -25,7 +26,6 @@ use bevy::render::{
     render_phase::{BinnedRenderPhase, TrackedRenderPass, ViewBinnedRenderPhases},
     render_resource::{binding_types::texture_depth_2d, *},
     renderer::{RenderContext, RenderDevice, ViewQuery},
-    view::ExtractedView,
 };
 use bevy::{ecs as bevy_ecs, prelude::*};
 use std::sync::Arc;
@@ -289,7 +289,7 @@ fn tile_pass<'a>(label: &'static str, attachment: &'a TextureView) -> RenderPass
 }
 /// The view inputs of `draw_casters`.
 type Casters<'a> = (
-    &'a BinnedRenderPhase<SourceShadow>,
+    &'a [Option<&'a BinnedRenderPhase<SourceShadow>>; TILE_BITS],
     Entity,
     &'a StaticDraws<'a>,
     &'a ShadowDrawState,
@@ -300,10 +300,12 @@ type Casters<'a> = (
 fn draw_casters<'w>(
     world: &'w World,
     pass: &mut TrackedRenderPass<'w>,
-    (phase, entity, draws, state, bundles): Casters,
+    (phases, entity, draws, state, bundles): Casters,
     tile: usize,
     set: CasterSet,
 ) -> Result<(), String> {
+    // Tile bit N draws from phase N. Lamp faces of one slot share the phase of the slot.
+    let phase = phases[tile_bit(tile)].ok_or_else(|| format!("no caster phase for tile {tile}"))?;
     state.select(tile, set);
     let bundle = &bundles.0[tile][usize::from(set == CasterSet::Animated)];
     let target = BundleTarget {
@@ -323,12 +325,12 @@ fn draw_casters<'w>(
 pub(crate) fn render_atlas(
     world: &World,
     view: ViewQuery<(
-        &ExtractedView,
         &SurfaceViewTargets,
         &ShadowDrawState,
         &SourceSurfaceView,
         &ShadowCadence,
         &ShadowBundles,
+        &ShadowTileViews,
     )>,
     pipelines: Option<Res<AtlasPipelines>>,
     phases: Res<ViewBinnedRenderPhases<SourceShadow>>,
@@ -345,7 +347,7 @@ pub(crate) fn render_atlas(
         return;
     }
     let entity = view.entity();
-    let (view, targets, state, source, cadence, bundles) = view.into_inner();
+    let (targets, state, source, cadence, bundles, tiles) = view.into_inner();
     if frame.views[source.index].is_none()
         || cadence.frame != frame.frame
         || queues.frame != frame.frame
@@ -353,9 +355,13 @@ pub(crate) fn render_atlas(
     {
         return;
     }
-    let Some(phase) = phases.get(&view.retained_view_entity) else {
-        return;
-    };
+    let mut tile_phases = [None; TILE_BITS];
+    for bit in 0..tiles.count {
+        let Some(phase) = phases.get(&tiles.retained[bit]) else {
+            return;
+        };
+        tile_phases[bit] = Some(phase);
+    }
     let Some((clear, restore)) = pipelines.and_then(|p| {
         Some((
             cache.get_render_pipeline(p.clear)?,
@@ -365,17 +371,18 @@ pub(crate) fn render_atlas(
         return;
     };
     // Pipeline preparation is asynchronous. No partial atlas can be published.
-    if phase
-        .batchable_meshes
-        .keys()
-        .chain(phase.unbatchable_meshes.keys())
-        .any(|(key, _)| cache.get_render_pipeline(key.pipeline).is_none())
-    {
+    if tile_phases.iter().flatten().any(|phase| {
+        phase
+            .batchable_meshes
+            .keys()
+            .chain(phase.unbatchable_meshes.keys())
+            .any(|(key, _)| cache.get_render_pipeline(key.pipeline).is_none())
+    }) {
         return;
     }
     state.begin();
     let draws = StaticDraws::new(world);
-    let casters = (phase, entity, &draws, state, bundles);
+    let casters = (&tile_phases, entity, &draws, state, bundles);
     let viewport = |pass: &mut TrackedRenderPass, cascade| {
         let [x, y, width, height] = tile_rect(targets.0.atlas_size, cascade);
         pass.set_viewport(x as f32, y as f32, width as f32, height as f32, 0., 1.);
