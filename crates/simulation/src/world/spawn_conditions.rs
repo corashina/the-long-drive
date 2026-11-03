@@ -160,10 +160,11 @@ impl SpawnEvaluation<'_> {
             .get((selected - 1).clamp(0, rows.len().saturating_sub(1) as i32) as usize)
             .ok_or_else(|| ReferenceError("Source SetRandom has no types".into()))?;
         let kind = text(fields(row)?, "tipus")?;
-        if let Some(colors) = self.condition_colors(record, &kind)? {
-            if colors.is_empty() && !flag(record.fields, "dontSetRandomColorTo1")? {
-                self.initialization.conditions[i].color = [1.; 4];
-            }
+        if let Some(colors) = self.condition_colors(record, kind)?
+            && colors.is_empty()
+            && !flag(record.fields, "dontSetRandomColorTo1")?
+        {
+            self.initialization.conditions[i].color = [1.; 4];
         }
         Ok(())
     }

@@ -108,10 +108,9 @@ pub(crate) fn prepare_step_for_views(
         .ready
         .as_ref()
         .is_some_and(|w| !same_request(w.request, stream.request))
+        && let Some((request, key)) = surface_claim.take()
     {
-        if let Some((request, key)) = surface_claim.take() {
-            stream.discard_surface_renderer(request, key).unwrap();
-        }
+        stream.discard_surface_renderer(request, key).unwrap();
     }
     stream.select_required(required_views);
     let sources: Vec<_> = reference

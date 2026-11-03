@@ -167,7 +167,7 @@ pub(super) fn bind(
             .map(|i| item_for(i.0 as usize - 1))
             .transpose()?;
         for n in &mut recipe.driven_nodes {
-            *n = local(*n)
+            *n = local(*n);
         }
         recipe.drag.node = local(recipe.drag.node);
         recipe.drag.node2 = local(recipe.drag.node2);
@@ -176,19 +176,19 @@ pub(super) fn bind(
         }
         if let Some(r) = &mut recipe.rotation {
             for target in &mut r.targets {
-                target.node = local(target.node)
+                target.node = local(target.node);
             }
         }
         if let Some(s) = &mut recipe.slide {
             for path in &mut s.paths {
                 path.node = local(path.node);
                 for p in &mut path.points {
-                    p.node = local(p.node)
+                    p.node = local(p.node);
                 }
             }
             for r in &mut s.rotations {
                 r.node = local(r.node);
-                r.reference = local(r.reference)
+                r.reference = local(r.reference);
             }
         }
         interaction
@@ -235,7 +235,7 @@ pub(super) fn bind(
     for n in &content.nodes {
         content
             .poses
-            .push(interaction.mechanisms.node_pose(*n).unwrap())
+            .push(interaction.mechanisms.node_pose(*n).unwrap());
     }
     Ok(())
 }
@@ -277,16 +277,16 @@ pub(super) fn sync(
         }
     }
     for binding in &content.bindings {
-        if binding.render_body.is_none() && interaction.mechanisms.contains(binding.item) {
-            if let Some(node) = interaction.mechanisms.item_node(binding.item) {
-                let state = items.get_mut(binding.item).unwrap();
-                state.pose = interaction.mechanisms.node_pose(node).unwrap();
-                if let Some(body) = state.body {
-                    state.local_pose = from_rapier(
-                        &(physics.rapier().bodies[body].position().inverse()
-                            * to_rapier(state.pose)),
-                    );
-                }
+        if binding.render_body.is_none()
+            && interaction.mechanisms.contains(binding.item)
+            && let Some(node) = interaction.mechanisms.item_node(binding.item)
+        {
+            let state = items.get_mut(binding.item).unwrap();
+            state.pose = interaction.mechanisms.node_pose(node).unwrap();
+            if let Some(body) = state.body {
+                state.local_pose = from_rapier(
+                    &(physics.rapier().bodies[body].position().inverse() * to_rapier(state.pose)),
+                );
             }
         }
     }

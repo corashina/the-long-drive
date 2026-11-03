@@ -81,7 +81,7 @@ impl WorldStream {
             let next = self
                 .contents
                 .lamp_states()
-                .filter(|(parent, source, _)| {
+                .find(|(parent, source, _)| {
                     !self
                         .lamp_bindings
                         .iter()
@@ -90,7 +90,6 @@ impl WorldStream {
                             || self.portable_lamp_item(parent).is_some())
                         && self.bindings_ready(parent)
                 })
-                .next()
                 .cloned();
             let Some((parent, source, on)) = next else {
                 break;
@@ -274,7 +273,7 @@ impl WorldStream {
                                 collider.node as usize,
                                 appearance,
                             ),
-                    )
+                    );
                 });
             }
             binding.collision_dirty = false;
