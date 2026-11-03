@@ -487,6 +487,13 @@ impl HumanReference {
         )?;
         validate_ragdoll(&self.ragdoll, |n| self.local(m, n), "human ragdoll")?;
         self.animator.validate(&m.nodes)?;
+        let a = &self.animator;
+        require(
+            self.local(m, a.root)
+                && a.bones.iter().flatten().all(|b| self.local(m, b.node))
+                && a.copies.iter().all(|c| self.local(m, c.node)),
+            "human animator nodes",
+        )?;
         let v = &self.voice;
         let clips = m.audio["clips"].as_array();
         let clip = |c: &HumanVoiceClip| {
@@ -528,6 +535,7 @@ fn validate_ragdoll(
                 .iter()
                 .enumerate()
                 .all(|(i, b)| b.id.0 == i as u32 + 1 && local(b.node) && b.mass_kg > 0.)
+            && r.pickups.iter().all(|p| !p.cant_pickup)
             && r.colliders
                 .iter()
                 .all(|c| (1..=bodies).contains(&c.body.0) && local(c.node))
@@ -636,6 +644,7 @@ impl RabbitReference {
         require(
             self.local(m, x.node)
                 && finite(&[x.max_output, x.override_max_jam, x.jam])
+                && x.max_output >= 0.
                 && !x.colliders.is_empty()
                 && x.colliders.iter().all(|c| c.layer < 32),
             "rabbit electronics",
@@ -761,6 +770,8 @@ impl RabbitReference {
                 e.trigger.damage_breakable,
             ]) && e.attack_duration > 0.
                 && e.roar_duration > 0.
+                && e.trigger.damage_player >= 0.
+                && e.trigger.damage_breakable >= 0.
                 && range(&e.idle_time)
                 && [&e.roar_clips, &e.idle_clips, &e.attack_clips]
                     .iter()

@@ -1,7 +1,7 @@
 """Start menu figure (`mainmenuscript.menuCharacter`, `menuIkScript`) in the level0 menu scene.
 All poses are local to the figure root `MenuCharacter`. The assets are not in the cloud, so this reader fails loudly."""
 from .collision import quaternion_product
-from .appearance_preview import LIGHT_KINDS, camera_record, figure_record, light_record, stage_pose, transform_of, valid_pose, validate_figure
+from .appearance_preview import camera_record, figure_record, light_record, stage_pose, transform_of
 
 SCRIPT = 'menuIkScript'
 SCENE = 'level0'
@@ -95,29 +95,3 @@ def recover_menu_figure(source):
         },
     }
 
-
-def validate_menu_figure(menu, clothing, manifest):
-    camera = menu['camera']
-    if not valid_pose(camera['pose']) or not 0 < camera['fov'] < 180 or not 0 < camera['near'] < camera['far']:
-        raise ValueError('Menu camera')
-    for l in menu['lights']:
-        if l['kind'] != LIGHT_KINDS[1] or l['intensity'] < 0 or not valid_pose(l['pose']):
-            raise ValueError('Menu light')
-    if len(menu['background']) != 3 or len(menu['ambient']) != 3:
-        raise ValueError('Menu colors')
-    validate_figure(menu['figure'], clothing, manifest)
-    ik = menu['ik']
-    # `Body.position = B.position` moves the figure root, so both start at the same pose.
-    if menu['body'] != ik['b'] or not valid_pose(ik['b']):
-        raise ValueError('Menu figure body')
-    c = menu['collider']
-    if len(c['center']) != 3 or c['radius'] <= 0 or c['height'] <= 0:
-        raise ValueError('Menu figure collider')
-    if any(not ik[name] > 0 for name in SCALARS):
-        raise ValueError('Menu IK scalars')
-    joints = {j['name'] for j in menu['figure']['joints']}
-    names = [ik['lh']['parent'], ik['rh']['parent'], ik['llu'], ik['rhu'], *ik['bones'].values()]
-    if not all(n in joints for n in names) or set(ik['bones']) != set(BONES):
-        raise ValueError('Menu IK bones')
-    if not all(valid_pose(p) for p in (ik['h'], ik['ll'], ik['rl'], ik['lh']['pose'], ik['rh']['pose'])):
-        raise ValueError('Menu IK targets')

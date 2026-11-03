@@ -3,19 +3,16 @@
 Vectors (positions, Euler angles, axes) keep source Unity local axes. Nodes are world prototype nodes.
 """
 from .source import key, source_id, vector
-from .survival import managed_evidence, finite_record
+from .survival import managed_evidence
 from .particles import particle, relative_pose
 from .small_items import animation_curve, ammo
 from .lighting import rgba, sky_material
 from .gltf import convert_point
 
 MAIN=('level1',64919)
-AMMO_TYPES=7
 # mainscript static arrays. They are not serialized; managed evidence checks them.
 AMMO_MASS=[0.0005,0.0102,0.,0.,0.01,0.,0.006]
 AMMO_VELOCITY=[300.,376.4,0.,0.,641.3,0.,365.]
-# mainscript.GetDecal order: default, metal, flesh, wood, plant, glass.
-DECALS=6
 EVIDENCE=[
     'public static float[] ammoMass = new float[7] { 0.0005f, 0.0102f, 0f, 0f, 0.01f, 0f, 0.006f };',
     'public static float[] ammoVelocity = new float[7] { 300f, 376.4f, 0f, 0f, 641.3f, 0f, 365f };',
@@ -28,12 +25,6 @@ WEAPON_FIELDS=('prototype source pickup ammo kind condition max_condition_weakne
     'trigger_triggers use_conditional_trigger_triggers conditional_trigger_triggers fr sounds crosshair explode_stuffs explode_chance hithole')
 CLIP_FIELDS={'one_shot':'OneShotClip','false_shot':'FalseShotClip','hit_sand':'ShotHitSand','hit_concrete':'ShotHitConcrete',
     'hit_flesh':'ShotHitFlesh','hit_glass':'ShotHitGlass'}
-FR_FIELDS='value fr_speed use_x use_y breakable play_sound_even_if_cant_shoot shoot reload'
-RULE_FIELDS='value equal bigger smaller near near_value'
-KIND_FIELDS={'none':'',
-    'revolver':'chambers cylinder axis angle duration shoot_bullet_pos cylinder_start_rotation turn_clip turn_volume',
-    'bb_gun':'power power_gain max_power ammo_gain dont_use_power bullets',
-    'magazine':'mag mag_pos mag_prefab has_mag'}
 
 
 def _order(identity):
@@ -199,109 +190,3 @@ def _curve(c):
     for k in keys:
         for f in ('time','value','in_tangent','out_tangent','in_weight','out_weight'):_number(k[f])
 
-
-def validate_guns(record, manifest) -> None:
-    from .acquisition import _shape,_integer,_number,_boolean,_list,_numbers
-    _shape(record,'source ammo_mass ammo_velocity tracer decals weapons')
-    finite_record(record)
-    if record['ammo_mass']!=AMMO_MASS or record['ammo_velocity']!=AMMO_VELOCITY:raise ValueError('Gun ammo values differ')
-    _shape(record['tracer'],'start end')
-    for p in record['tracer'].values():
-        if not p['materials'] or 'InitialModule.startLifetime' not in p['curves']:raise ValueError('Gun tracer particle data missing')
-    if len(_list(record['decals']))!=DECALS:raise ValueError('Gun decal count differs')
-    textures={t['id'] for t in manifest['lighting']['textures']}
-    for i,decal in enumerate(record['decals']):
-        try:
-            _shape(decal,'source node local_pose mesh material lifetime')
-            _sid(decal['source']);_sid(decal['node'])
-            _shape(decal['mesh'],'source bounds_center bounds_extents');_sid(decal['mesh']['source'])
-            _numbers(decal['mesh']['bounds_center'],3);_numbers(decal['mesh']['bounds_extents'],3)
-            if decal['lifetime'] is not None:_number(decal['lifetime'])
-            if any(t['texture'] not in textures for t in decal['material']['textures']):raise ValueError('material texture is not exported')
-        except (ValueError,KeyError,TypeError) as error:raise ValueError(f'Gun decal {i}: {error}') from error
-    audio={_order(c['source']) for c in manifest['audio']['clips']}
-    sprites={_order(s['source']) for s in manifest['ui']['sprites']}
-    world={_order(p['source']):p for p in manifest['world']['prototypes']}
-    weapons=_list(record['weapons'])
-    for w in weapons:
-        try:
-            _shape(w,WEAPON_FIELDS)
-            for f in ('prototype','source','pickup','muzzle'):_sid(w[f])
-            prototype=world.get(_order(w['prototype']))
-            if prototype is None:raise ValueError('prototype is not a world prototype')
-            nodes={_order(n['source']) for n in prototype['nodes']}
-            def node(value):
-                _sid(value)
-                if _order(value) not in nodes:raise ValueError('Transform link is outside the prototype')
-            def clip(value):
-                _sid(value)
-                if _order(value) not in audio:raise ValueError(f"clip {value['file']}:{value['path_id']} missing from audio")
-            def vec(value):_numbers(value,3)
-            a=w['ammo'];_shape(a,'source count float_count maximum float_or_int type random_range');_sid(a['source'])
-            _integer(a['count']);_integer(a['type'],AMMO_TYPES-1);_number(a['float_count']);_number(a['maximum']);_boolean(a['float_or_int']);_numbers(a['random_range'],2)
-            if w['condition'] is not None:_sid(w['condition'])
-            for f in ('max_condition_weakness','shot_count_spread','min_shoot_time','audio_m','explode_chance'):_number(w[f])
-            for f in ('infinite','automatic','automatic_false_shot','use_conditional_trigger_triggers','explode_stuffs','hithole'):_boolean(w[f])
-            for f in ('shot_count','mask','mask2'):_integer(w[f])
-            node(w['muzzle'])
-            _shape(w['clips'],' '.join(CLIP_FIELDS))
-            for v in w['clips'].values():
-                for c in _list(v):clip(c)
-            if w['flash'] is not None:
-                f=w['flash'];_shape(f,'light node time intensity curve');_sid(f['light']);node(f['node']);_number(f['time']);_number(f['intensity']);_curve(f['curve'])
-            if w['recoil'] is not None:
-                r=w['recoil'];_shape(r,'node pos rot curve duration');node(r['node']);vec(r['pos']);vec(r['rot']);_curve(r['curve']);_number(r['duration'])
-            if w['reload_hand'] is not None:
-                h=w['reload_hand'];_shape(h,'node default barrel reload');node(h['node']);node(h['default'])
-                for f in ('barrel','reload'):
-                    if h[f] is not None:node(h[f])
-            for b in _list(w['barrels']):
-                _shape(b,'node max_angle inv axis curve');node(b['node']);_number(b['max_angle']);_boolean(b['inv'])
-                if b['axis'] is not None:_integer(b['axis'],2)
-                if b['curve'] is not None:_curve(b['curve'])
-            for p in _list(w['moving_parts']):
-                _shape(p,'node t0 t1 inv');node(p['node']);node(p['t0']);node(p['t1']);_boolean(p['inv'])
-            for t in _list(w['triggers']):
-                _shape(t,'node dont_work_without_shoot duration use_angle def_angle angle angle_curve use_pos def_pos pos pos_curve');node(t['node'])
-                _number(t['duration'])
-                for f in ('dont_work_without_shoot','use_angle','use_pos'):_boolean(t[f])
-                for f in ('def_angle','angle','def_pos','pos'):vec(t[f])
-                _curve(t['angle_curve']);_curve(t['pos_curve'])
-            for t in _list(w['trigger_triggers']):
-                _shape(t,'node dont_trigger def_rotation pulled_rotation');node(t['node']);_boolean(t['dont_trigger']);vec(t['def_rotation']);vec(t['pulled_rotation'])
-            for t in _list(w['conditional_trigger_triggers']):
-                _shape(t,'ammo_count use');_integer(t['ammo_count'])
-                if len(_list(t['use']))<len(w['trigger_triggers']):raise ValueError('conditional trigger flags are fewer than trigger triggers')
-                for u in t['use']:_boolean(u)
-            fr=w['fr'];_shape(fr,FR_FIELDS)
-            for f in ('value','fr_speed'):_number(fr[f])
-            for f in ('use_x','use_y','breakable','play_sound_even_if_cant_shoot'):_boolean(fr[f])
-            for r in (fr['shoot'],fr['reload']):
-                _shape(r,RULE_FIELDS);_number(r['value']);_number(r['near_value'])
-                for f in ('equal','bigger','smaller','near'):_boolean(r[f])
-            s=w['sounds'];_shape(s,'source open open_end close move reload')
-            if s['source'] is not None:_sid(s['source'])
-            if s['move'] is not None:clip(s['move'])
-            for f in ('open','open_end','close','reload'):
-                if s[f] is not None:_shape(s[f],'clip volume');clip(s[f]['clip']);_number(s[f]['volume'])
-            x=w['crosshair'];_shape(x,'icon color empty_color');_numbers(x['color'],4);_numbers(x['empty_color'],4)
-            if x['icon'] is not None and _order(x['icon']) not in sprites:raise ValueError('crosshair icon missing from ui sprites')
-            k=w['kind']
-            if type(k) is not dict or k.get('type') not in KIND_FIELDS:raise ValueError('kind differs')
-            _shape(k,' '.join(['type',*KIND_FIELDS[k['type']].split()]))
-            if k['type']=='revolver':
-                for n in [k['cylinder'],k['shoot_bullet_pos'],*_list(k['chambers'])]:node(n)
-                vec(k['axis']);vec(k['cylinder_start_rotation']);_number(k['angle']);_number(k['duration']);_number(k['turn_volume'])
-                if k['turn_clip'] is not None:clip(k['turn_clip'])
-            elif k['type']=='bb_gun':
-                for f in ('power','power_gain','max_power','ammo_gain'):_integer(k[f])
-                _boolean(k['dont_use_power'])
-                for n in _list(k['bullets']):node(n)
-            elif k['type']=='magazine':
-                node(k['mag']);node(k['mag_pos']);_boolean(k['has_mag']);_sid(k['mag_prefab'])
-                if _order(k['mag_prefab']) not in world:raise ValueError('magazine prefab is not a world prototype')
-        except (ValueError,KeyError,TypeError) as error:
-            source=w.get('source',{}) if type(w) is dict else {}
-            raise ValueError(f"Gun {source.get('file')}:{source.get('path_id')}: {error}") from error
-    prototypes=[_order(w['prototype']) for w in weapons]
-    if not weapons or prototypes!=sorted(set(prototypes)):raise ValueError('Gun prototypes are missing, not unique or not sorted')

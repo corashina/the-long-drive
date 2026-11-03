@@ -264,8 +264,22 @@ pub(super) fn validate_particles(m: &ReferenceManifest) -> Result<(), ReferenceE
     }
     for p in &m.particles {
         validate_particle(p, 2)?;
+        validate_textures(p, m)?;
     }
     Ok(())
+}
+/// Checks that each material texture of `p` is a lighting texture record.
+pub(super) fn validate_textures(
+    p: &ParticleReference,
+    m: &ReferenceManifest,
+) -> Result<(), ReferenceError> {
+    require(
+        p.materials
+            .iter()
+            .flat_map(|material| &material.textures)
+            .all(|t| m.lighting.textures.iter().any(|x| x.id == t.texture)),
+        &format!("particle {} textures", p.role),
+    )
 }
 /// Checks one particle record that the runtime simulates in `simulation_space`.
 pub(super) fn validate_particle(

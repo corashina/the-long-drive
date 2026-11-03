@@ -4,7 +4,6 @@ from .source import key, source_id, vector
 from .collision import bake_points, quaternion_product, world_pose
 from .caps import cap_flow, opening_metadata
 from .particles import cap_particles
-from .survival import finite_record
 
 SEGMENTS = 6
 LINEAR = ('m_XMotion', 'm_YMotion', 'm_ZMotion')
@@ -96,35 +95,3 @@ def recover_hose(source, by_node, bodies, poses, node_ids, exporter, main, outpu
         'joints': joints, 'ends': ends,
         'skin': skin_record(source, exporter, renderer, skin_node, lambda bone: body_nodes[node_ids[key(bone)]])}
 
-
-def validate_hose(hose, prototype) -> None:
-    finite_record(hose)
-    bodies = {b['id'] for b in prototype['bodies']}
-    segments = hose['segments']
-    if len(segments) != SEGMENTS or len(set(segments)) != SEGMENTS or not set(segments) <= bodies:
-        raise ValueError('Hose needs 6 segment bodies')
-    joints = hose['joints']
-    if [(j['body'], j['connected_body']) for j in joints] != list(zip(segments, segments[1:])):
-        raise ValueError('Hose joints do not form one chain')
-    if any(len(j[f]) != 3 for j in joints for f in ('anchor', 'connected_anchor')):
-        raise ValueError('Hose joint anchor')
-    mains = hose['mains']
-    if (not mains or len(set(mains)) != len(mains) or not {*mains, hose['t1'], hose['t2']} <= set(segments)
-            or hose['t1'] == hose['t2']):
-        raise ValueError('Hose main or end outside chain')
-    if len(hose['break_force']) != SEGMENTS or min(hose['break_force']) <= 0:
-        raise ValueError('Hose break force')
-    if len(hose['connect_anchor']) != SEGMENTS or any(len(a) != 3 for a in hose['connect_anchor']):
-        raise ValueError('Hose connect anchor')
-    ends = hose['ends']
-    if [e['body'] for e in ends] != [hose['t1'], hose['t2']]:
-        raise ValueError('Hose needs both ends')
-    for index, e in enumerate(ends, 1):
-        o = e['opening']
-        if o['tank'] is not None or o['flow_liters_per_second'] <= 0 or o['flow_radius'] <= 0:
-            raise ValueError('Hose end opening')
-        if [e['visual']['role'], e['splash']['role']] != [f'outlet_hose_{index}', f'splash_hose_{index}']:
-            raise ValueError('Hose end particles')
-    skin = hose['skin']
-    if not skin['bones'] or not set(skin['bones']) <= set(segments) or len(skin['bones']) != len(skin['bind_poses']):
-        raise ValueError('Hose skin bones')

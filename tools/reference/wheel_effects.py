@@ -1,5 +1,4 @@
 """Wheel ground effects: talajnezo per wheel, carscript gains and the mainscript skid record."""
-import math
 from .source import key, source_id
 from .particles import particle, relative_pose
 from .survival import managed_evidence
@@ -93,11 +92,3 @@ def recover_skid(source, output):
         'dirt_volume':d['SkidDirtVolume'],'dirt_pitch':[d['SkidDirtPitchMin'],d['SkidDirtPitchMax']],
         'speed_difference':[d['CarMinSpeedDif'],d['CarMaxSpeedDif']],'smoke_rate':d['tireSmokeRate'],'particles':particles}
 
-
-def validate_skid(record):
-    fields={'source','road_clip','dirt_clip','road_volume','road_pitch','dirt_volume','dirt_pitch','speed_difference','smoke_rate','particles'}
-    if set(record)!=fields:raise ValueError('Skid record fields differ')
-    numbers=[record['road_volume'],record['dirt_volume'],record['smoke_rate'],*record['road_pitch'],*record['dirt_pitch'],*record['speed_difference']]
-    if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in numbers):raise ValueError('Skid values are not finite')
-    if any(r[0]>r[1] for r in (record['road_pitch'],record['dirt_pitch'],record['speed_difference'])):raise ValueError('Skid ranges are not ordered')
-    if [p['role'] for p in record['particles']]!=[f'skid_{name}' for name,_ in SKID_PARTICLES]:raise ValueError('Skid particles differ')

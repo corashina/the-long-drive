@@ -309,6 +309,7 @@ impl SkyReference {
                     "sky contrail role",
                 )?;
                 particles::validate_particle(c, 2)?;
+                particles::validate_textures(c, m)?;
             }
         }
         self.ground_ufo.validate(self)?;
@@ -349,6 +350,7 @@ impl GroundUfoReference {
             "ground ufo",
         )?;
         let roles = [
+            UfoRole::Body,
             UfoRole::Seat,
             UfoRole::AutoPilot,
             UfoRole::Speed,
