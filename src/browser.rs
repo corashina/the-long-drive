@@ -287,9 +287,9 @@ extern "C" {
     /// Voice position of a remote figure in listener space (`gameAudioListener`). `alive` false: it is gone.
     #[wasm_bindgen(js_namespace = window, js_name = gameRemoteVoice)]
     pub fn game_remote_voice(slot: u32, x: f32, y: f32, z: f32, alive: bool);
-    /// "Antialiasing" setting at page load.
+    /// "Antialiasing" setting at page load: 0 high, 1 low, 2 off.
     #[wasm_bindgen(js_namespace = window, js_name = gameAntialiasing)]
-    pub fn game_antialiasing() -> bool;
+    pub fn game_antialiasing() -> u32;
     /// "Grass" setting at page load: 0 high, 1 medium, 2 low.
     #[wasm_bindgen(js_namespace = window, js_name = gameGrassQuality)]
     pub fn game_grass_quality() -> u32;
