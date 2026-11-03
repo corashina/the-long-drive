@@ -125,12 +125,10 @@ impl FluidContainer {
     }
 
     pub fn entries(&self) -> impl Iterator<Item = FluidEntry> + '_ {
-        self.order()
-            .iter()
-            .map(|&fluid_type| FluidEntry {
-                fluid_type,
-                amount: self.mixture.amount(fluid_type as usize),
-            })
+        self.order().iter().map(|&fluid_type| FluidEntry {
+            fluid_type,
+            amount: self.mixture.amount(fluid_type as usize),
+        })
     }
 
     /// Source GetAmount sums retained entries in list order.
@@ -206,7 +204,8 @@ impl FluidContainer {
     }
 
     pub fn cleanup_one(&mut self) {
-        if let Some(position) = self.order()
+        if let Some(position) = self
+            .order()
             .iter()
             .position(|&index| self.mixture.quantities_liters[index as usize] <= 0.)
         {

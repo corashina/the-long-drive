@@ -1794,12 +1794,7 @@ impl GarageRuntime {
         )
     }
     /// Advances the gauges of every car by render time `dt`. `initialize` jumps to the targets.
-    fn advance_instruments(
-        &mut self,
-        reference: &ReferenceManifest,
-        dt: f32,
-        initialize: bool,
-    ) {
+    fn advance_instruments(&mut self, reference: &ReferenceManifest, dt: f32, initialize: bool) {
         let Self {
             vehicles,
             area,
