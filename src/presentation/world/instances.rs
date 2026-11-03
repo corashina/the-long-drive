@@ -88,6 +88,8 @@ struct Renderer {
     ticket: Option<PipelineTicket>,
     /// A changed condition material that waits for its pipelines.
     pending: Option<MaterialVariant>,
+    /// Source layer. The world camera draws only the layers in its culling mask.
+    layer: u8,
     shadow: bool,
     lod_state: Option<(bool, f32)>,
     // The static node chain of the renderer is active. Spawned nodes carry their own visibility.
@@ -410,7 +412,12 @@ impl SourceInstances {
             if !shown(instance) {
                 return None;
             }
-            for renderer in instance.renderers.iter().filter(|r| r.active && !r.mirror) {
+            // Only what the world camera draws: the cars hold boxes on culled layers.
+            for renderer in instance.renderers.iter().filter(|r| {
+                r.active
+                    && !r.mirror
+                    && crate::presentation::camera::WORLD_MASK & (1 << r.layer) != 0
+            }) {
                 let material = match &renderer.binding.visible {
                     InstanceMaterial::Primary(h) => CarMaterial::Primary(h.clone()),
                     InstanceMaterial::Specular(h) => CarMaterial::Specular(h.clone()),
@@ -1065,6 +1072,7 @@ impl SourceInstances {
                                             pending: None,
                                             lod_state: None,
                                             active: active_nodes[source_index],
+                                            layer: source_node.layer,
                                             shadow: shadow != 0,
                                             settings: None,
                                             emissive: false,
@@ -1276,6 +1284,7 @@ impl SourceInstances {
                                         pending: None,
                                         lod_state: None,
                                         active: chain_active,
+                                        layer: source_node.layer,
                                         shadow: shadow != 0,
                                         settings,
                                         emissive,

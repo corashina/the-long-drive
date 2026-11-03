@@ -36,12 +36,14 @@ const PITCH: f32 = 9. * PI / 180.;
 const MARGIN: f32 = 1.2;
 /// The car sits this fraction of the half view height above the middle, clear of the buttons.
 const LIFT: f32 = 0.22;
-/// Backdrop and floor (sRGB). The floor away from the lights reads as the backdrop.
+/// Backdrop and floor (sRGB). Fog turns the far floor into the backdrop, so no floor edge shows.
 const BACKDROP: Color = Color::srgb(0.035, 0.033, 0.031);
 const FLOOR: Color = Color::srgb(0.16, 0.15, 0.14);
 /// With `ev100` 0, Bevy multiplies light by 1 / 1.2. These factors make an intensity of 1 give
 /// albedo times 1 at 1 m, as in the figure stages.
 const LIGHT_SCALE: f32 = PI * 1.2;
+/// Half size of the floor. The fog is full well before its edge.
+const FLOOR_SIZE: f32 = 500.;
 
 #[derive(Resource, Default)]
 pub struct MenuCar {
@@ -71,6 +73,7 @@ pub(crate) fn sync(
     inherited: Query<&InheritedVisibility>,
     skins: Query<&SkinnedMesh>,
     mut transforms: Query<&mut Transform>,
+    mut fogs: Query<&mut DistanceFog>,
     mut car: ResMut<MenuCar>,
 ) {
     if !crate::browser::game_menu_car() {
@@ -90,8 +93,12 @@ pub(crate) fn sync(
             return;
         };
         let aspect = window.width().max(1.) / window.height().max(1.);
-        if let Ok(mut transform) = transforms.get_mut(camera) {
-            transform.set_if_neq(view(car.size, aspect));
+        let pose = view(car.size, aspect);
+        if let Ok(mut transform) = transforms.get_mut(camera)
+            && transform.set_if_neq(pose)
+            && let Ok(mut current) = fogs.get_mut(camera)
+        {
+            current.falloff = fog(&pose, car.size);
         }
         return;
     }
@@ -229,7 +236,7 @@ pub(crate) fn sync(
     let extent = max - min;
     car.size = Vec2::new(extent.xz().length() * 0.5, extent.y);
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(60.)))),
+        Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(FLOOR_SIZE)))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: FLOOR,
             perceptual_roughness: 0.85,
@@ -256,13 +263,18 @@ pub(crate) fn sync(
             Projection::Perspective(PerspectiveProjection {
                 fov: FOV,
                 near: 0.1,
-                far: 200.,
+                far: FLOOR_SIZE * 2.,
                 ..default()
             }),
             bevy::core_pipeline::tonemapping::Tonemapping::None,
             Msaa::Off,
             NoIndirectDrawing,
             Exposure { ev100: 0. },
+            DistanceFog {
+                color: BACKDROP,
+                falloff: fog(&view(car.size, 16. / 9.), car.size),
+                ..default()
+            },
             AmbientLight {
                 color: Color::srgb(0.3, 0.3, 0.32),
                 brightness: 0.25 * 1.2,
@@ -308,6 +320,15 @@ fn view(size: Vec2, aspect: f32) -> Transform {
     let target = middle - Vec3::Y * distance * half_v.tan() * LIFT;
     let position = middle + Vec3::new(0., PITCH.sin(), PITCH.cos()) * distance;
     Transform::from_translation(position).looking_at(target, Vec3::Y)
+}
+
+/// Fog from behind the car to three times that distance. The floor fades into the backdrop.
+fn fog(camera: &Transform, size: Vec2) -> FogFalloff {
+    let start = camera.translation.length() + size.x;
+    FogFalloff::Linear {
+        start,
+        end: start * 3.,
+    }
 }
 
 /// A key light, a fill light, a rim light and a pool of light on the floor.
