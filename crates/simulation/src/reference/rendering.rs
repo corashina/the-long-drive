@@ -856,9 +856,45 @@ pub struct LightingTextureChunk {
     pub width: u32,
     pub rows: u32,
 }
+/// Row chunk payload. BC rows keep the source blocks; a chunk starts on a block row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChunkFormat {
+    Rgba8,
+    Bc1,
+    Bc3,
+}
+impl ChunkFormat {
+    /// Bytes of one 4x4 block, or of one pixel for RGBA8.
+    fn unit_bytes(self) -> usize {
+        match self {
+            Self::Rgba8 => 4,
+            Self::Bc1 => 8,
+            Self::Bc3 => 16,
+        }
+    }
+    /// Pixel span of one block side.
+    pub fn block(self) -> u32 {
+        if self == Self::Rgba8 { 1 } else { 4 }
+    }
+    /// Payload bytes of `rows` pixel rows of a `width` wide mip.
+    pub fn region_bytes(self, width: u32, rows: u32) -> Result<usize, ReferenceError> {
+        let block = self.block();
+        usize::try_from(width.div_ceil(block))
+            .ok()
+            .and_then(|w| w.checked_mul(usize::try_from(rows.div_ceil(block)).ok()?))
+            .and_then(|n| n.checked_mul(self.unit_bytes()))
+            .ok_or_else(chunk_overflow)
+    }
+    /// Bytes of one copied row of blocks or pixels.
+    pub fn row_stride(self, width: u32) -> u32 {
+        width.div_ceil(self.block()) * self.unit_bytes() as u32
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LightingTextureRecord {
+    pub format: ChunkFormat,
     pub batches: Vec<super::texture_batch::TextureBatchReference>,
     #[serde(default)]
     pub chunks: Vec<LightingTextureChunk>,
@@ -913,9 +949,12 @@ pub struct MaterialBindingReference {
 impl LightingTextureRecord {
     /// Validate complete ordered rows before allocation or loading.
     pub fn validate_chunks(&self) -> Result<usize, ReferenceError> {
+        let block = self.format.block();
         require(
             self.width > 0
                 && self.height > 0
+                && self.width % block == 0
+                && self.height % block == 0
                 && self.mip_count > 0
                 && self.mip_count <= 32 - self.width.max(self.height).leading_zeros(),
             "source texture dimensions",
@@ -926,7 +965,7 @@ impl LightingTextureRecord {
             let width = (self.width >> mip).max(1);
             let height = (self.height >> mip).max(1);
             total = total
-                .checked_add(row_bytes(width, height)?)
+                .checked_add(self.row_bytes(width, height)?)
                 .ok_or_else(chunk_overflow)?;
             let mut row = 0u32;
             while row < height {
@@ -937,10 +976,11 @@ impl LightingTextureRecord {
                 require(
                     chunk.mip == mip
                         && chunk.row == row
+                        && chunk.row % block == 0
                         && chunk.width == width
                         && chunk.rows > 0
                         && chunk.rows <= height - row
-                        && row_bytes(width, chunk.rows)? <= 1024 * 1024
+                        && self.row_bytes(width, chunk.rows)? <= 1024 * 1024
                         && chunk.data.source == self.source,
                     "source texture chunk coverage",
                 )?;
@@ -968,17 +1008,16 @@ impl LightingTextureRecord {
         let mut start = 0usize;
         for mip in 0..chunk.mip {
             start = start
-                .checked_add(row_bytes(
-                    (self.width >> mip).max(1),
-                    (self.height >> mip).max(1),
-                )?)
+                .checked_add(
+                    self.row_bytes((self.width >> mip).max(1), (self.height >> mip).max(1))?,
+                )
                 .ok_or_else(chunk_overflow)?;
         }
         start = start
-            .checked_add(row_bytes(chunk.width, chunk.row)?)
+            .checked_add(self.row_bytes(chunk.width, chunk.row)?)
             .ok_or_else(chunk_overflow)?;
         let end = start
-            .checked_add(row_bytes(chunk.width, chunk.rows)?)
+            .checked_add(self.row_bytes(chunk.width, chunk.rows)?)
             .ok_or_else(chunk_overflow)?;
         Ok(start..end)
     }
@@ -1002,12 +1041,10 @@ impl LightingTextureRecord {
         Ok(())
     }
 }
-fn row_bytes(width: u32, rows: u32) -> Result<usize, ReferenceError> {
-    usize::try_from(width)
-        .ok()
-        .and_then(|w| w.checked_mul(usize::try_from(rows).ok()?))
-        .and_then(|n| n.checked_mul(4))
-        .ok_or_else(chunk_overflow)
+impl LightingTextureRecord {
+    fn row_bytes(&self, width: u32, rows: u32) -> Result<usize, ReferenceError> {
+        self.format.region_bytes(width, rows)
+    }
 }
 fn chunk_overflow() -> ReferenceError {
     ReferenceError("Source texture chunk size overflow".into())
