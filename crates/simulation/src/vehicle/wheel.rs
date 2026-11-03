@@ -10,7 +10,7 @@ use rapier3d::prelude::ColliderHandle;
 use super::body::VehicleWheel;
 use crate::reference::{WheelColliderReference, WheelFrictionCurve};
 
-/// Wheel spin sub-steps in one physics step. Keeps stiff tire response stable.
+/// Wheel spin sub-steps in one physics step. They keep the stiff tire response stable.
 const SPIN_SUBSTEPS: usize = 20;
 /// Lowest ground speed used as the slip reference, in m/s.
 const MIN_SLIP_SPEED: f32 = 1.0;
@@ -302,7 +302,7 @@ pub(super) fn solve(
         let slip = (u - vx) / reference_speed.max(u.abs());
         let mut fx = friction(&collider.forward_friction, slip) * profile.forward_stiffness * load;
         let mut fy = lateral;
-        // Combined slip: keep the force pair inside the friction ellipse.
+        // For combined slip, keep the force pair inside the friction ellipse.
         let usage = ratio(fx, forward_peak).powi(2) + ratio(fy, sideways_peak).powi(2);
         if usage > 1.0 {
             let scale = usage.sqrt().recip();

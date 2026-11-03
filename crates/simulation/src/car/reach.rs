@@ -1,4 +1,4 @@
-//! Car control reach: source `carscript` moves sent to the player body.
+//! Car control reach. Source `carscript` sends these moves to the player body.
 use super::VehicleRuntime;
 use crate::interaction::items::ItemStore;
 use crate::player::body::{BodyState, ReachFrame, ReachTarget};
@@ -54,7 +54,7 @@ impl<'a> CarFrames<'a> {
     }
     fn target(&self, node: ReachNode) -> Option<ReachTarget> {
         match node {
-            // The chassis body frame is the car root node: reference validation requires it.
+            // The chassis body frame is the car root node. Reference validation requires it.
             ReachNode::Car(n) => Some(ReachTarget {
                 frame: ReachFrame::Body(self.chassis),
                 pose: crate::world::node_frame(self.prototype, 0, n as usize),

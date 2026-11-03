@@ -55,11 +55,11 @@ impl SpawnedItems {
             *a = ammo;
         }
     }
-    /// Multiplayer: spawns of this peer start at `floor`, so the serials of two peers differ.
+    /// In multiplayer, spawns of this peer start at `floor`, so the serials of two peers differ.
     pub fn reserve_serials(&mut self, floor: u32) {
         self.next_serial = self.next_serial.max(floor);
     }
-    /// Restored serials stay unique: later spawns start after the largest one.
+    /// Restored serials stay unique. Later spawns start after the largest one.
     pub(super) fn record(&mut self, item: SpawnedItem) {
         self.next_serial = self.next_serial.max(item.serial.saturating_add(1));
         self.items.push(item);
@@ -260,7 +260,7 @@ pub fn despawn(
 }
 
 impl SpawnedItems {
-    /// Every spawned body except gibs is saved in the world at its current pose.
+    /// The world save keeps every spawned body except gibs at its current pose.
     pub fn capture_save(
         &self,
         reference: &ReferenceManifest,
@@ -273,7 +273,7 @@ impl SpawnedItems {
             .iter()
             .filter_map(|spawned| {
                 let prototype = &reference.item_prototypes[spawned.prototype];
-                // Gib prototypes have no item id. Source gibs are not saved.
+                // Gib prototypes have no item id. The source does not save gibs.
                 prototype.item_id?;
                 let state = items.get(spawned.id)?;
                 let pose = state.inactive_pose.unwrap_or(crate::save::AbsolutePose {

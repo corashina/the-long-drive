@@ -9,15 +9,15 @@ use glam::{Mat3, Quat, Vec3};
 
 /// Source `dropCamTime >= 0.4f`.
 const HOLD_SECONDS: f32 = 0.4;
-/// Source `dropCamTime < 0.3f`: a tap leaves the drop cam.
+/// Source `dropCamTime < 0.3f`. A tap leaves the drop cam.
 const TAP_SECONDS: f32 = 0.3;
 const PITCH_LIMIT: f32 = 89.;
 /// Source `scroll * dt * 3f`.
 const ZOOM_RATE: f32 = 3.;
 const DISTANCE_LIMITS: [f32; 2] = [1., 30.];
-/// Source `Time.deltaTime * 20f`: the rig up returns to world up.
+/// Source `Time.deltaTime * 20f`. The rig up returns to world up.
 const UP_RATE: f32 = 20.;
-/// Source `Time.deltaTime * 20f`: map recenter.
+/// Source `Time.deltaTime * 20f`. The map view recenters at this rate.
 const MAP_RECENTER_RATE: f32 = 20.;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -186,19 +186,19 @@ impl CarCamera {
             };
     }
 
-    /// The stream origin moved by `delta`.
+    /// Follows a stream origin move by `delta`.
     pub fn shift(&mut self, delta: Vec3) {
         self.position -= delta;
     }
 
-    /// Back to the cockpit with no key state. Orbit, pan, zoom and map height stay, as in the source.
+    /// Returns to the cockpit with no key state. Orbit, pan, zoom and map height stay, as in the source.
     pub fn leave(&mut self) {
         self.view = CarView::Cockpit;
         self.hold = 0.;
         self.switched = false;
     }
 
-    /// One frame. `seat` is `None` when the player does not sit. `head` is the player camera.
+    /// Runs one frame. `seat` is `None` when the player does not sit. `head` is the player camera.
     pub fn frame(
         &mut self,
         reference: &CarCameraReference,
@@ -309,18 +309,18 @@ impl CarCamera {
         }
     }
 
-    /// The rig leaves the player: its world rotation is the player child rotation.
+    /// The rig leaves the player. Its world rotation is the player child rotation.
     fn attach_rig(&mut self, seat: &CameraSeat) {
         self.rig = seat.player_rotation * self.rig_local;
     }
 
-    /// `SwitchToOutsideView`: align the rig up with the seat up.
+    /// `SwitchToOutsideView`. Aligns the rig up with the seat up.
     fn switch_to_outside(&mut self, seat: &CameraSeat) {
         self.switched = true;
         self.rig = Quat::from_rotation_arc(self.rig * Vec3::Y, seat.up) * self.rig;
     }
 
-    /// `SwitchToCockpitView`: the rig becomes a player child again.
+    /// `SwitchToCockpitView`. The rig becomes a player child again.
     fn leave_to_cockpit(&mut self, player_rotation: Quat) {
         if matches!(self.view, CarView::Outside | CarView::Drop { .. }) {
             self.rig_local = player_rotation.inverse() * self.rig;

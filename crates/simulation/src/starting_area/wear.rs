@@ -16,7 +16,7 @@ use rapier3d::prelude::RigidBodyType;
 struct WearRule {
     pickup: SourceId,
     slot: usize,
-    /// Source `edible != null`: it comes off first.
+    /// Source `edible != null`. It comes off first.
     consumable: bool,
     /// Body pose in the anchor frame.
     worn_offset: Pose,
@@ -175,7 +175,7 @@ impl WearRuntime {
     pub fn item(&self, slot: usize) -> Option<ItemId> {
         self.worn.slots[slot].map(|w| w.id)
     }
-    /// The held item can go on: it is wearable and its slot is empty.
+    /// The held item can go on. It is wearable and its slot is empty.
     fn can_put_on(&self, interaction: &InteractionState, id: ItemId) -> bool {
         self.slot(interaction, id)
             .is_some_and(|slot| self.worn.slots[slot].is_none())
@@ -274,7 +274,7 @@ impl StartingArea {
 }
 
 impl GarageRuntime {
-    /// Source `TakeOff`: the item gets a dynamic CCD body. `pickup` sends it to the hand.
+    /// Source `TakeOff`. The item gets a dynamic CCD body. `pickup` sends it to the hand.
     fn take_off(&mut self, id: ItemId, pickup: bool) {
         let item = self.area.items.get_mut(id).expect("worn item");
         item.location = ItemLocation::World;
@@ -307,7 +307,7 @@ impl GarageRuntime {
         }
     }
 
-    /// Death2: every worn item comes off without pickup and keeps its last pose.
+    /// In Death2, every worn item comes off without pickup and keeps its last pose.
     pub(super) fn take_all_off(&mut self) {
         for item in self.area.wear.worn.take_all().into_iter().flatten() {
             self.take_off(item.id, false);
@@ -315,7 +315,7 @@ impl GarageRuntime {
         self.area.update_glasses(&self.stream);
     }
 
-    /// Short Tab release puts the held item on. `removeSunglasses` release takes one off.
+    /// A short Tab release puts the held item on. A `removeSunglasses` release takes one off.
     pub(super) fn step_wear(&mut self, input: &mut FrameInput) {
         let wear = &mut self.area.wear;
         if input.pressed & keys::RECENTER != 0 {

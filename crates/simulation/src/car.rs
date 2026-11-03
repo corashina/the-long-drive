@@ -26,7 +26,7 @@ pub fn world_vehicle(
         .expect("car prototype")
 }
 
-/// Source electronics cutoff: `electronicsscript` output above it powers ignition.
+/// The source electronics cutoff. `electronicsscript` output above it powers ignition.
 const ELECTRONICS_CUTOFF: f32 = 0.2;
 
 /// Per-copy inputs of a world car runtime.
@@ -85,7 +85,7 @@ pub struct VehicleRuntime {
     pub coolant_steam: crate::coolant_steam::CoolantSteamState,
     /// Source `carscript.Tank`: the root tank, else the tank part in `fuel_tank_slot`, else
     /// the first tank attached to that part.
-    /// Found once at the start of each step.
+    /// Each step finds it once at its start.
     pub fuel_tank: Option<ItemId>,
     /// Car root `tankscript` item.
     root_tank: Option<ItemId>,
@@ -116,7 +116,7 @@ pub struct VehicleRuntime {
     pub horn_hit: Option<crate::crash::HornHit>,
     /// Source `carscript.blood`.
     pub blood: Option<crate::crash::Blood>,
-    /// Parts mounted on this car, found once at the start of each step.
+    /// Parts mounted on this car. Each step finds them once at its start.
     powertrain: Powertrain,
     /// Requested headlight state: off, low or high.
     pub requested_headlights: u8,
@@ -148,12 +148,12 @@ pub struct VehicleRuntime {
 }
 
 impl VehicleRuntime {
-    /// `carscript.electronics` output. 1 without electronics.
+    /// The `carscript.electronics` output. It is 1 without electronics.
     pub fn electronics_output(&self) -> f32 {
         self.car_electronics
             .map_or(1., |i| self.electronics[i].state.output())
     }
-    /// `carscript.Electronics()`: no electronics, or output above the cutoff.
+    /// `carscript.Electronics()`. True with no electronics, or with output above the cutoff.
     pub fn electronics_enabled(&self) -> bool {
         self.car_electronics
             .is_none_or(|i| self.electronics[i].state.output() > ELECTRONICS_CUTOFF)
@@ -343,7 +343,7 @@ impl VehicleRuntime {
         self.trip_m = state.trip_m;
         self.requested_headlights = state.requested_headlights;
         self.steer = state.steer;
-        // Source load: `GotDirty` when the saved blood is on, else the prototype state.
+        // Source load calls `GotDirty` if the saved blood is on. Else the prototype state stays.
         if let (true, Some(blood)) = (state.blood, &mut self.blood) {
             blood.got_dirty();
         }
@@ -415,7 +415,7 @@ pub fn instrument_sample(
     }
 }
 
-/// Source `carscript.Balance()` for one fixed step: the roll torque as an angular impulse.
+/// Source `carscript.Balance()` for one fixed step. Returns the roll torque as an angular impulse.
 /// `speed_kmh`: source `speed`. `steer`: source `isteer`, -1..1.
 fn apply_balance(
     physics: &mut PhysicsWorld,
@@ -435,13 +435,13 @@ fn apply_balance(
         rotation * -rapier3d::math::Vector::Z,
         FIXED_DT,
     );
-    // Source `AddRelativeTorque`: chassis-local torque.
+    // Source `AddRelativeTorque`. The torque is in the chassis frame.
     physics.edit_body(chassis, |body| {
         body.apply_torque_impulse(rotation * torque * FIXED_DT, true)
     });
 }
 
-/// Source carscript steer: a push grip wins, then the driver. Else the car keeps its steer.
+/// Source carscript steer. A push grip wins, then the driver. Else the car keeps its steer.
 fn vehicle_steer(current: f32, pushed: Option<f32>, driven: Option<f32>) -> f32 {
     pushed.or(driven).unwrap_or(current)
 }
@@ -461,7 +461,7 @@ impl VehicleRuntime {
     ) {
         use crate::interaction::items::ItemLocation;
         self.powertrain = powertrain.mounted_on(items, key);
-        // Source: the part `tankscript`, else the first tank of its `tosaveitem` (Bike03 tanks).
+        // The source uses the part `tankscript`, else the first tank of its `tosaveitem` (Bike03 tanks).
         let tank = |item: ItemId| items.get(item).is_some_and(|i| i.fluid.is_some());
         self.fuel_tank = self.root_tank.or_else(|| {
             let part = self.fuel_tank_slot.and_then(|slot| parts.slot_item(slot))?;
@@ -474,7 +474,7 @@ impl VehicleRuntime {
                 .map(|i| i.id)
         });
     }
-    /// Source `carscript.Update`: eases the gear lever and control pedals by render time `dt`.
+    /// Source `carscript.Update`. Eases the gear lever and control pedals by render time `dt`.
     pub fn advance_controls(&mut self, reference: &ReferenceManifest, dt: f32) {
         let record = world_vehicle(reference, self.prototype);
         if let (Some(lever), Some(r)) = (&mut self.lever, &record.lever) {

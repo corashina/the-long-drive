@@ -60,7 +60,7 @@ impl Electronics {
             self.jam = (self.jam - JAM_DECREASE * dt).max(0.);
         }
     }
-    /// One frame: decay, then every EMP that holds `at` on collider layer `layer`.
+    /// Runs one frame: the decay, then every EMP that holds `at` on collider layer `layer`.
     pub fn expose(&mut self, emps: &[Emp], at: Vector, layer: u32, dt: f32) {
         self.update(dt);
         for emp in emps {
@@ -158,7 +158,7 @@ impl Emp {
             self.local_value += (n - 0.5) * self.value_spread;
         }
     }
-    /// `OverlapSphere` hit of electronics at `at` on collider layer `layer`: raises the jam
+    /// `OverlapSphere` hit of electronics at `at` on collider layer `layer`. Raises the jam
     /// toward the fall-off value. Returns true when the sphere holds the target.
     pub fn jam(&self, at: Vector, layer: u32, e: &mut Electronics, dt: f32) -> bool {
         let distance = (at - self.position).length();

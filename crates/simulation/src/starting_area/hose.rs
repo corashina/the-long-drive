@@ -69,7 +69,7 @@ fn register(
         .register_hose(record, segments, &area.items, physics)
 }
 
-/// Save restore: rebuild one runtime hose per restored hose serial.
+/// On save restore, rebuild one runtime hose per restored hose serial.
 pub(super) fn restore(
     reference: &ReferenceManifest,
     area: &mut StartingArea,
@@ -90,7 +90,7 @@ pub(super) fn restore(
     Ok(())
 }
 
-/// Save validation: each saved hose serial holds all its segments.
+/// Save validation. Each saved hose serial must hold all its segments.
 pub fn validate_save(
     reference: &ReferenceManifest,
     saved: &[crate::save::SpawnedItemSnapshot],
@@ -114,7 +114,7 @@ pub fn validate_save(
     Ok(())
 }
 
-/// New game: the hose lies flat on the garage floor, beside the 20 L fuel can.
+/// In a new game, the hose lies flat on the garage floor, beside the 20 L fuel can.
 pub(super) fn spawn_start(
     reference: &ReferenceManifest,
     area: &mut StartingArea,
@@ -138,7 +138,7 @@ pub(super) fn spawn_start(
         .body
         .ok_or_else(|| ReferenceError("20 L fuel can has no body".into()))?;
     let can_pose = *physics.rapier().bodies[can_body].position() * to_rapier(can.local_pose);
-    // Yaw only: the hose lies flat whatever the can tilt.
+    // Use the yaw only. The hose lies flat whatever the can tilt.
     let side = (can_pose.rotation * Vector::X)
         .with_y(0.0)
         .normalize_or(Vector::X);

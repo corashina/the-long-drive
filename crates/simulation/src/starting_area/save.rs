@@ -46,7 +46,7 @@ impl GarageRuntime {
         let ids = &mut pending.ids;
         let before = pending.items.len();
         let mut index = 0;
-        // Imported edges are bounded by the immutable imported item set.
+        // The immutable imported item set bounds the imported edges.
         while index < pending.items.len() {
             let item = &pending.items[index];
             let ItemLocationSave::GeneratedAttachment { attachment } = &item.location else {
@@ -723,7 +723,7 @@ fn seat_owner_key(seat: &SeatSnapshot) -> &crate::world::ObjectKey {
         SeatOwnerSnapshot::Vehicle { vehicle } => vehicle,
     }
 }
-/// Saved position of the last seated car. The player position if it has none.
+/// Saved position of the last seated car, or the player position if there is none.
 fn selected_vehicle_position(saved: &SaveSnapshot) -> [f64; 3] {
     let Some(key) = &saved.progress.selected_vehicle else {
         return saved.player.pose.position;

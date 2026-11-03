@@ -189,7 +189,7 @@ impl GarageRuntime {
                     .broadcasts
                     .frame(state, audio.game_seconds, output, cutoff),
             });
-            // Source `audioBasedOnInteriorsensscript`: a car radio plays through its car mixer.
+            // Source `audioBasedOnInteriorsensscript`. A car radio plays through its car mixer.
             let car = vehicles.iter().find_map(|(key, car)| match key {
                 crate::world::ObjectKey::Generated(id) if id == parent => {
                     car.record(reference).audio.as_ref().map(|a| &a.route)

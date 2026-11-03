@@ -452,7 +452,7 @@ impl SimDriver {
         self.look.position[1] = player.view(&self.runtime.physics).camera_pose.position;
     }
 
-    /// Both steps of the look at the player view.
+    /// Puts both steps of the look at the player view.
     fn reset_look(&mut self) {
         self.capture_look();
         self.look.position[0] = self.look.position[1];

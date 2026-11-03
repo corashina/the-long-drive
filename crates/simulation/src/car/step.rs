@@ -110,7 +110,7 @@ fn advance_exhaust(
             .is_some_and(|body| world.physics.body_active(body))
     });
     let running = active && output.running;
-    // The chassis body frame is the car root node: reference validation requires it.
+    // The chassis body frame is the car root node. Reference validation requires it.
     let root = world.physics.rapier().bodies[world.physics.chassis_handle(key)].position();
     vehicle.exhaust.advance(
         FIXED_DT,
@@ -151,7 +151,7 @@ fn advance_wheel_effects(
     let (references, gains) = (&record.wheel_effects, &record.effect_gains);
     let chassis = world.physics.chassis_handle(key);
     let body = &world.physics.rapier().bodies[chassis];
-    // The chassis body frame is the car root node: reference validation requires it.
+    // The chassis body frame is the car root node. Reference validation requires it.
     let root = body.position();
     let forward = root.rotation * -rapier3d::math::Vector::Z;
     let linear_velocity = body.linvel();
@@ -190,7 +190,7 @@ fn advance_wheel_effects(
 }
 
 /// Steps one engine and applies its forces. Only the driven vehicle reads keys.
-/// The engine and radiator are the parts mounted on this car. No engine part: no torque.
+/// The engine and radiator are the parts mounted on this car. Torque needs an engine part.
 fn step_drive(
     world: &mut CarWorld,
     reference: &ReferenceManifest,
@@ -278,8 +278,8 @@ fn step_drive(
     {
         lever.shift(&reference.driving.lever, last_gear, gear);
     }
-    // Source `Shifted`: a random `valtoSounds` clip unless the gears shift by themselves.
-    // Source `ControlStuff`: `rosszvaltoSound` at the grind gain.
+    // Source `Shifted` plays a random `valtoSounds` clip unless the gears shift by themselves.
+    // Source `ControlStuff` plays `rosszvaltoSound` at the grind gain.
     let audio = world_vehicle(reference, vehicle.prototype).audio.as_ref();
     let shift = audio
         .filter(|a| gear != last_gear && !drivetrain.automatic && !a.shift.is_empty())
@@ -339,7 +339,7 @@ fn step_drive(
         FIXED_DT,
         |m| frames.send(body, m),
     );
-    // Source `carscript.ControlStuff`: pedals are off while the engine runs.
+    // In source `carscript.ControlStuff`, the pedals are off while the engine runs.
     let pedaling = driving
         && record.pedals.is_some()
         && !engine.is_some_and(|engine| engine.state.output().running);
@@ -509,7 +509,7 @@ fn step_drive(
         // Source `handbrake` axis beside the lever state.
         handbrake: (vehicle.handbrake as u8 as f32).max(controls.handbrake),
     };
-    // Source `carscript.Update`: the handbrake sound when the handbrake leaves or reaches 0.
+    // Source `carscript.Update` plays the handbrake sound when the handbrake leaves or reaches 0.
     if (vehicle.pedal_inputs.handbrake > 0.01) != (drive.handbrake > 0.01) {
         car_sound(
             world.audio,
@@ -558,7 +558,7 @@ fn step_drive(
                 vehicle.pedals.disabled = output.running;
             }
             let disabled = vehicle.pedals.disabled;
-            // Source `UpdMulti`: `bikepedal.multiGas` when the remote pedals more.
+            // Source `UpdMulti` uses `bikepedal.multiGas` when the remote pedals more.
             if let Some(r) = remote
                 && r.bike_gas > vehicle.pedals.gas
             {
@@ -576,7 +576,7 @@ fn step_drive(
         }
         world.physics.apply_vehicle_forces(key, drive, torques);
     }
-    // Source `carscript.UpdMulti` sender half: the driver controls after AutoShift.
+    // The sender half of source `carscript.UpdMulti`. It sends the driver controls after AutoShift.
     if driving {
         vehicle.net.sent = Some(crate::net::car::CarFloats {
             steer: vehicle.steer,

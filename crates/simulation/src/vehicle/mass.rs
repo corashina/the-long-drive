@@ -13,7 +13,7 @@ pub(super) struct BodyMassOverride {
 }
 
 impl PhysicsWorld {
-    /// Source `Rigidbody.centerOfMass`: moves the local centre of mass and keeps mass and
+    /// Source `Rigidbody.centerOfMass`. Moves the local centre of mass and keeps mass and
     /// inertia. Later mass changes keep the override.
     pub fn set_center_of_mass(
         &mut self,

@@ -471,7 +471,7 @@ pub struct GarageRuntime {
     /// Source `BOldHeatHaze`. The driver sets it.
     pub old_heat_haze: bool,
     sleep_camera: Option<crate::sleep::SleepCamera>,
-    /// Source `otherView()`: a seated outside view, drop cam or map view shows. The driver sets it.
+    /// Source `otherView()`. A seated outside view, drop cam or map view shows. The driver sets it.
     pub other_view: bool,
     pub audio_motion_revision: u32,
     pub simulation_seconds: f64,
@@ -487,7 +487,7 @@ pub struct GarageRuntime {
     pub lighting: crate::lighting::LightingState,
     /// The main depth of field focus.
     pub focus: crate::depth_of_field::Focus,
-    /// Resolved once from the requested draw distance.
+    /// The runtime resolves them once from the requested draw distance.
     pub distances: crate::world::DrawDistances,
     pub physics: PhysicsWorld,
     pub area: StartingArea,
@@ -504,7 +504,7 @@ pub struct GarageRuntime {
     pub paused: bool,
     pub started: bool,
     pub attempts: u64,
-    /// Km the player drove as driver.
+    /// Kilometers that the player drove as driver.
     pub driven_km: f64,
     pub rebases: u32,
     pub notice: &'static str,
@@ -518,7 +518,7 @@ pub struct GarageRuntime {
     /// Simulation time of the next under-map check.
     under_map_check: f64,
     frame_poses: crate::boundary::FramePoses,
-    /// The first frame carries every condition; later frames carry changes.
+    /// The first frame carries every condition. Later frames carry changes.
     conditions_sent: bool,
     /// World session whose home cable is done.
     home_cable_session: Option<u64>,
@@ -817,7 +817,7 @@ impl GarageRuntime {
             .stream
             .origin
             .absolute(self.area.player.body_pose(&self.physics).position);
-        // Source order: the zones duck the ambient before napszak reads it.
+        // In source order, the zones duck the ambient before napszak reads it.
         if let Some(audio) = &mut self.audio {
             audio.sync_zones(
                 self.stream.structure_revision(),
@@ -1059,7 +1059,7 @@ impl GarageRuntime {
             factors.fluid_scale,
         );
         if self.area.interaction.lmb_owner().is_some() {
-            // fpscontroller noLMBUse: the held tool LMB does not use the aimed item.
+            // fpscontroller noLMBUse. LMB on the held tool does not use the aimed item.
             input.drop_keys(keys::PRIMARY);
         }
         let action = outcome.action;
@@ -1476,7 +1476,7 @@ impl GarageRuntime {
             if vehicle.kmh_slots.is_empty() {
                 continue;
             }
-            // Source carscript.Update: the meter of the part in each kmhmeters slot.
+            // Source carscript.Update reads the meter of the part in each kmhmeters slot.
             let record = world_vehicle(reference, vehicle.prototype);
             let sample = instrument_sample(
                 &self.area.items,
@@ -1838,7 +1838,7 @@ impl GarageRuntime {
         }
     }
 
-    /// Per rendered frame work: gauges and gear levers move by render time.
+    /// Work of each rendered frame. Gauges and gear levers move by render time.
     /// `fill_frame` advances the audio with the same input.
     pub fn advance_render_frame(
         &mut self,
@@ -1852,7 +1852,7 @@ impl GarageRuntime {
             self.advance_levers(reference, input.dt);
         }
     }
-    /// Source `carscript.Update`: eases each car gear lever and control pedal by render time `dt`.
+    /// Source `carscript.Update`. Eases each car gear lever and control pedal by render time `dt`.
     fn advance_levers(&mut self, reference: &ReferenceManifest, dt: f32) {
         for vehicle in self.vehicles.values_mut() {
             vehicle.advance_controls(reference, dt);
@@ -1973,7 +1973,7 @@ impl GarageRuntime {
             let rules = &reference.breakables[record];
             let item = match kind {
                 crate::damage::BreakKind::Item(item) => item,
-                // Cacti has no tosaveitemscript: source Break throws at tosave.PreDestroy, after
+                // Cacti have no tosaveitemscript. Source Break throws at tosave.PreDestroy, after
                 // the gib spawns. The prop stays and does not break again.
                 crate::damage::BreakKind::Prop { parent } => {
                     let Some(pose) = self.stream.prop_pose(&parent) else {
@@ -2005,7 +2005,7 @@ impl GarageRuntime {
                     continue;
                 }
             };
-            // Source `SBroke`: a guest asks the host to break the item.
+            // Source `SBroke`. A guest asks the host to break the item.
             if self.net_guest {
                 if self.shared_breaks.len() < self.shared_breaks.capacity() {
                     self.shared_breaks.push((item, record as u32));
@@ -2206,7 +2206,7 @@ impl GarageRuntime {
             .engine()
             .and_then(|item| self.powertrain.engine(item))
     }
-    /// Output of the engine part mounted on car `key`. No engine: zero output.
+    /// Output of the engine part mounted on car `key`. Without an engine, the output is zero.
     pub fn engine_output(&self, key: &ObjectKey) -> EngineOutput {
         self.mounted_engine(key)
             .map_or_else(EngineOutput::default, |e| e.state.output())

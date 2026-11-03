@@ -1,5 +1,5 @@
-//! Source home `buildingscript.FStart`: connect the home cable to the nearest road pole.
-//! Runs once per world session. No pole in range: the root stays hidden.
+//! Source home `buildingscript.FStart`. It connects the home cable to the nearest road pole.
+//! Runs once per world session. Without a pole in range, the root stays hidden.
 use super::{GarageRuntime, StartingArea};
 use crate::boundary::RopeAim;
 use crate::reference::{NodeId, ReferenceError, ReferenceManifest, Transform};
@@ -7,7 +7,7 @@ use crate::vehicle::PhysicsWorld;
 use glam::{Affine3A, Quat, Vec3};
 
 impl GarageRuntime {
-    /// The rope aims once the target query resolves. Empty: no pole, the root stays hidden.
+    /// The rope aims once the target query resolves. Empty when no pole is in range.
     pub(super) fn home_cable(&mut self, reference: &ReferenceManifest) -> Option<Vec<RopeAim>> {
         let session = self.stream.frame().request.session;
         if self.home_cable_session == Some(session)
@@ -63,7 +63,7 @@ impl GarageRuntime {
     }
 }
 
-/// World transform of `node` below its starting-area body. Source BodyVisual scale rule.
+/// World transform of `node` below its starting-area body. Uses the source BodyVisual scale rule.
 fn body_node_transform(
     reference: &ReferenceManifest,
     area: &StartingArea,

@@ -179,7 +179,7 @@ impl WheelSet {
                 force.up * (force.load * FIXED_DT),
             );
         }
-        // Tire impulses: a few projected Gauss-Seidel passes over the contacts.
+        // Tire impulses use a few projected Gauss-Seidel passes over the contacts.
         self.accumulated.fill([0.0; 2]);
         for _ in 0..TIRE_ITERATIONS {
             for (contact, accumulated) in self.contacts.iter().zip(&mut self.accumulated) {
