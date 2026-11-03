@@ -20,6 +20,8 @@ function digestStream() {
   return {stream, result: () => ({size: bytes, sha256: hash.digest('hex')})};
 }
 
+const sameSource = (a, b) => a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+
 async function sha256File(path) {
   const hash = createHash('sha256');
   for await (const bytes of createReadStream(path)) hash.update(bytes);
@@ -34,7 +36,7 @@ async function reusable(sourcePath, before, previous, compressionRoot) {
   const compressed = await stat(resolve(compressionRoot, brotli.file)).catch(() => undefined);
   if (compressed?.size !== brotli.size) return;
   const after = await stat(sourcePath);
-  if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) {
+  if (!sameSource(before, after)) {
     throw Error('Compression source changed: ' + sourcePath);
   }
   return {source: {size: before.size, sha256, mtimeMs: before.mtimeMs, ctimeMs: before.ctimeMs}, brotli};
@@ -77,7 +79,7 @@ export async function prepareStartupCompression({webRoot = resolve(projectRoot, 
           [constants.BROTLI_PARAM_SIZE_HINT]: before.size,
         }}), encoded.stream, createWriteStream(temporary, {flags: 'wx'}));
       const after = await stat(sourcePath);
-      if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) {
+      if (!sameSource(before, after)) {
         throw Error('Compression source changed: ' + name);
       }
       const raw = source.result(), brotli = encoded.result();
