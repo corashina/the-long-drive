@@ -1794,7 +1794,16 @@ impl GarageRuntime {
                         previous,
                         current,
                         tune,
-                    } => audio.cap(id, previous, current, tune),
+                    } => {
+                        if audio.imported_cap(id) {
+                            audio.cap(id, previous, current, tune);
+                        } else if let Some((clips, cap)) = self.area.interaction.cap_clips(id)
+                            && let Some(item) = self.area.items.get(cap)
+                        {
+                            let position = self.stream.origin.absolute(item.pose.position);
+                            audio.generated_cap(clips, previous, current, tune, position);
+                        }
+                    }
                 }
             }
             // szankoScript.Update sets the slide volume and pitch of each sled in use.
