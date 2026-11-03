@@ -364,11 +364,7 @@ impl SourceRoadLight {
     }
     pub fn place(&self, reference: &WorldReference, segment: &RoadSegment) -> WorldLight {
         let recipe = &self.recipes[segment.biome as usize];
-        let prototype = reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == reference.road.prototypes[segment.biome as usize])
-            .unwrap();
+        let prototype = road_prototype(reference, segment);
         let pole = recipe.pole.frame(prototype, segment, self.seed);
         WorldLight {
             id: GeneratedId {
@@ -396,6 +392,18 @@ impl SourceRoadLight {
             node: None,
         }
     }
+}
+/// The road prototype of the segment biome.
+pub(super) fn road_prototype<'a>(
+    world: &'a WorldReference,
+    segment: &RoadSegment,
+) -> &'a WorldPrototypeReference {
+    let source = &world.road.prototypes[segment.biome as usize];
+    world
+        .prototypes
+        .iter()
+        .find(|p| &p.source == source)
+        .unwrap()
 }
 /// Select all influencing source lights. Visibility and pole mesh distance do not reject light influence.
 pub fn required_world_lights(

@@ -110,7 +110,7 @@ pub(crate) fn prepare_step_for_views(
         .is_some_and(|w| !same_request(w.request, stream.request))
         && let Some((request, key)) = surface_claim.take()
     {
-        stream.discard_surface_renderer(request, key).unwrap();
+        stream.discard_surface_renderer(request, key);
     }
     stream.select_required(required_views);
     let sources: Vec<_> = reference
@@ -206,7 +206,7 @@ pub(crate) fn prepare_ready(run: &mut GarageRuntime, reference: &ReferenceManife
                     key.layer != WorldLayer::Road
                         || !run.stream.required.roads.contains(&(key.unit[0] as u32))
                 );
-                run.stream.discard_surface_renderer(request, key).unwrap();
+                run.stream.discard_surface_renderer(request, key);
             }
             return;
         }
