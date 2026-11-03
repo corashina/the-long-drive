@@ -60,3 +60,4 @@ incremental = true
 
 [patch.crates-io]
 bevy_render = { path = "vendor/bevy_render" }
+parry3d = { path = "vendor/parry3d" }
