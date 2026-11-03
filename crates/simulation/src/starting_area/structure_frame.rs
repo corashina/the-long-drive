@@ -66,7 +66,12 @@ impl GarageRuntime {
         self.last_feedback = None;
     }
     /// Writes the views of changed structures. Clears the stream and body presentation queues.
-    pub(super) fn fill_structures(&mut self, reference: &ReferenceManifest, frame: &mut SimFrame) {
+    pub(super) fn fill_structures(
+        &mut self,
+        reference: &ReferenceManifest,
+        alpha: f32,
+        frame: &mut SimFrame,
+    ) {
         frame.structures.clear();
         frame.structure_poses.clear();
         frame.hidden_nodes.clear();
@@ -135,6 +140,7 @@ impl GarageRuntime {
             seconds: self.simulation_seconds,
             other_view: self.other_view,
             binoculars,
+            alpha,
         };
         let result = views.write(&inputs, frame);
         self.physics.clear_presentation_bodies();
@@ -157,6 +163,8 @@ struct Inputs<'a> {
     seconds: f64,
     other_view: bool,
     binoculars: Option<ItemId>,
+    /// Step clock fraction. Body poses show between the last two steps.
+    alpha: f32,
 }
 
 impl StructureViews {
@@ -626,7 +634,7 @@ impl StructureViews {
             }
         }
         for (body, handle) in prototype.bodies.iter().enumerate().zip(&structure.bodies) {
-            let pose = physics.rapier().bodies[*handle].position();
+            let pose = physics.presented_pose(*handle, inputs.alpha);
             poses.push(NodePoseRow {
                 node: body.0 as u32,
                 kind: NodePoseRow::BODY,
