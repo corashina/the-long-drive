@@ -31,7 +31,8 @@ impl GarageRuntime {
         let carry = &area.interaction.carry;
         let double_hand = |item| carry.rule(item).is_some_and(|r| r.double_hand);
         let rapier = self.physics.rapier();
-        // meleeweaponscript and weaponscript move the weapon grips. They are item children.
+        // pickupable RightHandPos and LeftHandPos are item children. meleeweaponscript and
+        // weaponscript move the weapon grips.
         let grips = |item| {
             let root = area.items.get(item).and_then(|i| {
                 Some(*rapier.bodies.get(i.body?)?.position() * to_rapier(i.local_pose))
@@ -39,7 +40,8 @@ impl GarageRuntime {
             let mut grips = area.interaction.melee.grips();
             // weaponscript moves ReloadLHPos, the gun's left hand grip.
             grips[0] = grips[0].or_else(|| area.interaction.guns.left_grip(item));
-            grips.map(|g| Some(local(root? * g?)))
+            let authored = carry.hand_grips(item);
+            std::array::from_fn(|side| Some(local(root? * grips[side].or(authored[side])?)))
         };
         let input = BodyInputs {
             camera: local(to_rapier(view.camera_pose)),

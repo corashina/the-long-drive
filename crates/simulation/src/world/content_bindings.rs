@@ -1462,6 +1462,20 @@ fn bind_pickup(
     }
     if let Some(rule) = &rule {
         interaction.register_generated_pickup(id, rule.clone(), layers, container);
+        // pickupable `RightHandPos` and `LeftHandPos` are Transforms under the pickupable.
+        let grip = |source: &Option<crate::reference::SourceId>| {
+            let index = prototype
+                .nodes
+                .iter()
+                .position(|n| Some(&n.source) == source.as_ref())?;
+            Some(to_rapier(crate::world::node_frame(
+                prototype,
+                pickup_node,
+                index,
+            )))
+        };
+        let grips = [grip(&rule.left_hand_grip), grip(&rule.right_hand_grip)];
+        interaction.carry.register_grips(rule, grips);
     }
     Ok(BoundPickup {
         id,
