@@ -1,5 +1,5 @@
-// Installed KEyeHistogram:128 weighted bins, source pixel stride2, bilinear LOD0.
-// Every scatter tile has at most32 samples, so each RGBA16F component sums to <=2048 exactly.
+// Installed KEyeHistogram with 128 weighted bins, source pixel stride 2 and bilinear LOD0.
+// Every scatter tile has at most 32 samples, so each RGBA16F component sums to <=2048 exactly.
 struct HistogramParams {
     source_size: vec2<u32>,
     sample_extent: vec2<u32>,
@@ -27,7 +27,7 @@ fn scatter_vertex(@builtin(vertex_index) vertex: u32) -> ScatterOutput {
     let weight = u32((factor * factor) * 64.0);
     let color = textureSampleLevel(source_color, source_sampler, uv, 0.0).rgb;
     let luminance = dot(color, vec3(0.2126729, 0.7151522, 0.0721750));
-    // The source clamps log2(0) to bin0. Avoid backend-dependent conversion of infinity.
+    // The source clamps log2(0) to bin 0. Avoid backend-dependent conversion of infinity.
     var logarithm = 0.0;
     if luminance > 0.0 { logarithm = clamp(log2(luminance) * (1.0 / 18.0) + 0.5, 0.0, 1.0); }
     let bin = u32(logarithm * 127.0);

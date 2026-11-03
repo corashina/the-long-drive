@@ -434,7 +434,7 @@ fn apply_owner(owner: &Owner, state: &ConditionState, bank: usize, world: &mut W
 }
 impl ConditionVisuals {
     fn apply_visibility(&self, world: &mut World) {
-        // Retained identities are hidden; source destruction never removes a binding.
+        // Retained identities are hidden. Source destruction never removes a binding.
         for (index, (_, objects)) in self.washes.iter().enumerate() {
             let visible = world.resource::<SimFrameResource>().frame.washes[index] != 0;
             for &entity in objects {

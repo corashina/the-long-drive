@@ -1,5 +1,5 @@
-// Installed MultiScaleVOUpSample kernels3 and0, expressed as three fragment passes.
-// The native shared float caches become R32F halos; raw inputs clamp before blur.
+// Installed MultiScaleVOUpSample kernels 3 and 0, expressed as three fragment passes.
+// The native shared float caches become R32F halos. Raw inputs clamp before blur.
 struct UpsampleParams {
     settings: vec4<f32>, // noise filter strength, step size, blur tolerance, upsample tolerance
     control: vec4<u32>, // x = blend with high AO
@@ -64,7 +64,7 @@ fn vertical(@builtin(position) position: vec4<f32>) -> @location(0) f32 {
     }
     return smart_blur(ao,inverse);
 }
-// D3D11.3 section3.2.3.6: NaN -> 0, infinities clamp before UNorm storage.
+// D3D11.3 section 3.2.3.6. NaN becomes 0, and infinities clamp before UNorm storage.
 fn unorm_bits(bits: u32) -> u32 {
     let magnitude = bits & 0x7fffffffu;
     if magnitude > 0x7f800000u || (bits & 0x80000000u) != 0u { return 0u; }

@@ -175,7 +175,7 @@ fn vertex(vertex_no_morph: Vertex) -> SourceVertexOutput {
 #ifdef SOURCE_TRANSPARENT
     out.position = lighting.clip_from_world * out.world_position;
 #endif
-    // Lamp mask and probe pair of the object. Layout in object_lighting.rs.
+    // Lamp mask and probe pair of the object. object_lighting.rs has the layout.
 #ifdef SOURCE_GPU_PROPS
     let object = prop_object(vertex_no_morph.instance_index);
 #else

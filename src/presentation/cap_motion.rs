@@ -41,8 +41,8 @@ impl CapVisual {
     }
 }
 
-/// Source `tankcapscript.DoMove`: each frame moves `TCap` by `Lerp(current, target, capLerp)`.
-/// `capLerp` starts at 0 and gains `deltaTime * 10`; at 1 the cap snaps to its target.
+/// Source `tankcapscript.DoMove`. Each frame moves `TCap` by `Lerp(current, target, capLerp)`.
+/// `capLerp` starts at 0 and gains `deltaTime * 10`. At 1 the cap snaps to its target.
 fn cap_motion(
     current: Transform,
     target: Transform,

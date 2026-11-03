@@ -1,6 +1,6 @@
 #define_import_path source_caster_math
 
-// Installed Standard SHADOWS_DEPTH: vertices9666/9684; fragments9759/9763.
+// Installed Standard SHADOWS_DEPTH, vertices 9666 and 9684, fragments 9759 and 9763.
 fn caster_cutout_margin(main_alpha: f32, color_alpha: f32, cutoff: f32) -> f32 {
     return fma(main_alpha, color_alpha, -cutoff);
 }
@@ -32,7 +32,7 @@ fn caster_clip_bias(clip: vec4<f32>, bias: vec2<f32>) -> vec4<f32> {
     return vec4(clip.xy, fma(bias.y, bounded - depth, depth), clip.w);
 }
 fn caster_transform(matrix: mat4x4<f32>, point: vec4<f32>) -> vec4<f32> {
-    // DXBC multiply/add order: Y, X, Z, W.
+    // DXBC multiply and add order: Y, X, Z, W.
     var result = matrix[1] * point.y;
     result = fma(matrix[0], vec4(point.x), result);
     result = fma(matrix[2], vec4(point.z), result);

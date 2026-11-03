@@ -31,7 +31,7 @@ use std::{
     },
 };
 
-/// Same layout as source_lighting.wgsl. Source constants are uploaded without unit conversion.
+/// It has the same layout as source_lighting.wgsl. The renderer uploads source constants without unit conversion.
 #[derive(Clone, Copy, Debug, PartialEq, ShaderType)]
 pub struct LightingUniform {
     pub ambient_sh: [Vec4; 7],
@@ -53,7 +53,7 @@ pub struct LightingUniform {
 }
 
 /// Layout specialization happens only when a pipeline is prepared.
-/// Task5 uses a distinct glass layout; it cannot append a seventeenth texture.
+/// Task5 uses a distinct glass layout. It cannot append a seventeenth texture.
 pub fn surface_lighting_layout() -> BindGroupLayoutDescriptor {
     BindGroupLayoutDescriptor::new(
         "source_view_lighting",
@@ -177,7 +177,7 @@ impl SourceViewLighting {
         }
         self.draw_epoch.fetch_add(1, Ordering::Relaxed);
     }
-    /// Epoch, base attempts/successes, additive attempts/successes.
+    /// Epoch, base attempts and successes, additive attempts and successes.
     pub fn instances(&self) -> [u32; 4] {
         self.instance_counts
             .each_ref()
@@ -570,7 +570,7 @@ fn prepare_source_draws(
     }
 }
 
-/// Source mesh shaders use Bevy camera/global buffers and perform their own lighting.
+/// Source mesh shaders use Bevy camera and global buffers and perform their own lighting.
 /// This layout has no sampled textures or samplers.
 pub fn source_camera_layout() -> BindGroupLayoutDescriptor {
     use bevy::render::{globals::GlobalsUniform, view::ViewUniform};

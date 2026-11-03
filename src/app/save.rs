@@ -41,7 +41,7 @@ impl SaveRequests {
     }
 }
 
-/// Runs after the frame fill: applies the save results and reads the next request.
+/// Runs after the frame fill. It applies the save results and reads the next request.
 pub fn dispatch(world: &mut World) {
     world.resource_scope(|world, mut requests: Mut<SaveRequests>| {
         results(world, &mut requests);

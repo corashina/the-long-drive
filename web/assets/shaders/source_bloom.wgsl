@@ -1,4 +1,4 @@
-// Installed Bloom fast passes1/3/5, fragment blobs5/9/13.
+// Installed Bloom fast passes 1, 3 and 5, fragment blobs 5, 9 and 13.
 #import source_float_store::{half4, source_min, source_max, source_sat}
 struct Params {
     output_size: vec2<f32>,
@@ -16,7 +16,7 @@ struct Params {
     return vec4(vec2<f32>(f32((i<<1u)&2u),f32(i&2u))*2.-1.,0.,1.);
 }
 fn tap(uv:vec2<f32>)->vec4<f32>{
-    // Selected non-stereo viewport scale is1. Preserve saturation before sampling.
+    // Selected non-stereo viewport scale is 1. Preserve saturation before sampling.
     return textureSampleLevel(main_tex,linear_clamp,vec2(source_sat(uv.x),source_sat(uv.y)),0.);
 }
 fn sum4(uv:vec2<f32>,scale:f32)->vec4<f32>{

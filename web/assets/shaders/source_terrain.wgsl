@@ -50,7 +50,7 @@ struct TerrainOutput {
 fn vertex(v: TerrainVertex)->TerrainOutput {
     let world=mesh_functions::get_world_from_local(v.instance);
     let position=mesh_functions::mesh_position_local_to_world(world,vec4(v.position,1.));
-    // Compiled source offsets64/68 are FarDist/NearDist, in this order.
+    // Compiled source offsets 64 and 68 are FarDist and NearDist, in this order.
     let distance=length(position.xyz-view.world_position);
     let quotient=(distance-terrain.displacement.x)/(terrain.displacement.y-terrain.displacement.x);
     let factor=select(0.,clamp(quotient,0.,1.),quotient==quotient);

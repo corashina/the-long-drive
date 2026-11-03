@@ -1,6 +1,6 @@
 // Source startup lighting. Binding order matches SourceViewLighting.
 #define_import_path source_view_lighting
-// Installed Hidden/Internal-ScreenSpaceShadows blobs46/60, sampled at the fragment instead of a screen pass.
+// Installed Hidden/Internal-ScreenSpaceShadows blobs 46 and 60, sampled at the fragment instead of a screen pass.
 struct SunShadow {
     world_to_shadow: array<mat4x4<f32>, 4>,
     spheres: array<vec4<f32>, 4>,
@@ -44,7 +44,7 @@ struct LightingUniform {
 @group(1) @binding(5) var shadow_atlas: texture_depth_2d;
 @group(1) @binding(6) var shadow_compare: sampler_comparison;
 @group(1) @binding(7) var lamp_atlas: texture_depth_2d;
-// Lamp mask and probe pair of each entity, by MeshTag. Layout in object_lighting.rs.
+// Lamp mask and probe pair of each entity, by MeshTag. object_lighting.rs has the layout.
 @group(1) @binding(8) var<storage> object_lighting: array<vec4<u32>>;
 
 fn diffuse_sh(normal: vec3<f32>) -> vec3<f32> {
@@ -58,7 +58,7 @@ fn diffuse_sh(normal: vec3<f32>) -> vec3<f32> {
 fn indirect_specular(specular: vec3<f32>,one_minus_reflectivity: f32,smoothness: f32,
     normal: vec3<f32>,view: vec3<f32>,occlusion: f32,probes: vec4<f32>) -> vec3<f32> {
     let reflected=reflect(-view,normal);
-    // Native face storage retains source axes; target world coordinates reflect Z.
+    // Native face storage retains source axes. Target world coordinates reflect Z.
     let source_ray=vec3(reflected.x,reflected.y,-reflected.z);
     let perceptual=1.0-smoothness;
     let level=(perceptual*(1.7-0.7*perceptual))*6.0;
@@ -121,7 +121,7 @@ fn filtered_shadow(coord: vec3<f32>) -> f32 {
     }
     return result;
 }
-// Sphere cascades. The installed operation order starts with cascade1, then adds cascade0,2,3.
+// Sphere cascades. The installed operation order starts with cascade 1, then adds cascades 0, 2 and 3.
 fn sun_shadow_visibility(world_position: vec3<f32>) -> f32 {
     if(lighting.sun_shadow.params.w==0.) { return 1.; }
     let world = vec4<f32>(world_position,1.);
@@ -150,7 +150,7 @@ fn direct_attenuation(world_position: vec3<f32>,view_depth: f32,receive_shadows:
     if(receive_shadows && fade<1.0) { shadow=sun_shadow_visibility(world_position); }
     return cookie*select(1.0,mix(shadow,1.0,fade),receive_shadows);
 }
-// The shadow of one lamp. `slot` is the lamp mask.z: 0 has no shadow.
+// The shadow of one lamp. `slot` is the lamp mask.z, and 0 has no shadow.
 // The receiver takes the bias: an offset along its normal and to the lamp, in texels of the face.
 fn lamp_shadow(slot: u32, light_position: vec3<f32>, world_position: vec3<f32>, normal: vec3<f32>,
     view_depth: f32, receive_shadows: bool) -> f32 {

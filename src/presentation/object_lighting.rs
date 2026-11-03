@@ -14,7 +14,7 @@ use bevy::render::{
     renderer::{RenderDevice, RenderQueue},
 };
 
-/// One packed value per object. Same layout as `object_lighting` in source_mesh.wgsl.
+/// One packed value per object. It has the same layout as `object_lighting` in source_mesh.wgsl.
 /// x, y: lamp mask, low bit first. z: first probe slot, second slot (0xff: none) << 8, renderer flags << 16.
 /// w: first probe weight bits.
 pub type ObjectValue = [u32; 4];
@@ -237,7 +237,7 @@ const NO_PROBE: ProbeBlend = ProbeBlend {
     slots: [None, None],
 };
 
-/// Same f32 operations and order as `probe_blend` in source_props_cull.wgsl.
+/// It uses the same f32 operations and order as `probe_blend` in source_props_cull.wgsl.
 /// Unity BlendProbes with equal importance. Renderer extents keep the native Vector3f::epsilon clamp.
 pub fn probe_blend(
     probes: &Probes,
@@ -290,7 +290,7 @@ pub fn probe_blend(
 fn finite(value: Vec3) -> bool {
     value.is_finite()
 }
-/// Lamps that can reach the object bounds. Same f32 operations and order as `object_light_mask`
+/// Lamps that can reach the object bounds. It uses the same f32 operations and order as `object_light_mask`
 /// in source_props_cull.wgsl.
 pub fn object_light_mask(
     lighting: &LightingUniform,

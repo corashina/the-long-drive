@@ -255,7 +255,7 @@ pub fn bind_plate_text(world: &mut World) {
         world.resource_mut::<PlateTextStatus>().state = RenderingState::Failed(e);
     }
 }
-/// The first plate label of the car prototypes: its layout and source layer. Reference
+/// The first plate label of the car prototypes, with its layout and source layer. Reference
 /// validation gives every label the shared font, material and layer.
 fn sample_plate(
     reference: &crate::reference::ReferenceManifest,
@@ -361,7 +361,7 @@ fn bind(world: &mut World) -> Result<(), String> {
     }
     Ok(())
 }
-/// Shows the plate labels of each shown world car copy. A copy binds once; its labels leave
+/// Shows the plate labels of each shown world car copy. A copy binds once. Its labels leave
 /// with its instance. The sample label of `bind` warmed the shared pipeline.
 pub fn bind_world_plate_text(world: &mut World) {
     if !world.resource::<PlateTextStatus>().ready() {

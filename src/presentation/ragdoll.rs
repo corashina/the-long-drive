@@ -1,4 +1,4 @@
-//! Player ragdoll: the ragdoll prototype (`fpscontroller.prefabRagdol`) with the outfit character (`CopyFrom`).
+//! The player ragdoll is the ragdoll prototype (`fpscontroller.prefabRagdol`) with the outfit character (`CopyFrom`).
 //! It shows while the frame has ragdoll rows. Each body node takes its body pose under the prefab root.
 //! Character 1 nodes take the body pose of the character 0 joint with the same name.
 //! Nodes without a body keep their local pose under their parent. The GPU skins the meshes.

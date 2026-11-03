@@ -42,7 +42,8 @@ impl AoRenderPass {
         {
             return Err("Source AO requires a sampled R8 render attachment".into());
         }
-        // MultiScaleVO constructor, installed binary32 radicands. No serialized radius is used.
+        // The MultiScaleVO constructor values, as installed binary32 radicands.
+        // The port uses no serialized radius.
         let sample_thickness = [
             0.9599999785423279_f32,
             0.8399999737739563,

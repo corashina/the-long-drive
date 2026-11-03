@@ -112,7 +112,7 @@ pub fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
 
 /// Map `nodes` of character 0 to character 1 by node name.
 /// `from` and `to` are the named skin joints of characters 0 and 1.
-/// A node in `to`, or a node not in `from`, maps to itself. None when a name has no match.
+/// A node in `to`, or a node not in `from`, maps to itself. It returns None when a name has no match.
 pub fn map_by_name(
     nodes: &[NodeId],
     from: &[(NodeId, &str)],

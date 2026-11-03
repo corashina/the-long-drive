@@ -65,7 +65,7 @@ fn pattern(center: vec2<i32>, phase: vec2<i32>, offset: vec2<i32>, inv_depth: f3
     }
     return result;
 }
-// D3D11.3 section3.2.3.6: NaN -> 0, infinities clamp before UNorm storage.
+// D3D11.3 section 3.2.3.6. NaN becomes 0, and infinities clamp before UNorm storage.
 fn unorm_bits(bits: u32) -> u32 {
     let magnitude = bits & 0x7fffffffu;
     if magnitude > 0x7f800000u || (bits & 0x80000000u) != 0u { return 0u; }

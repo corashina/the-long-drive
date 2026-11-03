@@ -48,7 +48,7 @@ pub fn last_skip(cache: &PipelineCache) -> String {
 struct Companions {
     /// ForwardAdd.
     add: Option<CachedRenderPipelineId>,
-    /// Depth prepass, then the opaque draw with Equal depth and no depth write. World view only.
+    /// Depth prepass, then the opaque draw with Equal depth and no depth write. Only the world view uses them.
     prepass: Option<[CachedRenderPipelineId; 2]>,
 }
 impl Companions {
@@ -135,7 +135,7 @@ fn flag(definitions: &[ShaderDefVal], name: &str) -> bool {
         .iter()
         .any(|value| matches!(value, ShaderDefVal::Bool(key, true) if key == name))
 }
-/// The same inspection after the pipeline queue. A separate system: one system type
+/// The same inspection after the pipeline queue. It is a separate system, because one system type
 /// cannot sit in both the Prepare and Render sets.
 pub(crate) fn inspect_created_surface_passes(
     passes: ResMut<SurfacePasses>,
@@ -276,7 +276,7 @@ fn prepass_base(base: &RenderPipelineDescriptor, defs: &[ShaderDefVal]) -> bool 
                 && depth.depth_compare == Some(CompareFunction::GreaterEqual)
         })
 }
-/// Same vertex stage and defs. The `depth` fragment runs only the discards of the surface fragment.
+/// It has the same vertex stage and defs. The `depth` fragment runs only the discards of the surface fragment.
 fn depth_prepass(base: &RenderPipelineDescriptor) -> RenderPipelineDescriptor {
     let mut depth = base.clone();
     depth.label = Some("source_surface_depth".into());
@@ -288,7 +288,7 @@ fn depth_prepass(base: &RenderPipelineDescriptor) -> RenderPipelineDescriptor {
         .push(ShaderDefVal::Bool(PREPASS.into(), true));
     depth
 }
-/// The opaque draw after the prepass: each pixel shades once.
+/// The opaque draw after the prepass. Each pixel shades once.
 fn equal_depth(base: &RenderPipelineDescriptor) -> RenderPipelineDescriptor {
     let mut equal = base.clone();
     equal.label = Some("source_surface_equal".into());

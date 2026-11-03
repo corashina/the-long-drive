@@ -1,4 +1,4 @@
-//! The renderer end of the simulation worker. One command is in flight; newer commands merge into the next.
+//! The renderer end of the simulation worker. One command is in flight. Newer commands merge into the next.
 use crate::browser::{game_sim_frame_length, game_sim_read, game_sim_send};
 use simulation::boundary::{DecodeError, SimCommand, SimFrame, decode, encode_command};
 

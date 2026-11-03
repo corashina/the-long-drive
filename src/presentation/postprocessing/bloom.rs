@@ -19,7 +19,7 @@ impl BloomLayout {
             return Err("Invalid source bloom extent or diffusion".into());
         }
         let first = extent.map(|v| v / 2);
-        // Mathf.Log(f,2) converts both inputs to double; its result then converts to float.
+        // Mathf.Log(f,2) converts both inputs to double. Its result then converts to float.
         let logarithm = ((first[0].max(first[1]) as f64).ln() / 2_f64.ln()) as f32;
         let level = (logarithm + diffusion.min(10.)) - 10.;
         let floor = level.floor();
@@ -43,7 +43,7 @@ impl BloomLayout {
             .sum()
     }
 }
-// Installed GammaToLinearSpace65e80. Keep the >1 branch; it differs from the sRGB middle branch.
+// Installed GammaToLinearSpace65e80. Keep the >1 branch. It differs from the sRGB middle branch.
 pub(super) fn gamma_to_linear(value: f32) -> f32 {
     if value <= 0.040449999272823334 {
         value / 12.920000076293945
@@ -139,7 +139,7 @@ impl BloomPass {
             .iter()
             .map(|&e| Target::new(device, e))
             .collect();
-        // Source allocates both handles at every level, including the unused smallest up target.
+        // The source allocates both handles at every level, including the unused smallest up target.
         let up: Vec<_> = layout
             .extents
             .iter()

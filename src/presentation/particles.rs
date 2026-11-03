@@ -64,7 +64,7 @@ impl Default for ParticleUniform {
 pub struct ParticleMaterial {
     batch: usize,
     texture: Handle<Image>,
-    /// Distortion `_BumpMap`; the main texture when the material has none.
+    /// Distortion `_BumpMap`, or the main texture when the material has none.
     bump: Handle<Image>,
     additive: bool,
     order: f32,
@@ -266,21 +266,21 @@ enum Owner {
         prototype: usize,
         car: u32,
     },
-    /// Storm dust; `Group::source` is big (0) or small (1).
+    /// Storm dust. `Group::source` is big (0) or small (1).
     Storm(crate::weather::StormId),
-    /// `mainscript` melee hit systems; `Group::source` is the system.
+    /// `mainscript` melee hit systems. `Group::source` is the system.
     Melee,
-    /// `mainscript` shot tracers; `Group::source` is start (0) or end (1).
+    /// `mainscript` shot tracers. `Group::source` is start (0) or end (1).
     Tracer,
-    /// `explosionscript.particle`; `Group::source` is the explosion type.
+    /// `explosionscript.particle`. `Group::source` is the explosion type.
     Explosion,
-    /// `mainscript.FoodParticles`; `Group::source` is the food particle type.
+    /// `mainscript.FoodParticles`. `Group::source` is the food particle type.
     Food,
-    /// The contrail of the sky plane with this id; `Group::source` is the prefab.
+    /// The contrail of the sky plane with this id. `Group::source` is the prefab.
     Sky(u32),
     /// The `emberScript` particle of one cigarette.
     Ember(crate::reference::ItemId),
-    /// A loot tool: its item and `conditions.prototype_tools` index; `Group::source` is the system.
+    /// A loot tool, with its item and `conditions.prototype_tools` index. `Group::source` is the system.
     LootTool {
         item: crate::reference::ItemId,
         tool: usize,
@@ -289,9 +289,9 @@ enum Owner {
     Exhale,
     /// `fpscontroller.heatHaze`: the old particle heat haze.
     HeatHaze,
-    /// A washtriggerscript `particleOnDestroy`; the wash effect.
+    /// A washtriggerscript `particleOnDestroy`, the wash effect.
     Cobweb(usize),
-    /// A gib ParticleSystem of this item prototype; `Group::source` is its gib particle.
+    /// A gib ParticleSystem of this item prototype. `Group::source` is its gib particle.
     Gib(usize),
 }
 /// The particle record of one car group.
@@ -1043,7 +1043,7 @@ fn loot_tool_particle(
     }
 }
 
-/// Tile UV offset. Textures keep Unity row order (v 0 at the bottom); Unity frame 0 is the top-left tile.
+/// Tile UV offset. Textures keep Unity row order (v 0 at the bottom). Unity frame 0 is the top-left tile.
 fn sheet_offset(frame: u32, tiles: [u32; 2]) -> Vec2 {
     let (column, row) = (frame % tiles[0], frame / tiles[0]);
     Vec2::new(

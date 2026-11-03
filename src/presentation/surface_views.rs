@@ -36,7 +36,7 @@ pub fn mirror_view(index: usize) -> bool {
     (MIRROR_START..VIEW_COUNT).contains(&index)
 }
 
-/// Source `playermodeloutfitscript.SetDistance`: `player_model` `_Dist` is 0.35 while the player camera draws.
+/// Source `playermodeloutfitscript.SetDistance`. The `player_model` `_Dist` is 0.35 while the player camera draws.
 /// Other views, such as the probe faces and mirrors, draw it with 0.
 pub fn player_dist(index: usize) -> f32 {
     if index < WORLD_VIEWS { 0.35 } else { 0. }

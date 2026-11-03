@@ -1,4 +1,4 @@
-// Source KAutoExposureAvgLuminance fixed/progressive, expressed as one fragment.
+// Source KAutoExposureAvgLuminance fixed and progressive, expressed as one fragment.
 struct ExposureParams {
     filtering: vec4<f32>, // low/high fractions, min/max luminance
     adaptation: vec4<f32>, // speedDown, speedUp, key, frame delta

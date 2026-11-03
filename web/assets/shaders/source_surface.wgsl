@@ -77,7 +77,7 @@ fn sample_source(slot: u32, main_uv: vec2<f32>, detail_uv: vec2<f32>, offset: ve
 #endif
 }
 fn source_normal(sampled: vec4<f32>, scale: f32) -> vec3<f32> {
-    // Unity UnpackNormal: x = r * a. Decoded RGB normals have a = 1; source DXT5nm blocks keep X in alpha.
+    // Unity UnpackNormal: x = r * a. Decoded RGB normals have a = 1. Source DXT5nm blocks keep X in alpha.
     let rg = vec2(sampled.r * sampled.a, sampled.g);
     let xy = (rg * 2.0 - 1.0) * scale;
     return vec3(xy, sqrt(1.0 - clamp(dot(xy, xy), 0.0, 1.0)));
@@ -124,7 +124,7 @@ fn source_base(
     player: bool,
 ) -> SourceBase {
     if !source_lod_keep(in.position.xy, lod_fade) { discard; }
-    // Source player_model: discard near the camera of a view with `_Dist`. Flag 12: the ragdoll has `_Dist` 0.
+    // Source player_model discards near the camera of a view with `_Dist`. Flag 12 means that the ragdoll has `_Dist` 0.
     if player && !source_flag(12u) && length(in.world_position.xyz - mesh_view_bindings::view.world_position) < lighting.near_far.z { discard; }
     var base: SourceBase;
     base.uv = vec2(0.0);
@@ -160,7 +160,7 @@ fn source_base(
     return base;
 }
 
-// Opaque depth prepass of the world view. Same inputs and discards as `fragment`.
+// Opaque depth prepass of the world view. It has the same inputs and discards as `fragment`.
 @fragment
 fn depth(
     in: VertexOutput,
@@ -219,7 +219,7 @@ fn fragment(
 #endif
         lod_fade, color, player);
 #ifdef SOURCE_GPU_PROPS
-    // Same fields as pbr_input_from_vertex_output, without the mesh uniform flags.
+    // It has the same fields as pbr_input_from_vertex_output, without the mesh uniform flags.
     var pbr = pbr_types::pbr_input_new();
     pbr.is_orthographic = mesh_view_bindings::view.clip_from_view[3].w == 1.0;
     pbr.V = pbr_functions::calculate_view(in.world_position, pbr.is_orthographic);
@@ -361,7 +361,7 @@ fn fragment(
 #ifdef SOURCE_FORWARD_ADD
     out.color = added;
 #else
-    // Same result as the ForwardAdd draw with One One blending over this base output.
+    // It gives the same result as the ForwardAdd draw with One One blending over this base output.
     out.color += added;
 #endif
 #endif
