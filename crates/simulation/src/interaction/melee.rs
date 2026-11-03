@@ -627,16 +627,10 @@ fn absolute(origin: [f64; 3], local: Vector) -> [f64; 3] {
 
 /// Exported audio clips: source, id and source length.
 pub(crate) fn clip_table(r: &ReferenceManifest) -> Vec<(SourceId, u32, f32)> {
-    r.audio["clips"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|c| {
-            Some((
-                serde_json::from_value(c["source"].clone()).ok()?,
-                c["id"].as_u64()? as u32,
-                c["source_duration_seconds"].as_f64()? as f32,
-            ))
-        })
+    r.audio
+        .gameplay
+        .clips
+        .iter()
+        .map(|c| (c.source.clone(), c.id, c.source_duration_seconds as f32))
         .collect()
 }

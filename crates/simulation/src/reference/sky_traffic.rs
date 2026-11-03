@@ -167,20 +167,13 @@ impl FlyerReference {
                     .all(|v| v.is_finite() && *v > 0.),
             "flyer values",
         )?;
-        let clips = m.audio["clips"].as_array();
+        let audio = &m.audio.gameplay;
         require(
-            !self.clips.is_empty()
-                && self.clips.iter().all(|id| {
-                    clips.is_some_and(|c| c.iter().any(|c| c["id"].as_u64() == Some(*id as u64)))
-                }),
+            !self.clips.is_empty() && self.clips.iter().all(|id| audio.has_clip(*id)),
             "flyer clips",
         )?;
         require(
-            m.audio["car_voices"].as_array().is_some_and(|v| {
-                v.iter().any(|v| {
-                    v["id"].as_u64() == Some(u64::from(self.voice)) && v["one_shot"] == true
-                })
-            }),
+            audio.car_voice(self.voice).is_some_and(|v| v.one_shot),
             "flyer voice",
         )?;
         let prototype = m.world.prototypes.get(&self.prefab);

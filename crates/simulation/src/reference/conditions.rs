@@ -445,13 +445,11 @@ impl ConditionRecord {
                 source,
                 match (id, identity) {
                     (None, None) => true,
-                    (Some(id), Some(identity)) => r.audio["voices"].as_array().is_some_and(|v| {
-                        v.iter().any(|v| {
-                            v["id"].as_u64() == Some(id as u64)
-                                && serde_json::from_value::<SourceId>(v["source"].clone())
-                                    .is_ok_and(|s| s == *identity)
-                        })
-                    }),
+                    (Some(id), Some(identity)) => r
+                        .audio
+                        .gameplay
+                        .voice(id)
+                        .is_some_and(|v| v.source == *identity),
                     _ => false,
                 },
                 "voice",
@@ -657,7 +655,7 @@ impl ConditionRecord {
             )?;
             spray(t, true)?;
         }
-        let car_voices = r.audio["car_voices"].as_array().map_or(0, |v| v.len()) as u32;
+        let car_voices = r.audio.gameplay.car_voices.len() as u32;
         let sound = |t: &SourceId, s: &ToolSound| {
             check(
                 t,

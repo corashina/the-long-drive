@@ -920,7 +920,7 @@ pub struct PhysicsSettings {
 /// The manifest with all world vehicle prototypes is about 295 MB.
 pub const MAX_MANIFEST_BYTES: usize = 384 * 1024 * 1024;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReferenceManifest {
     pub content_base: String,
@@ -933,7 +933,7 @@ pub struct ReferenceManifest {
     pub item_prototypes: Vec<ItemPrototype>,
     pub inventory: InventoryReference,
     pub acquisition: AcquisitionReference,
-    pub audio: serde_json::Value,
+    pub audio: AudioRecord,
     pub survival: SurvivalReference,
     pub sleep: SleepReference,
     pub particles: Vec<ParticleReference>,
@@ -983,7 +983,7 @@ pub struct ReferenceManifest {
     pub area: StartingAreaReference,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ReferenceError(pub String);
 impl fmt::Display for ReferenceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -1097,16 +1097,6 @@ fn valid_flow(
 }
 
 impl ReferenceManifest {
-    /// Exported audio clip id of a source clip.
-    pub fn clip_id(&self, source: &SourceId) -> Option<u32> {
-        self.audio["clips"].as_array()?.iter().find_map(|c| {
-            (c["source"]["file"].as_str() == Some(source.file.as_str())
-                && c["source"]["path_id"].as_i64() == Some(source.path_id))
-            .then(|| c["id"].as_u64())
-            .flatten()
-            .map(|id| id as u32)
-        })
-    }
     pub fn expected_instances(&self) -> usize {
         self.assets
             .iter()
@@ -1128,11 +1118,12 @@ impl ReferenceManifest {
             serde_json::from_slice(bytes).map_err(|e| ReferenceError(e.to_string()))?;
         std::sync::Arc::make_mut(&mut manifest.file_catalog).admit()?;
         manifest.validate_gameplay()?;
+        AudioRecord::check_playback(&mut manifest);
         Ok(manifest)
     }
 
     pub fn validate(&self) -> Result<(), ReferenceError> {
-        AudioReference::from_value(&self.audio, self)?;
+        self.audio.playback()?.validate(self)?;
         self.validate_gameplay()
     }
 
@@ -1212,7 +1203,6 @@ impl ReferenceManifest {
         self.inventory.validate(self)?;
         self.acquisition.validate(self)?;
         item_prototypes::validate_prototypes(self)?;
-        AudioGameplayReference::from_value(&self.audio)?;
         self.sleep.validate(self)?;
         particles::validate_particles(self)?;
         self.weather.validate(self)?;
