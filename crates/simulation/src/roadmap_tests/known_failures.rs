@@ -182,3 +182,64 @@ fn tp_k3_e_on_the_outside_door_handle_opens_the_door() {
         "E opens the door"
     );
 }
+
+/// K6. A world car hood is a part on a hinge. Open, its colliders turn with it, so the use ray
+/// takes the engine filler caps from the side, as source `fpscontroller` does.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k6_an_open_hood_leaves_the_engine_caps_in_reach() {
+    use crate::reference::ItemId;
+    use rapier3d::math::{Rotation, Vector};
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let known: Vec<_> = run.area.interaction.valves().map(|(cap, _)| cap).collect();
+    act(
+        &mut run,
+        &reference,
+        r#"{"action":"spawn","name":"Car04Full","forward":8.0}"#,
+    );
+    seconds(&mut run, &reference, 4.);
+    let aim = |run: &GarageRuntime, eye: Vector, at: Vector| {
+        let view = crate::vehicle::VehiclePose {
+            position: eye.to_array(),
+            rotation: Rotation::from_rotation_arc(-Vector::Z, (at - eye).normalize()).to_array(),
+        };
+        let aim = run
+            .area
+            .interaction
+            .resolve(&run.physics, view, &run.area.items);
+        aim.use_target.map(|t| t.item)
+    };
+    // The engine filler caps of the new car: the closed hood covers them from above.
+    let caps: Vec<_> = run.area.interaction.valves().map(|(cap, _)| cap).collect();
+    let mut filler = None;
+    for (handle, collider) in run.physics.rapier().colliders.iter() {
+        let Some(cap) = run.area.interaction.use_owner(handle) else {
+            continue;
+        };
+        if !caps.contains(&cap) || known.contains(&cap) {
+            continue;
+        }
+        let at = collider.compute_aabb().center();
+        if let Some(hood) = aim(&run, at + Vector::Y, at)
+            .filter(|h| *h != cap && run.area.interaction.mechanisms.contains(*h))
+            && filler.is_none_or(|(_, _, y): (ItemId, ItemId, Vector)| at.y > y.y)
+        {
+            filler = Some((cap, hood, at));
+        }
+    }
+    let (cap, hood, at) = filler.expect("the closed hood covers an engine cap");
+    for _ in 0..60 {
+        run.area.interaction.mechanisms.push(hood, 20., 1. / 60.);
+        frame(&mut run, &reference);
+    }
+    seconds(&mut run, &reference, 1.);
+    let reach = [(0.9, 0.), (-0.9, 0.), (0., 0.9), (0., -0.9)]
+        .into_iter()
+        .filter(|&(x, z)| aim(&run, at + Vector::new(x, 0.75, z), at) == Some(cap))
+        .count();
+    assert!(
+        reach >= 2,
+        "the use ray takes the cap from {reach} of 4 sides"
+    );
+}

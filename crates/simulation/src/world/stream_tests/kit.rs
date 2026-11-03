@@ -58,7 +58,7 @@ pub(crate) fn roadside_stamp(reference: &ReferenceManifest) -> SourceStamp {
 
 /// The native adapter charges and hands over one structure claim, as the renderer ledger does.
 pub(crate) fn accept_structure(stream: &mut WorldStream, id: &crate::world::GeneratedId) {
-    stream.presentation.pending += 1;
+    stream.ledger.add_claim();
     stream
         .accept_structure_renderer(stream.request, id)
         .unwrap();

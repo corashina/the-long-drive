@@ -1,6 +1,7 @@
 //! Source compasses and clocks: meterscript needles and digit wheels on generated items.
 use super::WorldStream;
 use super::content_index::ContentSlot;
+use super::content_kinds::{BindContext, Bound, ContentKind, ContentKinds, KindBindings};
 use crate::electronics::{Electronics, Emp, NodeElectronics};
 use crate::interaction::InteractionState;
 use crate::interaction::items::ItemStore;
@@ -68,12 +69,6 @@ pub struct DialBinding {
     spin: f32,
 }
 impl DialBinding {
-    pub fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.digits.capacity() * std::mem::size_of::<Digit>()
-            + self.values.capacity() * std::mem::size_of::<f32>()
-            + self.knobs.capacity() * std::mem::size_of::<ColliderId>()
-    }
     pub fn nodes(&self) -> impl Iterator<Item = &DialNode> {
         self.digits
             .iter()
@@ -83,76 +78,6 @@ impl DialBinding {
 }
 
 impl WorldStream {
-    pub(super) fn sync_dial_bindings(
-        &mut self,
-        ui: &UiReference,
-        items: &ItemStore,
-        interaction: &mut InteractionState,
-        physics: &mut PhysicsWorld,
-    ) -> Result<(), ReferenceError> {
-        let revision = (self.request.session, self.contents.active_revision());
-        if self.dial_scan == Some(revision) {
-            return Ok(());
-        }
-        let mut complete = true;
-        let mut i = 0;
-        while i < self.dial_bindings.len() {
-            let b = &mut self.dial_bindings[i];
-            if let Some(slot) = self
-                .contents
-                .active()
-                .iter()
-                .position(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
-            {
-                b.slot = slot;
-                i += 1;
-            } else {
-                for knob in &b.knobs {
-                    interaction.remove_dial_knob(*knob);
-                }
-                self.dial_bindings.swap_remove(i);
-            }
-        }
-        for slot in 0..self.contents.active().len() {
-            let content = &self.contents.active()[slot];
-            let Some(item) = content.item else {
-                continue;
-            };
-            if self.dial_bindings.iter().any(|b| b.item == item) {
-                continue;
-            }
-            let root = &content.content.placement.prototype;
-            let rules = &self.contents.rules;
-            let script = |class| rules.component(&self.reference, root, class).ok().flatten();
-            let script = match script("compassscript").or_else(|| script("clockscript")) {
-                Some(script) => script.source.clone(),
-                // A car dashboard clock (Car07) is on an active child node of the car root item.
-                None if self
-                    .reference
-                    .prototypes
-                    .iter()
-                    .any(|p| &p.source == root && p.vehicle.is_some()) =>
-                {
-                    let mut clocks = Vec::new();
-                    rules.children(&self.reference, root, "clockscript", false, &mut clocks)?;
-                    match clocks[..] {
-                        [] => continue,
-                        [clock] => clock.clone(),
-                        _ => return Err(ReferenceError("Car has more than one clock".into())),
-                    }
-                }
-                None => continue,
-            };
-            if !content.restored || items.get(item).and_then(|i| i.body).is_none() {
-                complete = false;
-                continue;
-            }
-            let binding = self.bind_dial(ui, items, interaction, physics, slot, item, &script)?;
-            self.dial_bindings.push(binding);
-        }
-        self.dial_scan = complete.then_some(revision);
-        Ok(())
-    }
     fn bind_dial(
         &self,
         ui: &UiReference,
@@ -358,7 +283,9 @@ impl WorldStream {
     /// One meterscript tune step. Returns false when the knob is not a dial.
     pub fn tune_dial(&mut self, knob: ColliderId, direction: f32, items: &mut ItemStore) -> bool {
         let Some(b) = self
-            .dial_bindings
+            .kinds
+            .dials
+            .list
             .iter_mut()
             .find(|b| b.knobs.contains(&knob))
         else {
@@ -370,14 +297,16 @@ impl WorldStream {
     }
     /// The tuned value saved with a dial item; None at the source default.
     pub(super) fn dial_value(&self, item: ItemId) -> Option<Option<f32>> {
-        self.dial_bindings
+        self.kinds
+            .dials
+            .list
             .iter()
             .find(|b| b.item == item)
             .map(|b| (b.value != 0.).then_some(b.value))
     }
     /// EMPs jam each compass at its item position.
     pub fn expose_dials(&mut self, emps: &[Emp], items: &ItemStore, dt: f32) {
-        for b in &mut self.dial_bindings {
+        for b in &mut self.kinds.dials.list {
             let (Some(e), Some(item)) = (&mut b.electronics, items.get(b.item)) else {
                 continue;
             };
@@ -391,7 +320,7 @@ impl WorldStream {
             return;
         }
         let north = Rotation::from_array(self.reference.magnetic_field) * Vector::NEG_Z;
-        for b in &mut self.dial_bindings {
+        for b in &mut self.kinds.dials.list {
             let mut changed = false;
             if let Some(n) = &mut b.needle
                 && let Some(item) = items.get(b.item)
@@ -453,6 +382,81 @@ impl WorldStream {
         }
     }
     pub fn dial(&self, parent: &GeneratedId) -> Option<&DialBinding> {
-        self.dial_bindings.iter().find(|b| &b.parent == parent)
+        self.kinds.dials.list.iter().find(|b| &b.parent == parent)
+    }
+}
+
+impl Bound for DialBinding {
+    fn parent(&self) -> &GeneratedId {
+        &self.parent
+    }
+    fn item(&self) -> Option<ItemId> {
+        Some(self.item)
+    }
+    fn set_slot(&mut self, slot: usize) {
+        self.slot = slot;
+    }
+    fn heap_bytes(&self) -> usize {
+        crate::world::contents::identity_heap(&self.parent)
+            + self.digits.capacity() * std::mem::size_of::<Digit>()
+            + self.values.capacity() * std::mem::size_of::<f32>()
+            + self.knobs.capacity() * std::mem::size_of::<ColliderId>()
+    }
+}
+
+pub(super) struct DialKind;
+impl ContentKind for DialKind {
+    type Binding = DialBinding;
+    type Script = SourceId;
+    fn kind(kinds: &mut ContentKinds) -> &mut KindBindings<DialBinding> {
+        &mut kinds.dials
+    }
+    fn script(
+        stream: &mut WorldStream,
+        _: &BindContext,
+        slot: usize,
+    ) -> Result<Option<SourceId>, ReferenceError> {
+        let root = &stream.contents.active()[slot].content.placement.prototype;
+        let (reference, rules) = (&stream.reference, &stream.contents.rules);
+        let script = |class| rules.component(reference, root, class).ok().flatten();
+        if let Some(script) = script("compassscript").or_else(|| script("clockscript")) {
+            return Ok(Some(script.source.clone()));
+        }
+        // A car dashboard clock (Car07) is on an active child node of the car root item.
+        if !(reference.prototypes.iter()).any(|p| &p.source == root && p.vehicle.is_some()) {
+            return Ok(None);
+        }
+        let mut clocks = Vec::new();
+        rules.children(reference, root, "clockscript", false, &mut clocks)?;
+        match clocks[..] {
+            [] => Ok(None),
+            [clock] => Ok(Some(clock.clone())),
+            _ => Err(ReferenceError("Car has more than one clock".into())),
+        }
+    }
+    fn bind(
+        stream: &mut WorldStream,
+        cx: &mut BindContext,
+        slot: usize,
+        item: Option<ItemId>,
+        script: SourceId,
+    ) -> Result<Option<DialBinding>, ReferenceError> {
+        let (ui, items, physics) = (&cx.reference.ui, &*cx.items, &mut *cx.physics);
+        stream
+            .bind_dial(
+                ui,
+                items,
+                cx.interaction,
+                physics,
+                slot,
+                item.unwrap(),
+                &script,
+            )
+            .map(Some)
+    }
+    fn unbind(binding: &DialBinding, interaction: &mut InteractionState) {
+        for knob in &binding.knobs {
+            interaction.remove_dial_knob(*knob);
+        }
     }
 }

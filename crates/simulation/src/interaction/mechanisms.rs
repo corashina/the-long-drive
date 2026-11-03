@@ -286,7 +286,7 @@ impl MechanismState {
             })
             .collect();
         let order = (0..frames.len()).collect();
-        let audio = AudioReference::from_value(&reference.audio, reference).ok();
+        let audio = reference.audio.playback().ok();
         let mut state = Self {
             radio_seconds: 0.,
             last_radio_tune: 0.,

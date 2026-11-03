@@ -13,9 +13,20 @@ struct Shape {
     id: ColliderId,
     handle: Option<ColliderHandle>,
     body: BodyId,
+    /// A generated shape follows its collider node, such as a door that turns on its hinge.
+    node: Option<NodeId>,
+    /// Relative to the `body` pose, or to the `node` pose.
     shape: Pose,
     part_local: Pose,
     enabled: bool,
+}
+/// One collider of a generated part and its mechanism node.
+pub struct GeneratedShape {
+    pub id: ColliderId,
+    pub handle: ColliderHandle,
+    pub node: NodeId,
+    /// The node pose at bind time.
+    pub node_pose: crate::vehicle::VehiclePose,
 }
 struct ScanShape {
     id: ColliderId,
@@ -218,6 +229,7 @@ impl PartAttachments {
                     id: *id,
                     handle: None,
                     body: c.body,
+                    node: None,
                     shape: *crate::vehicle::collider_builder(&c.geometry)?
                         .build()
                         .position(),
@@ -339,7 +351,7 @@ impl PartAttachments {
         reference: PartReference,
         pickup: PickupReference,
         body: RigidBodyHandle,
-        colliders: &[(ColliderId, ColliderHandle)],
+        colliders: &[GeneratedShape],
         pose: crate::vehicle::VehiclePose,
         members: Vec<(ItemId, NodeId, f32)>,
         mass: f32,
@@ -352,15 +364,21 @@ impl PartAttachments {
         let item = reference.item;
         let world_pose = to_rapier(pose);
         let mut shapes = Vec::with_capacity(colliders.len());
-        for &(id, handle) in colliders {
+        for &GeneratedShape {
+            id,
+            handle,
+            node,
+            node_pose,
+        } in colliders
+        {
             let collider = &physics.rapier().colliders[handle];
-            let local = world_pose.inverse() * *collider.position();
             shapes.push(Shape {
                 id,
                 handle: Some(handle),
                 body: BodyId(u32::MAX),
-                shape: local,
-                part_local: local,
+                node: Some(node),
+                shape: to_rapier(node_pose).inverse() * *collider.position(),
+                part_local: world_pose.inverse() * *collider.position(),
                 enabled: collider.is_enabled(),
             });
         }
@@ -390,8 +408,8 @@ impl PartAttachments {
             assembly_dry_mass: mass,
             assembly_fluids: Vec::with_capacity(1),
         });
-        for &(_, handle) in colliders {
-            physics.edit_collider(handle, |collider| collider.set_density(0.));
+        for c in colliders {
+            physics.edit_collider(c.handle, |collider| collider.set_density(0.));
         }
         self.cache_assembly_mass(items);
         Ok(())
@@ -1081,6 +1099,7 @@ impl PartAttachments {
                 let vehicle = physics.vehicle_of(body).is_some();
                 let local = inverse
                     * m.body_pose(shape.body)
+                        .or_else(|| shape.node.and_then(|n| m.node_pose(n)).map(to_rapier))
                         .map(|pose| pose * shape.shape)
                         .unwrap_or(self.parts[i].pose * shape.part_local);
                 let h = shape.handle.unwrap();

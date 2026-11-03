@@ -82,16 +82,8 @@ pub struct ExplosionPlayer {
 
 impl ExplosionsReference {
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
-        let clips = m.audio["clips"].as_array();
-        let sound = |s: &ExplosionSound| {
-            s.volume.is_finite()
-                && clips.is_some_and(|clips| {
-                    clips.iter().any(|c| {
-                        c["source"]["file"].as_str() == Some(s.clip.file.as_str())
-                            && c["source"]["path_id"].as_i64() == Some(s.clip.path_id)
-                    })
-                })
-        };
+        let sound =
+            |s: &ExplosionSound| s.volume.is_finite() && m.audio.gameplay.clip(&s.clip).is_some();
         for (i, t) in self.types.iter().enumerate() {
             require(
                 finite(&[t.explosion_force, t.multiplier, t.explosion_dist])

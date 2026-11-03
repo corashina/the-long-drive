@@ -152,7 +152,7 @@ pub fn spawn_body(
     let hit = rule
         .collision_clip
         .as_ref()
-        .and_then(|clip| reference.clip_id(clip))
+        .and_then(|clip| reference.audio.gameplay.clip_id(clip))
         .map(|clip| HitSound {
             clip,
             gain: rule.collision_gain,

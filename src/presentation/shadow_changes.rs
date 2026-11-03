@@ -1,4 +1,6 @@
 //! Main-world caster mutation inputs. ViewVisibility is refreshed separately every frame.
+//! Asset edits come from asset events, not from `Assets` change ticks: any `&mut Assets`
+//! access marks the whole resource changed, and world preparation takes one every frame.
 use super::{
     materials::{
         SourceMaterial, grass::material::GrassMaterial, impostor::ImpostorMaterial,
@@ -58,20 +60,8 @@ pub(super) struct ShadowMaterials<'w> {
     terrain: Res<'w, Assets<TerrainMaterial>>,
     grass: Res<'w, Assets<GrassMaterial>>,
     impostors: Res<'w, Assets<ImpostorMaterial>>,
-    meshes: Res<'w, Assets<Mesh>>,
 }
 impl ShadowMaterials<'_> {
-    pub fn changed(&self) -> bool {
-        self.source.is_changed()
-            || self.specular.is_changed()
-            || self.terrain.is_changed()
-            || self.grass.is_changed()
-            || self.impostors.is_changed()
-    }
-    /// A mesh asset edit can change caster geometry without a component change.
-    pub fn meshes_changed(&self) -> bool {
-        self.meshes.is_changed()
-    }
     /// Caster state of a GPU prop row material, as `has_caster` gives it for an entity.
     pub fn row_caster(&self, id: bevy::asset::UntypedAssetId) -> Result<bool, &'static str> {
         use std::any::TypeId;
@@ -162,6 +152,27 @@ pub(super) struct ShadowChanges<'w, 's> {
         ),
     >,
     pub warmup: Query<'w, 's, Entity, (With<SourceRenderer>, Added<SourceMaterialWarmup>)>,
+    /// Renderers whose mesh or material asset was edited.
+    pub edited: Query<
+        'w,
+        's,
+        Entity,
+        (
+            With<SourceRenderer>,
+            Or<(
+                AssetChanged<Mesh3d>,
+                AssetChanged<MeshMaterial3d<SourceMaterial>>,
+                AssetChanged<MeshMaterial3d<SpecularMaterial>>,
+                AssetChanged<MeshMaterial3d<TerrainMaterial>>,
+                AssetChanged<MeshMaterial3d<GrassMaterial>>,
+                AssetChanged<MeshMaterial3d<ImpostorMaterial>>,
+            )>,
+        ),
+    >,
+    /// GPU prop batch materials: source, specular and impostor.
+    source_events: MessageReader<'w, 's, AssetEvent<SourceMaterial>>,
+    specular_events: MessageReader<'w, 's, AssetEvent<SpecularMaterial>>,
+    impostor_events: MessageReader<'w, 's, AssetEvent<ImpostorMaterial>>,
     bounds: RemovedComponents<'w, 's, Aabb>,
     transforms: RemovedComponents<'w, 's, GlobalTransform>,
     inherited: RemovedComponents<'w, 's, InheritedVisibility>,
@@ -176,6 +187,14 @@ pub(super) struct ShadowChanges<'w, 's> {
     excluded: RemovedComponents<'w, 's, SourceMaterialWarmup>,
 }
 impl ShadowChanges<'_, '_> {
+    /// A GPU prop batch material can change its caster state.
+    pub fn batch_materials_changed(&mut self) -> bool {
+        // Consume every stream.
+        self.source_events.read().count()
+            + self.specular_events.read().count()
+            + self.impostor_events.read().count()
+            != 0
+    }
     pub fn removed(&mut self) -> bool {
         // Consume every stream, including later removals after the first match.
         self.bounds

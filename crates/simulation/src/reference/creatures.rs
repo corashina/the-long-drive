@@ -487,15 +487,16 @@ impl HumanReference {
         )?;
         validate_ragdoll(&self.ragdoll, |n| self.local(m, n), "human ragdoll")?;
         self.animator.validate(&m.nodes)?;
+        let a = &self.animator;
+        require(
+            self.local(m, a.root)
+                && a.bones.iter().flatten().all(|b| self.local(m, b.node))
+                && a.copies.iter().all(|c| self.local(m, c.node)),
+            "human animator nodes",
+        )?;
         let v = &self.voice;
-        let clips = m.audio["clips"].as_array();
-        let clip = |c: &HumanVoiceClip| {
-            c.seconds > 0.
-                && clips.is_some_and(|l| {
-                    l.iter()
-                        .any(|x| x["id"].as_u64() == Some(u64::from(c.clip)))
-                })
-        };
+        let audio = &m.audio.gameplay;
+        let clip = |c: &HumanVoiceClip| c.seconds > 0. && audio.has_clip(c.clip);
         require(
             [&v.idle, &v.chase, &v.notice, &v.attack, &v.death]
                 .iter()
@@ -505,11 +506,7 @@ impl HumanReference {
                 && range(&v.seeing_time)
                 && finite(&v.position)
                 && self.local(m, v.mouth)
-                && m.audio["car_voices"].as_array().is_some_and(|l| {
-                    l.iter().any(|x| {
-                        x["id"].as_u64() == Some(u64::from(v.voice)) && x["one_shot"] == false
-                    })
-                }),
+                && audio.car_voice(v.voice).is_some_and(|x| !x.one_shot),
             "human voice",
         )
     }
@@ -528,6 +525,7 @@ fn validate_ragdoll(
                 .iter()
                 .enumerate()
                 .all(|(i, b)| b.id.0 == i as u32 + 1 && local(b.node) && b.mass_kg > 0.)
+            && r.pickups.iter().all(|p| !p.cant_pickup)
             && r.colliders
                 .iter()
                 .all(|c| (1..=bodies).contains(&c.body.0) && local(c.node))
@@ -636,6 +634,7 @@ impl RabbitReference {
         require(
             self.local(m, x.node)
                 && finite(&[x.max_output, x.override_max_jam, x.jam])
+                && x.max_output >= 0.
                 && !x.colliders.is_empty()
                 && x.colliders.iter().all(|c| c.layer < 32),
             "rabbit electronics",
@@ -744,10 +743,8 @@ impl RabbitReference {
             "rabbit actions",
         )?;
         let e = &self.evil;
-        let clips = m.audio["clips"].as_array();
-        let clip = |id: &u32| {
-            clips.is_some_and(|c| c.iter().any(|c| c["id"].as_u64() == Some(u64::from(*id))))
-        };
+        let audio = &m.audio.gameplay;
+        let clip = |id: &u32| audio.has_clip(*id);
         require(
             finite(&[
                 e.attack_angle,
@@ -761,6 +758,8 @@ impl RabbitReference {
                 e.trigger.damage_breakable,
             ]) && e.attack_duration > 0.
                 && e.roar_duration > 0.
+                && e.trigger.damage_player >= 0.
+                && e.trigger.damage_breakable >= 0.
                 && range(&e.idle_time)
                 && [&e.roar_clips, &e.idle_clips, &e.attack_clips]
                     .iter()
@@ -774,14 +773,8 @@ impl RabbitReference {
         )?;
         require(
             !self.die_clips.is_empty()
-                && self.die_clips.iter().all(|id| {
-                    clips.is_some_and(|c| c.iter().any(|c| c["id"].as_u64() == Some(*id as u64)))
-                })
-                && m.audio["car_voices"].as_array().is_some_and(|v| {
-                    v.iter().any(|v| {
-                        v["id"].as_u64() == Some(u64::from(self.die_voice)) && v["one_shot"] == true
-                    })
-                }),
+                && self.die_clips.iter().all(clip)
+                && audio.car_voice(self.die_voice).is_some_and(|v| v.one_shot),
             "rabbit die sounds",
         )
     }

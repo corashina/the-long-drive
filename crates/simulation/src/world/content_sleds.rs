@@ -1,5 +1,8 @@
 //! Source szankoScript sleds on spawned world items: use state, slide forces, wheels and sound.
 use super::WorldStream;
+use super::content_kinds::{
+    BindContext, Bound, ContentKind, ContentKinds, KindBindings, Ready, ready_unless_removed,
+};
 use crate::interaction::items::ItemStore;
 use crate::reference::{ItemId, ReferenceError, SourceId, Transform};
 use crate::simulation::FIXED_DT;
@@ -129,64 +132,8 @@ pub struct SledBinding {
     seats: Vec<SourceId>,
     sled: Sled,
 }
-impl SledBinding {
-    pub fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + match &self.owner {
-                ObjectKey::Generated(id) => crate::world::contents::identity_heap(id),
-                ObjectKey::Imported(_) => 0,
-            }
-            + self.seats.capacity() * std::mem::size_of::<SourceId>()
-            + self.seats.iter().map(|s| s.file.capacity()).sum::<usize>()
-            + self.sled.heap_bytes()
-    }
-}
 
 impl WorldStream {
-    pub(super) fn sync_sled_bindings(
-        &mut self,
-        items: &ItemStore,
-        physics: &PhysicsWorld,
-    ) -> Result<(), ReferenceError> {
-        let revision = (self.request.session, self.contents.active_revision());
-        if self.sled_scan == Some(revision) {
-            return Ok(());
-        }
-        let mut complete = true;
-        self.sled_bindings.retain(|b| {
-            self.contents
-                .active()
-                .iter()
-                .any(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
-        });
-        for slot in 0..self.contents.active().len() {
-            let content = &self.contents.active()[slot];
-            let Some(item) = content.item else {
-                continue;
-            };
-            let prototype = &content.content.placement.prototype;
-            if !self
-                .sled_prototypes
-                .iter()
-                .any(|&p| &self.reference.prototypes[p].source == prototype)
-                || self.sled_bindings.iter().any(|b| b.item == item)
-            {
-                continue;
-            }
-            if !content.restored {
-                complete = false;
-                continue;
-            }
-            // A removed item has no body and no sled to bind.
-            if items.get(item).and_then(|i| i.body).is_none() {
-                continue;
-            }
-            let binding = self.bind_sled(items, physics, slot, item)?;
-            self.sled_bindings.push(binding);
-        }
-        self.sled_scan = complete.then_some(revision);
-        Ok(())
-    }
     fn bind_sled(
         &self,
         items: &ItemStore,
@@ -280,7 +227,7 @@ impl WorldStream {
         seat: Option<(&ObjectKey, &SourceId)>,
         controls: DrivingControls,
     ) {
-        for b in &mut self.sled_bindings {
+        for b in &mut self.kinds.sleds.list {
             let seated =
                 seat.is_some_and(|(owner, source)| *owner == b.owner && b.seats.contains(source));
             b.sled.step(physics, seated, controls);
@@ -292,7 +239,7 @@ impl WorldStream {
         physics: &PhysicsWorld,
         mut play: impl FnMut(ItemId, f32, Option<f32>, [f32; 3]),
     ) {
-        for b in &self.sled_bindings {
+        for b in &self.kinds.sleds.list {
             if !b.sled.in_use {
                 continue;
             }
@@ -305,5 +252,58 @@ impl WorldStream {
                 );
             }
         }
+    }
+}
+
+impl Bound for SledBinding {
+    fn parent(&self) -> &GeneratedId {
+        &self.parent
+    }
+    fn item(&self) -> Option<ItemId> {
+        Some(self.item)
+    }
+    fn heap_bytes(&self) -> usize {
+        crate::world::contents::identity_heap(&self.parent)
+            + match &self.owner {
+                ObjectKey::Generated(id) => crate::world::contents::identity_heap(id),
+                ObjectKey::Imported(_) => 0,
+            }
+            + self.seats.capacity() * std::mem::size_of::<SourceId>()
+            + self.seats.iter().map(|s| s.file.capacity()).sum::<usize>()
+            + self.sled.heap_bytes()
+    }
+}
+
+pub(super) struct SledKind;
+impl ContentKind for SledKind {
+    type Binding = SledBinding;
+    type Script = ();
+    fn kind(kinds: &mut ContentKinds) -> &mut KindBindings<SledBinding> {
+        &mut kinds.sleds
+    }
+    fn script(
+        stream: &mut WorldStream,
+        _: &BindContext,
+        slot: usize,
+    ) -> Result<Option<()>, ReferenceError> {
+        let prototype = &stream.contents.active()[slot].content.placement.prototype;
+        let prototypes = &stream.reference.prototypes;
+        Ok((stream.kinds.sled_prototypes.iter())
+            .any(|&p| &prototypes[p].source == prototype)
+            .then_some(()))
+    }
+    fn ready(stream: &WorldStream, items: &ItemStore, slot: usize) -> Ready {
+        ready_unless_removed(stream, items, slot)
+    }
+    fn bind(
+        stream: &mut WorldStream,
+        cx: &mut BindContext,
+        slot: usize,
+        item: Option<ItemId>,
+        _: (),
+    ) -> Result<Option<SledBinding>, ReferenceError> {
+        stream
+            .bind_sled(cx.items, cx.physics, slot, item.unwrap())
+            .map(Some)
     }
 }
