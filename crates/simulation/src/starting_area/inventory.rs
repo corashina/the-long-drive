@@ -460,7 +460,8 @@ impl GarageRuntime {
             lmb: input.held & keys::PRIMARY != 0,
             active: true,
             dt,
-            view,
+            // Source `drotkefe.Use(ghostHead)`.
+            view: self.area.player.scrub_pose(view),
             origin: self.stream.origin.offset,
         };
         // fpscontroller: a gun in the hand sets noLMBUse.
