@@ -144,7 +144,7 @@ pub(crate) fn select(
         masks,
     } = &mut *state;
     candidates.clear();
-    for (instance, root, prototype, nodes) in instances.mirror_cars() {
+    for (instance, root, prototype, nodes) in instances.mirror_cars(&world.prototypes) {
         let record = &world.prototypes[prototype];
         let Some(vehicle) = record.vehicle.as_ref() else {
             continue;
