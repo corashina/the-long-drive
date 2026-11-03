@@ -1609,7 +1609,7 @@ impl WorldReference {
                         == c.categories
                             .as_ref()
                             .or(c.items.as_ref())
-                            .map_or(0, |a| a.len()),
+                            .map_or(0, Vec::len),
                     &label,
                 )?;
             }
