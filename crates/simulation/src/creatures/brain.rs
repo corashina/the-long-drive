@@ -1,6 +1,7 @@
 //! Source `aiscript.Update` and `ProcessStimul`: stimulus sum, flee, roam and steering.
 use super::senses::{Sensed, angle};
 use crate::reference::BrainReference;
+use crate::simulation::dials::inverse_lerp;
 use crate::weather::StormRandom;
 use rapier3d::math::Vector;
 
@@ -50,13 +51,6 @@ pub struct BrainInput<'a> {
     pub has_eyes: bool,
     /// `JumpRay`, cast only when the other jump rules pass.
     pub jump_ray: &'a dyn Fn() -> bool,
-}
-
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        return 0.;
-    }
-    ((value - a) / (b - a)).clamp(0., 1.)
 }
 
 /// Unity `Vector3.SignedAngle(from, to, up)`: positive when `to` is right of `from`.

@@ -12,6 +12,7 @@ use crate::reference::{
     CreaturesReference, GroundUfoReference, ItemId, ReferenceError, SkyReference, StimulusSource,
     UfoRole,
 };
+use crate::simulation::dials::{inverse_lerp, lerp};
 use crate::sky_traffic::Plane;
 use crate::vehicle::{PhysicsWorld, VehiclePose, collider_builder};
 use crate::weather::StormRandom;
@@ -550,17 +551,4 @@ fn night(random: &mut StormRandom, r: &GroundUfoReference) -> i32 {
 
 fn distance(a: [f64; 3], b: [f64; 3]) -> f64 {
     (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f64>().sqrt()
-}
-
-/// Unity `Mathf.InverseLerp`.
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.
-    } else {
-        ((value - a) / (b - a)).clamp(0., 1.)
-    }
-}
-
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
 }

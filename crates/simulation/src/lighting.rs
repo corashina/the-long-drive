@@ -1,5 +1,6 @@
 //! Source cycle outputs retain Unity units.
 use crate::reference::{CycleReference, GradientReference};
+use crate::simulation::dials::{inverse_lerp, lerp};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CyclePhase {
@@ -570,16 +571,6 @@ fn evaluate(
     }
 }
 
-pub(crate) fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
-}
-pub(crate) fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.
-    } else {
-        ((value - a) / (b - a)).clamp(0., 1.)
-    }
-}
 fn color_lerp(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
     std::array::from_fn(|i| lerp(a[i], b[i], t))
 }
@@ -1073,37 +1064,36 @@ impl LightingState {
             return;
         }
         for (index, control) in reference.controllers.iter().enumerate() {
-            if control.kind == crate::reference::LightControllerKind::Switch {
-                if let Some(motion) = self.pose_progress[index] {
-                    let progress = match motion {
-                        SwitchMotion::Initial => 0.,
-                        SwitchMotion::Moving(progress) => progress + dt * 25.,
-                    };
-                    if progress >= 1. {
-                        let target =
-                            usize::from(self.controllers[index].on ^ control.reverse_switch);
-                        for pose in &control.animated_poses {
-                            let out = self.poses.iter_mut().find(|o| o.node == pose.node).unwrap();
-                            out.local_pose.translation = pose.states[target].translation;
-                            out.local_pose.rotation = pose.states[target].rotation;
-                        }
-                        self.pose_progress[index] = None;
-                        continue;
-                    }
+            if control.kind == crate::reference::LightControllerKind::Switch
+                && let Some(motion) = self.pose_progress[index]
+            {
+                let progress = match motion {
+                    SwitchMotion::Initial => 0.,
+                    SwitchMotion::Moving(progress) => progress + dt * 25.,
+                };
+                if progress >= 1. {
                     let target = usize::from(self.controllers[index].on ^ control.reverse_switch);
                     for pose in &control.animated_poses {
                         let out = self.poses.iter_mut().find(|o| o.node == pose.node).unwrap();
-                        let next = pose.states[target];
-                        for i in 0..3 {
-                            out.local_pose.translation[i] =
-                                lerp(out.local_pose.translation[i], next.translation[i], progress);
-                        }
-                        let a = rapier3d::math::Rotation::from_array(out.local_pose.rotation);
-                        let b = rapier3d::math::Rotation::from_array(next.rotation);
-                        out.local_pose.rotation = a.lerp(b, progress).normalize().to_array();
+                        out.local_pose.translation = pose.states[target].translation;
+                        out.local_pose.rotation = pose.states[target].rotation;
                     }
-                    self.pose_progress[index] = Some(SwitchMotion::Moving(progress));
+                    self.pose_progress[index] = None;
+                    continue;
                 }
+                let target = usize::from(self.controllers[index].on ^ control.reverse_switch);
+                for pose in &control.animated_poses {
+                    let out = self.poses.iter_mut().find(|o| o.node == pose.node).unwrap();
+                    let next = pose.states[target];
+                    for i in 0..3 {
+                        out.local_pose.translation[i] =
+                            lerp(out.local_pose.translation[i], next.translation[i], progress);
+                    }
+                    let a = rapier3d::math::Rotation::from_array(out.local_pose.rotation);
+                    let b = rapier3d::math::Rotation::from_array(next.rotation);
+                    out.local_pose.rotation = a.lerp(b, progress).normalize().to_array();
+                }
+                self.pose_progress[index] = Some(SwitchMotion::Moving(progress));
             }
         }
     }

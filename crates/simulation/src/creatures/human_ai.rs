@@ -1,7 +1,10 @@
 //! Source `newAiScript.Update`, `AvoidWalls`, `Use`, `GetNewPatrolPos` and `NewPatrolTime`:
 //! sight, chase, patrol, move, wall avoidance, jump, duck, ladders and doors.
 //! Positions and directions use the converted space: forward is -Z.
+use super::brain::signed_angle;
+use super::senses::angle;
 use crate::reference::{HumanAiReference, ItemId};
+use crate::simulation::dials::{inverse_lerp, lerp};
 use crate::weather::StormRandom;
 use rapier3d::math::{Pose, Rotation, Vector};
 
@@ -212,17 +215,6 @@ pub struct HumanAi {
     points: Vec<Vector>,
 }
 
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        return 0.;
-    }
-    ((value - a) / (b - a)).clamp(0., 1.)
-}
-
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
-}
-
 fn flat(v: Vector) -> Vector {
     Vector::new(v.x, 0., v.z)
 }
@@ -244,17 +236,6 @@ fn forward(rotation: Rotation) -> Vector {
 /// Unity `Quaternion.Euler(0, degrees, 0)`.
 fn yaw(degrees: f32) -> Rotation {
     Rotation::from_rotation_y(-degrees.to_radians())
-}
-
-/// Unity `Vector3.Angle`.
-fn angle(a: Vector, b: Vector) -> f32 {
-    super::senses::angle(a, b)
-}
-
-/// Unity `Vector3.SignedAngle(from, to, Vector3.up)`: positive turns right.
-fn signed_angle(from: Vector, to: Vector) -> f32 {
-    let sign = if from.cross(to).y > 0. { -1. } else { 1. };
-    angle(from, to) * sign
 }
 
 /// Unity `Quaternion.LookRotation(direction, Vector3.up)` of a horizontal direction.

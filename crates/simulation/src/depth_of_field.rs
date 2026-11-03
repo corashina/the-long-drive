@@ -1,6 +1,7 @@
 //! Source `postprocesscontrol` focus of the `DOF` volume.
-use crate::lighting::{CycleOutput, CyclePhase, inverse_lerp, lerp};
+use crate::lighting::{CycleOutput, CyclePhase};
 use crate::reference::postprocessing::FocusControl;
+use crate::simulation::dials::{inverse_lerp, lerp};
 use crate::vehicle::{PhysicsWorld, VehiclePose, to_rapier};
 use rapier3d::math::Vector;
 use rapier3d::prelude::{ColliderHandle, QueryFilter, Ray};
