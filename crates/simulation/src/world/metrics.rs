@@ -89,7 +89,7 @@ pub fn map_bytes(capacity: usize, entry: usize) -> usize {
     }
 }
 
-/// Reserve table growth before inserting a new owner. Include old/new table overlap.
+/// Reserve table growth before inserting a new owner. Include the overlap of the old and new tables.
 pub fn map_insert_bytes<K, V>(map: &std::collections::HashMap<K, V>) -> usize {
     if map.len() < map.capacity() {
         0

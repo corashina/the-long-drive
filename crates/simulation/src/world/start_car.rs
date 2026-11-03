@@ -4,8 +4,8 @@ use crate::reference::{ReferenceError, ReferenceManifest, WorldReference};
 use serde::{Deserialize, Serialize};
 
 /// Source `RandomStartCar` chances, in draw order, by source `TerrainGenerationSettings` field.
-/// A field without an exported start placement is skipped with its chance.
-/// Today `StartCar06p` has none: V03 adds it.
+/// The draw skips a field without an exported start placement, together with its chance.
+/// Today `StartCar06p` has none. V03 adds it.
 const CHANCES: [(&str, i32); 15] = [
     ("StartCar01", 100),
     ("StartCar02", 75),
@@ -23,7 +23,7 @@ const CHANCES: [(&str, i32); 15] = [
     ("StartCar10", 55),
     ("StartCar10k", 55),
 ];
-/// Source `startscript`: the car09 type starts at one of two fields, 50/50.
+/// Source `startscript`. The car09 type starts at one of two fields, with a 50/50 chance.
 const CAR09: [&str; 2] = ["StartCar09", "StartCar09S"];
 
 /// A source start car field (`TerrainGenerationSettings.StartCar*`).
@@ -131,7 +131,7 @@ fn pick_random(fields: &[&str], random: &mut UnityRandom) -> StartCar {
         .filter(|(f, _)| available(f))
         .map(|(_, c)| c)
         .sum();
-    // Source: `Random.Range(0f, sum)`, then the first cumulative chance above the draw.
+    // The source draws `Random.Range(0f, sum)`, then takes the first cumulative chance above the draw.
     let draw = random.range(0., sum as f32);
     let mut cumulative = 0;
     let mut picked = StartCar::LADA.0;
@@ -149,7 +149,7 @@ fn pick_random(fields: &[&str], random: &mut UnityRandom) -> StartCar {
 }
 
 /// The menu random. It is separate from the world seed, so the pick does not shift world draws.
-/// Unity seeds its menu random from the clock; the port takes browser or clock entropy.
+/// Unity seeds its menu random from the clock. The port takes browser or clock entropy.
 pub fn menu_random() -> UnityRandom {
     #[cfg(target_arch = "wasm32")]
     let seed = (js_sys::Math::random() * f64::from(u32::MAX)) as u32;

@@ -9,7 +9,7 @@ use crate::vehicle::{PhysicsWorld, STEP_SURFACE_MASK, from_rapier, to_rapier};
 use crate::world::spawn_rules::*;
 use crate::world::{ObjectKey, WorldLayer, changes};
 use rapier3d::prelude::ActiveEvents;
-/// A destroyed child item (a bottle cap): its removed parent instance record covers it.
+/// A destroyed child item, such as a bottle cap. Its removed parent instance record covers it.
 pub(super) fn removed_child(id: crate::reference::ItemId, items: &ItemStore) -> bool {
     items.get(id).is_some_and(|s| s.removed)
         && items
@@ -249,7 +249,7 @@ impl WorldStream {
                 .set_replay(&owner, &content.origin, &content.content.placement.id);
         }
     }
-    /// Bounds new owner payload, type-fit pairs, and existing vector/map reallocation.
+    /// Bounds the new owner payload, the type-fit pairs, and the reallocation of existing vectors and maps.
     pub(super) fn binding_reservation(
         &self,
         prototype: &crate::reference::WorldPrototypeReference,
@@ -314,7 +314,7 @@ impl WorldStream {
                 + 128,
         );
         // Each component covers its typed owner, maps, copied recipes and auxiliary item.
-        // Fits can add a pair to both directions; 64 bytes covers the hash/table slot.
+        // A fit can add a pair in both directions. 64 bytes cover the hash table slot.
         let additions = components.saturating_mul(8192)
             + prototype.nodes.len().saturating_mul(1024)
             + prototype.colliders.len().saturating_mul(2048)
@@ -574,7 +574,7 @@ impl WorldStream {
                 };
                 let pickup = rules.component(&self.reference, pickup_root, "pickupable")?;
                 // Car and trailer roots are items without a pickupable. Only bikes have one.
-                // A bat has none: `randomFlyer` moves its Rigidbody.
+                // A bat has none. `randomFlyer` moves its Rigidbody.
                 if pickup.is_none()
                     && prototype.trailer.is_none()
                     && prototype.vehicle.is_none()
@@ -719,7 +719,7 @@ impl WorldStream {
                         interaction,
                         physics,
                     )?;
-                    // The last fallible step: a failed binding leaves no car behind.
+                    // This is the last fallible step. A failed binding leaves no car behind.
                     // Seats bind later and find the vehicle of the chassis.
                     crate::world::content_vehicles::bind(
                         content,
@@ -837,7 +837,7 @@ impl WorldStream {
         self.restore_content_changes(reference, items, interaction, physics, wheels)?;
         Ok(())
     }
-    /// A slot part that mounted at binding: its owner content takes the mounted state as
+    /// A slot part that mounted at binding. Its owner content takes the mounted state as
     /// its baseline.
     fn rebaseline(
         &mut self,
@@ -1048,7 +1048,7 @@ impl WorldStream {
             .is_none_or(|c| c.item.is_none() || c.restored)
     }
     /// Squared distance to the nearest source important object: the player, the start car and the last seated car.
-    /// A car does not count itself: `own` is its chassis.
+    /// A car does not count itself. `own` is its chassis.
     pub(crate) fn important_distance(
         &self,
         position: [f64; 3],
@@ -1244,7 +1244,7 @@ impl WorldStream {
             );
             if let Some(item) = content.item {
                 interaction.storage.departed(item);
-                // Restart: items that leave with this owner may sit before `index`.
+                // Restart the scan, because items that leave with this owner may sit before `index`.
                 if unbind_storage(
                     item,
                     self.contents.active(),
@@ -1507,7 +1507,7 @@ fn bind_push(
     interaction.register_generated_push(id, body, push, &colliders, hand, physics)
 }
 
-/// Siphon hose placement: one item per segment body, then one runtime hose.
+/// Places a siphon hose. It makes one item per segment body, then one runtime hose.
 /// The first main segment is the content item. The other segments are content bindings.
 #[allow(clippy::too_many_arguments)]
 fn bind_hose(

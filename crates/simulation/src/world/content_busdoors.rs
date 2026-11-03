@@ -58,7 +58,7 @@ impl DoorLeaf {
         self.last_used = time;
         sound
     }
-    /// `Update`: euler lerp to the target. Returns true when the rotation changed.
+    /// `Update`. Lerps the euler angles to the target. Returns true when the rotation changed.
     fn advance(&mut self, dt: f32) -> bool {
         let target = if self.open { self.opened } else { self.closed };
         let t = dt * self.speed;
@@ -68,7 +68,7 @@ impl DoorLeaf {
         self.pose.rotation = rotation;
         changed
     }
-    /// Restored state: the leaf starts at its target.
+    /// Sets the restored state. The leaf starts at its target.
     fn snap(&mut self, open: bool) {
         self.open = open;
         self.current = if open { self.opened } else { self.closed };
@@ -169,7 +169,7 @@ struct LeafCollider {
     base_rotation: Quat,
 }
 
-/// One `dinamiccolliderforbus` column: box size z follows the `t1`-`t2` distance.
+/// One `dinamiccolliderforbus` column. The box size z follows the distance from `t1` to `t2`.
 struct DynamicBox {
     handle: ColliderHandle,
     ends: [usize; 2],

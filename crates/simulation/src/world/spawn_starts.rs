@@ -172,7 +172,7 @@ impl SpawnEvaluation<'_> {
         self.bake_cables();
         Ok(())
     }
-    /// Source `attachgripscript.FStart`: the grip prefab spawns at the grip point of the trailer.
+    /// Source `attachgripscript.FStart`. The grip prefab spawns at the grip point of the trailer.
     fn spawn_grip(&mut self, parent: &Placement, source: &SourceId) -> Result<(), ReferenceError> {
         let Some(grip) = self
             .reference
@@ -349,7 +349,7 @@ impl SpawnEvaluation<'_> {
             })
             .collect()
     }
-    /// Source `tipus.tank`: the variant replaces the tank fluids (Car06 start car diesel pick).
+    /// Source `tipus.tank`. The variant replaces the tank fluids (Car06 start car diesel pick).
     /// It runs after `RandomSpawned`, so it also replaces a random primary fluid.
     fn selector_fluid(
         &mut self,

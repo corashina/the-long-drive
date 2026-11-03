@@ -103,7 +103,7 @@ struct PreparedSurface {
     road_claim: Option<(RoadJobId, u64)>,
     pending_bytes: usize,
     renderer_ready: bool,
-    /// The renderer may see the surface. Its render staging and memory are charged.
+    /// The renderer may see the surface. The stream charges its render staging and memory.
     offered: bool,
     renderer_reserved: bool,
     request: WorldRequest,
@@ -146,7 +146,7 @@ const START_ITEMS: &str = "StartSpawnItems";
 pub struct WorldStream {
     required: super::required::RequiredSelection,
     static_controls: Vec<super::contents::ContentInstance>,
-    // Membership and order only, independent of live control state.
+    // It changes on membership and order only, not on live control state.
     static_control_revision: u64,
     binding_baseline: Option<usize>,
     binding_bytes: usize,
@@ -159,10 +159,10 @@ pub struct WorldStream {
     tools: content_tools::Tools,
     pub computers: content_computers::Computers,
     cobwebs: content_cobwebs::Cobwebs,
-    /// Changed world conditions of this frame and the looks of one condition. Reused buffers.
+    /// Changed world conditions of this frame and the looks of one condition. The stream reuses the buffers.
     condition_changes: Vec<crate::reference::ConditionId>,
     condition_looks: Vec<super::NodeAppearance>,
-    // Membership and order only, independent of button animation.
+    // It changes on membership and order only, not on button animation.
     lamp_binding_revision: u64,
     seed: i32,
     /// Session date as year, month, day. It decides date rules for the whole game.
@@ -571,7 +571,7 @@ impl WorldStream {
         self.saved_locations_pending = !self.saved_item_protection.is_empty();
     }
     /// A generated copy of these planks and boards is a fixed body. A StartSpawnItems
-    /// copy is a live source Rigidbody: it settles onto what is under it, as in the source.
+    /// copy is a live source Rigidbody. It settles onto what is under it, as in the source.
     fn fixed_decoration(&self, placement: &Placement) -> bool {
         if placement.id.layer == super::WorldLayer::Startup
             || !super::instances::fixed_decoration_source(&placement.prototype)
@@ -856,7 +856,7 @@ impl WorldStream {
             saved_locations_pending: false,
             recipes: HashMap::new(),
             supplies: Vec::new(),
-            // Grows with use. Capacity is charged as retained CPU.
+            // It grows with use. The stream charges its capacity as retained CPU.
             wanted_structures: Default::default(),
             ready_structures: Vec::with_capacity(32),
             light_index: Default::default(),
@@ -900,8 +900,8 @@ impl WorldStream {
             + usize::from(self.road_work.is_some())
             + usize::from(self.contents.has_replay())
     }
-    /// Takes the renderer report before own work: given-back credit returns and use is
-    /// covered. Use above the credit must fit the limits, or the stream fails as before.
+    /// Takes the renderer report before own work. Given-back credit returns and the credit covers
+    /// the use. Use above the credit must fit the limits, or the stream fails as before.
     pub fn take_presentation_report(&mut self, report: PresentationReport) {
         // With no work that can publish, the renderer takes this frame's publication slot.
         // A prepared surface without its renderer receipt cannot publish, and a road can wait
@@ -1429,7 +1429,7 @@ impl WorldStream {
         self.publication_available = !self.publication_lent;
         self.last_road_work = 0;
         // Request and source-input changes force structures. Captured item motion only
-        // revises replay selection; it must not restart the one-metre baseline.
+        // revises replay selection. It must not restart the one-metre baseline.
         let force_structures = self.plan_revision != self.request.revision
             || self.selection_inputs != self.contents.input_revision();
         use super::stream_profile::{Stage, Timer};
@@ -1643,7 +1643,7 @@ impl WorldStream {
 
     /// The startup entries with a prototype become fixed placements. StartSpawnItems copies always
     /// spawn. A start car group entry spawns only for the picked group: its car and spare wheel. The exported pose is the raw
-    /// scene pose; the startup root offsets of its Transform chain move it onto the terrain.
+    /// scene pose. The startup root offsets of its Transform chain move it onto the terrain.
     fn startup_placements(
         &self,
         startup: &StartupTerrain,
@@ -1936,7 +1936,7 @@ impl WorldStream {
         self.ready_structures
             .retain(|id| self.wanted_structures.contains(id));
     }
-    /// Source `buildingscript.FStart(0)`: a road building connects to the nearest road pole.
+    /// Source `buildingscript.FStart(0)`. A road building connects to the nearest road pole.
     /// Contents wait for the cable. The search replays at most 8 road segments per update.
     fn prepare_building_cables(&mut self) {
         self.building_cables.retain(|(id, _)| {
@@ -2013,7 +2013,7 @@ impl WorldStream {
         let metrics = self.metrics();
         let pending = 32usize.saturating_sub(metrics.pending_work);
         // The step paces new contents. One source evaluation (a building with its Halloween
-        // bats) can pass the pace: only the object budget caps it.
+        // bats) can pass the pace. Only the object budget caps it.
         let budget = self
             .limits
             .objects
@@ -2264,7 +2264,7 @@ impl WorldStream {
             for bounds in bounds {
                 // Selection only lists records. Each replay root waits for its own room
                 // below, so only a reservation that can never fit fails here. Staging
-                // room is transient: the spray bottle changes its count every frame.
+                // room is transient. The spray bottle changes its count every frame.
                 let (count, bytes) = self.changes.query_reservation(bounds);
                 if count > self.limits.objects
                     || bytes.saturating_mul(4) > self.ledger.staging_limit()
@@ -3167,7 +3167,7 @@ impl WorldStream {
             .map(|work| (work.request, &work.published))
     }
     /// Applies the facts of the last renderer step in order.
-    /// Facts of an older session are dropped.
+    /// It drops the facts of an older session.
     pub fn apply_renderer_facts(
         &mut self,
         facts: &mut super::RendererFacts,
@@ -3285,8 +3285,8 @@ impl WorldStream {
         self.rewind_road(key);
     }
     /// The renderer finished the prepared surface. Its work drained.
-    /// The renderer repeats the fact until its frame shows the publication, so a repeat
-    /// for work that this stream already published or rewound is dropped.
+    /// The renderer repeats the fact until its frame shows the publication, so the stream
+    /// drops a repeat for work that it already published or rewound.
     fn accept_surface_renderer(
         &mut self,
         request: WorldRequest,
@@ -3541,7 +3541,7 @@ impl WorldStream {
                 .any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(index));
             return Some(SupportGap::Road { index, surface });
         }
-        // A sandbox spawn never gates the step: it may load late or not at all.
+        // A sandbox spawn never gates the step. It may load late or not at all.
         if let Some(placement) = self.wanted_structures.iter().find(|p| {
             !self.added_placement(p)
                 && [0, 2].into_iter().all(|axis| {
@@ -3640,7 +3640,7 @@ impl WorldStream {
         (height, super::forced_color(color, context.biome_override))
     }
     /// Source `roads[0].OneCoord(position)` with Y at `above` over the base terrain height
-    /// (`GetTerrainHeightWorld(pb1: true, pb2: false, pb3: false)`). Absolute coordinates.
+    /// (`GetTerrainHeightWorld(pb1: true, pb2: false, pb3: false)`). It uses absolute coordinates.
     pub fn road_point(&self, position: [f64; 3], above: f32) -> [f64; 3] {
         // OneCoord projects onto the identity world's forward axis. Source Z is the negated world Z.
         let z = -position[2] as f32;
@@ -4428,7 +4428,7 @@ impl WorldStream {
                 // selects it, also before its contents bind.
                 || ((!id.children.is_empty() || id.layer == WorldLayer::Startup)
                     && self.wanted_structures.contains(id))
-                // A wanted replay owner stays until its replay finishes. Else a far owner
+                // A wanted replay owner stays until its replay finishes. Otherwise a far owner
                 // publishes and retires each step, and its replayed items never publish.
                 || (self.structure_replay_required(id)
                     && self.wanted_structures.contains(id))

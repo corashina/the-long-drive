@@ -1,4 +1,4 @@
-//! Source `electronicsscript` on generated contents: the jam dims its `lights` groups and
+//! Source `electronicsscript` on generated contents. The jam dims its `lights` groups and
 //! switches the flashlights it powers.
 use super::WorldStream;
 use super::content_kinds::Bound;
@@ -18,7 +18,7 @@ pub struct ElectronicsBinding {
     state: Electronics,
     /// Light components of each `lights` group and the group maximum intensity.
     lights: Vec<(SourceId, f32)>,
-    /// The component powers flashlights: their refresh follows the power.
+    /// The component powers flashlights. Their refresh follows the power.
     lamps: bool,
     /// Power and light factor of the last refresh.
     powered: bool,
@@ -111,7 +111,7 @@ impl WorldStream {
     }
 
     /// EMPs jam each bound electronicsscript at its content position. Its lights take the new
-    /// output; a power change refreshes its flashlights.
+    /// output. A power change refreshes its flashlights.
     pub fn expose_electronics(
         &mut self,
         emps: &[Emp],
@@ -149,7 +149,7 @@ impl WorldStream {
                 let (parent, component, jam) = (b.parent.clone(), b.component.clone(), b.state.jam);
                 b.powered = powered;
                 b.factor = b.state.factor();
-                // The bake reads the jam: flashlights and lights refresh together.
+                // The bake reads the jam. Flashlights and lights refresh together.
                 self.contents.set_jam(
                     &self.reference,
                     &parent,

@@ -3,7 +3,7 @@ use super::{TerrainContext, TerrainEvaluator, TerrainFoundation, TerrainRoadPoin
 use crate::reference::{BodyId, ReferenceError, ReferenceManifest, WorldReference, WorldValue};
 use rapier3d::math::Vector;
 
-/// Startup offsets retain imported ownership; callers apply them before collider insertion.
+/// Startup offsets retain imported ownership. Callers apply them before collider insertion.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct StartupTerrain {
     pub root_offsets: Vec<(crate::reference::SourceId, f32)>,
@@ -189,7 +189,7 @@ impl StartupTerrain {
         let tile = super::terrain_tile(reference, distances, 0)?;
         let mut result = Self::default();
         let mut shared = None;
-        // Source runs the shared roots, player root, then each fixed root.
+        // The source runs the shared roots, the player root, then each fixed root.
         for group in ["StartObjs", "StartObjsDonTMoveOnLoad", "StartObjsFix"] {
             for root in reference.startup.iter().filter(|r| r.group == group) {
                 let transform = get(&root.source)?;

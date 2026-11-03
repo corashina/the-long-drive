@@ -16,9 +16,10 @@ const TESTED: StreamLimits = StreamLimits {
 };
 /// WASM32 linear memory.
 const ADDRESS_SPACE: u64 = 4 << 30;
-/// Road path length per metre of source z. The yaw clamp (±90°) keeps source z monotonic, so the
-/// road crosses a selection window once. The yaw follows the low-frequency source curve, and √2
-/// allows a mean heading of 45° inside the window. The export test measures it.
+/// Road path length per metre of source z. The yaw clamp of 90 degrees each way keeps source z
+/// monotonic, so the road crosses a selection window once. The yaw follows the low-frequency
+/// source curve, and the square root of 2 allows a mean heading of 45 degrees inside the
+/// window. The export test measures it.
 const ROAD_BEND: f64 = SQRT_2;
 const STEP: f32 = 100.;
 
@@ -144,10 +145,10 @@ impl StreamLimits {
             minimum,
         ))
     }
-    /// Tile bounds are exact: keep the tested limit as a floor. Road and object bounds do not
-    /// count content items, ramps and supplies: keep the tested headroom over the 500 m bound.
+    /// Tile bounds are exact, so keep the tested limit as a floor. Road and object bounds do not
+    /// count content items, ramps and supplies. Keep the tested headroom over the 500 m bound.
     /// Byte budgets scale with the fastest growing count of objects, roads and near tiles
-    /// (collision). Terrain mesh bytes add their exact growth: distant tile resolution grows
+    /// (collision). Terrain mesh bytes add their exact growth. Distant tile resolution grows
     /// with the draw distance.
     fn scaled(bounds: Bounds, minimum: Bounds) -> Self {
         let headroom =

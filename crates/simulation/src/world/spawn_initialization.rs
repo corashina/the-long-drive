@@ -29,7 +29,7 @@ impl SpawnEvaluation<'_> {
             let low = number(item, "fr1")?;
             let high = number(item, "fr2")?;
             let n = self.random.range_int(low as i32, high as i32);
-            // SetIntAmmo writes ammo; GetAmmo selects its int or float field.
+            // SetIntAmmo writes ammo. GetAmmo selects its int or float field.
             let float = flag(a, "floatOrInt")?;
             let mut actual = if float { number(a, "fammo")? } else { n as f32 };
             if actual > number(a, "max")? || low == high {

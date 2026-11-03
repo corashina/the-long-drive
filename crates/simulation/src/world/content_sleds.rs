@@ -74,7 +74,7 @@ impl Sled {
             for &collider in &self.colliders {
                 physics.edit_collider(collider, |c| c.set_sensor(in_use));
             }
-            // Wake on both edges: a sleeping body would keep its wheel height after use ends.
+            // Wake on both edges. A sleeping body would keep its wheel height after use ends.
             physics.edit_body(body, |b| b.wake_up(true));
         }
         let state = &physics.rapier().bodies[body];

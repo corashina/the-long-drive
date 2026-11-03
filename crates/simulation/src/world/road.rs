@@ -115,7 +115,7 @@ pub struct RoadSegment {
     pub bounds: WorldBounds,
 }
 impl RoadSegment {
-    /// Absolute runtime origin; apply the source Z reflection once.
+    /// Absolute runtime origin. Apply the source Z reflection once.
     pub fn position(&self) -> [f64; 3] {
         runtime_point(std::array::from_fn(|a| {
             self.source_origin[a] + self.source_position[a]

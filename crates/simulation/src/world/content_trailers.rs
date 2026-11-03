@@ -306,7 +306,7 @@ impl WorldStream {
         }))
     }
 
-    /// utanfutoscript.Update: brake torque while the brake switch is on, then the wheels.
+    /// utanfutoscript.Update. Applies brake torque while the brake switch is on, then steps the wheels.
     /// Run before the physics step.
     pub fn step_trailers(&mut self, physics: &mut PhysicsWorld) {
         for b in &mut self.kinds.trailers.list {
@@ -337,7 +337,7 @@ impl WorldStream {
         }
     }
 
-    /// Source trailer `rearlights`: the lamps follow the car that tows the trailer.
+    /// Source trailer `rearlights`. The lamps follow the car that tows the trailer.
     /// `input` gives the light input of a towing car item.
     pub fn advance_trailer_lights(
         &mut self,

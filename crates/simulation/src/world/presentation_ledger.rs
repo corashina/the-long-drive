@@ -1,5 +1,5 @@
 //! The renderer share of the stream budgets: credit, want, cover, reclaim and admission.
-//! Pure arithmetic over counts. The stream passes its own use in each call.
+//! It is pure arithmetic over counts. The stream passes its own use in each call.
 use super::{EXTERNAL_JOBS, MAX_PENDING, PROTOTYPE_CPU, PROTOTYPE_GPU, STAGING};
 use crate::reference::ReferenceError;
 use crate::world::WorldMetrics;
@@ -145,7 +145,7 @@ pub(super) struct StreamUse {
     pub binding_reserved: usize,
     /// Own external jobs: terrain, road and replay.
     pub jobs: usize,
-    /// External jobs open to the renderer: the initial generation is ready.
+    /// External jobs are open to the renderer once the initial generation is ready.
     pub jobs_open: bool,
     pub active_cpu_limit: usize,
     pub active_gpu_limit: usize,
@@ -200,8 +200,8 @@ impl PresentationLedger {
         Ok(())
     }
 
-    /// Takes the renderer report before own work: given-back credit returns and use is
-    /// covered. Use above the credit must fit the limits. Err: the failure message.
+    /// Takes the renderer report before own work. Given-back credit returns and the credit covers
+    /// the use. Use above the credit must fit the limits. Err: the failure message.
     pub fn take_report(
         &mut self,
         own: &StreamUse,
@@ -233,7 +233,7 @@ impl PresentationLedger {
 
     /// Answers the last report after own work. The renderer gets the credit for its covered
     /// use, and the room that own work left, but no field that own work waited for.
-    /// `own` is None when the stream failed: it grants nothing.
+    /// `own` is None when the stream failed. Then it grants nothing.
     pub fn grant(&mut self, own: Option<&StreamUse>, publication: bool) -> PresentationGrant {
         let reclaim = Reclaim::from_bits(self.reclaim.swap(0, Ordering::Relaxed));
         self.last_wait = (self.want, reclaim);
@@ -360,7 +360,7 @@ impl PresentationLedger {
     /// True if `bytes` of generation staging fit. Generation reclaims renderer staging only
     /// when renderer credit blocks the bytes. Credit that comes back does not enlarge the
     /// generation share. Work at that share can wait for renderer loads, and a reclaim then
-    /// stops those loads: the first page load stalls (K4).
+    /// stops those loads. Then the first page load stalls (K4).
     pub fn wait_for_staging(
         &self,
         bytes: usize,
@@ -455,7 +455,7 @@ mod tests {
         assert_eq!(grant.credit.dependency_staging_bytes, 16 << 20);
         assert_eq!(grant.credit.jobs, 2);
 
-        // Generation fits its share but renderer credit blocks it: the next grant holds
+        // Generation fits its share but renderer credit blocks it. The next grant holds
         // staging back.
         let more = PresentationAllocation {
             staging_bytes: 24 << 20,

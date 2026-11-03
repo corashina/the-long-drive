@@ -1,4 +1,4 @@
-//! Active source appearance is derived from initialized components.
+//! Active source appearance comes from initialized components.
 use super::spawn_contents::SpawnEvaluation;
 use super::spawn_rules::*;
 use crate::reference::{ReferenceError, SourceId};
@@ -7,7 +7,7 @@ pub struct NodeAppearance {
     pub node: SourceId,
     pub primary: Option<(crate::reference::AssetId, u32)>,
     pub scale: Option<[f32; 3]>,
-    /// Local rotation override, port space quaternion xyzw.
+    /// Local rotation override as a port space quaternion in xyzw order.
     pub rotation: Option<[f32; 4]>,
     pub active: Option<bool>,
     pub material: Option<SourceId>,
@@ -48,7 +48,7 @@ pub fn node_active(
     false
 }
 impl SpawnEvaluation<'_> {
-    /// Source `buildingscript.FStart` cable. Bake after lamps, so the cable is not lost on refresh.
+    /// Source `buildingscript.FStart` cable. Bake after lamps, so a refresh does not lose the cable.
     pub(super) fn bake_cables(&mut self) {
         for content in &mut self.output {
             content.appearance.extend_from_slice(&content.cable);

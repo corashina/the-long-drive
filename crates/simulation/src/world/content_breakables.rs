@@ -111,7 +111,7 @@ impl WorldStream {
             .filter(|s| !s.removed && items.descends(s.id, item))
             .map(|s| s.id)
             .collect();
-        // Change capture forgets the children: the instance removal covers them.
+        // Change capture forgets the children. The instance removal covers them.
         self.changes.remove(items.object_key(item));
         for id in children.into_iter().chain([item]) {
             if let Some(handle) = items.get(id).and_then(|s| s.body) {
@@ -265,7 +265,7 @@ impl WorldStream {
                 self.breakables.bind(kind, record, &records[record]);
             }
         }
-        // A structure lamp control: each breakablescript in its prototype that breaks its lamps.
+        // For a structure lamp control, bind each breakablescript in its prototype that breaks its lamps.
         for binding in lamps {
             let Some(instance) = structures.iter().find(|s| s.placement.id == binding.parent)
             else {
@@ -323,7 +323,7 @@ impl WorldStream {
                 }
             }
         }
-        // A restored lamp trigger whose lamps are all broken was destroyed by its Break.
+        // Its Break destroyed a restored lamp trigger whose lamps are all broken.
         let mut removed = false;
         for index in 0..self.breakables.targets().len() {
             let target = &self.breakables.targets()[index];

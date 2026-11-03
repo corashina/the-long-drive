@@ -1,5 +1,5 @@
 //! Source computers (computerscript) and TVs (displayscript) on generated items.
-//! Nothing here saves: after a load every computer is off and empty, as in the source.
+//! Nothing here saves. After a load every computer is off and empty, as in the source.
 use super::WorldStream;
 use crate::interaction::computer::{Computer, TypingFrame};
 use crate::interaction::items::ItemStore;
@@ -102,7 +102,7 @@ impl Computers {
         let display = b.display;
         self.connect(item, display);
     }
-    /// computerscript.Use: the computer reads the keyboard from now on.
+    /// computerscript.Use. The computer reads the keyboard from now on.
     pub fn use_computer(&mut self, item: ItemId) {
         if let Some(b) = self.computers.iter_mut().find(|b| b.item == item) {
             b.computer.used = true;
@@ -302,7 +302,7 @@ impl WorldStream {
             }
         }
     }
-    /// displayscript.R: `on` picks the material, `map` is the computer whose output it shows.
+    /// displayscript.R. `on` picks the material and `map` is the computer whose output it shows.
     pub fn display_screen(&self, parent: &GeneratedId) -> Option<(bool, Option<ItemId>)> {
         self.computers
             .displays
@@ -310,7 +310,7 @@ impl WorldStream {
             .find(|d| &d.parent == parent)
             .map(|d| (d.on, d.map))
     }
-    /// usablescript.Turn on a display switch: displayscript.Turned and the turn clip.
+    /// usablescript.Turn on a display switch. It runs displayscript.Turned and plays the turn clip.
     /// Returns false when the knob is not a display switch.
     pub fn switch_display(
         &mut self,
