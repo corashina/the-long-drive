@@ -34,17 +34,7 @@ pub struct ValveVisibility {
     pub(crate) opening: OpeningId,
     pub(crate) open: bool,
 }
-#[derive(Component)]
-pub struct CapVisual {
-    pub(crate) opening: OpeningId,
-    pub(crate) closed: Transform,
-    pub(crate) opened: Transform,
-    pub(crate) euler: bool,
-    pub(crate) closed_euler: Vec3,
-    pub(crate) open_euler: Vec3,
-    /// Source `capLerp` while `DoMove` runs.
-    pub(crate) motion: Option<f32>,
-}
+pub use super::cap_motion::CapVisual;
 
 #[derive(Resource, Default)]
 pub struct ReferenceVisuals {
@@ -307,6 +297,7 @@ pub(crate) fn bind(
                 closed_euler: Vec3::from_array(links.closed_euler_degrees),
                 open_euler: Vec3::from_array(links.open_euler_degrees),
                 motion: None,
+                pose: closed,
             });
         }
     }
@@ -354,6 +345,7 @@ pub(crate) fn bind_generated_cap(
             closed_euler: Vec3::from_array(links.closed_euler_degrees),
             open_euler: Vec3::from_array(links.open_euler_degrees),
             motion: None,
+            pose: closed,
         });
     }
     Ok(())
@@ -370,23 +362,7 @@ pub fn sync_caps(
 ) {
     for (mut cap, mut transform) in caps {
         let valve = frame.valve(cap.opening);
-        let mut pose = cap.closed;
-        if cap.euler {
-            let angles =
-                cap.closed_euler.lerp(cap.open_euler, valve) * std::f32::consts::PI / 180.0;
-            // Unity applies Z, then X, then Y.
-            pose.rotation = Quat::from_rotation_y(angles.y)
-                * Quat::from_rotation_x(angles.x)
-                * Quat::from_rotation_z(angles.z);
-        } else {
-            pose.translation = cap.closed.translation.lerp(cap.opened.translation, valve);
-            pose.rotation = cap
-                .closed
-                .rotation
-                .lerp(cap.opened.rotation, valve)
-                .normalize();
-            pose = super::cap_motion::cap_motion(*transform, pose, &mut cap.motion, dt);
-        }
+        let pose = cap.step(valve, dt);
         transform.set_if_neq(pose);
     }
     for (binding, mut visibility) in visibility {
