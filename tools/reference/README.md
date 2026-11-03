@@ -50,6 +50,8 @@ Build the image with `docker build --tag the-long-slop-toolchain --file tools/Do
 Runtime verification sends manifest bytes to the native `validate-reference` command through stdin.
 The export compiles that command in the background while runtime derivation runs.
 It uses the game's `ReferenceManifest` contract, the existing Cargo volumes, and a read-only checkout mount.
+The Rust contract is the only owner of each record's fields and rules.
+Python checks only source facts and exported files. Do not add Python checks of record shape.
 Missing Docker, failed validation, or an unavailable image stops acceptance before promotion.
 Library-only verification does not use Docker.
 

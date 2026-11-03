@@ -7,7 +7,7 @@ Joint limits are in degrees.
 import math
 from .source import key, source_id, vector
 from .collision import world_pose, bake_points, quaternion_product, geometry, step_surface, collider_tag
-from .survival import component, managed_evidence, finite_record
+from .survival import component, managed_evidence
 
 COLLIDERS = ('BoxCollider', 'SphereCollider', 'CapsuleCollider', 'MeshCollider')
 LOCKED, LIMITED = 0, 1  # ConfigurableJointMotion
@@ -218,56 +218,3 @@ def recover_ragdoll(source, manifest, output):
         'joints': recover_joints(source, by_node, bodies, poses), 'pose': pose,
         'evidence': managed_evidence(source, EVIDENCE)}
 
-
-def validate_ragdoll(r, manifest, clothing):
-    from .clothing import descendant, validate_character_skins
-    finite_record(r)
-    nodes = {n['id']: n for n in manifest['nodes']}
-    assets = [a for a in manifest['assets'] if a['usage'] == 'ragdoll_prototype']
-    if len(assets) != 1 or r['asset'] != assets[0]['id'] or nodes.get(r['root'], {}).get('source') != r['source']:
-        raise ValueError('Ragdoll asset identity')
-    player = clothing['characters'][0]['asset']
-    def local(n):
-        return nodes.get(n, {}).get('asset') == r['asset'] and descendant(nodes, n, r['root'])
-    bodies = r['bodies']
-    if not bodies or [b['id'] for b in bodies] != list(range(1, len(bodies) + 1)) or len({b['node'] for b in bodies}) != len(bodies):
-        raise ValueError('Ragdoll body ids')
-    body_ids = {b['id'] for b in bodies}
-    for b in bodies:
-        if (not local(b['node']) or not b['dynamic'] or b['mass_kg'] <= 0 or b['linear_damping'] < 0 or b['angular_damping'] < 0
-                or b['parent_body'] not in (None, *body_ids) or abs(sum(v * v for v in b['pose']['rotation']) - 1) > .002):
-            raise ValueError('Ragdoll body')
-    colliders = r['colliders']
-    if not colliders or [c['id'] for c in colliders] != list(range(1, len(colliders) + 1)):
-        raise ValueError('Ragdoll collider ids')
-    if any(not local(c['node']) or c['body'] not in body_ids or not c['enabled'] for c in colliders):
-        raise ValueError('Ragdoll collider links')
-    joints = r['joints']
-    if len({j['body'] for j in joints}) != len(joints):
-        raise ValueError('Ragdoll joint owner')
-    for j in joints:
-        if j['body'] not in body_ids or j['connected_body'] not in body_ids or j['body'] == j['connected_body'] or j['kind'] not in ('character', 'configurable'):
-            raise ValueError('Ragdoll joint bodies')
-        axis, swing = j['axis'], j['swing_axis']
-        if any(len(v) != 3 or abs(sum(x * x for x in v) - 1) > 1e-4 for v in (axis, swing)) or abs(sum(a * b for a, b in zip(axis, swing))) > .999:
-            raise ValueError('Ragdoll joint axes')
-        if len(j['anchor']) != 3 or len(j['connected_anchor']) != 3:
-            raise ValueError('Ragdoll joint anchors')
-        if j['low_twist']['limit'] > j['high_twist']['limit'] or j['swing1']['limit'] < 0 or j['swing2']['limit'] < 0:
-            raise ValueError('Ragdoll joint limits')
-    pose = r['pose']; pairs = pose['pairs']
-    if not pairs or len({p['ragdoll'] for p in pairs}) != len(pairs) or any(not local(p['ragdoll']) for p in pairs):
-        raise ValueError('Ragdoll pose nodes')
-    if any(nodes.get(p['live'], {}).get('asset') != player for p in pairs):
-        raise ValueError('Live ragdoll pose nodes')
-    body_nodes = {b['node'] for b in bodies}
-    if not local(pose['head']) or not any(descendant(nodes, pose['head'], n) for n in body_nodes):
-        raise ValueError('Ragdoll head')
-    if len(r['characters']) != len(clothing['characters']):
-        raise ValueError('Ragdoll character count')
-    for c, p in zip(r['characters'], clothing['characters'], strict=True):
-        if c['asset'] != r['asset'] or not local(c['root']) or [s['name'] for s in c['segments']] != [s['name'] for s in p['segments']]:
-            raise ValueError('Ragdoll character contract')
-        validate_character_skins(c, manifest, local)
-    if not any(m['asset'] == r['asset'] and m['source'] == r['invisible_material'] for m in manifest['rendering']['materials']):
-        raise ValueError('Ragdoll invisible material dependency')

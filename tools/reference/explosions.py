@@ -1,14 +1,12 @@
 """Checked explosions: mainscript explosion prefabs, the tank hole prefab, player blast fields and explosive fluids."""
 from .source import key, source_id
-from .survival import managed_evidence, finite_record, component
+from .survival import managed_evidence, component
 from .particles import particle
 
 MAIN=('level1',64919)
 PLAYER=('level1',80125)
 # mainscript.GetExplosionType: 0 and 1 ExplosionRed, 2 ExplosionBlue, 3 ExplosionPaint.
 TYPES=('ExplosionRed','ExplosionRed','ExplosionBlue','ExplosionPaint')
-# mainscript.fluidenum count.
-FLUID_TYPES=6
 EVIDENCE=[
     '0 => ExplosionRed,',
     '1 => ExplosionRed,',
@@ -20,8 +18,6 @@ EVIDENCE=[
     'return all > 0.2f;',
     'GameObject gameObject2 = UnityEngine.Object.Instantiate(mainscript.M.tankcaphole, list2[l] + list3[l] * 0.01f, Quaternion.LookRotation(list3[l]));',
     'EarRingSource.volume = Mathf.Clamp(earRinging, 0f, 1f);']
-TYPE_FIELDS='prefab source explosion_force multiplier explosion_dist particle sound'
-SOUND_FIELDS='source clip volume'
 HOLE_FIELDS={'radius':'radius','valve':'valve','def_pour_angle':'defPourAngle','tune_speed':'tuneSpeed','min_rate':'minRate','max_rate':'maxRate',
     'no_angle':'noAngle','no_pour':'noPour','cant_tube':'canttube','can_toggle':'canToggle','can_tune':'canTune','has_name':'hasName','no_text':'noText'}
 HOLE_FLAGS=('no_angle','no_pour','cant_tube','can_toggle','can_tune','has_name','no_text')
@@ -78,36 +74,3 @@ def recover_explosions(source, manifest, output) -> dict:
     print(f"Exported explosions: {len(types)} types, explosive fluids {fluids}",flush=True)
     return {'source':source_id(main),'types':types,'hole':hole,'player':blast,'explosive_fluids':fluids}
 
-
-def validate_explosions(record, manifest) -> None:
-    from .acquisition import _shape,_source,_integer,_number,_boolean,_list
-    _shape(record,'source types hole player explosive_fluids')
-    finite_record(record)
-    _source(record['source'])
-    audio={_order(c['source']) for c in manifest['audio']['clips']}
-    textures={t['id'] for t in manifest['lighting']['textures']}
-    def sound(s):
-        _shape(s,SOUND_FIELDS);_source(s['source']);_source(s['clip']);_number(s['volume'])
-        if _order(s['clip']) not in audio:raise ValueError(f"clip {s['clip']['file']}:{s['clip']['path_id']} missing from audio")
-    types=_list(record['types'])
-    if len(types)!=len(TYPES):raise ValueError('Explosion type count differs')
-    for i,t in enumerate(types):
-        try:
-            _shape(t,TYPE_FIELDS);_source(t['prefab']);_source(t['source'])
-            for f in ('explosion_force','multiplier','explosion_dist'):_number(t[f])
-            p=t['particle']
-            if p['role']!=f'explosion_{i}' or not p['materials'] or 'InitialModule.startLifetime' not in p['curves']:raise ValueError('particle data missing')
-            if any(x['texture'] not in textures for m in p['materials'] for x in m['textures']):raise ValueError('particle texture is not exported')
-            sound(t['sound'])
-        except (ValueError,KeyError,TypeError) as error:raise ValueError(f'Explosion type {i}: {error}') from error
-    h=record['hole']
-    _shape(h,' '.join(['prefab','source',*HOLE_FIELDS]));_source(h['prefab']);_source(h['source'])
-    for f in HOLE_FIELDS:
-        if f in HOLE_FLAGS:_boolean(h[f])
-        else:_number(h[f])
-    p=record['player']
-    _shape(p,' '.join(['source','ear_ring',*PLAYER_FIELDS]));_source(p['source']);sound(p['ear_ring'])
-    for f in PLAYER_FIELDS:_number(p[f])
-    fluids=_list(record['explosive_fluids'])
-    for f in fluids:_integer(f,FLUID_TYPES-1)
-    if not fluids or len(set(fluids))!=len(fluids):raise ValueError('Explosive fluids are missing or not unique')

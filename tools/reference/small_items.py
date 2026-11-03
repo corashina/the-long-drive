@@ -16,8 +16,6 @@ START_PACKS=((80187,77156),(70712,70989),(70715,70994))
 START_BINOCULARS=72758
 BINOCULAR_FIELDS=('eyeDist','focusDistance','focusDistanceSens','minfocusDistance','maxfocusDistance','minfov','maxfov')
 START_GROUP=21481
-# World prototype CobWeb wash triggers. Inactive level1 scene copies lie on no prototype.
-COBWEBS=529
 PLAYER=80125
 SPRAY_FIELDS=('cleaningType','text','angleSpeed','triggerMaxAngle','triggerSetAngle','triggerResetAngle','invert',
     'volumeSet','volumeReset','gain','distance','washRadius')
@@ -249,56 +247,3 @@ def _curve(c):
         for f in ('time','value','in_tangent','out_tangent','in_weight','out_weight'):_number(k[f])
 
 
-def validate_small_items(record, manifest) -> None:
-    _shape(record,'spirit_level spray_bottle genie_lamp binoculars start_packs exhale heat_haze washes wash_effects')
-    clips={(c['source']['file'],c['source']['path_id']) for c in manifest['audio']['clips']}
-    l=record['spirit_level'];_shape(l,'item prototype source bubbles')
-    if l['item']!=SPIRIT_LEVEL[0] or len(l['bubbles'])!=3:raise ValueError('Spirit level owner differs')
-    for b in l['bubbles']:
-        _shape(b,'bubble t1 t2 lerp bubble_curve scale_z_curve scale_xy_curve move_xy_curve min_scale_xy max_scale_xy min_scale_z max_scale_z move_xy startup_value')
-        for f in ('bubble_curve','scale_z_curve','scale_xy_curve','move_xy_curve'):_curve(b[f])
-        for f in ('lerp','min_scale_xy','max_scale_xy','min_scale_z','max_scale_z','move_xy','startup_value'):_number(b[f])
-    s=record['spray_bottle']
-    _shape(s,'item prototype source ammo can_pour pour_time cleaning_type text angle_speed trigger_max_angle trigger_set_angle trigger_reset_angle invert trigger hole set_clip reset_clip set_volume reset_volume mask gain distance wash_radius wash_mask spray splash startup')
-    if s['item']!=SPRAY_BOTTLE[0] or not 0<s['trigger_reset_angle']<s['trigger_set_angle']<s['trigger_max_angle']:raise ValueError('Spray bottle trigger differs')
-    if any((c['file'],c['path_id']) not in clips for c in (s['set_clip'],s['reset_clip'])):raise ValueError('Spray bottle clip is not exported')
-    _number(s['pour_time'])
-    if s['can_pour'] is not False or s['pour_time']<0:raise ValueError('Spray bottle pour differs')
-    if len(s['startup'])!=len(START_BOTTLES) or any(c['item_id']!=SPRAY_BOTTLE[0] for c in s['startup']):raise ValueError('Start spray bottles differ')
-    g=record['genie_lamp']
-    _shape(g,'item prototype source light renderer material wash_trigger gain lose intensity range emission startup_value')
-    _curve(g['intensity']);_curve(g['range'])
-    if g['item']!=GENIE_LAMP[0] or not g['emission']['colors'] or not 0<g['lose']<g['gain']:raise ValueError('Genie lamp values differ')
-    b=record['binoculars']
-    _shape(b,'item prototype source camera focus_distance focus_sensitivity min_focus max_focus min_fov max_fov startup')
-    for f in ('focus_distance','focus_sensitivity','min_focus','max_focus','min_fov','max_fov'):_number(b[f])
-    if b['item']!=BINOCULARS[0] or not b['min_focus']<b['max_focus'] or not 0<b['min_fov']<b['max_fov'] or b['focus_sensitivity']<=0:
-        raise ValueError('Binocular values differ')
-    if len(b['startup'])!=1 or b['startup'][0]['item_id']!=BINOCULARS[0]:raise ValueError('Start binoculars differ')
-    for c in b['startup']:_shape(c,'source transform item_id')
-    if len(record['start_packs'])!=len(START_PACKS) or any(p['item_id']!=74 or p['ammo']['type']!=5 for p in record['start_packs']):
-        raise ValueError('Start cigarette packs differ')
-    e=record['exhale'];_shape(e,'controller node max_rate charge_speed particle')
-    if e['max_rate']<=0 or e['charge_speed']<=0:raise ValueError('Mouth smoke rates differ')
-    _washes(record['washes'],record['wash_effects'],clips)
-    h=record['heat_haze']
-    if [m['shader']['name'] for m in h['materials']]!=['FX/Glass/Stained BumpDistort']:raise ValueError('Old heat haze material differs')
-    for p in (s['spray'],s['splash'],e['particle'],h)+tuple(f['particle'] for f in record['wash_effects']):
-        if not p['materials'] or 'InitialModule.startLifetime' not in p['curves']:raise ValueError('Small item particle data missing')
-
-
-def _washes(washes, effects, clips):
-    """CobWeb triggers: CleanProperty 2, destroyOnRepair, no objects, one sphere trigger each."""
-    if len(effects)!=1:raise ValueError('Wash destroy effects differ')
-    for f in effects:
-        _shape(f,'source particle clip volume');_number(f['volume'])
-        if (f['clip']['file'],f['clip']['path_id']) not in clips or not 0<=f['volume']<=1:raise ValueError('Wash destroy sound differs')
-    sources={(f['source']['file'],f['source']['path_id']) for f in effects}
-    for w in washes:
-        _shape(w,'source prototype node colliders permission never_repair destroy_on_repair objects chance_to_start_disabled particle_on_destroy')
-        _number(w['chance_to_start_disabled'])
-        e=w['particle_on_destroy']
-        if (w['permission']!=2 or w['never_repair'] or not w['destroy_on_repair'] or w['objects'] or len(w['colliders'])!=1
-                or not 0<=w['chance_to_start_disabled']<1 or e is None or (e['file'],e['path_id']) not in sources):
-            raise ValueError('Cobweb wash trigger differs')
-    if len(washes)!=COBWEBS or len({(w['node']['file'],w['node']['path_id']) for w in washes})!=COBWEBS:raise ValueError('Cobweb wash count differs')

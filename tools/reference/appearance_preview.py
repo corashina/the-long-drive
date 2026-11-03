@@ -1,7 +1,6 @@
 """Appearance editor preview stage (`settingsplayercustomscript.camStuff`): camera, lights and figure.
 All poses are local to `camStuff`. The assets are not in the cloud, so this reader fails loudly."""
-import math
-from .source import key, source_id, vector
+from .source import key, vector
 from .gltf import convert_point, convert_rotation, transform_point
 from .collision import quaternion_product
 
@@ -131,44 +130,3 @@ def recover_preview(source):
         'figure': figure_record(source, figure, stage)}
 
 
-def valid_pose(p):
-    t, r, s = p['translation'], p['rotation'], p['scale']
-    return (len(t) == 3 and len(r) == 4 and len(s) == 3 and all(math.isfinite(v) for v in (*t, *r, *s))
-        and all(v != 0 for v in s) and abs(sum(v * v for v in r) - 1) < .002)
-
-
-def validate_preview(preview, clothing, manifest):
-    camera, figure = preview['camera'], preview['figure']
-    if not valid_pose(camera['pose']) or not 0 < camera['fov'] < 180 or not 0 < camera['near'] < camera['far']:
-        raise ValueError('Preview camera')
-    for l in preview['lights']:
-        if l['kind'] not in LIGHT_KINDS.values() or len(l['color']) != 4 or l['intensity'] < 0 or l['range'] <= 0 or not valid_pose(l['pose']):
-            raise ValueError('Preview light')
-    validate_figure(figure, clothing, manifest)
-    if not frames_figure(camera, figure):
-        raise ValueError('Preview camera does not frame the figure joints')
-
-
-def frames_figure(camera, figure):
-    """Each figure joint is in front of the camera and inside its vertical field of view."""
-    t, (x, y, z, w) = camera['pose']['translation'], camera['pose']['rotation']
-    half = math.tan(math.radians(camera['fov']) / 2)
-    for joint in figure['joints']:
-        offset = [joint['pose']['translation'][i] - t[i] for i in range(3)]
-        local = transform_point(offset, (0., 0., 0.), (-x, -y, -z, w), (1., 1., 1.))
-        # Glb cameras look along -z.
-        depth = -local[2]
-        if depth <= camera['near'] or abs(local[1]) > depth * half:
-            return False
-    return True
-
-
-def validate_figure(figure, clothing, manifest):
-    if not valid_pose(figure['root_pose']) or not 0 <= figure['character'] < len(clothing['characters']):
-        raise ValueError('Preview figure')
-    character = clothing['characters'][figure['character']]
-    joints = {j for s in character['skins'] for j in s['joints']}
-    names = {n['name'] for n in manifest['nodes'] if n['id'] in joints}
-    given = [j['name'] for j in figure['joints']]
-    if len(set(given)) != len(given) or set(given) != names or not all(valid_pose(j['pose']) for j in figure['joints']):
-        raise ValueError('Preview figure joints')

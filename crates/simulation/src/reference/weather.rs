@@ -207,6 +207,7 @@ impl WeatherReference {
         )?;
         for p in &self.particles {
             particles::validate_particle(p, 2)?;
+            particles::validate_textures(p, m)?;
         }
         self.tumbleweeds.validate(m)
     }
