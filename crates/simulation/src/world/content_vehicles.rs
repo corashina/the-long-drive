@@ -103,6 +103,7 @@ pub(super) fn bind(
                 Ok(CarLightLinks {
                     electronics: electronics_of(light.electronics)?,
                     owner: owner_item(light.node).filter(|item| Some(*item) != content.item),
+                    switch: light.cabin.as_ref().and_then(|c| owner_item(c.switch_node)),
                     doors: light
                         .cabin
                         .iter()
