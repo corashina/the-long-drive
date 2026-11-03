@@ -213,6 +213,8 @@ pub struct PlayerState {
     collisions: Vec<CharacterCollision>,
     /// World points that blocked the last move. Reused each step.
     step_contacts: Vec<Vector>,
+    /// Velocity of the last edge step placement. Source rolls over the edge in many steps.
+    edge_step_velocity: Vector,
     yaw: f32,
     pitch: f32,
     /// Yaw and pitch degrees that the mouse added in the last view step.
@@ -351,6 +353,7 @@ impl PlayerState {
             occupancy: None,
             collisions: Vec::with_capacity(20),
             step_contacts: Vec::with_capacity(20),
+            edge_step_velocity: Vector::ZERO,
             yaw: yaw_from_rotation(pose.rotation),
             pitch: 0.0,
             look_applied: [0.; 2],
@@ -508,6 +511,7 @@ impl PlayerState {
         if !dt.is_finite() || dt <= 0.0 {
             return;
         }
+        self.edge_step_velocity = Vector::ZERO;
         if let Some(seat) = &self.occupancy {
             self.pose = *physics.rapier().bodies[seat.body].position() * seat.local_pose;
             physics.edit_body(self.body, |body| {
@@ -684,6 +688,7 @@ impl PlayerState {
                 .find_map(|&contact| shape.edge_step(&queries, &moved, dir, contact, offset))
             {
                 movement.translation += step;
+                self.edge_step_velocity = step / dt;
             }
         }
         if !self.collisions.is_empty() {
@@ -1357,6 +1362,10 @@ impl PlayerState {
     }
     pub fn body_handle(&self) -> RigidBodyHandle {
         self.body
+    }
+    /// Body velocity without the edge step placement. The source death check reads it.
+    pub fn motion_velocity(&self, physics: &PhysicsWorld) -> Vector {
+        physics.rapier().bodies[self.body].linvel() - self.edge_step_velocity
     }
     pub fn body_pose(&self, physics: &PhysicsWorld) -> VehiclePose {
         let mut walking_pose = self.pose;
