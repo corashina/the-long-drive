@@ -145,7 +145,7 @@ pub(super) fn bind(
                     .light_switch
                     .as_ref()
                     .and_then(|s| node_item(s.usable)),
-                handbrake_lever: world
+                handbrake_switch: world
                     .mechanisms
                     .iter()
                     .find(|m| {
@@ -524,7 +524,7 @@ pub struct CarCopy<'a> {
     /// The item of the `carscript.InteractSwitchLights` usable.
     pub light_switch: Option<ItemId>,
     /// The item of the `carscript.InteractHandbrake` usable.
-    pub handbrake_lever: Option<ItemId>,
+    pub handbrake_switch: Option<ItemId>,
     /// The car root item.
     pub owner: ItemId,
     /// One slot per record wheel, in wheel order.
@@ -574,7 +574,7 @@ pub fn spawn(
             car_electronics: copy.car_electronics,
             lights: copy.lights,
             light_switch: copy.light_switch,
-            handbrake_lever: copy.handbrake_lever,
+            handbrake_switch: copy.handbrake_switch,
             plates,
             blood: copy.blood,
         },

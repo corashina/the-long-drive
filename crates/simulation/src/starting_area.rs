@@ -468,7 +468,7 @@ pub struct WorldCarParts {
     /// The item of the `carscript.InteractSwitchLights` usable.
     pub light_switch: Option<ItemId>,
     /// The item of the `carscript.InteractHandbrake` usable.
-    pub handbrake_lever: Option<ItemId>,
+    pub handbrake_switch: Option<ItemId>,
     /// Plate label texts in `WorldVehicleReference::plates` order.
     pub plates: Vec<String>,
     /// Source `carscript.blood`.
@@ -543,7 +543,7 @@ pub struct VehicleRuntime {
     /// The item of the `carscript.InteractSwitchLights` usable.
     pub light_switch: Option<ItemId>,
     /// The item of the `carscript.InteractHandbrake` usable.
-    pub handbrake_lever: Option<ItemId>,
+    pub handbrake_switch: Option<ItemId>,
     /// Plate label texts, in `WorldVehicleReference::plates` order.
     pub plates: Vec<String>,
     /// `carscript.kmhmeters` slots: (row, slot) pairs.
@@ -626,7 +626,7 @@ impl VehicleRuntime {
             powertrain: Powertrain::default(),
             requested_headlights: 0,
             light_switch: parts.light_switch,
-            handbrake_lever: parts.handbrake_lever,
+            handbrake_switch: parts.handbrake_switch,
             plates: parts.plates,
             kmh_slots: Vec::new(),
             balance: Default::default(),
@@ -1526,16 +1526,16 @@ impl GarageRuntime {
         }
         if let Some(action) = self.area.interaction.mechanisms.take_control_action() {
             match action {
-                crate::interaction::mechanisms::ControlAction::ToggleHandbrake(lever) => {
+                crate::interaction::mechanisms::ControlAction::ToggleHandbrake(switch) => {
                     if let Some(vehicle) = self
                         .vehicles
                         .values_mut()
-                        .find(|v| v.handbrake_lever == Some(lever))
+                        .find(|v| v.handbrake_switch == Some(switch))
                     {
                         vehicle.handbrake = !vehicle.handbrake;
                         if let Some(key) = self.area.player.seat_vehicle().cloned()
                             && self.area.player.driving()
-                            && self.vehicles[&key].handbrake_lever == Some(lever)
+                            && self.vehicles[&key].handbrake_switch == Some(switch)
                         {
                             self.reach_seated_car(
                                 reference,

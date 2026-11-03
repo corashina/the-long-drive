@@ -1,13 +1,14 @@
-"""Project existing rotation and slide rules for generated source instances."""
+"""Project existing rotation, slide and car switch rules for generated source instances."""
 from .source import key, source_id
 from .world import _source_root
 from .mechanisms import recover_mechanisms
-from .vehicles import handbrake_lever, handbrake_recipe
 
 def recover_world_mechanisms(source, selected, world):
     result=[]
     main=source.read(source.get('level1',64919))
     for prototype in world['prototypes']:
+        # Car switches: InteractHandbrake, InteractLight and the cabin light switch.
+        car=bool(prototype.get('vehicle'))
         root=source.get(prototype['source']['file'],prototype['source']['path_id'])
         hierarchy=source.hierarchy(root,activate_root=True)
         mapping={key(n['reader']):i+1 for i,n in enumerate(hierarchy)}
@@ -21,14 +22,14 @@ def recover_world_mechanisms(source, selected, world):
                 if cls=='flashlightscript':continue
                 if cls=='usablescript':
                     data=source.read(c)
-                    if not (data['rotateAble'] or data['slideAble']):continue
+                    if not (data['rotateAble'] or data['slideAble'] or (car and data['turnable'])):continue
                 group.setdefault(cls,[]).append(c)
             components[i]=group
         def pointer(owner,p):
             target=source.resolve(owner,p)
             return mapping[key(_source_root(source,target))]
         recipes=recover_mechanisms(source,nodes,components,pointer,None,main)
-        recipes=[r for r in recipes if r['rotation'] or r['slide']]
+        recipes=[r for r in recipes if r['rotation'] or r['slide'] or (car and r['turn'])]
         by_source={(r['source']['file'],r['source']['path_id']):r['use_node'] for r in recipes}
         for r in recipes:
             reaction = r['reaction']
@@ -37,7 +38,7 @@ def recover_world_mechanisms(source, selected, world):
             node=r.pop('use_node');child=r.pop('child_source')
             parent=node
             while parent and not components[parent].get('pickupable'):parent=nodes[parent-1]['parent']
-            r.update(item=node,parent_item=parent,child=by_source.get(child),disable_on_craft=False,disable_on_uncraft=False,turn=None)
+            r.update(item=node,parent_item=parent,child=by_source.get(child),disable_on_craft=False,disable_on_uncraft=False,turn=r['turn'] if car else None)
             for group in components.values():
                 for pick in group.get('pickupable',[]):
                     data=source.read(pick)
@@ -49,10 +50,4 @@ def recover_world_mechanisms(source, selected, world):
             if r['slide'] and r['slide']['animation_source']:
                 a=r['slide']['animation_source'];selected.record(source.get(a['file'],a['path_id']))
             result.append(dict(prototype=prototype['source'],node=node-1,recipe=r))
-        lever=handbrake_lever(source,hierarchy) if prototype.get('vehicle') else None
-        if lever is not None:
-            selected.record(lever)
-            node=mapping[key(lever)]
-            recipe=handbrake_recipe(lever,node,max((r['id'] for r in recipes),default=0)+1)
-            result.append(dict(prototype=prototype['source'],node=node-1,recipe=recipe))
     return result

@@ -401,6 +401,15 @@ impl InteractionState {
         })
     }
 
+    /// A generated knob (radio, dial, button) has no use owner. Its body item owns it.
+    fn knob_owner(&self, collider: &rapier3d::prelude::Collider) -> Option<ItemId> {
+        let id = ColliderId((collider.user_data >> 64) as u32);
+        if !self.dial_knobs.contains_key(&id) {
+            return None;
+        }
+        (collider.user_data as u32).checked_sub(1).map(ItemId)
+    }
+
     fn supports_use(&self, item: ItemId) -> bool {
         self.usable_items.contains(&item) || self.mechanisms.contains(item)
     }
@@ -428,7 +437,8 @@ impl InteractionState {
                     .and_then(|binding| binding.use_owner)
                     .filter(|id| self.supports_use(*id))
                     .or_else(|| self.item_seats.get(&handle).map(|seat| seat.item))
-                    .or_else(|| self.ufo_controls.get(&handle).map(|c| c.item)),
+                    .or_else(|| self.ufo_controls.get(&handle).map(|c| c.item))
+                    .or_else(|| self.knob_owner(collider)),
                 QueryAction::Fill => binding.and_then(|binding| binding.use_owner).filter(|id| {
                     self.filling_items.contains(id)
                         && self.held().is_some()

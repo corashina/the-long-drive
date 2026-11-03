@@ -94,17 +94,7 @@ pub fn display_name<'a>(
     }
     match item.kind {
         ItemKind::Food => item.name.as_str(),
-        ItemKind::Decoration => reference
-            .mechanisms
-            .iter()
-            .find(|m| m.item == id)
-            .and_then(|m| m.turn.as_ref())
-            .map_or("", |turn| match turn.action {
-                crate::reference::TurnAction::ToggleHandbrake => "Handbrake",
-                crate::reference::TurnAction::CycleHeadlights => "Headlights",
-                crate::reference::TurnAction::InteriorLight => "Cabin light",
-                crate::reference::TurnAction::ToggleHomeLight { .. } => "Light switch",
-            }),
+        ItemKind::Decoration => "",
         ItemKind::Door => item.name.as_str(),
         ItemKind::Hood => "Hood",
         ItemKind::Trunk => "Trunk",

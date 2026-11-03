@@ -517,9 +517,11 @@ impl InteractionState {
         items: &'a ItemStore,
         reference: &'a ReferenceManifest,
     ) -> InteractionFeedback<'a> {
-        let name = a
-            .item
-            .map_or("", |id| labels::display_name(reference, items, id));
+        let name = a.item.map_or("", |id| {
+            self.mechanisms
+                .turn_label(id)
+                .unwrap_or_else(|| labels::display_name(reference, items, id))
+        });
         // Generated world caps have no manifest opening record, so read the live opening.
         let fluid = a
             .opening
