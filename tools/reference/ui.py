@@ -108,8 +108,9 @@ def export_ui(source, output, library):
                     ('recover',source.resolve(menu,md['ButtonExit']))]:
         layout(label_of(go),role,True)
     layout(source.get('level1',67604),'back',True)
+    # ThelpText is the black shadow copy of the help lines. ThelpText2 draws the visible lines.
     fields={'use':'TextE','pickup':'TextPickup','mount':'TextMount','fill':'LMB',
-            'carry':'TextMoveRotateHelp','help':'ThelpText','fluid':'TTankCap','reticle':'GCDef','foot':'TextCF1','driving':'TextCC1'}
+            'carry':'TextMoveRotateHelp','help':'ThelpText2','fluid':'TTankCap','reticle':'GCDef','foot':'TextCF1','driving':'TextCC1'}
     for role,field in fields.items():layout(source.resolve(menu,md[field]),role)
     icons={}
     # mainscript.CrossHairStuff sets these sprites on the GCE, GCAdjust, GCMMB, GCF and GCLMB images.
