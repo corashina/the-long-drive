@@ -71,3 +71,8 @@ test('tp_s2_k5_the_page_start_loads_the_named_save_else_the_last_save_with_auto_
  assert.deepEqual(calls.reload,['a']);
  assert.equal(await start({loadName:calls.reload[0],autoLoad:false}),'a');
 });
+test('result text clears when play continues',async()=>{
+ const {MenuState}=await import('../../web/menu.js');
+ const menu=new MenuState();menu.ready();await menu.run('newGame',{newGame:async()=>{}});assert.equal(menu.status,'New game ready.');
+ assert.equal(await menu.capture(4,async()=>{}),true);assert.equal(menu.status,'');
+});

@@ -4,6 +4,7 @@ import {createControlsScreen} from './controls-screen.js';
 import {canLoadLast} from './save-session.js';
 export const ACTIONS={PAUSE:2,CONTINUE:4,RECOVER:16};
 const pendingText={save:'Saving...',load:'Loading...',loadLast:'Loading...',remove:'Deleting...',newGame:'Starting a new game...'};
+// Result texts confirm a menu action. They clear when play continues.
 const resultText={join:'Joined the game.',save:'Save complete.',load:'Game loaded.',loadLast:'Game loaded.',remove:'Save deleted.',newGame:'New game ready.'};
 const SUBSCREENS=['settings','game-mode','saves','appearance','multiplayer'];
 // Appearance has its own preview, so the car stage hides there.
@@ -42,7 +43,7 @@ export class MenuState {
  async capture(action,request,unlock){
   if(this.deathComplete || !this.readyFlag || !this.started || this.pending || this.state!=='pause-menu')return false;
   const token=++this.generation;this.pending=true;this.error='';
-  try {try{unlock?.();}catch{}await request();if(token!==this.generation)return false;this.actions=action;this.state='playing';return true;}
+  try {try{unlock?.();}catch{}await request();if(token!==this.generation)return false;this.actions=action;this.state='playing';this.status='';return true;}
   catch(error){if(token===this.generation){this.error='Mouse capture failed. '+error.message+' Select Continue to try again.';this.state='pause-menu';}return false;}
   finally {if(token===this.generation)this.pending=false;}
  }
