@@ -124,8 +124,7 @@ impl GrassExpansion {
         Ok(GrassAllocation {
             vertices: self.vertices,
             indices: self.indices,
-            scratch_bytes: std::mem::size_of::<Self>()
-                + self.plans.capacity() * std::mem::size_of::<PatchPlan>(),
+            scratch_bytes: self.scratch_bytes(),
             output_bytes: geometry,
             gpu_bytes: geometry,
         })
@@ -260,9 +259,11 @@ impl GrassExpansion {
     }
     pub fn finish(self) -> (GrassView, GrassMeshData, usize) {
         assert!(self.phase == Phase::Complete, "Grass output is incomplete");
-        let scratch =
-            std::mem::size_of::<Self>() + self.plans.capacity() * std::mem::size_of::<PatchPlan>();
+        let scratch = self.scratch_bytes();
         (self.view, self.output, scratch)
+    }
+    fn scratch_bytes(&self) -> usize {
+        std::mem::size_of::<Self>() + self.plans.capacity() * std::mem::size_of::<PatchPlan>()
     }
     pub fn retained_bytes(&self) -> usize {
         self.plans.capacity() * std::mem::size_of::<PatchPlan>() + self.output.retained_bytes()

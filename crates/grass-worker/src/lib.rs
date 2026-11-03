@@ -145,19 +145,20 @@ pub fn evaluate() -> Result<GrassSurface, JsError> {
 #[wasm_bindgen]
 pub fn discard() {
     STATE.with(|state| {
-        let mut s = state.borrow_mut();
-        s.task = None;
-        s.owner = None;
+        let mut state = state.borrow_mut();
+        state.task = None;
+        state.owner = None;
     });
 }
 #[wasm_bindgen]
 pub fn retire(owner: u64) -> Result<(), JsError> {
     STATE.with(|state| {
-        let mut s = state.borrow_mut();
-        if s.owner == Some(owner) {
+        let mut state = state.borrow_mut();
+        if state.owner == Some(owner) {
             return Err(JsError::new("Grass dataset has an owned plan"));
         }
-        s.datasets
+        state
+            .datasets
             .remove(&owner)
             .ok_or_else(|| JsError::new("Grass dataset is not installed"))?;
         Ok(())
