@@ -341,9 +341,12 @@ impl SourceInstances {
     }
     /// Ready visible instances with `mirrorscript` renderers: instance index, root entity,
     /// prototype index and node entities by glTF node.
-    pub(crate) fn mirror_cars(
-        &self,
-    ) -> impl Iterator<Item = (usize, Entity, usize, &[Option<Entity>])> {
+    /// Only prototypes with vehicle mirrors have mirror renderers: other instances skip the
+    /// renderer walk.
+    pub(crate) fn mirror_cars<'a>(
+        &'a self,
+        prototypes: &'a crate::reference::WorldPrototypes,
+    ) -> impl Iterator<Item = (usize, Entity, usize, &'a [Option<Entity>])> {
         self.instances
             .iter()
             .enumerate()
@@ -351,6 +354,10 @@ impl SourceInstances {
                 i.ready
                     && i.visible
                     && !i.retirement.started()
+                    && prototypes[i.prototype]
+                        .vehicle
+                        .as_ref()
+                        .is_some_and(|v| !v.mirrors.is_empty())
                     && i.renderers.iter().any(|r| r.mirror)
             })
             .map(|(index, i)| (index, i.root, i.prototype, i.nodes.as_slice()))
