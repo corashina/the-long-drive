@@ -44,39 +44,9 @@ struct LightingUniform {
 @group(1) @binding(5) var shadow_atlas: texture_depth_2d;
 @group(1) @binding(6) var shadow_compare: sampler_comparison;
 @group(1) @binding(7) var lamp_atlas: texture_depth_2d;
+// Lamp mask and probe pair of each entity, by MeshTag. Layout in object_lighting.rs.
+@group(1) @binding(8) var<storage> object_lighting: array<vec4<u32>>;
 
-// Unity BlendProbes with equal importance: the two slots with the largest box overlap.
-// One probe takes full weight. Two share it by overlap volume.
-// Returns x=first weight, z=first slot, w=second slot or -1. x=0 without a probe.
-// Renderer extents retain the recovered native Vector3f::epsilon clamp.
-fn probe_blend(model: mat4x4<f32>, center_usage: vec4<f32>, extents_flags: vec4<f32>) -> vec4<f32> {
-    if center_usage.w == 0.0 { return vec4(0.0, 0.0, 0.0, -1.0); }
-    let center = (model * vec4(center_usage.xyz,1.0)).xyz;
-    let extents = max(abs(model[0].xyz)*extents_flags.x
-        + abs(model[1].xyz)*extents_flags.y + abs(model[2].xyz)*extents_flags.z,
-        vec3(9.999999747378752e-06));
-    var volumes = vec2(0.0);
-    var slots = vec2(-1.0);
-    for (var slot = 0; slot < 4; slot++) {
-        let probe_center = lighting.probe_center[slot];
-        let probe_extents = lighting.probe_extents[slot];
-        if probe_extents.w == 0.0 { continue; }
-        let minimum = max(center-extents, probe_center.xyz-probe_extents.xyz);
-        let maximum = min(center+extents, probe_center.xyz+probe_extents.xyz);
-        let size = max(maximum-minimum, vec3(0.0));
-        let volume = size.x*size.y*size.z;
-        if volume > volumes.x {
-            volumes = vec2(volume, volumes.x);
-            slots = vec2(f32(slot), slots.x);
-        } else if volume > volumes.y {
-            volumes.y = volume;
-            slots.y = f32(slot);
-        }
-    }
-    if slots.x < 0.0 { return vec4(0.0, 0.0, 0.0, -1.0); }
-    let weight = select(volumes.x/(volumes.x+volumes.y), 1.0, slots.y < 0.0);
-    return vec4(weight, 0.0, slots);
-}
 fn diffuse_sh(normal: vec3<f32>) -> vec3<f32> {
     // ShadeSH9 in source world axes. Flat startup SH has only the constant term.
     let n=vec4(normal.x,normal.y,-normal.z,1.0);

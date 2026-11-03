@@ -195,31 +195,17 @@ fn prepare(
                             .ok_or_else(|| fail("Condition mesh submesh"))?
                             .mesh
                             .clone();
-                        let mut mesh = world
+                        let bounds = world
                             .resource::<Assets<Mesh>>()
                             .get(&raw)
                             .ok_or_else(|| fail("Condition mesh pixels"))?
-                            .clone();
-                        let vertices = mesh.count_vertices();
-                        let bounds = mesh
                             .compute_aabb()
                             .ok_or_else(|| fail("Condition mesh bounds"))?;
                         let mut renderer = metadata.clone();
                         renderer.0.bounds_center = bounds.center.to_array();
                         renderer.0.bounds_extents = bounds.half_extents.to_array();
-                        let [center, extents] = renderer.0.attributes();
                         receiver.bounds.push((bounds, renderer));
-                        mesh.insert_attribute(
-                            super::renderers::SOURCE_BOUNDS_CENTER,
-                            vec![center; vertices],
-                        );
-                        mesh.insert_attribute(
-                            super::renderers::SOURCE_BOUNDS_EXTENTS,
-                            vec![extents; vertices],
-                        );
-                        receiver
-                            .meshes
-                            .push(world.resource_mut::<Assets<Mesh>>().add(mesh));
+                        receiver.meshes.push(raw);
                     }
                 }
                 for bank in &mut receiver.banks {

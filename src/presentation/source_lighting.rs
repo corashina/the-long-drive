@@ -68,6 +68,8 @@ pub fn surface_lighting_layout() -> BindGroupLayoutDescriptor {
                 texture_depth_2d(),
                 sampler(SamplerBindingType::Comparison),
                 texture_depth_2d(),
+                // Object lamp masks and probe pairs by MeshTag. See object_lighting.rs.
+                storage_buffer_read_only_sized(false, None).visibility(ShaderStages::VERTEX),
             ),
         ),
     )
@@ -78,6 +80,8 @@ pub fn surface_lighting_layout() -> BindGroupLayoutDescriptor {
 pub struct SourceViewLighting {
     uniform: UniformBuffer<LightingUniform>,
     bind_group: BindGroup,
+    /// Generation of the object buffer in the bind group.
+    objects: u32,
     draw_epoch: AtomicU32,
     draw_counts: [AtomicU32; 4],
     instance_counts: [AtomicU32; 4],
@@ -92,11 +96,35 @@ impl SourceViewLighting {
         probe: (&TextureView, &Sampler),
         shadow: (&TextureView, &Sampler),
         lamp_atlas: &TextureView,
+        objects: &super::object_lighting::ObjectLightingGpu,
     ) -> Self {
         let mut uniform = UniformBuffer::from(value);
         uniform.set_label(Some("source_view_lighting_uniform"));
         uniform.write_buffer(device, queue);
-        let bind_group = device.create_bind_group(
+        let bind_group = Self::bind(
+            device, cache, &uniform, cookie, probe, shadow, lamp_atlas, objects,
+        );
+        Self {
+            uniform,
+            bind_group,
+            objects: objects.generation,
+            draw_epoch: AtomicU32::new(0),
+            draw_counts: std::array::from_fn(|_| AtomicU32::new(0)),
+            instance_counts: std::array::from_fn(|_| AtomicU32::new(0)),
+        }
+    }
+
+    fn bind(
+        device: &RenderDevice,
+        cache: &PipelineCache,
+        uniform: &UniformBuffer<LightingUniform>,
+        cookie: (&TextureView, &Sampler),
+        probe: (&TextureView, &Sampler),
+        shadow: (&TextureView, &Sampler),
+        lamp_atlas: &TextureView,
+        objects: &super::object_lighting::ObjectLightingGpu,
+    ) -> BindGroup {
+        device.create_bind_group(
             "source_view_lighting",
             &cache.get_bind_group_layout(&surface_lighting_layout()),
             &BindGroupEntries::sequential((
@@ -108,15 +136,35 @@ impl SourceViewLighting {
                 shadow.0,
                 shadow.1,
                 lamp_atlas,
+                objects.buffer.as_entire_binding(),
             )),
-        );
-        Self {
-            uniform,
-            bind_group,
-            draw_epoch: AtomicU32::new(0),
-            draw_counts: std::array::from_fn(|_| AtomicU32::new(0)),
-            instance_counts: std::array::from_fn(|_| AtomicU32::new(0)),
+        )
+    }
+    /// Bind a grown object buffer. Other bindings do not change.
+    pub fn rebind(
+        &mut self,
+        device: &RenderDevice,
+        cache: &PipelineCache,
+        cookie: (&TextureView, &Sampler),
+        probe: (&TextureView, &Sampler),
+        shadow: (&TextureView, &Sampler),
+        lamp_atlas: &TextureView,
+        objects: &super::object_lighting::ObjectLightingGpu,
+    ) {
+        if self.objects == objects.generation {
+            return;
         }
+        self.bind_group = Self::bind(
+            device,
+            cache,
+            &self.uniform,
+            cookie,
+            probe,
+            shadow,
+            lamp_atlas,
+            objects,
+        );
+        self.objects = objects.generation;
     }
 
     pub fn bind_group(&self) -> &BindGroup {

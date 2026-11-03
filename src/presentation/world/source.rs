@@ -436,14 +436,5 @@ fn surface_mesh(
     }
     record.bounds_center = ((min + max) * 0.5).to_array();
     record.bounds_extents = ((max - min) * 0.5).to_array();
-    let [center, extents] = record.attributes();
-    mesh.insert_attribute(
-        crate::presentation::renderers::SOURCE_BOUNDS_CENTER,
-        vec![center; surface.vertices.len()],
-    );
-    mesh.insert_attribute(
-        crate::presentation::renderers::SOURCE_BOUNDS_EXTENTS,
-        vec![extents; surface.vertices.len()],
-    );
     (mesh, record)
 }

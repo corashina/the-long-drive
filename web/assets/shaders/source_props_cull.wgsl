@@ -13,6 +13,12 @@ struct PropRow {
     color: vec4<f32>,
     // Frozen source position for procedural inputs.
     source_position: vec3<f32>,
+    // Renderer flags: cast, receive << 1, motion vectors << 2.
+    renderer_flags: u32,
+    // Renderer bounds in the mesh frame, and the probe usage.
+    local_center: vec3<f32>,
+    probe_usage: f32,
+    local_extents: vec3<f32>,
     unused: u32,
 }
 struct PropBatch {
@@ -28,6 +34,25 @@ struct CullView {
     counts: vec4<u32>,
     // x: view index for the totals.
     view: vec4<u32>,
+    // Probe slots of the scene. extents.w=1 when the slot is enabled and published.
+    probe_center: array<vec4<f32>, 4>,
+    probe_extents: array<vec4<f32>, 4>,
+}
+// Same layout as GpuLight and LightingUniform in lighting.rs.
+struct SourceLight {
+    cookie_from_world: mat4x4<f32>,
+    position_range: vec4<f32>,
+    direction_kind: vec4<f32>,
+    color: vec4<f32>,
+    cookie_rect: vec4<f32>,
+    mask: vec4<u32>,
+    cookie_size: f32,
+}
+struct SourceLighting {
+    lights: array<SourceLight,64>,
+    ambient: vec4<f32>,
+    fog: vec4<f32>,
+    counts: vec4<u32>,
 }
 @group(0) @binding(0) var<storage> rows: array<PropRow>;
 @group(0) @binding(1) var<storage> batches: array<PropBatch>;
@@ -39,6 +64,9 @@ struct CullView {
 @group(0) @binding(5) var<uniform> view: CullView;
 // Shadow split masks, one byte per row.
 @group(0) @binding(6) var<storage> masks: array<u32>;
+@group(0) @binding(7) var<uniform> lamp_lighting: SourceLighting;
+// Lamp mask and probe pair of each camera-visible entry. Same layout as object_lighting.rs.
+@group(0) @binding(8) var<storage, read_write> lights: array<vec4<u32>>;
 
 const PASSES: u32 = 9u;
 const NO_BATCH: u32 = 0xffffffu;
@@ -79,10 +107,94 @@ fn intersects_camera(center: vec3<f32>, extents: vec3<f32>) -> bool {
     return true;
 }
 
-fn append(list: u32, row: u32, batch: u32) {
+// Returns the entry in the list.
+fn append(list: u32, row: u32, batch: u32) -> u32 {
     let slot = atomicAdd(&args[(list * view.counts.z + batch) * 5u + 1u], 1u);
-    visible[list * view.counts.w + batches[batch].first + slot] = row;
+    let entry = batches[batch].first + slot;
+    visible[list * view.counts.w + entry] = row;
     atomicAdd(&counted[list], 1u);
+    return entry;
+}
+
+// A bound can exclude a lamp only when all arithmetic remains finite.
+fn source_finite3(value: vec3<f32>) -> bool {
+    return all((bitcast<vec3<u32>>(value) & vec3(0x7f800000u)) != vec3(0x7f800000u));
+}
+// Lamps that can reach the row bounds. object_lighting.rs has the same operations for entities.
+fn object_light_mask(model: mat4x4<f32>, local_center: vec3<f32>, local_extents: vec3<f32>, receiver: u32) -> vec2<u32> {
+    var selected = vec2(0u);
+    let center = (model * vec4(local_center, 1.0)).xyz;
+    let extents = abs(model[0].xyz) * local_extents.x
+        + abs(model[1].xyz) * local_extents.y + abs(model[2].xyz) * local_extents.z;
+    // Absolute terms also cover cancellation in the center transform.
+    let magnitude = abs(model[0].xyz) * abs(local_center.x)
+        + abs(model[1].xyz) * abs(local_center.y)
+        + abs(model[2].xyz) * abs(local_center.z) + abs(model[3].xyz) + extents;
+    // GPU prop rows are not skinned or morphed, so their bounds hold.
+    let valid = all(local_extents >= vec3(0.0))
+        && source_finite3(center) && source_finite3(extents) && source_finite3(magnitude);
+    for (var i = 0u; i < lamp_lighting.counts.x; i += 1u) {
+        let lamp = lamp_lighting.lights[i];
+        if lamp.direction_kind.w == 0.0 { continue; }
+        if (receiver & lamp.mask.x) == 0u { continue; }
+        if max(lamp.color.r, max(lamp.color.g, lamp.color.b)) <= 0.0 { continue; }
+        if valid {
+            let position = lamp.position_range.xyz;
+            let range = abs(lamp.position_range.w);
+            // 128 f32 epsilons cover transform, subtraction, and squared-distance rounding.
+            // Expand rather than round toward exclusion. Boundary contact retains the lamp.
+            let padding = (magnitude + abs(position) + vec3(range + 1.0)) * 0.0000152587890625;
+            let separation = max(abs(position - center) - extents - padding, vec3(0.0));
+            let distance2 = dot(separation, separation);
+            let range2 = range * range;
+            if source_finite3(padding) && source_finite3(vec3(distance2, range2, range))
+                && distance2 > range2 { continue; }
+        }
+        selected[i >> 5u] |= 1u << (i & 31u);
+    }
+    return selected;
+}
+// Unity BlendProbes with equal importance: the two slots with the largest box overlap.
+// One probe takes full weight. Two share it by overlap volume.
+// Returns x=first weight, z=first slot, w=second slot or -1. x=0 without a probe.
+// Renderer extents retain the recovered native Vector3f::epsilon clamp.
+fn probe_blend(model: mat4x4<f32>, local_center: vec3<f32>, local_extents: vec3<f32>) -> vec4<f32> {
+    let center = (model * vec4(local_center, 1.0)).xyz;
+    let extents = max(abs(model[0].xyz)*local_extents.x
+        + abs(model[1].xyz)*local_extents.y + abs(model[2].xyz)*local_extents.z,
+        vec3(9.999999747378752e-06));
+    var volumes = vec2(0.0);
+    var slots = vec2(-1.0);
+    for (var slot = 0; slot < 4; slot++) {
+        let probe_center = view.probe_center[slot];
+        let probe_extents = view.probe_extents[slot];
+        if probe_extents.w == 0.0 { continue; }
+        let minimum = max(center-extents, probe_center.xyz-probe_extents.xyz);
+        let maximum = min(center+extents, probe_center.xyz+probe_extents.xyz);
+        let size = max(maximum-minimum, vec3(0.0));
+        let volume = size.x*size.y*size.z;
+        if volume > volumes.x {
+            volumes = vec2(volume, volumes.x);
+            slots = vec2(f32(slot), slots.x);
+        } else if volume > volumes.y {
+            volumes.y = volume;
+            slots.y = f32(slot);
+        }
+    }
+    if slots.x < 0.0 { return vec4(0.0, 0.0, 0.0, -1.0); }
+    let weight = select(volumes.x/(volumes.x+volumes.y), 1.0, slots.y < 0.0);
+    return vec4(weight, 0.0, slots);
+}
+// Same packing as `pack` in object_lighting.rs. The material receiver mask of a row is its layer bit.
+fn row_object(row: PropRow) -> vec4<u32> {
+    let model = transpose(mat4x4<f32>(row.world_x, row.world_y, row.world_z, vec4<f32>(0.0, 0.0, 0.0, 1.0)));
+    let mask = object_light_mask(model, row.local_center, row.local_extents, 1u << (row.key & 31u));
+    var probes = vec4(0.0, 0.0, 0.0, -1.0);
+    if row.probe_usage != 0.0 {
+        probes = probe_blend(model, row.local_center, row.local_extents);
+    }
+    let second = select(u32(probes.w), 0xffu, probes.w < 0.0);
+    return vec4(mask, u32(probes.z) | (second << 8u) | (row.renderer_flags << 16u), bitcast<u32>(probes.x));
 }
 
 @compute @workgroup_size(64)
@@ -100,12 +212,12 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_
             if (row.key & (HIDDEN | SHADOW_ONLY)) == 0u
                 && (view.counts.x & (1u << (row.key & 31u))) != 0u
                 && intersects_camera(row.center, row.extents) {
-                append(0u, i, batch);
+                lights[append(0u, i, batch)] = row_object(row);
             }
             let mask = masks[i / 4u] >> ((i % 4u) * 8u);
             for (var bit = 0u; bit < 8u; bit++) {
                 if (mask & (1u << bit)) != 0u {
-                    append(1u + bit, i, batch);
+                    _ = append(1u + bit, i, batch);
                 }
             }
         }

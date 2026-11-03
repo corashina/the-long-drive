@@ -45,6 +45,9 @@ impl SpecularMaterial {
     pub fn use_gpu_props(&mut self) {
         self.gpu_props = true;
     }
+    pub fn receiver_mask(&self) -> u32 {
+        self.receiver_mask
+    }
     /// Linear color.
     pub fn color(&self) -> Vec4 {
         self.uniform.color
@@ -232,9 +235,6 @@ impl Material for SpecularMaterial {
                 attributes.push(attribute.at_shader_location(location as u32));
             }
         }
-        attributes.push(crate::presentation::renderers::SOURCE_BOUNDS_CENTER.at_shader_location(8));
-        attributes
-            .push(crate::presentation::renderers::SOURCE_BOUNDS_EXTENTS.at_shader_location(9));
         descriptor.vertex.buffers = vec![layout.0.get_layout(&attributes)?];
         if let Some(depth) = &mut descriptor.depth_stencil {
             depth.format = crate::presentation::render_targets::DEPTH_FORMAT;
