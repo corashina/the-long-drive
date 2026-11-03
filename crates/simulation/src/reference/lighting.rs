@@ -325,10 +325,18 @@ impl LightingRecord {
             &self.source,
             "ambient/fog",
         )?;
+        // The renderer reads cookie pixels on the CPU. Other textures may keep source BC blocks.
+        let cookie = |id: u32| {
+            id == self.cycle.cloud_shadow_cookie
+                || id == self.default_spot_cookie
+                || self.lights.iter().any(|l| l.cookie == Some(id))
+                || manifest.world.light_cookies.iter().any(|c| c.texture == id)
+        };
         for t in &self.textures {
             check(
                 t.id > 0
-                    && t.format == super::ChunkFormat::Rgba8
+                    && (t.format == super::ChunkFormat::Rgba8
+                        || !cookie(t.id) && t.sample_channel == "rgba")
                     && t.mip_count <= 32 - t.width.max(t.height).leading_zeros()
                     && t.width > 0
                     && t.height > 0

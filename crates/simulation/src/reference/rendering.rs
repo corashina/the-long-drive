@@ -726,14 +726,18 @@ impl RenderingRecord {
                     &field,
                 )?;
                 let normal = matches!(texture.slot.as_str(), "_BumpMap" | "_DetailNormalMap");
+                // A decoded normal PNG holds RGB. Standard native BC normals keep the source AG channels.
+                let native = matches!(texture.storage, TextureStorage::NativeBc { .. });
                 require(
                     texture.encoding
-                        == if normal {
-                            TextureEncoding::Rgb
-                        } else {
-                            TextureEncoding::Rgba
+                        == match (normal, native) {
+                            (false, _) => TextureEncoding::Rgba,
+                            (true, false) => TextureEncoding::Rgb,
+                            (true, true) => TextureEncoding::Ag,
                         }
-                        && (!normal || texture.color_space == TextureColorSpace::Linear),
+                        && (!normal || texture.color_space == TextureColorSpace::Linear)
+                        && (!(normal && native)
+                            || material.shader_family == ShaderFamily::Standard),
                     &field,
                 )?;
                 let sampler = &texture.sampler;
@@ -857,9 +861,10 @@ pub struct LightingTextureChunk {
     pub rows: u32,
 }
 /// Row chunk payload. BC rows keep the source blocks; a chunk starts on a block row.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChunkFormat {
+    #[default]
     Rgba8,
     Bc1,
     Bc3,

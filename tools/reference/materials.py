@@ -260,7 +260,7 @@ def recover_material(source, reader, color_override=None, condition=None, textur
     from .native_bc import storage
     for entry in textures:
         tr = source.get(entry['source']['file'], entry['source']['path_id'])
-        entry['storage'] = storage(source, tr, entry)
+        entry['storage'] = storage(source, tr, entry, family)
         entry.pop('file'); entry.pop('mips')
     return {'source': source_id(reader), 'shader_family': family, 'color': color,
         'enable_instancing': bool(data['m_EnableInstancingVariants']),

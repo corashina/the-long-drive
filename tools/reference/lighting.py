@@ -32,9 +32,9 @@ def region_bytes(fmt, width, rows):
     return -(-width // b) * -(-rows // b) * UNIT_BYTES[fmt]
 
 
-def chunk_format(obj, banked):
-    """Banked world textures keep source BC1/BC3 blocks. Fixed lighting rows stay RGBA8."""
-    if not banked or obj.m_Width % 4 or obj.m_Height % 4:
+def chunk_format(obj, cpu):
+    """Rows keep source BC1/BC3 blocks. Cookies stay RGBA8: the renderer reads their pixels on the CPU."""
+    if cpu or obj.m_Width % 4 or obj.m_Height % 4:
         return 'rgba8'
     return {10: 'bc1', 28: 'bc1', 12: 'bc3', 29: 'bc3'}.get(int(obj.m_TextureFormat), 'rgba8')
 
@@ -170,12 +170,16 @@ def export_manifest_texture_batches(manifest, output):
             validate_texture_batches(texture, output)
 
 
-def texture(source, reader, output):
+def texture(source, reader, output, cpu=False):
+    """Lighting texture id. `cpu`: a cookie whose pixels the renderer reads."""
     if reader is None or reader.type.name!='Texture2D':raise ValueError(f'Required lighting Texture2D: {key(reader) if reader else None}')
     identity=key(reader)
+    record=source.lighting_textures.get(identity)
+    if record and cpu and record['format']!='rgba8':
+        record['format']='rgba8';record['chunks']=texture_chunks(reader,output,source.texture_object(reader),'rgba8')
     if identity not in source.lighting_textures:
         obj=source.texture_object(reader)
-        fmt=chunk_format(obj,getattr(source,'banked_textures',False))
+        fmt=chunk_format(obj,cpu)
         s=obj.m_TextureSettings
         # The browser loads only the row chunks. Do not export whole-texture copies.
         source.lighting_textures[identity]={'id':len(source.lighting_textures)+1,'source':source_id(reader),'width':obj.m_Width,'height':obj.m_Height,
@@ -319,7 +323,7 @@ def recover_cycle(source: Source, reader, output: Path) -> dict:
             'auto_random_seed':pd['autoRandomSeed'],'random_seed':pd['randomSeed'],'looping':pd['looping'],
             'duration_seconds':pd['lengthInSec'],'simulation_space':pd['moveWithTransform'],'render_mode':rd['m_RenderMode'],
             'alignment':rd['m_RenderAlignment'],'max_screen_size':rd['m_MaxParticleSize']})
-    result['cloud_shadow_cookie']=texture(source,source.resolve(reader,f['cloudShadowCookie']),output)
+    result['cloud_shadow_cookie']=texture(source,source.resolve(reader,f['cloudShadowCookie']),output,cpu=True)
     return result
 
 def road_source(source):
@@ -462,7 +466,7 @@ def recover_lighting(source: Source, roots: list, output: Path) -> dict:
             'range_meters':f['m_Range'],'full_cone_degrees':f['m_SpotAngle'],'inner_cone_degrees':f['m_InnerSpotAngle'],
             'enabled':bool(f['m_Enabled']),'culling_mask':f['m_CullingMask']['m_Bits'],
             'shadows':{'kind':shadow['m_Type'],'strength':shadow['m_Strength'],'bias':shadow['m_Bias'],'normal_bias':shadow['m_NormalBias'],'near_plane':shadow['m_NearPlane'],'resolution':shadow['m_Resolution'],'custom_resolution':shadow['m_CustomResolution']},
-            'cookie':texture(source,source.resolve(r,f['m_Cookie']),output) if f['m_Cookie']['m_PathID'] else None,'cookie_size':f['m_CookieSize']})
+            'cookie':texture(source,source.resolve(r,f['m_Cookie']),output,cpu=True) if f['m_Cookie']['m_PathID'] else None,'cookie_size':f['m_CookieSize']})
     controls=recover_controllers(source,all_roots,source.lighting_nodes,material_ids)
     for c in controls:
         for i,state in enumerate(c['states']):
@@ -483,7 +487,7 @@ def recover_lighting(source: Source, roots: list, output: Path) -> dict:
         'ambient_probe':list(f['m_AmbientProbe'].values()),'reflection_intensity':f['m_ReflectionIntensity'],
         'fog':{'enabled':bool(f['m_Fog']),'mode':f['m_FogMode'],'density':f['m_FogDensity'],'color':rgba(f['m_FogColor']),'start':f['m_LinearFogStart'],'end':f['m_LinearFogEnd']},
         'startup_ambient':cycle['day_ambient'],'startup_reflection':cycle['max_reflection'],'startup_fog_density':cycle['day_fog_densities'][0],
-        'default_spot_cookie':texture(source,source.resolve(render,f['m_SpotCookie']),output),
+        'default_spot_cookie':texture(source,source.resolve(render,f['m_SpotCookie']),output,cpu=True),
         'skybox':sky_material(source,source.resolve(render,f['m_SkyboxMaterial']),output),'sun':1,'lights':source.lighting_lights,'cycle':cycle,'controllers':controls,
         'road_lamp':recover_road_lamp(source,output),'textures':list(source.lighting_textures.values()),'materials':[{'asset':m['asset'],'gltf_material':m['gltf_material'],'source':m['source']} for m in material_ids.values()]}
     graphics=source.get('globalgamemanagers',7);gf=source.read(graphics)

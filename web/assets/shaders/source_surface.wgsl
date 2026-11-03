@@ -76,7 +76,8 @@ fn sample_source(slot: u32, main_uv: vec2<f32>, detail_uv: vec2<f32>, offset: ve
 #endif
 }
 fn source_normal(sampled: vec4<f32>, scale: f32) -> vec3<f32> {
-    let rg = select(sampled.xy, vec2(sampled.r * sampled.a, sampled.g), source.specular.w > 0.5);
+    // Unity UnpackNormal: x = r * a. Decoded RGB normals have a = 1; source DXT5nm blocks keep X in alpha.
+    let rg = vec2(sampled.r * sampled.a, sampled.g);
     let xy = (rg * 2.0 - 1.0) * scale;
     return vec3(xy, sqrt(1.0 - clamp(dot(xy, xy), 0.0, 1.0)));
 }
