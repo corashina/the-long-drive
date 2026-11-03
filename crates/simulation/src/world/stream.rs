@@ -572,8 +572,12 @@ impl WorldStream {
         });
         self.saved_locations_pending = !self.saved_item_protection.is_empty();
     }
+    /// A generated copy of these planks and boards is a fixed body. A StartSpawnItems
+    /// copy is a live source Rigidbody: it settles onto what is under it, as in the source.
     fn fixed_decoration(&self, placement: &Placement) -> bool {
-        if !super::instances::fixed_decoration_source(&placement.prototype) {
+        if placement.id.layer == super::WorldLayer::Startup
+            || !super::instances::fixed_decoration_source(&placement.prototype)
+        {
             return false;
         }
         if let Some(instance) = self
