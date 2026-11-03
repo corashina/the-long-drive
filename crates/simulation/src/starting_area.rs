@@ -2218,6 +2218,7 @@ impl GarageRuntime {
             &vehicle.electronics,
             |item| root.is_some_and(|root| item == root || items.descends(item, root)),
             |item| mechanisms.value(item, false).unwrap_or(0.),
+            |item| mechanisms.turn_state(item),
             FIXED_DT,
         );
     }

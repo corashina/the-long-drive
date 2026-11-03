@@ -787,14 +787,15 @@ impl MechanismState {
                 } else {
                     c.turn_state + 1
                 };
-                self.control_action = Some(match &turn.action {
-                    TurnAction::ToggleHandbrake => ControlAction::ToggleHandbrake(item),
-                    TurnAction::CycleHeadlights => ControlAction::CycleHeadlights(item),
-                    TurnAction::InteriorLight => ControlAction::InteriorLight(c.turn_state),
+                // The car lights read the cabin switch state.
+                self.control_action = match &turn.action {
+                    TurnAction::ToggleHandbrake => Some(ControlAction::ToggleHandbrake(item)),
+                    TurnAction::CycleHeadlights => Some(ControlAction::CycleHeadlights(item)),
+                    TurnAction::InteriorLight => None,
                     TurnAction::ToggleHomeLight { source } => {
-                        ControlAction::ToggleHomeLight(source.clone())
+                        Some(ControlAction::ToggleHomeLight(source.clone()))
                     }
-                });
+                };
                 return;
             }
         }
@@ -1093,7 +1094,6 @@ pub enum ControlAction {
     ToggleHandbrake(ItemId),
     /// The switch item of a car.
     CycleHeadlights(ItemId),
-    InteriorLight(u8),
     ToggleHomeLight(SourceId),
 }
 
