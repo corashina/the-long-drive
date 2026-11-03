@@ -338,18 +338,19 @@ def car_route(source, reader, interiors, mixer):
 
 
 OPUS_RATE = 48000
-OPUS_CHANNEL_BITS = 48000
+# Opus bit rate per channel for each clip usage. Radio music needs fewer bits than short effects.
+OPUS_CHANNEL_BITS = {'effect': 48000, 'radio': 32000}
 WAV_ONLY = ('format', 'format_tag', 'bits_per_sample', 'block_align', 'data_bytes')
 
 
-def encode_opus(source: Path, target: Path, channels: int) -> None:
+def encode_opus(source: Path, target: Path, channels: int, channel_bits: int) -> None:
     """Encode one WAV clip to Ogg Opus. Bitexact muxing gives the same bytes on each export."""
     import av
     if channels not in (1, 2):
         raise ValueError(f'Opus clip needs 1 or 2 channels: {source}')
     with av.open(str(source)) as reader, av.open(str(target), 'w', format='ogg', options={'fflags': '+bitexact'}) as writer:
         stream = writer.add_stream('libopus', rate=OPUS_RATE, layout='mono' if channels == 1 else 'stereo')
-        stream.bit_rate = OPUS_CHANNEL_BITS * channels
+        stream.bit_rate = channel_bits * channels
         resampler = av.AudioResampler(format='s16', layout=stream.layout, rate=OPUS_RATE)
         for frame in [*reader.decode(audio=0), None]:
             for samples in resampler.resample(frame):
@@ -370,7 +371,7 @@ def opus_frames(path: Path) -> tuple[int, int]:
 def copy_audio(library, identity: ObjectId, clip_id: int, output: Path, usage: str) -> dict:
     path, metadata = library.audio(identity)
     name = f'audio-{identity.file}-{identity.path_id}.ogg'
-    encode_opus(path, output / name, metadata['channels'])
+    encode_opus(path, output / name, metadata['channels'], OPUS_CHANNEL_BITS[usage])
     data = (output / name).read_bytes()
     clip = {k: v for k, v in metadata.items() if k not in WAV_ONLY}
     return {'id': clip_id, 'source': {'file':identity.file,'path_id':identity.path_id},
