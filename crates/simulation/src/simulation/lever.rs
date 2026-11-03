@@ -1,5 +1,6 @@
 //! Source `carscript.Update` gear lever motion.
 use crate::reference::{LeverReference, LeverTiming, Transform};
+use crate::simulation::dials::inverse_lerp;
 use rapier3d::math::{Rotation, Vector};
 
 /// The lever pose in its parent space, and the shift in progress.
@@ -20,9 +21,6 @@ fn parts(t: &Transform) -> (Vector, Rotation) {
 }
 
 /// Unity `Mathf.InverseLerp`.
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    ((value - a) / (b - a)).clamp(0., 1.)
-}
 
 impl LeverState {
     /// At rest on `gear`.
