@@ -1269,7 +1269,15 @@ impl GarageRuntime {
                     || binoculars,
                 picked_up,
             );
+        // fpscontroller `scrubbing`: `drotkefe.Use` in the hand, or pointing.
+        let scrubbing = (input.held & keys::PRIMARY != 0
+            && interaction
+                .equipment
+                .item()
+                .is_some_and(|id| interaction.cleaning.is_brush(id)))
+            || input.player_held & crate::simulation::player_keys::POINT != 0;
         PlayerStepContext {
+            scrubbing,
             duck_allowed,
             wheel_posture_allowed: duck_allowed && !slideable,
             mouse_consumed,

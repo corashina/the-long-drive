@@ -40,6 +40,8 @@ pub struct PlayerStepContext {
     pub movement_multiplier: f32,
     /// fpscontroller `Bbinoculars`: `Sight()` is 0.1.
     pub binoculars: bool,
+    /// fpscontroller `scrubbing`: LMB with a brush in the hand, or the point input.
+    pub scrubbing: bool,
 }
 impl PlayerStepContext {
     pub fn can_duck(input: FrameInput, tuning_available: bool, picked_up: bool) -> bool {
@@ -59,8 +61,21 @@ impl Default for PlayerStepContext {
             recenter_consumed: false,
             movement_multiplier: 1.0,
             binoculars: false,
+            scrubbing: false,
         }
     }
+}
+/// fpscontroller `scrubLimitX` and `scrubLimitY` degrees.
+const SCRUB_LIMITS: [f32; 2] = [50., 35.];
+/// Source scrubbing: the mouse turns `ghostHead`. Returns the mouse that turns the view:
+/// all of it at a scrub limit, else none.
+fn scrub_look(scrub: &mut [f32; 2], mouse: [f32; 2]) -> [f32; 2] {
+    let mut limited = false;
+    for ((angle, delta), limit) in scrub.iter_mut().zip(mouse).zip(SCRUB_LIMITS) {
+        *angle = (*angle + delta).clamp(-limit, limit);
+        limited |= angle.abs() == limit;
+    }
+    if limited { mouse } else { [0.; 2] }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -202,6 +217,8 @@ pub struct PlayerState {
     pitch: f32,
     /// Yaw and pitch degrees that the mouse added in the last view step.
     look_applied: [f32; 2],
+    /// fpscontroller `gRotY` and `gRotX`: `ghostHead` yaw and pitch degrees after the camera.
+    scrub: [f32; 2],
     vertical_velocity: f32,
     grounded: bool,
     support_body: Option<RigidBodyHandle>,
@@ -337,6 +354,7 @@ impl PlayerState {
             yaw: yaw_from_rotation(pose.rotation),
             pitch: 0.0,
             look_applied: [0.; 2],
+            scrub: [0.; 2],
             vertical_velocity: 0.0,
             grounded: false,
             support_body: None,
@@ -457,11 +475,18 @@ impl PlayerState {
             dt,
         );
         if let Some(multiplier) = ordinary_look {
-            self.look_applied = input
-                .mouse
-                .map(|v| if v.is_finite() { v * multiplier } else { 0. });
+            let mut mouse = input.mouse.map(|v| if v.is_finite() { v } else { 0. });
+            if context.scrubbing {
+                mouse = scrub_look(&mut self.scrub, mouse);
+            } else {
+                self.scrub = [0.; 2];
+            }
+            self.look_applied = mouse.map(|v| v * multiplier);
             self.yaw += self.look_applied[0];
             self.pitch += self.look_applied[1];
+        }
+        if ordinary_look.is_none() {
+            self.scrub = [0.; 2];
         }
         self.pitch = self.pitch.clamp(-89.0, 89.0);
         if let Some(seat) = &self.occupancy {
@@ -1228,7 +1253,7 @@ impl PlayerState {
     pub fn step_point(&mut self, held: bool, physics: &PhysicsWorld, dt: f32) {
         let r = &self.reference;
         let body = to_rapier(self.body_pose(physics));
-        let camera = to_rapier(self.view(physics).camera_pose);
+        let camera = to_rapier(self.scrub_pose(self.view(physics).camera_pose));
         let ray = Ray::new(camera.translation, camera.rotation * -Vector::Z);
         let mask = r.pointing_layer;
         // Unity rays ignore colliders containing the ray origin.
@@ -1376,6 +1401,14 @@ impl PlayerState {
             None,
         )
     }
+    /// Source `ghostHead` after `camera`: the brush and point ray while scrubbing.
+    pub fn scrub_pose(&self, camera: VehiclePose) -> VehiclePose {
+        let rotation = Rotation::from_rotation_y(-self.scrub[0].to_radians())
+            * Rotation::from_rotation_x(-self.scrub[1].to_radians());
+        let mut camera = to_rapier(camera);
+        camera.rotation *= rotation;
+        from_rapier(camera)
+    }
     /// Yaw and pitch degrees that the mouse added since the last call.
     pub fn take_look_applied(&mut self) -> [f32; 2] {
         std::mem::take(&mut self.look_applied)
@@ -1510,4 +1543,18 @@ fn groups(membership: u32, filter: u32) -> InteractionGroups {
         Group::from_bits_retain(filter),
         InteractionTestMode::And,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scrub_look;
+
+    #[test]
+    fn scrub_turns_the_view_only_at_a_limit() {
+        let mut scrub = [0.; 2];
+        assert_eq!(scrub_look(&mut scrub, [20., -10.]), [0.; 2]);
+        assert_eq!(scrub, [20., -10.]);
+        assert_eq!(scrub_look(&mut scrub, [40., 0.]), [40., 0.]);
+        assert_eq!(scrub, [50., -10.]);
+    }
 }
