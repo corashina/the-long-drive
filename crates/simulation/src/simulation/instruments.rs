@@ -19,6 +19,10 @@ pub struct InstrumentSample {
     pub headlights: u8,
     /// Source `carscript.handbrake`.
     pub handbrake: f32,
+    /// The car has an engine.
+    pub engine: bool,
+    /// Engine fuel use in liters per second.
+    pub fuel_rate: f32,
     pub distance_m: f64,
 }
 /// Gauge state of one car, for any needle, lamp and digit count. Lamp bits hold up to 32 lamps.
@@ -29,6 +33,7 @@ pub struct InstrumentState {
     pub needle_angles: Vec<f32>,
     pub digit_angles: Vec<f32>,
     pub lamp_bits: u32,
+    lamps: LampValues,
     pub digits_lit: bool,
     pub distance_km: f32,
 }
@@ -48,26 +53,48 @@ fn oil_lamp(limits: &GaugeLimits, s: &InstrumentSample) -> bool {
     };
     s.local_ignition && (low_oil || s.rpm < limits.oil_test_rpm)
 }
-/// `ledkijelzoscript` lamps: bit i is lamp i on.
-pub fn lamp_bits(lamps: &[LampReference], limits: &GaugeLimits, s: &InstrumentSample) -> u32 {
-    let mut bits = 0;
-    for (i, l) in lamps.iter().enumerate() {
+/// Source `ledkijelzoscript.value` of each lamp, set by `carscript.LEDUPD`.
+#[derive(Clone, Debug, Default)]
+pub struct LampValues(Vec<f32>);
+impl LampValues {
+    /// Source `LEDUPD` and `Upd`: bit i is lamp i on. `dt` None sets each value to its target.
+    pub fn update(
+        &mut self,
+        lamps: &[LampReference],
+        limits: &GaugeLimits,
+        s: &InstrumentSample,
+        dt: Option<f32>,
+    ) -> u32 {
+        self.0.resize(lamps.len(), 0.);
         let on = |on: bool| if on { 1. } else { 0. };
-        let v = match l.signal.as_str() {
-            "fuel" => on(s.local_ignition && s.fuel_liters < limits.low_fuel),
-            "oil" => on(oil_lamp(limits, s)),
-            "battery" => on(s.local_ignition && s.rpm < limits.battery_test_rpm),
-            "headlight2" => {
-                on(s.headlights == 2 && s.electronics_output > limits.electronics_off_threshold)
+        let electronics = s.electronics_output > limits.electronics_off_threshold;
+        let mut bits = 0;
+        for (i, (l, value)) in lamps.iter().zip(&mut self.0).enumerate() {
+            *value = match l.signal.as_str() {
+                "headlight" => on(matches!(s.headlights, 1 | 2) && electronics),
+                "headlight2" => on(s.headlights == 2 && electronics),
+                "fuel" => on(s.local_ignition && s.fuel_liters < limits.low_fuel),
+                "oil" => on(oil_lamp(limits, s)),
+                "battery" => on(s.local_ignition && s.rpm < limits.battery_test_rpm),
+                "tank" if s.local_ignition => s.fuel_liters,
+                "handbrake" if s.local_ignition => s.handbrake,
+                "temp" if s.local_ignition && s.engine => s.temperature,
+                "temp" => -1000.,
+                "consumption" if electronics => {
+                    let target = s.fuel_rate * l.multiplier;
+                    dt.map_or(target, |dt| lerp(*value, target, l.smoothing * dt))
+                }
+                _ => 0.,
+            };
+            if let Some([min, max]) = l.clamp {
+                *value = value.clamp(min, max);
             }
-            "handbrake" if s.local_ignition => s.handbrake,
-            _ => 0.,
-        };
-        if v >= l.min_value && (v <= l.max_value || l.stay_on) {
-            bits |= 1 << i;
+            if *value >= l.min_value && (*value <= l.max_value || l.stay_on) {
+                bits |= 1 << i;
+            }
         }
+        bits
     }
-    bits
 }
 /// Source METERUPD2 `lampak`: the meter lights with low or high headlights and local ignition.
 pub fn meter_lit(s: &InstrumentSample) -> bool {
@@ -89,6 +116,7 @@ impl InstrumentState {
             needle_angles: vec![0.; r.needles.len()],
             digit_angles: vec![0.; r.digits().len()],
             lamp_bits: 0,
+            lamps: LampValues::default(),
             digits_lit: false,
             distance_km: 0.,
         };
@@ -175,7 +203,9 @@ impl InstrumentState {
             };
             self.needle_angles[i] = needle_angle(n, self.values[i]);
         }
-        self.lamp_bits = lamp_bits(&r.lamps, limits, &s);
+        self.lamp_bits = self
+            .lamps
+            .update(&r.lamps, limits, &s, (!initialize).then_some(dt));
         self.digits_lit = meter_lit(&s);
         self.distance_km =
             r.odometer.as_ref().map_or(0., |o| o.initial_value) + (s.distance_m / 1000.) as f32;

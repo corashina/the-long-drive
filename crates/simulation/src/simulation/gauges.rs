@@ -1,7 +1,7 @@
 //! Gauge parts: a `meterscript` on a part that `carscript.kmhmeters` updates through a slot.
 //! A gauge outside a listed slot keeps its last values.
 use super::dials::{digit_angle, lerp, lerp_angle};
-use super::instruments::{InstrumentSample, lamp_bits, meter_lit, needle_angle};
+use super::instruments::{InstrumentSample, LampValues, meter_lit, needle_angle};
 use crate::reference::{GaugeLimits, GaugePartReference, KmhMeterReference};
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +26,7 @@ pub struct GaugeState {
     digit_values: Vec<f32>,
     pub digit_angles: Vec<f32>,
     pub lamp_bits: u32,
+    lamps: LampValues,
     /// Backlights and digits show their on material.
     pub lit: bool,
     /// The presented state changed since the last `advance`.
@@ -43,6 +44,7 @@ impl GaugeState {
             digit_values: digits.clone().map(|d| d.initial_value).collect(),
             digit_angles: digits.map(|d| d.initial_angle).collect(),
             lamp_bits: 0,
+            lamps: LampValues::default(),
             lit: false,
             changed: true,
         }
@@ -91,8 +93,9 @@ impl GaugeState {
         limits: &GaugeLimits,
         s: &InstrumentSample,
         distance_km: f32,
+        dt: f32,
     ) {
-        let bits = lamp_bits(&r.lamps, limits, s);
+        let bits = self.lamps.update(&r.lamps, limits, s, Some(dt));
         let lit = meter_lit(s);
         self.changed |= bits != self.lamp_bits || lit != self.lit;
         self.lamp_bits = bits;
@@ -115,7 +118,7 @@ impl GaugeState {
         for kind in &k.types {
             self.meter_update(r, kind, k.force, k.modifier, s, dt);
         }
-        self.meter_update2(r, limits, s, distance_km);
+        self.meter_update2(r, limits, s, distance_km, dt);
     }
 
     /// `mutatoscript` and `forgoszamlap` frame updates. They run on a removed gauge too.
