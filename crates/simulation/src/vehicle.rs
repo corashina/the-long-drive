@@ -259,26 +259,9 @@ impl PhysicsWorld {
     /// A world with no vehicles and no gravity.
     #[cfg(test)]
     pub fn empty_for_tests() -> Self {
-        let mut physics = rapier3d::prelude::PhysicsWorld::new();
-        physics.integration_parameters.dt = FIXED_DT;
-        physics.gravity = Vector::ZERO;
-        Self {
-            body_mass_override: None,
-            body_cargo: Vec::new(),
-            center_of_mass: Vec::new(),
-            inactive_bodies: Default::default(),
-            physics,
-            query_bounds: QueryBounds::default(),
-            presentation_bodies: Default::default(),
-            chassis: Vec::new(),
-            vehicles: HashMap::new(),
-            hit_collector: Default::default(),
-            hits: Vec::new(),
-            trigger_enters: Vec::new(),
-            ignored: Default::default(),
-            sleep_speed:
-                rapier3d::prelude::RigidBodyActivation::default_normalized_linear_threshold(),
-        }
+        let mut physics = Self::empty(0, 0);
+        physics.physics.gravity = Vector::ZERO;
+        physics
     }
     /// Vehicle keys in no fixed order.
     pub fn vehicle_keys(&self) -> impl Iterator<Item = &ObjectKey> {
