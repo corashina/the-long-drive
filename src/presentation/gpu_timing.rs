@@ -29,6 +29,13 @@ const MAPPED: u8 = 3;
 
 /// Average milliseconds of each stage. NaN bits until the first window completes.
 static STAGE_MS: [AtomicU32; STAGES] = [const { AtomicU32::new(u32::MAX) }; STAGES];
+/// Completed F3 windows.
+static WINDOWS: AtomicU32 = AtomicU32::new(0);
+
+/// The count of completed F3 windows. A new count means new `stage_ms` values.
+pub fn windows() -> u32 {
+    WINDOWS.load(Ordering::Acquire)
+}
 
 /// The last F3 average of each stage, or `None` without timestamps.
 pub fn stage_ms() -> Option<[f32; STAGES]> {
@@ -198,4 +205,5 @@ fn read(timing: Option<ResMut<GpuTiming>>) {
         *sum = 0.;
     }
     timing.frames = 0;
+    WINDOWS.fetch_add(1, Ordering::Release);
 }
