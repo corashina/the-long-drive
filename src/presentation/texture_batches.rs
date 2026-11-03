@@ -16,6 +16,7 @@ use std::{
 
 #[derive(Asset, TypePath, Clone)]
 pub struct SourceTextureBatch {
+    pub format: crate::reference::ChunkFormat,
     pub regions: Arc<[TextureBatchRegion]>,
     pub payload: Arc<Vec<u8>>,
 }
@@ -102,6 +103,7 @@ impl AssetLoader for SourceTextureBatchLoader {
             // Only one raw input remains live at a time.
         }
         Ok(SourceTextureBatch {
+            format: descriptor.format,
             regions: descriptor.regions.into(),
             payload: Arc::new(payload),
         })
