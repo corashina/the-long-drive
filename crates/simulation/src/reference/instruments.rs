@@ -47,6 +47,28 @@ pub struct LampReference {
     pub min_value: f32,
     pub max_value: f32,
     pub stay_on: bool,
+    /// Source `multiplier`. Only `consumption` reads it.
+    pub multiplier: f32,
+    /// Source `debouncegainlerp`. Only `consumption` eases by it.
+    pub smoothing: f32,
+    /// Source `minValue` and `maxValue` when `clamp` is set.
+    pub clamp: Option<[f32; 2]>,
+}
+impl LampReference {
+    pub fn values_valid(&self) -> bool {
+        [
+            self.min_value,
+            self.max_value,
+            self.multiplier,
+            self.smoothing,
+        ]
+        .iter()
+        .all(|v| v.is_finite())
+            && self.smoothing >= 0.
+            && self
+                .clamp
+                .is_none_or(|[min, max]| min.is_finite() && max.is_finite() && min <= max)
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -300,7 +300,7 @@ def engine_audio(source, reader, sound, shot):
 
 
 def car_audio(source, car_reader, wheels, cycle, sound, shot):
-    """carscript horn, switch and handbrake sounds and talajnezo wheel sounds, in the chassis (`RB`) frame.
+    """carscript horn, switch, handbrake and gear shift sounds and talajnezo wheel sounds, in the chassis (`RB`) frame.
 
     `wheels` holds the GroundSource, SpringSource and SlideSource readers of each wheel, in wheel effect order.
     """
@@ -316,6 +316,8 @@ def car_audio(source, car_reader, wheels, cycle, sound, shot):
             'attack_release_rate':10.},
         'switch':None if switch is None else shot(car_reader,d['turnedRadioSOund'],1.,switch,owner),
         'handbrake':None if shift is None else shot(car_reader,d['handbrakeSound'],1.,shift,owner),
+        'shift':[] if shift is None else [s for p in d['valtoSounds'] if (s:=shot(car_reader,p,1.,shift,owner))],
+        'grind':None if shift is None else shot(car_reader,d['rosszvaltoSound'],1.,shift,owner),
         'boil':None if boil is None else {'sound':sound(boil,owner,None),'max_gain':d['coolantBoilMaxSound']},
         'wheels':[{field:sound(w[field],owner,None) for field in ('ground','spring','slide')} for w in wheels],
         'route':None}

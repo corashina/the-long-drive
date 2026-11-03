@@ -580,6 +580,10 @@ pub struct CarAudioReference {
     pub switch: Option<CarShotReference>,
     /// `handbrakeSound` on `SValtoSound`.
     pub handbrake: Option<CarShotReference>,
+    /// `valtoSounds` on `SValtoSound`: `Shifted` plays one at random.
+    pub shift: Vec<CarShotReference>,
+    /// `rosszvaltoSound` on `SValtoSound`: a shift without enough clutch.
+    pub grind: Option<CarShotReference>,
     pub boil: Option<CoolantBoilReference>,
     /// One entry per wheel, in wheel effect order.
     pub wheels: Vec<WheelSoundsReference>,
@@ -982,10 +986,7 @@ fn instruments_valid(r: &InstrumentReference, b: PrototypeBounds) -> bool {
                 && finite(&n.rest)
         })
         && r.lamps.iter().all(|l| {
-            b.node(l.node.0)
-                && b.material(&l.on)
-                && b.material(&l.off)
-                && finite(&[l.min_value, l.max_value])
+            b.node(l.node.0) && b.material(&l.on) && b.material(&l.off) && l.values_valid()
         })
         && r.digits().iter().all(|d| {
             b.node(d.node.0)
@@ -1024,10 +1025,9 @@ impl GaugePartReference {
                         && finite(&[n.offset, n.value_smoothing, n.signal_smoothing])
                         && finite(&n.rest)
                 })
-                && self
-                    .lamps
-                    .iter()
-                    .all(|l| b.node(l.node.0) && b.material(&l.on) && b.material(&l.off))
+                && self.lamps.iter().all(|l| {
+                    b.node(l.node.0) && b.material(&l.on) && b.material(&l.off) && l.values_valid()
+                })
                 && self.counters.iter().all(|c| {
                     finite(&[c.initial_value, c.multiplier])
                         && c.digits.iter().all(|d| {

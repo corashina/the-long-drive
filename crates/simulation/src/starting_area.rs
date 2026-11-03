@@ -561,6 +561,8 @@ pub struct VehicleRuntime {
     pub pedal_inputs: crate::simulation::control_pedals::PedalInputs,
     /// Source `UpdPedal` state of the control pedals. It is not saved.
     pub control_pedals: crate::simulation::control_pedals::ControlPedals,
+    /// Picks the `valtoSounds` clip of each shift.
+    shift_random: crate::world::UnityRandom,
     /// Multiplayer state. It is not saved.
     pub net: crate::net::car::CarNet,
 }
@@ -636,6 +638,7 @@ impl VehicleRuntime {
                 ..Default::default()
             },
             control_pedals: Default::default(),
+            shift_random: crate::world::UnityRandom::new((parts.seed ^ 0x7661_6c74_6f00) as i32),
             net: crate::net::car::CarNet::new(parts.seed),
         }
     }
@@ -2341,7 +2344,7 @@ impl GarageRuntime {
             reference,
             key,
             prototype,
-            |a| a.switch.as_ref(),
+            |a| a.switch,
         );
     }
 
@@ -2533,6 +2536,32 @@ impl GarageRuntime {
         {
             lever.shift(&reference.driving.lever, last_gear, gear);
         }
+        // Source `Shifted`: a random `valtoSounds` clip unless the gears shift by themselves.
+        // Source `ControlStuff`: `rosszvaltoSound` at the grind gain.
+        let audio = world_vehicle(reference, vehicle.prototype).audio.as_ref();
+        let shift = audio
+            .filter(|a| gear != last_gear && !drivetrain.automatic && !a.shift.is_empty())
+            .map(|a| {
+                let i = vehicle.shift_random.range_int(0, a.shift.len() as i32) as usize;
+                a.shift[i]
+            });
+        let grind = drivetrain
+            .grind
+            .zip(audio.and_then(|a| a.grind))
+            .map(|(gain, shot)| crate::reference::CarShotReference {
+                gain: shot.gain * gain,
+                ..shot
+            });
+        for shot in [shift, grind].into_iter().flatten() {
+            car_sound(
+                &mut self.audio,
+                &self.physics,
+                reference,
+                key,
+                vehicle.prototype,
+                |_| Some(shot),
+            );
+        }
         let record = world_vehicle(reference, vehicle.prototype);
         let reach = &record.reach;
         let frames = self.car_frames(reference, key, vehicle);
@@ -2688,7 +2717,7 @@ impl GarageRuntime {
                 reference,
                 key,
                 vehicle.prototype,
-                |a| a.switch.as_ref(),
+                |a| a.switch,
             );
         }
         if chassis_active
@@ -2745,7 +2774,7 @@ impl GarageRuntime {
                 reference,
                 key,
                 vehicle.prototype,
-                |a| a.handbrake.as_ref(),
+                |a| a.handbrake,
             );
         }
         vehicle.pedal_inputs = crate::simulation::control_pedals::PedalInputs {
@@ -3424,7 +3453,7 @@ fn car_sound(
     reference: &ReferenceManifest,
     key: &ObjectKey,
     prototype: usize,
-    pick: impl Fn(&crate::reference::CarAudioReference) -> Option<&crate::reference::CarShotReference>,
+    pick: impl Fn(&crate::reference::CarAudioReference) -> Option<crate::reference::CarShotReference>,
 ) {
     let (Some(audio), Some(shot)) = (
         audio.as_mut(),
@@ -3437,7 +3466,7 @@ fn car_sound(
     };
     audio.car_shot(
         key,
-        shot,
+        &shot,
         *physics.rapier().bodies[physics.chassis_handle(key)].position(),
     );
 }
@@ -3476,6 +3505,8 @@ pub fn instrument_sample(
             && vehicle.electronics_output() > limits.electronics_off_threshold,
         electronics_output: vehicle.electronics_output(),
         handbrake: vehicle.pedal_inputs.handbrake,
+        engine: engine.is_some(),
+        fuel_rate: engine.map_or(0., |e| e.state.output().consumed_fuel_liters / FIXED_DT),
         distance_m: vehicle.trip_m,
     }
 }
