@@ -78,7 +78,7 @@ struct GeneratedWash {
 #[derive(Default)]
 struct GeneratedWashes {
     washes: Vec<GeneratedWash>,
-    /// GotClean: the trigger is inactive and no longer registered.
+    /// GotClean. The trigger is inactive and no longer registered.
     cleaned: Vec<WashOwner>,
 }
 impl GeneratedWashes {
@@ -197,7 +197,7 @@ struct Tool {
 struct PlayerBrush {
     contact: Contact,
     signal: ToolSignals,
-    /// The player pose: the brush root.
+    /// The player pose. It is the brush root.
     pose: Pose,
 }
 /// Absolute poses that place a brush contact.
@@ -223,7 +223,7 @@ pub struct CleaningTools {
     generated_washes: GeneratedWashes,
     /// Generated items that reserve LMB while equipped, with their LMB text.
     lmb_items: HashMap<ItemId, u32>,
-    /// Loot tools whose state changed: their items need a save capture.
+    /// Loot tools whose state changed. Their items need a save capture.
     changed: Vec<ItemId>,
 }
 /// A contact at its rest pose. Missing positions keep the model at the tool root.
@@ -572,7 +572,7 @@ impl CleaningTools {
     pub fn reserves_lmb(&self, equipped: Option<ItemId>) -> bool {
         equipped.is_some_and(|item| self.lmb_items.contains_key(&item) || self.is_brush(item))
     }
-    /// Source `drotkefe`: the item has a brush.
+    /// Source `drotkefe`. The item has a brush.
     pub fn is_brush(&self, item: ItemId) -> bool {
         self.index
             .get(&item)
@@ -942,7 +942,7 @@ impl CleaningTools {
         }
     }
     /// Source `fpscontroller.pointKefe.Use` while the point input is held. `player` is the
-    /// `pointAt` pose that carries the brush. The brush has no item: it ignores the item
+    /// `pointAt` pose that carries the brush. The brush has no item. It ignores the item
     /// brush checks.
     #[allow(clippy::too_many_arguments)]
     pub fn advance_player(
@@ -1218,7 +1218,7 @@ impl CleaningTools {
                 root.translation
             } - target_position;
             let ray_relative = point - target_position;
-            // Port invariant: model settling cannot count as rubbing on a stationary contact ray.
+            // Model settling must not count as rubbing on a stationary contact ray.
             let force = if reset || ray_relative == c.ray_relative {
                 0.
             } else {

@@ -10,7 +10,7 @@ use crate::vehicle::{PhysicsWorld, to_rapier};
 use rapier3d::math::{Pose, Vector};
 use rapier3d::prelude::{ImpulseJointHandle, RigidBodyHandle, SphericalJointBuilder};
 
-/// Source `tubescript.Update`: the cap joint cannot break for this time after attach.
+/// Source `tubescript.Update`. The cap joint cannot break for this time after attach.
 const BREAK_DELAY: f32 = 0.5;
 /// Source `CoilingUp` lerp rate.
 const COIL_RATE: f32 = 15.0;
@@ -165,7 +165,7 @@ impl Hose {
             .map(|b| b.translation())
     }
 
-    /// Source `Attach`: snap the end segment to the cap and joint it to the cap body.
+    /// Source `Attach`. Snaps the end segment to the cap and joints it to the cap body.
     fn attach(
         &mut self,
         end: usize,
@@ -251,7 +251,7 @@ impl Hose {
         }
     }
 
-    /// Source `RefreshOwnCap`: a free end borrows the tank of the attached end's cap.
+    /// Source `RefreshOwnCap`. A free end borrows the tank of the attached end's cap.
     fn refresh_own_caps(&self, openings: &mut [OpeningState]) {
         let tank = |end: &End| {
             end.cap
@@ -274,7 +274,7 @@ impl Hose {
         }
     }
 
-    /// Source `tubescript.Fill`: the higher end's tank pours into the lower end's tank.
+    /// Source `tubescript.Fill`. The higher end's tank pours into the lower end's tank.
     fn siphon(
         &self,
         dt: f32,
@@ -331,7 +331,7 @@ impl Hose {
         }
     }
 
-    /// Source `Store` and `UnStore`: the stored segment carries the others.
+    /// Source `Store` and `UnStore`. The stored segment carries the others.
     fn store_step(&mut self, items: &mut ItemStore, physics: &mut PhysicsWorld) {
         let slot = |id| match items.get(id).map(|i| i.location) {
             Some(ItemLocation::Stored(slot)) => Some(slot),
@@ -376,7 +376,7 @@ impl Hose {
         }
     }
 
-    /// Source `CoilingUp`: the other segments move toward the held one without gravity.
+    /// Source `CoilingUp`. The other segments move toward the held one without gravity.
     /// The move pulls a jointed end off its cap. Unity breaks that joint once `breakForce`
     /// applies. A Rapier teleport gives no joint force, so the end detaches here.
     fn coil(&mut self, held: usize, time: f32, dt: f32, physics: &mut PhysicsWorld) {
@@ -416,7 +416,7 @@ impl Hose {
         }
     }
 
-    /// Source `CanDrain`: one end attached and fluid in the tank the free end borrows.
+    /// Source `CanDrain`. One end is attached, and the tank that the free end borrows has fluid.
     fn can_drain(&self, openings: &[OpeningState], items: &ItemStore) -> bool {
         let attached = self.ends.each_ref().map(|e| e.cap.is_some());
         if attached[0] == attached[1] {
@@ -430,7 +430,7 @@ impl Hose {
             .is_some_and(|f| f.total() > 0.0)
     }
 
-    /// Source `JustDrain`: both own valves ease toward `target`.
+    /// Source `JustDrain`. Both own valves ease toward `target`.
     fn drain(&self, target: f32, dt: f32, openings: &mut [OpeningState]) {
         let attached = self.ends.iter().any(|e| e.cap.is_some());
         for end in &self.ends {

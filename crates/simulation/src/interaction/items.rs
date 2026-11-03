@@ -58,7 +58,7 @@ pub struct ItemState {
     pub hit_sound: Option<HitSound>,
     pub removed: bool,
     pub pending_attachment: bool,
-    /// Source tosaveitemscript.buried: kinematic, no pickup, lifted by digging.
+    /// Source tosaveitemscript.buried. The body is kinematic, has no pickup, and digging lifts it.
     pub buried: bool,
 }
 
@@ -746,7 +746,7 @@ impl ItemStore {
     pub fn body_id(&self, id: ItemId) -> Option<BodyId> {
         self.indices.get(&id).map(|index| self.body_ids[*index])
     }
-    /// Source stock is applied once; later publications cannot refill the container.
+    /// Source stock applies once. Later publications cannot refill the container.
     pub fn initialize_generated_supply(
         &mut self,
         id: ItemId,

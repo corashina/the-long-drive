@@ -39,7 +39,8 @@ impl DecalStore {
             decals: VecDeque::with_capacity(DECAL_CAP),
         }
     }
-    /// Parents `spawn` to its collider. `smooth`: the renderer interpolates the collider's body.
+    /// Parents `spawn` to its collider. With `smooth`, the renderer interpolates the
+    /// collider's body.
     pub fn spawn(&mut self, spawn: DecalSpawn, physics: &PhysicsWorld, smooth: bool) {
         let Some(collider) = physics.rapier().colliders.get(spawn.collider) else {
             return;

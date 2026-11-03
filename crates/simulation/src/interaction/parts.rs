@@ -1143,7 +1143,7 @@ impl PartAttachments {
             }
         }
     }
-    // Attachment transactions rebuild membership; fixed steps only read cached fluid items.
+    // Attachment transactions rebuild membership. Fixed steps only read cached fluid items.
     fn cache_assembly_mass(&mut self, items: &ItemStore) {
         for p in &mut self.parts {
             p.assembly_dry_mass = 0.;

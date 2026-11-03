@@ -35,7 +35,7 @@ pub fn power(distance: f32, radius: f32, force: f32) -> f32 {
     (f32::to_radians(angle).sin() + 1.) * 0.5 * force
 }
 
-/// `fluidcontainer.isExplosive`: explosive fluids are over 40 % of more than 0.2 L.
+/// `fluidcontainer.isExplosive`. Explosive fluids are over 40 % of more than 0.2 L.
 pub fn is_explosive(fluid: &FluidContainer, explosive: &[u8]) -> bool {
     let total = fluid.total();
     let f: f32 = fluid
@@ -78,7 +78,7 @@ pub fn prop_factor(e: &Explosive, rounds: Option<f32>, force: f32) -> Option<f32
 }
 
 /// `Rigidbody.AddExplosionForce(force, at, radius, UPWARDS, Impulse)` on a body with its
-/// center of mass at `com`: the impulse falls linearly to zero at `radius`.
+/// center of mass at `com`. The impulse falls linearly to zero at `radius`.
 pub fn explosion_impulse(force: f32, at: Vector, radius: f32, com: Vector) -> Vector {
     let distance = com.distance(at);
     if radius > 0. && distance > radius {
@@ -192,7 +192,7 @@ impl ExplosionState {
         self.next += 1;
         Some(blast)
     }
-    /// Ends the step: the queue is empty.
+    /// Ends the step and empties the queue.
     pub fn finish(&mut self) {
         self.queue.clear();
         self.exploded.clear();

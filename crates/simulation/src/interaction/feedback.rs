@@ -107,7 +107,7 @@ pub struct FluidFeedback<'a> {
     pub amount: f32,
     pub capacity: f32,
     pub quantities: [f32; 6],
-    /// Source list order: fluid type + 1 per 4 bits, low bits first, 0 ends.
+    /// Fluid type + 1 per 4 bits in source list order, low bits first. A 0 ends the list.
     pub order: u32,
     pub presentation: &'a FluidPresentation,
 }
@@ -343,7 +343,7 @@ impl InteractionState {
                     {
                         a.actions.0 |= ActionMask::DISMOUNT;
                     }
-                    // A hitched grip body sleeps; picking it up detaches it first.
+                    // A hitched grip body sleeps. Picking it up detaches it first.
                     ItemLocation::World
                         if t.slot.is_none()
                             && ((self.hitch.is_hitched(t.item)

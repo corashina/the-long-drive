@@ -28,7 +28,7 @@ impl<T: Copy + PartialEq> WornItems<T> {
     pub fn slot_of(&self, item: T) -> Option<usize> {
         self.slots.iter().position(|s| *s == Some(item))
     }
-    /// `removeSunglasses`: the first consumable comes off first, else the first worn slot.
+    /// `removeSunglasses`. The first consumable comes off first, else the first worn slot.
     pub fn take_off_next(&mut self, consumable: impl Fn(T) -> bool) -> Option<T> {
         let slot = self
             .slots
@@ -37,7 +37,7 @@ impl<T: Copy + PartialEq> WornItems<T> {
             .or_else(|| self.slots.iter().position(Option::is_some))?;
         self.slots[slot].take()
     }
-    /// Death2: every worn item comes off.
+    /// Death2. Every worn item comes off.
     pub fn take_all(&mut self) -> [Option<T>; WEAR_SLOTS] {
         std::mem::take(self).slots
     }

@@ -33,7 +33,7 @@ struct HeldState {
 /// so a full filter collides with exactly the layers that collide with this layer.
 const PICKED_UP_LAYER: u32 = 20;
 
-/// Source `pickupable.Pickup` `ChangeLayer2(pickedUpLayer)`: the carried item stops touching the
+/// Source `pickupable.Pickup` `ChangeLayer2(pickedUpLayer)`. The carried item stops touching the
 /// player body. Returns the old groups.
 fn lift_layer(
     body: RigidBodyHandle,
@@ -375,7 +375,7 @@ impl CarryState {
             .copied()
             .unwrap_or_default()
     }
-    /// Generated items: `grips` are relative to the pickupable root.
+    /// For generated items, `grips` are relative to the pickupable root.
     pub(crate) fn register_grips(&mut self, rule: &PickupReference, grips: [Option<Pose>; 2]) {
         insert_grips(&mut self.grips, rule, grips);
     }

@@ -947,7 +947,7 @@ impl MechanismState {
         if let Some(r) = &c.reference.rotation {
             for target in &r.targets {
                 let f = &mut self.frames[self.nodes[&target.node]];
-                // C * q * C converts to Unity; its Euler order is Y-X-Z.
+                // C * q * C converts to Unity. Its Euler order is Y-X-Z.
                 let q = f.local.rotation;
                 let source = Rotation::from_xyzw(-q.x, -q.y, q.z, q.w);
                 let (y, x, z) = source.to_euler(EulerRot::YXZ);

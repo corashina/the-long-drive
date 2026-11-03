@@ -23,7 +23,7 @@ impl LmbOwner {
 }
 
 impl InteractionState {
-    /// The held tool that owns the LMB. None: LMB uses the aimed item.
+    /// The held tool that owns the LMB. With None, LMB uses the aimed item.
     pub fn lmb_owner(&self) -> Option<LmbOwner> {
         let (equipped, carried) = (self.equipment.item(), self.held());
         if self.hand_gun() {

@@ -13,7 +13,7 @@ use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{ColliderHandle, QueryFilter, RigidBodyHandle, SharedShape};
 use std::collections::{HashMap, HashSet};
 
-/// Scan buffer capacity per volume. Distinct items seen in one volume.
+/// Scan buffer capacity per volume. It holds the distinct items that one volume sees.
 const SCAN_CAPACITY: usize = 64;
 /// Collider scratch capacity for one lock or unlock.
 const COLLIDER_CAPACITY: usize = 256;
@@ -53,7 +53,7 @@ struct Volume {
     shape: SharedShape,
     /// Gate slots are filled and gate usables are closed. Set before each scan.
     gates_closed: bool,
-    /// Frames left of the source `StartFreeze`. Zero: started.
+    /// Frames left of the source `StartFreeze`. Zero means it started.
     startup: u8,
     previous: Vec<ItemId>,
     current: Vec<ItemId>,
@@ -103,7 +103,7 @@ pub struct StorageLocks {
     /// Generated items that left the lock with their unbound owner. The stream unloads them.
     departing: Vec<ItemId>,
     dont_mount: HashSet<ItemId>,
-    /// Source `dontMountTillPickup`. A pick-up removes the item. Not saved.
+    /// Source `dontMountTillPickup`. A pick-up removes the item. The save does not keep it.
     till_pickup: HashSet<ItemId>,
     drop_times: HashMap<ItemId, f32>,
     colliders: Vec<ColliderHandle>,
@@ -293,7 +293,7 @@ impl StorageLocks {
     }
     /// Unbinds the world volumes and flags of a generated item that streams out or rolls back.
     /// Items locked to it leave with it if `leaves` allows and the owner is not removed.
-    /// They keep their disabled body and are listed by `departing`. Other items unlock.
+    /// They keep their disabled body, and `departing` lists them. Other items unlock.
     /// Returns true if an item departs.
     pub fn unbind_owner(
         &mut self,
@@ -328,7 +328,7 @@ impl StorageLocks {
                     departs = true;
                 } else {
                     self.unlock(item, items, physics)?;
-                    // Source mountStuff.Unstore: contents of a buried owner stay buried.
+                    // Source mountStuff.Unstore. The contents of a buried owner stay buried.
                     if buried {
                         super::buried::bury(item, items, physics);
                     }
@@ -638,7 +638,7 @@ impl StorageLocks {
         self.release(item, true, items, physics)
     }
     /// Moves the item colliders back to its own body at the same world pose.
-    /// Without `enable`, the body stays disabled: the item unloads with its owner.
+    /// Without `enable`, the body stays disabled. The item unloads with its owner.
     fn release(
         &mut self,
         item: ItemId,
@@ -892,7 +892,7 @@ fn local_pose(physics: &PhysicsWorld, handle: ColliderHandle) -> Pose {
         .copied()
         .unwrap_or(Pose::IDENTITY)
 }
-/// Collider user data low 32 bits hold the item id plus one. Zero is no item.
+/// The low 32 bits of collider user data hold the item id plus one. Zero means no item.
 fn collider_item(user_data: u128) -> Option<ItemId> {
     let value = (user_data & u32::MAX as u128) as u32;
     value.checked_sub(1).map(ItemId)

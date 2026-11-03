@@ -55,7 +55,7 @@ impl BuriedItems {
         }
         items.mark_dirty(id);
     }
-    /// UpdBuried: once per frame the item rises by `dt * speed`, then IsBuriedRay runs.
+    /// UpdBuried. Once per frame the item rises by `dt * speed`, then IsBuriedRay runs.
     pub fn lift(
         &mut self,
         id: ItemId,
@@ -84,7 +84,7 @@ impl BuriedItems {
             self.unbury(id, items, physics);
         }
     }
-    /// IsBuried: a buried item with a dynamic body or ground below it unburies.
+    /// IsBuried. A buried item with a dynamic body or ground below it unburies.
     pub fn is_buried(
         &mut self,
         id: ItemId,
@@ -142,7 +142,7 @@ pub fn buried_ray(
     let pose = *body.position();
     let origin = (pose * to_rapier(items.get(id).unwrap().local_pose)).translation;
     // ClosestPoint to a point far below is the lowest point of a convex collider.
-    // Collider poses follow the body now: a lift moves the body before the next step.
+    // Collider poses follow the body now. A lift moves the body before the next step.
     let lowest = body
         .colliders()
         .iter()
