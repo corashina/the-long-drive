@@ -270,8 +270,12 @@ pub fn texture_bank_groups<'a>(
                 .iter()
                 .find(|old| old.source == record.source)
             {
-                if old.mip_data.path != record.mip_data.path
-                    || old.mip_data.sha256 != record.mip_data.sha256
+                if old.chunks.len() != record.chunks.len()
+                    || old
+                        .chunks
+                        .iter()
+                        .zip(&record.chunks)
+                        .any(|(x, y)| x.data.sha256 != y.data.sha256)
                 {
                     return Err(ReferenceError(format!(
                         "Conflicting texture bank source {}:{}",
