@@ -266,7 +266,7 @@ pub struct ConditionColliderBinding {
 }
 
 fn check(source: &SourceId, valid: bool, field: &str) -> Result<(), ReferenceError> {
-    if valid && !source.file.is_empty() && source.path_id != 0 {
+    if valid && source.is_set() {
         Ok(())
     } else {
         Err(ReferenceError(format!(
@@ -458,11 +458,7 @@ impl ConditionRecord {
         // A fixed tool plays an audio voice. A prototype tool plays a `sound` instead.
         let tool = |t: &BrushTool, fixed: bool| -> Result<(), ReferenceError> {
             check(&t.source, t.particles.len() <= 2, "particles channels")?;
-            check(
-                &t.source,
-                !t.slide.file.is_empty() && t.slide.path_id != 0,
-                "slide",
-            )?;
+            check(&t.source, t.slide.is_set(), "slide")?;
             check(&t.source, t.cleaning_type < 7, "cleaning_type")?;
             check(
                 &t.source,
@@ -502,21 +498,13 @@ impl ConditionRecord {
             Ok(())
         };
         let spray = |t: &SprayTool, fixed: bool| -> Result<(), ReferenceError> {
-            check(
-                &t.source,
-                !t.ammo.file.is_empty() && t.ammo.path_id != 0,
-                "ammo",
-            )?;
+            check(&t.source, t.ammo.is_set(), "ammo")?;
             check(
                 &t.source,
                 !t.color_source.file.is_empty() && t.color_source.path_id != 0,
                 "color_source",
             )?;
-            check(
-                &t.source,
-                !t.renderer.file.is_empty() && t.renderer.path_id != 0,
-                "renderer",
-            )?;
+            check(&t.source, t.renderer.is_set(), "renderer")?;
             check(
                 &t.source,
                 finite(&[
@@ -604,11 +592,7 @@ impl ConditionRecord {
                 "id/source",
             )?;
             owner(&t.source, b.item, b.body, &b.pickup)?;
-            check(
-                &t.source,
-                !b.save.file.is_empty() && b.save.path_id != 0,
-                "save",
-            )?;
+            check(&t.source, b.save.is_set(), "save")?;
             check(
                 &t.source,
                 surfaces.get(&b.own_condition).is_some_and(|s| {
@@ -643,11 +627,7 @@ impl ConditionRecord {
                 "id/source",
             )?;
             owner(&t.source, s.item, s.body, &s.pickup)?;
-            check(
-                &t.source,
-                !s.save.file.is_empty() && s.save.path_id != 0,
-                "save",
-            )?;
+            check(&t.source, s.save.is_set(), "save")?;
             check(
                 &t.source,
                 nodes.contains(&s.nozzle) && nodes.contains(&s.renderer_node),
@@ -771,7 +751,7 @@ impl ConditionRecord {
                     && b.installed_slot_source.is_some() == (slot_kinds == 1)
                     && b.installed_slot_source
                         .as_ref()
-                        .is_none_or(|source| !source.file.is_empty() && source.path_id != 0),
+                        .is_none_or(SourceId::is_set),
                 "installed_slot_source/kinds",
             )?;
             check(

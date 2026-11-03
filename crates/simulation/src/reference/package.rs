@@ -1,5 +1,5 @@
 //! Final runtime file receipts. Admission builds these path indices once.
-use super::{ReferenceError, require};
+use super::{ReferenceError, lowercase_hash, require};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -47,14 +47,7 @@ impl FileReceipt {
                 }),
             "package file path",
         )?;
-        require(
-            self.sha256.len() == 64
-                && self
-                    .sha256
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
-            "package file receipt",
-        )?;
+        require(lowercase_hash(&self.sha256), "package file receipt")?;
         if self.file.ends_with(".png") {
             let Some([width, height]) = self.image_size else {
                 return Err(ReferenceError("Missing PNG receipt dimensions".into()));

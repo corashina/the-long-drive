@@ -517,9 +517,7 @@ impl CameraStage {
             ])
             && stages.windows(2).all(|pair| pair[0].order < pair[1].order)
             && stages.iter().all(|stage| {
-                let valid_source =
-                    |source: &super::SourceId| !source.file.is_empty() && source.path_id != 0;
-                valid_source(&stage.source)
+                stage.source.is_set()
                     && super::finite(&[stage.order, stage.near, stage.far, stage.field_of_view])
                     && stage.near > 0.
                     && stage.far > stage.near
@@ -530,19 +528,19 @@ impl CameraStage {
                     && match (&stage.role, &stage.postprocessing) {
                         (CameraRole::Sky, None) => matches!(stage.clear, CameraClear::Skybox),
                         (CameraRole::Main, Some(effect)) => {
-                            valid_source(&effect.source)
+                            effect.source.is_set()
                                 && matches!(stage.clear, CameraClear::Depth)
                                 && effect.scope == CameraEffectScope::MainStack
                                 && effect.volume_mask == 2097408
                         }
                         (CameraRole::Far, Some(effect)) => {
-                            valid_source(&effect.source)
+                            effect.source.is_set()
                                 && matches!(stage.clear, CameraClear::Depth)
                                 && effect.scope == CameraEffectScope::DitherOnly
                                 && effect.volume_mask == 0
                         }
                         (CameraRole::Foreground, Some(effect)) => {
-                            valid_source(&effect.source)
+                            effect.source.is_set()
                                 && matches!(stage.clear, CameraClear::Depth)
                                 && effect.scope == CameraEffectScope::DitherOnly
                                 && effect.volume_mask == 32

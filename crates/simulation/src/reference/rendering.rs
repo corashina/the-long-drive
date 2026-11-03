@@ -340,9 +340,6 @@ pub struct TextureMip {
     pub height: u32,
 }
 
-fn source(id: &SourceId) -> bool {
-    !id.file.is_empty() && id.path_id != 0
-}
 pub(super) fn safe_path(path: &str) -> bool {
     path.starts_with("reference/")
         && !path.contains(['\\', ':', '?', '#', '\0'])
@@ -385,10 +382,10 @@ impl RenderingRecord {
                 bindings.insert((material.asset, material.gltf_material)),
                 &format!("{label}: duplicate binding"),
             )?;
-            require(source(&material.source) && finite(&material.color), &label)?;
+            require(material.source.is_set() && finite(&material.color), &label)?;
             if let Some(condition) = &material.condition {
                 require(
-                    source(&condition.source)
+                    condition.source.is_set()
                         && condition.state <= 4
                         && condition.quality.is_finite()
                         && (condition.quality - (1. - f32::from(condition.state) / 4.)).abs()
@@ -718,7 +715,7 @@ impl RenderingRecord {
                 require(
                     (texture.source_encoding != TextureEncoding::Rag
                         || material.shader_family == ShaderFamily::PlayerModel)
-                        && source(&texture.source)
+                        && texture.source.is_set()
                         && safe_path(texture.file())
                         && texture.uv_channel <= 1
                         && finite(&texture.scale)

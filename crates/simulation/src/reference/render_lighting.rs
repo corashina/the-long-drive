@@ -121,9 +121,6 @@ impl WorldProbeReference {
             && self.mip_extents == shared.mip_extents
     }
 }
-pub(super) fn valid_source(source: &SourceId) -> bool {
-    !source.file.is_empty() && source.path_id != 0
-}
 pub(super) fn valid_pose(pose: &Transform) -> bool {
     finite(&pose.translation)
         && finite(&pose.rotation)
@@ -138,10 +135,7 @@ impl LightRecord {
         textures: &HashSet<SourceId>,
     ) -> Result<(), ReferenceError> {
         let label = format!("light {}:{}", self.source.file, self.source.path_id);
-        require(
-            valid_source(&self.source) && valid_pose(&self.world_pose),
-            &label,
-        )?;
+        require(self.source.is_set() && valid_pose(&self.world_pose), &label)?;
         require(
             self.node
                 .is_none_or(|id| nodes.iter().any(|node| node.id == id)),
@@ -169,7 +163,7 @@ impl LightRecord {
         require(
             self.cookie
                 .as_ref()
-                .is_none_or(|id| valid_source(id) && (!self.enabled || textures.contains(id)))
+                .is_none_or(|id| id.is_set() && (!self.enabled || textures.contains(id)))
                 && self.cookie_size.is_finite()
                 && self.cookie_size > 0.,
             &format!("{label}: cookie"),
@@ -192,7 +186,7 @@ impl LightRecord {
 impl ProbeRecord {
     pub fn validate(&self) -> Result<(), ReferenceError> {
         let label = format!("probe {}:{}", self.source.file, self.source.path_id);
-        require(valid_source(&self.source), &format!("{label}: source"))?;
+        require(self.source.is_set(), &format!("{label}: source"))?;
         require(
             self.bounds_size == [6., 2.5, 6.]
                 && self.importance == 1
@@ -247,7 +241,7 @@ pub struct RendererRecord {
 impl RendererRecord {
     pub fn validate(&self) -> Result<(), ReferenceError> {
         require(
-            valid_source(&self.source)
+            self.source.is_set()
                 && finite(&self.bounds_center)
                 && finite(&self.bounds_extents)
                 && self.bounds_extents.iter().all(|v| *v >= 0.)

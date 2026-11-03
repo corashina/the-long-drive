@@ -153,6 +153,13 @@ pub struct SourceId {
     pub path_id: i64,
 }
 
+impl SourceId {
+    /// The ID names a file and a nonzero path ID.
+    pub fn is_set(&self) -> bool {
+        !self.file.is_empty() && self.path_id != 0
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceHash {
@@ -1051,6 +1058,12 @@ fn ids<T: Eq + std::hash::Hash>(
 fn hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
+fn lowercase_hash(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
 
 fn valid_tune_icon(can_tune: bool, icon: &Option<SourceId>, ui: &UiReference) -> bool {
     icon.as_ref()
@@ -1179,14 +1192,7 @@ impl ReferenceManifest {
             .content_base
             .strip_prefix("assets/runtime/")
             .and_then(|v| v.strip_suffix('/'));
-        require(
-            package.is_some_and(|v| {
-                v.len() == 64
-                    && v.bytes()
-                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            }),
-            "content base",
-        )?;
+        require(package.is_some_and(lowercase_hash), "content base")?;
         for asset in &self.assets {
             require(
                 self.file_catalog.file(&asset.path)?.sha256 == asset.sha256,
