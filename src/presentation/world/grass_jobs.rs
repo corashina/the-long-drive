@@ -611,6 +611,37 @@ impl GrassJobs {
                     .ok_or_else(|| ReferenceError("Missing Grass material owner".into()))?
                     .clone();
                 let output = self.worker.consume(id)?;
+                // The view or the distance can leave no blades. An empty mesh never uploads, so
+                // the instance draws nothing and is ready at once.
+                if output.indices.is_empty() {
+                    let mut next = ledger.allocation();
+                    next.active_cpu -= instance.pending_cpu;
+                    next.active_gpu -= instance.pending_gpu;
+                    next.staging_bytes -= instance.pending_cpu;
+                    next.jobs -= 1;
+                    if let Some(old) = instance.accepted.take() {
+                        meshes.remove(old.mesh.id());
+                        materials.remove(old.material.id());
+                        next.active_cpu = next.active_cpu.saturating_sub(old.cpu);
+                        next.active_gpu = next.active_gpu.saturating_sub(old.gpu);
+                    }
+                    ledger.set_allocation(next)?;
+                    commands
+                        .entity(instance.entity)
+                        .remove::<(Mesh3d, MeshMaterial3d<GrassMaterial>)>();
+                    self.worker.publication_started(instance.entity.to_bits());
+                    instance.pending = None;
+                    instance.pending_cpu = 0;
+                    instance.pending_gpu = 0;
+                    instance.accepted_view = Some(view);
+                    instance.ready = true;
+                    ledger.release_claim(instance.continuation.as_mut().unwrap())?;
+                    instance.continuation = None;
+                    instance.upload = None;
+                    self.worker
+                        .publication_ended(instance.entity.to_bits(), true);
+                    continue;
+                }
                 // consume physically releases the worker plan, worker output and transferred arrays.
                 let retained = output.retained_bytes();
                 let released = instance
