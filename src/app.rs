@@ -166,18 +166,18 @@ thread_local! {
 }
 
 #[wasm_bindgen]
-/// Parses and checks the reference. It runs while the simulation worker starts.
+/// Parses the reference. It runs while the simulation worker parses and checks its copy.
 pub fn prepare(reference_json: &[u8]) -> Result<(), JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
     console_error_panic_hook::set_once();
     let reference = Arc::new(
-        ReferenceManifest::from_runtime_json(reference_json)
+        ReferenceManifest::from_checked_runtime_json(reference_json)
             .map_err(|e| JsValue::from_str(&e.to_string()))?,
     );
     if let Err(error) = reference.audio.playback() {
         game_audio_error(&error.to_string());
     }
-    // Reject unsupported reference data before the app starts. Systems need these resources.
+    // The simulation worker checks the reference. Systems need these resources.
     let materials = presentation::materials::load_materials(&reference)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let fixed_assets = presentation::fixed_assets::SourceFixedAssets::new(&reference)
