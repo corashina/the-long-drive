@@ -1834,15 +1834,29 @@ impl WorldReference {
                     && c.role_valid(),
                 &f,
             )?;
+            // Port addition: the handbrake lever usable is a convex trigger on the lever MeshFilter.
+            let lever = c.trigger
+                && c.role.is_none()
+                && matches!(c.geometry, Some(ColliderGeometry::Convex { .. }));
             let collider = checked_record(
                 records,
                 &c.source,
-                &[
-                    "BoxCollider",
-                    "SphereCollider",
-                    "CapsuleCollider",
-                    "MeshCollider",
-                ],
+                if lever {
+                    &[
+                        "BoxCollider",
+                        "SphereCollider",
+                        "CapsuleCollider",
+                        "MeshCollider",
+                        "MeshFilter",
+                    ]
+                } else {
+                    &[
+                        "BoxCollider",
+                        "SphereCollider",
+                        "CapsuleCollider",
+                        "MeshCollider",
+                    ]
+                },
             )?;
             let object = objects[c.node as usize];
             require(
