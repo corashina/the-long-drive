@@ -1256,11 +1256,7 @@ impl GarageRuntime {
             .interaction
             .dragging_mechanism()
             .is_some_and(|id| self.area.interaction.mechanisms.slideable(id));
-        let interaction = &self.area.interaction;
-        let binoculars = input.held & keys::PRIMARY != 0
-            && interaction
-                .binoculars
-                .reserves_lmb(interaction.equipment.item(), interaction.held());
+        let binoculars = self.area.interaction.binoculars.active().is_some();
         // Source `CanDuck` is false while the player hums.
         let duck_allowed = !self.hum.humming()
             && PlayerStepContext::can_duck(
@@ -1390,6 +1386,12 @@ impl GarageRuntime {
             self.survival.output(),
             factors.fluid_scale,
         );
+        if self.area.interaction.reserves_lmb() {
+            // fpscontroller noLMBUse: the binocular LMB does not use the aimed item.
+            input.held &= !keys::PRIMARY;
+            input.pressed &= !keys::PRIMARY;
+            input.released &= !keys::PRIMARY;
+        }
         let action = outcome.action;
         if action.is_none()
             && (input.pressed | input.released) & keys::GRAB != 0
