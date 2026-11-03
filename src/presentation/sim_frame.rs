@@ -41,6 +41,10 @@ pub(crate) struct StructureView {
 pub(crate) struct SimFrameResource {
     pub frame: SimFrame,
     poses: HashMap<PoseKey, (Handle, SpawnData)>,
+    /// Pose key of each live handle, by handle index. A retire finds its key without a scan.
+    keys: Vec<Option<PoseKey>>,
+    /// Items retired by the current changes. Retained storage.
+    retired: std::collections::HashSet<ItemId>,
     rig: Vec<NodeId>,
     spawned: Vec<SpawnedItem>,
     particle_groups: HashMap<ParticleGroupKey, usize>,
@@ -85,20 +89,33 @@ impl SimFrameResource {
         for change in &self.frame.changes {
             match change {
                 Change::Spawn { handle, key, data } => {
-                    self.poses.insert(*key, (*handle, *data));
+                    if let Some((old, _)) = self.poses.insert(*key, (*handle, *data))
+                        && old != *handle
+                    {
+                        self.keys[old.0 as usize] = None;
+                    }
+                    let index = handle.0 as usize;
+                    if self.keys.len() <= index {
+                        self.keys.resize(index + 1, None);
+                    }
+                    self.keys[index] = Some(*key);
                     if let SpawnData::Spawned(item) = data {
+                        // A retire earlier in these changes removes the old copy first.
+                        if self.retired.contains(&item.id) {
+                            remove_retired(&mut self.spawned, &mut self.retired);
+                        }
                         self.spawned.push(*item);
                     }
                 }
                 Change::Retire(handle) => {
-                    let spawned = &mut self.spawned;
-                    self.poses.retain(|key, (h, _)| {
-                        let keep = h != handle;
-                        if !keep && let PoseKey::Item(id) = key {
-                            spawned.retain(|item| item.id != *id);
-                        }
-                        keep
-                    });
+                    let Some(key) = self.keys.get_mut(handle.0 as usize).and_then(Option::take)
+                    else {
+                        continue;
+                    };
+                    self.poses.remove(&key);
+                    if let PoseKey::Item(id) = key {
+                        self.retired.insert(id);
+                    }
                 }
                 Change::PlayerRig(joints) => self.rig.clone_from(joints),
                 Change::HomeCable(aims) => self.home_cable = Some(aims.clone()),
@@ -142,6 +159,7 @@ impl SimFrameResource {
                 Change::SaveResult { .. } => {}
             }
         }
+        remove_retired(&mut self.spawned, &mut self.retired);
         let frame = &self.frame;
         for row in &frame.structures {
             let view = &mut self.structure_views[row.slot as usize];
@@ -236,4 +254,13 @@ impl SimFrameResource {
     pub fn rig(&self) -> &[NodeId] {
         &self.rig
     }
+}
+
+/// Removes the retired items from `spawned` in one pass.
+fn remove_retired(spawned: &mut Vec<SpawnedItem>, retired: &mut std::collections::HashSet<ItemId>) {
+    if retired.is_empty() {
+        return;
+    }
+    spawned.retain(|item| !retired.contains(&item.id));
+    retired.clear();
 }
