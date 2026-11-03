@@ -7,7 +7,9 @@ main {position:relative;width:100vw;height:100dvh;overflow:hidden;}
 [hidden] {display:none!important;}
 ::selection {background:#b48046;color:#fff;}
 #menu,#menu-art,#menu-frame {position:absolute;inset:0;}
-#menu {font-family:"Liberation Sans",sans-serif;}
+#menu {font-family:"Liberation Sans",sans-serif;transition:background-color .6s;}
+/* The cover hides the half-loaded world. It fades out when the world is ready. */
+#menu.covered {background-color:#0d0c0b;transition:none;}
 #menu-art,#menu-frame {background-size:100% 100%;pointer-events:none;}
 #menu-art {z-index:0;}#menu-frame {z-index:1;}
 #menu h1 {position:absolute;left:24px;top:20px;margin:0;color:#fff;font-size:clamp(24px,3.2vw,60px);font-weight:400;text-shadow:2px 2px 2px #000;}
