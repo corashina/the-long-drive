@@ -70,6 +70,15 @@ struct Row {
     image: Option<Handle<Image>>,
     receipt: UploadReceipt,
 }
+impl Row {
+    /// Ends the current chunk load and frees the row pixels.
+    fn abandon(&mut self) -> Result<(), ReferenceError> {
+        self.ownership.finish_row(true);
+        self.load = None;
+        self.pixels = Vec::new();
+        self.ownership.discard()
+    }
+}
 struct ShaderLoad {
     /// Shaders that this one imports by path. The asset server loads those as dependencies,
     /// so they must finish first.
@@ -387,51 +396,45 @@ impl SourceFixedAssets {
             )?;
         }
         if let Some(bound) = self.cloud_bound {
+            let cpu = if self.cloud_done {
+                self.cloud_retained
+            } else {
+                bound.cpu
+            };
+            let reading = !self.cloud_done && self.cloud_fence.is_none();
             add(
-                if self.cloud_done {
-                    self.cloud_retained
-                } else {
-                    bound.cpu
-                },
+                cpu,
                 bound.gpu,
-                usize::from(!self.cloud_done && self.cloud_fence.is_none()),
+                usize::from(reading),
                 usize::from(!self.cloud_done),
-                if !self.cloud_done && self.cloud_fence.is_none() {
-                    bound.staging
-                } else {
-                    0
-                },
+                if reading { bound.staging } else { 0 },
             )?;
         }
         if self.dither.is_some() && !self.dither_failed {
+            let cpu = if self.dither_receipt.completed() {
+                0
+            } else {
+                1536
+            };
+            let converting = !self.dither_done && !self.dither_converted;
             add(
-                if self.dither_receipt.completed() {
-                    0
-                } else {
-                    1536
-                },
+                cpu,
                 256,
-                usize::from(!self.dither_done && !self.dither_converted),
+                usize::from(converting),
                 usize::from(!self.dither_done),
-                if !self.dither_done && !self.dither_converted {
-                    512
-                } else {
-                    0
-                },
+                if converting { 512 } else { 0 },
             )?;
         }
         if self.cookies.is_some() {
+            let uploaded = self.cookie_receipt.completed();
+            let copies = if uploaded { 1 } else { 2 };
             add(
                 self.cookie_bytes
-                    .checked_mul(if self.cookie_receipt.completed() {
-                        1
-                    } else {
-                        2
-                    })
+                    .checked_mul(copies)
                     .ok_or_else(|| ReferenceError("Cookie ownership overflow".into()))?,
                 self.cookie_bytes,
                 0,
-                usize::from(!self.cookie_receipt.completed()),
+                usize::from(!uploaded),
                 0,
             )?;
         }
@@ -443,6 +446,21 @@ impl SourceFixedAssets {
         snapshot: &mut FixedAllocation,
     ) -> Result<(), ReferenceError> {
         let next = self.allocation()?;
+        ledger.set_allocation(next.replace(*snapshot, ledger.allocation())?)?;
+        *snapshot = next;
+        Ok(())
+    }
+    /// Accounts the current state plus one starting load job with `staging` bytes.
+    fn account_job(
+        &self,
+        ledger: &mut PresentationLedger,
+        snapshot: &mut FixedAllocation,
+        staging: usize,
+    ) -> Result<(), ReferenceError> {
+        let mut next = self.allocation()?;
+        next.jobs = checked_sum(&[next.jobs, 1])?;
+        next.pending = checked_sum(&[next.pending, 1])?;
+        next.staging = checked_sum(&[next.staging, staging])?;
         ledger.set_allocation(next.replace(*snapshot, ledger.allocation())?)?;
         *snapshot = next;
         Ok(())
@@ -493,12 +511,7 @@ impl SourceFixedAssets {
             }
             self.roots[index].cpu = bound.cpu;
             self.roots[index].staging = bound.staging;
-            let mut next = self.allocation()?;
-            next.jobs = checked_sum(&[next.jobs, 1])?;
-            next.pending = checked_sum(&[next.pending, 1])?;
-            next.staging = checked_sum(&[next.staging, bound.staging])?;
-            ledger.set_allocation(next.replace(*snapshot, ledger.allocation())?)?;
-            *snapshot = next;
+            self.account_job(ledger, snapshot, bound.staging)?;
             self.roots[index].state = RootState::PlanLoading(preflight::load_plan(
                 server,
                 &reference.file_catalog,
@@ -627,10 +640,7 @@ impl SourceFixedAssets {
             let Some(handle) = &row.load else { continue };
             if let LoadState::Failed(error) = server.load_state(handle.id()) {
                 row.ownership.cancel();
-                row.ownership.finish_row(true);
-                row.load = None;
-                row.pixels = Vec::new();
-                row.ownership.discard()?;
+                row.abandon()?;
                 self.failure.get_or_insert(format!("Fixed row: {error}"));
                 continue;
             }
@@ -638,10 +648,7 @@ impl SourceFixedAssets {
                 continue;
             };
             if self.failure.is_some() {
-                row.ownership.finish_row(true);
-                row.load = None;
-                row.pixels = Vec::new();
-                row.ownership.discard()?;
+                row.abandon()?;
                 continue;
             }
             let record = &reference.lighting.textures[index];
@@ -655,10 +662,7 @@ impl SourceFixedAssets {
                 self.failure
                     .get_or_insert("Fixed row decoded image contract".into());
                 row.ownership.cancel();
-                row.ownership.finish_row(true);
-                row.load = None;
-                row.pixels = Vec::new();
-                row.ownership.discard()?;
+                row.abandon()?;
                 continue;
             }
             if let Err(error) = record.copy_chunk(
@@ -671,10 +675,7 @@ impl SourceFixedAssets {
             ) {
                 self.failure.get_or_insert(error.0);
                 row.ownership.cancel();
-                row.ownership.finish_row(true);
-                row.load = None;
-                row.pixels = Vec::new();
-                row.ownership.discard()?;
+                row.abandon()?;
                 continue;
             }
             row.load = None;
@@ -862,12 +863,7 @@ impl SourceFixedAssets {
             self.roots[index].cpu = bound.cpu;
             self.roots[index].gpu = bound.gpu;
             self.roots[index].staging = bound.staging;
-            let mut next = self.allocation()?;
-            next.jobs = checked_sum(&[next.jobs, 1])?;
-            next.pending = checked_sum(&[next.pending, 1])?;
-            next.staging = checked_sum(&[next.staging, bound.staging])?;
-            ledger.set_allocation(next.replace(*snapshot, ledger.allocation())?)?;
-            *snapshot = next;
+            self.account_job(ledger, snapshot, bound.staging)?;
             self.roots[index].meshes.reserve_exact(count);
             let handle = server
                 .load_builder()
@@ -890,12 +886,7 @@ impl SourceFixedAssets {
             }
             self.shaders[index].cpu = cpu;
             self.shaders[index].staging = staging;
-            let mut next = self.allocation()?;
-            next.jobs = checked_sum(&[next.jobs, 1])?;
-            next.pending = checked_sum(&[next.pending, 1])?;
-            next.staging = checked_sum(&[next.staging, staging])?;
-            ledger.set_allocation(next.replace(*snapshot, ledger.allocation())?)?;
-            *snapshot = next;
+            self.account_job(ledger, snapshot, staging)?;
             self.shaders[index].handle = Some(server.load(SHADERS[index]));
         }
         if self.shaders.iter().all(|s| s.done) && !self.shaders_bound {
