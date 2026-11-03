@@ -1,8 +1,4 @@
 //! Web Worker entry for the simulation. It owns its own WASM memory and the game runtime.
-// DLmalloc spends seconds in many small reference allocations. Talc is much faster on WASM.
-#[cfg(target_arch = "wasm32")]
-#[global_allocator]
-static ALLOCATOR: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();
 use simulation::boundary::{SimInit, encode_startup};
 use simulation::reference::ReferenceManifest;
 use simulation::session::Session;
@@ -10,6 +6,7 @@ use simulation::world::{GameMode, GameOptions};
 use std::cell::RefCell;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
+use wasm_heap as _;
 
 thread_local! {
     static SESSION: RefCell<Option<Session>> = const { RefCell::new(None) };
