@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// `mainscript.jamIncrease`: jam per second that an EMP adds.
 pub const JAM_INCREASE: f32 = 0.3;
 /// `mainscript.jamDecrease`: jam per second that electronics lose.
-pub const JAM_DECREASE: f32 = 0.1;
+const JAM_DECREASE: f32 = 0.1;
 /// `mainscript.maxJamValue`: jam that turns output to zero.
 pub const MAX_JAM: f32 = 0.3;
 

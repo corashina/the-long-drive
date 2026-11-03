@@ -45,7 +45,7 @@ impl CoolantSteamState {
 }
 
 /// Source `CoolantSteamEmission.rateOverTime = Lerp(0, CoolantSteamMaxRate, f)`.
-pub fn steam_rate(boil: f32, max_rate: f32) -> f32 {
+fn steam_rate(boil: f32, max_rate: f32) -> f32 {
     max_rate * boil.clamp(0., 1.)
 }
 

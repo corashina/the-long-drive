@@ -158,7 +158,7 @@ impl WheelEffects {
                 e.ground = wheel.grounded;
                 e.road = false;
             }
-            let pose_rotation = input.rotation * quat(r.pose.rotation);
+            let pose_rotation = input.rotation * Rotation::from_array(r.pose.rotation);
             let position = root + input.rotation * Vector::from_array(r.pose.translation);
             let mask = r.ray_mask;
             // Same own-car rule as the wheel ray, plus the source layer mask.
@@ -311,10 +311,6 @@ fn advance_system(
     system.rotation = input.rotation;
     system.set_origin(input.origin);
     system.advance(dt, input.root_absolute, strength, physics);
-}
-
-fn quat(r: [f32; 4]) -> Rotation {
-    Rotation::from_xyzw(r[0], r[1], r[2], r[3])
 }
 
 /// Unity `Vector3.Angle` in degrees. A zero vector gives 0.

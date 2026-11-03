@@ -1794,7 +1794,7 @@ impl GarageRuntime {
         )
     }
     /// Advances the gauges of every car by render time `dt`. `initialize` jumps to the targets.
-    pub fn advance_instruments(
+    fn advance_instruments(
         &mut self,
         reference: &ReferenceManifest,
         dt: f32,
@@ -1858,7 +1858,7 @@ impl GarageRuntime {
         }
     }
     /// Source `carscript.Update`: eases each car gear lever and control pedal by render time `dt`.
-    pub fn advance_levers(&mut self, reference: &ReferenceManifest, dt: f32) {
+    fn advance_levers(&mut self, reference: &ReferenceManifest, dt: f32) {
         for vehicle in self.vehicles.values_mut() {
             vehicle.advance_controls(reference, dt);
         }
@@ -2202,7 +2202,7 @@ impl GarageRuntime {
         }
     }
     /// The engine part mounted on car `key` at the last step.
-    pub fn mounted_engine(
+    fn mounted_engine(
         &self,
         key: &ObjectKey,
     ) -> Option<&crate::simulation::powertrain::EnginePart> {
@@ -2458,7 +2458,7 @@ fn holiday_pumpkin(start: [u32; 2], end: [u32; 2], calendar: [u8; 2]) -> bool {
 
 /// Source `carscript.InteractSwitchLights` of the world car whose switch usable is `switch`.
 /// Returns the car.
-pub fn use_light_switch(
+fn use_light_switch(
     vehicles: &mut BTreeMap<ObjectKey, VehicleRuntime>,
     switch: ItemId,
 ) -> Option<(ObjectKey, usize)> {

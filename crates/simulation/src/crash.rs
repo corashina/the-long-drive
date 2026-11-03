@@ -117,7 +117,7 @@ pub struct Outcome {
 }
 
 /// Source `minFalloffSpeed`, `maxFalloffSpeed`.
-pub fn fall_off_range(r: &CrashReference, car_condition: Option<u8>) -> [f32; 2] {
+fn fall_off_range(r: &CrashReference, car_condition: Option<u8>) -> [f32; 2] {
     let scale = car_condition.map_or(1.0, |state| {
         lerp(1.0, 0.2, inverse_lerp(0.0, 4.0, f32::from(state)))
     });

@@ -78,7 +78,7 @@ pub fn step_surface_bits(surface: Option<crate::reference::StepSurface>) -> u128
 }
 /// Collider user data bits 35 to 38 hold the source tag code. 0 is none.
 pub const TAG_SHIFT: u32 = 35;
-pub const TAG_MASK: u128 = 0b1111 << TAG_SHIFT;
+const TAG_MASK: u128 = 0b1111 << TAG_SHIFT;
 pub fn tag_bits(tag: Option<crate::reference::ColliderTag>) -> u128 {
     tag.map_or(0, |t| (t as u128 + 1) << TAG_SHIFT)
 }
@@ -120,7 +120,7 @@ impl HitCollector {
         std::mem::swap(out, &mut *hits);
     }
     /// Moves the recorded sensor intersections into `out` without allocation.
-    pub fn take_enters(&self, out: &mut Vec<[ColliderHandle; 2]>) {
+    fn take_enters(&self, out: &mut Vec<[ColliderHandle; 2]>) {
         let mut enters = self.enters.lock().unwrap();
         out.clear();
         std::mem::swap(out, &mut *enters);
@@ -285,7 +285,6 @@ impl PhysicsWorld {
         self.vehicles.keys()
     }
 
-    /// Returns the vehicle whose chassis is `body`.
     /// Maximum steer angle of the vehicle on chassis `body`, in radians.
     pub fn max_steer(&self, body: RigidBodyHandle) -> Option<f32> {
         self.vehicles
@@ -293,6 +292,7 @@ impl PhysicsWorld {
             .find(|vehicle| vehicle.chassis == body)
             .map(|vehicle| vehicle.max_steer)
     }
+    /// Returns the vehicle whose chassis is `body`.
     pub fn vehicle_of(&self, body: RigidBodyHandle) -> Option<&ObjectKey> {
         if !self.chassis.contains(&body) {
             return None;
@@ -523,12 +523,8 @@ impl PhysicsWorld {
             index,
             wheel::resolve_profile(&vehicle.rules[index], &vehicle.slip, assembly),
         );
-        self.query_bounds.mark_body(vehicle.chassis);
-        let body = &mut self.physics.bodies[vehicle.chassis];
-        let before = BodyPresentationState::capture(body);
-        body.wake_up(true);
-        self.presentation_bodies
-            .mark_if_changed(vehicle.chassis, before, body);
+        let chassis = vehicle.chassis;
+        self.edit_body(chassis, |body| body.wake_up(true));
     }
 
     pub fn rapier(&self) -> &rapier3d::prelude::PhysicsWorld {

@@ -75,7 +75,7 @@ impl ExhaustState {
 }
 
 /// Source `GetBurnColor`: each fluid adds its color by share; each later fluid halves the sum.
-pub fn burn_color(tank: &FluidContainer, colors: &[[f32; 4]; 6]) -> [f32; 4] {
+fn burn_color(tank: &FluidContainer, colors: &[[f32; 4]; 6]) -> [f32; 4] {
     let total = tank.total();
     let mut color = [0.; 4];
     if !(total > 0. && total.is_finite()) {
