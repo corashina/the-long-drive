@@ -1,11 +1,11 @@
 import {createHash, randomUUID} from 'node:crypto';
 import {createReadStream, createWriteStream} from 'node:fs';
-import {mkdir, readFile, rename, rm, stat, writeFile} from 'node:fs/promises';
+import {mkdir, readdir, readFile, rename, rm, stat, writeFile} from 'node:fs/promises';
 import {dirname, resolve, sep} from 'node:path';
 import {Transform} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 import {fileURLToPath} from 'node:url';
-import {constants, createBrotliCompress} from 'node:zlib';
+import {constants, createBrotliCompress, gunzipSync} from 'node:zlib';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const canonical = value => typeof value === 'string' && /^[a-zA-Z0-9_./ -]+$/.test(value)
@@ -20,23 +20,53 @@ function digestStream() {
   return {stream, result: () => ({size: bytes, sha256: hash.digest('hex')})};
 }
 
+async function sha256File(path) {
+  const hash = createHash('sha256');
+  for await (const bytes of createReadStream(path)) hash.update(bytes);
+  return hash.digest('hex');
+}
+
+// Reuse the Brotli file of an earlier build when the source bytes did not change.
+async function reusable(sourcePath, before, previous, compressionRoot) {
+  const sha256 = await sha256File(sourcePath);
+  const brotli = previous.get(sha256);
+  if (!brotli || !/^[a-f0-9]{64}\.br$/.test(brotli.file)) return;
+  const compressed = await stat(resolve(compressionRoot, brotli.file)).catch(() => undefined);
+  if (compressed?.size !== brotli.size) return;
+  const after = await stat(sourcePath);
+  if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) {
+    throw Error('Compression source changed: ' + sourcePath);
+  }
+  return {source: {size: before.size, sha256, mtimeMs: before.mtimeMs, ctimeMs: before.ctimeMs}, brotli};
+}
+
 export async function prepareStartupCompression({webRoot = resolve(projectRoot, 'web'),
   compressionRoot = resolve(projectRoot, '.cache/http-compression')} = {}) {
-  const manifest = JSON.parse(await readFile(resolve(webRoot, 'assets/reference/manifest.json'), 'utf8'));
+  const manifest = JSON.parse(gunzipSync(await readFile(resolve(webRoot, 'assets/reference/manifest.json.gz'))).toString('utf8'));
   if (!/^assets\/runtime\/[a-zA-Z0-9_-]+\/$/.test(manifest.content_base)
     || !Array.isArray(manifest.file_catalog?.files)) throw Error('Invalid runtime package catalog.');
-  const paths = new Set(['pkg/the_long_slop_bg.wasm', 'pkg/simulation_worker_bg.wasm', 'pkg/terrain_worker_bg.wasm', 'pkg/road_worker_bg.wasm', 'pkg/grass_worker_bg.wasm', 'assets/reference/manifest.json']);
+  const paths = new Set(['pkg/the_long_slop_bg.wasm', 'pkg/simulation_worker_bg.wasm', 'pkg/terrain_worker_bg.wasm', 'pkg/road_worker_bg.wasm', 'pkg/grass_worker_bg.wasm']);
   for (const receipt of manifest.file_catalog.files) {
     if (!canonical(receipt.file)) throw Error('Invalid runtime receipt path.');
     if (receipt.file.endsWith('.json')) paths.add(manifest.content_base + receipt.file);
   }
   await mkdir(compressionRoot, {recursive: true});
+  const previous = new Map();
+  try {
+    const old = JSON.parse(await readFile(resolve(compressionRoot, 'index.json'), 'utf8'));
+    for (const entry of Object.values(old.files ?? {})) previous.set(entry.source.sha256, entry.brotli);
+  } catch { /* No earlier index: compress every file. */ }
   const index = {version: 1, files: {}};
   for (const name of [...paths].sort()) {
     const sourcePath = resolve(webRoot, name);
     if (!sourcePath.startsWith(resolve(webRoot) + sep)) throw Error('Invalid compression source path.');
     const before = await stat(sourcePath);
     if (!before.isFile()) throw Error('Compression source is not a file: ' + name);
+    const reused = await reusable(sourcePath, before, previous, compressionRoot);
+    if (reused) {
+      index.files['/' + name] = reused;
+      continue;
+    }
     const source = digestStream(), encoded = digestStream();
     const temporary = resolve(compressionRoot, randomUUID() + '.tmp');
     try {
@@ -59,6 +89,10 @@ export async function prepareStartupCompression({webRoot = resolve(projectRoot, 
     } finally {
       await rm(temporary, {force: true});
     }
+  }
+  const kept = new Set(Object.values(index.files).map(entry => entry.brotli.file));
+  for (const file of await readdir(compressionRoot)) {
+    if (file.endsWith('.br') && !kept.has(file)) await rm(resolve(compressionRoot, file), {force: true});
   }
   const temporary = resolve(compressionRoot, randomUUID() + '.tmp');
   try {

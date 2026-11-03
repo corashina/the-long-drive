@@ -47,15 +47,16 @@ impl<K: Eq + Hash> WorldBoundsCache<K> {
         self.epoch = Some(epoch);
         changed
     }
+    /// Returns None for nonfinite or negative bounds. Such a renderer casts no shadow.
     pub fn get_or_update(
         &mut self,
         entity: K,
         key: BoundsKey,
         calculate: impl FnOnce() -> Bounds,
-    ) -> Result<Bounds, &'static str> {
+    ) -> Option<Bounds> {
         if let Some(row) = self.rows.get(&entity) {
             if row.key == key {
-                return Ok(row.bounds);
+                return Some(row.bounds);
             }
         }
         let bounds = calculate();
@@ -66,10 +67,11 @@ impl<K: Eq + Hash> WorldBoundsCache<K> {
             .any(|value| !value.is_finite())
             || bounds.extents.iter().any(|value| *value < 0.)
         {
-            return Err("Source shadow renderer bounds are nonfinite");
+            self.rows.remove(&entity);
+            return None;
         }
         self.rows.insert(entity, Row { key, bounds });
-        Ok(bounds)
+        Some(bounds)
     }
     /// Membership changes rebuild the complete ordered collection.
     pub fn clear(&mut self) {

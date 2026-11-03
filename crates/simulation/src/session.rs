@@ -106,11 +106,7 @@ mod tests {
     #[test]
     #[ignore = "requires the installed source export"]
     fn tick_answers_a_decodable_frame() {
-        let bytes = std::fs::read(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../web/assets/reference/manifest.json"
-        ))
-        .unwrap();
+        let bytes = crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap();
         let reference = Arc::new(ReferenceManifest::from_runtime_json(&bytes).unwrap());
         let init = SimInit {
             mode: Default::default(),

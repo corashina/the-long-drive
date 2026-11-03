@@ -1,4 +1,5 @@
 """Receipts and selected scene plans for the immutable runtime package."""
+import gzip
 import hashlib
 import json
 import re
@@ -8,6 +9,22 @@ from pathlib import Path, PurePosixPath
 
 MAX_U32 = 2**32 - 1
 MAX_STAGING = 32 * 1024 * 1024
+# The runtime manifest is gzip at rest. Each file stays under GitHub's 100 MB limit.
+MANIFEST = 'manifest.json.gz'
+
+
+def write_manifest(output: Path, manifest: dict) -> None:
+    content = json.dumps(manifest, separators=(',', ':'), allow_nan=False).encode()
+    # mtime 0 keeps the file bytes the same for the same manifest.
+    (output / MANIFEST).write_bytes(gzip.compress(content, compresslevel=9, mtime=0))
+
+
+def manifest_bytes(output: Path) -> bytes:
+    return gzip.decompress((output / MANIFEST).read_bytes())
+
+
+def read_manifest(output: Path) -> dict:
+    return json.loads(manifest_bytes(output))
 
 
 def checked(value):
@@ -94,7 +111,7 @@ def build_prototype_plan(document: dict, receipts: dict) -> dict:
 
 
 def build_file_catalog(manifest: dict, output: Path) -> dict:
-    excluded = {'manifest.json', 'library-selection.json'}
+    excluded = {MANIFEST, 'library-selection.json'}
     files = {f'reference/{path.name}': file_receipt(path, f'reference/{path.name}')
              for path in sorted(output.iterdir()) if path.is_file()
              and path.name not in excluded and not path.name.endswith('-evidence.json')
@@ -150,7 +167,7 @@ def prepare_package(manifest, output):
 def publish_package(output, assets_root):
     """Publish a complete package before replacing the mutable root manifest."""
     import tempfile
-    manifest = json.loads((output / 'manifest.json').read_bytes())
+    manifest = read_manifest(output)
     destination = assets_root / 'runtime' / package_id(manifest)
     destination.parent.mkdir(exist_ok=True)
     if destination.exists():
