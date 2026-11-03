@@ -66,7 +66,8 @@ struct Controller {
     electronics: Option<usize>,
     /// The part item that holds the controller. None: the car root.
     owner: Option<ItemId>,
-    cabin_mode: usize,
+    /// The cabin switch usable item.
+    switch: Option<ItemId>,
     /// Usable items of the cabin door slots.
     doors: Vec<Option<ItemId>>,
     /// Output indices per state: lights, then renderers.
@@ -87,6 +88,8 @@ pub struct CarLights {
 pub struct CarLightLinks {
     pub electronics: Option<usize>,
     pub owner: Option<ItemId>,
+    /// Item of the `inputconnect.turnOverride` usable. None: the controller has no cabin switch.
+    pub switch: Option<ItemId>,
     pub doors: Vec<Option<ItemId>>,
 }
 
@@ -151,7 +154,7 @@ impl CarLights {
                 kind: light.kind,
                 electronics: links.electronics,
                 owner: links.owner,
-                cabin_mode: light.cabin.as_ref().map_or(0, |c| c.startup_mode),
+                switch: links.switch,
                 doors: links.doors,
                 lights: light_slots,
                 renderers: renderer_slots,
@@ -166,7 +169,8 @@ impl CarLights {
     }
 
     /// One light step. `mounted` tells whether a part item is on the car; `door` reads
-    /// a cabin door usable value.
+    /// a cabin door usable value; `switch` reads a cabin switch turn state.
+    #[allow(clippy::too_many_arguments)]
     pub fn advance(
         &mut self,
         records: &[WorldLightReference],
@@ -174,6 +178,7 @@ impl CarLights {
         electronics: &[NodeElectronics],
         mounted: impl Fn(ItemId) -> bool,
         door: impl Fn(ItemId) -> f32,
+        switch: impl Fn(ItemId) -> Option<u8>,
         dt: f32,
     ) {
         for index in 0..self.controllers.len() {
@@ -197,7 +202,12 @@ impl CarLights {
                         }
                         c.state.request(input.requested);
                     } else if let Some(cabin) = &reference.cabin {
-                        let on = match cabin.modes.get(c.cabin_mode).copied().unwrap_or(0) {
+                        // Source `inputconnect` reads `turnOverride.currentTurnState` each frame.
+                        let mode = c
+                            .switch
+                            .and_then(&switch)
+                            .map_or(cabin.startup_mode, usize::from);
+                        let on = match cabin.modes.get(mode).copied().unwrap_or(0) {
                             1 => true,
                             2 => false,
                             _ => c
@@ -319,5 +329,92 @@ impl CarLights {
         for &slot in &self.controllers[index].renderers[state] {
             self.materials[slot].choice = Some(choice);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reference::{SourceId, WorldCabinInputReference};
+
+    fn lamp(signal: LampSignal, light: u32) -> WorldLampStateReference {
+        WorldLampStateReference {
+            signal,
+            lights: vec![light],
+            intensity: 1.,
+            renderers: Vec::new(),
+            on_material: None,
+            off_material: None,
+            broken: false,
+            working_nodes: Vec::new(),
+            broken_nodes: Vec::new(),
+            dont_overwrite: false,
+        }
+    }
+
+    /// The cabin lamp follows the switch: door mode, always on, always off.
+    #[test]
+    fn cabin_lamp_follows_switch_state() {
+        let source = SourceId {
+            file: "car".into(),
+            path_id: 1,
+        };
+        let records = [WorldLightReference {
+            source: source.clone(),
+            kind: LightControllerKind::Cabin,
+            node: 0,
+            electronics: None,
+            startup_on: false,
+            current_state: 0,
+            requested_state: 0,
+            energy: 1.,
+            energy_move: 100.,
+            enabled: true,
+            reverse_switch: false,
+            states: vec![lamp(LampSignal::Off, 1), lamp(LampSignal::Cabin, 2)],
+            cabin: Some(WorldCabinInputReference {
+                source,
+                switch_node: 3,
+                modes: vec![0, 1, 2],
+                startup_mode: 0,
+                door_slots: vec![4],
+                threshold: 0.5,
+                include_children: false,
+                missing_slot_is_same: false,
+            }),
+        }];
+        let (switch, door) = (ItemId(1), ItemId(2));
+        let mut lights = CarLights::new(
+            &records,
+            vec![CarLightLinks {
+                electronics: None,
+                owner: None,
+                switch: Some(switch),
+                doors: vec![Some(door)],
+            }],
+        );
+        let mut lit = |state: u8, open: f32| {
+            for _ in 0..20 {
+                lights.advance(
+                    &records,
+                    CarLightInput::default(),
+                    &[],
+                    |_| true,
+                    |_| open,
+                    |item| (item == switch).then_some(state),
+                    0.05,
+                );
+            }
+            lights
+                .lights()
+                .iter()
+                .find(|l| l.node == 2)
+                .unwrap()
+                .enabled
+        };
+        assert!(!lit(0, 0.));
+        assert!(lit(0, 1.));
+        assert!(lit(1, 0.));
+        assert!(!lit(2, 1.));
     }
 }

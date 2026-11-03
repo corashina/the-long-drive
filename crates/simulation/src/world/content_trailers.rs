@@ -259,6 +259,7 @@ impl WorldStream {
                     light.node as usize,
                 )
                 .filter(|i| *i != item),
+                switch: None,
                 doors: Vec::new(),
             })
             .collect();
@@ -362,6 +363,7 @@ impl WorldStream {
                 &[],
                 |i| i == item || items.descends(i, item),
                 |i| interaction.mechanisms.value(i, false).unwrap_or(0.),
+                |_| None,
                 FIXED_DT,
             );
             self.set_car_lights(&b.parent, b.lights.lights());
