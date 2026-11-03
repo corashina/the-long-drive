@@ -268,6 +268,12 @@ impl FrameInput {
     pub fn clear(&mut self) {
         *self = Self::default();
     }
+    /// Removes `mask` from the held, pressed and released keys.
+    pub fn drop_keys(&mut self, mask: u32) {
+        self.held &= !mask;
+        self.pressed &= !mask;
+        self.released &= !mask;
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]

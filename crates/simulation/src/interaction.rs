@@ -2,6 +2,7 @@ pub mod binoculars;
 pub mod buried;
 pub mod carry;
 pub mod cigarettes;
+pub mod claims;
 pub mod cleaning;
 pub mod computer;
 pub mod consumption;
@@ -711,12 +712,6 @@ impl InteractionState {
     }
     pub fn held(&self) -> Option<ItemId> {
         self.carry.held()
-    }
-    /// fpscontroller `noLMBUse` of a carried or equipped tool.
-    pub fn reserves_lmb(&self) -> bool {
-        let (equipped, carried) = (self.equipment.item(), self.held());
-        self.cleaning.reserves_lmb(equipped, carried)
-            || self.binoculars.reserves_lmb(equipped, carried)
     }
     pub fn can_equip_carried(
         &self,
@@ -1654,10 +1649,8 @@ impl InteractionState {
             input.wheel = 0.;
             input.carry.wheel = 0.;
         }
-        if self.reserves_lmb() {
-            input.held &= !keys::PRIMARY;
-            input.pressed &= !keys::PRIMARY;
-            input.released &= !keys::PRIMARY;
+        if self.lmb_owner().is_some() {
+            input.drop_keys(keys::PRIMARY);
         }
         if !dt.is_finite() || dt <= 0.0 {
             return InteractionOutcome {

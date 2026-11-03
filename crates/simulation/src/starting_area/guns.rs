@@ -17,7 +17,7 @@ impl GarageRuntime {
         input: FrameInput,
         dt: f32,
         view: VehiclePose,
-    ) -> bool {
+    ) {
         self.bind_guns();
         let interaction = &mut self.area.interaction;
         let is_gun = |id: &ItemId| interaction.guns.runtime(*id).is_some();
@@ -141,7 +141,6 @@ impl GarageRuntime {
         self.settle_rabbits(reference);
         self.settle_humans(reference);
         self.store_decals(dt);
-        held.is_some()
     }
     /// Moves the shot bullet holes into the decal store and ages the store.
     fn store_decals(&mut self, dt: f32) {

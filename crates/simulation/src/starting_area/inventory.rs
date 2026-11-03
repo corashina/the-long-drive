@@ -331,9 +331,7 @@ impl InventoryFrame {
             pending.clear();
         } else {
             if self.primary_reserved {
-                pending.held &= !keys::PRIMARY;
-                pending.pressed &= !keys::PRIMARY;
-                pending.released &= !keys::PRIMARY;
+                pending.drop_keys(keys::PRIMARY);
             }
             if self.recentered.is_some() && pending.carry.owner == self.recentered {
                 pending.carry = crate::simulation::CarryDeltas::default();
@@ -442,7 +440,7 @@ impl GarageRuntime {
                 .expect("checked inventory bindings");
         }
         self.advance_melee(reference, input, dt);
-        let gun_held = self.advance_guns(reference, input, dt, view);
+        self.advance_guns(reference, input, dt, view);
         self.run_explosions(reference, dt);
         self.area.sync_equipment(reference, &mut self.physics);
         if let Some(id) = self.area.interaction.equipment.item() {
@@ -464,13 +462,12 @@ impl GarageRuntime {
             view: self.area.player.scrub_pose(view),
             origin: self.stream.origin.offset,
         };
-        // fpscontroller: a gun or a cleaning tool in the hand sets noLMBUse. The binoculars read LMB
-        // in the fixed step, so `InteractionState::step` removes it there.
-        let interaction = &self.area.interaction;
-        let mut primary_reserved = gun_held
-            || interaction
-                .cleaning
-                .reserves_lmb(interaction.equipment.item(), interaction.held());
+        // fpscontroller noLMBUse of the tools that read LMB in this frame.
+        let mut primary_reserved = self
+            .area
+            .interaction
+            .lmb_owner()
+            .is_some_and(crate::interaction::claims::LmbOwner::frame_owned);
         self.area
             .interaction
             .cleaning
@@ -634,9 +631,7 @@ impl GarageRuntime {
             fixed_input.carry = crate::simulation::CarryDeltas::default();
         }
         if primary_reserved {
-            fixed_input.held &= !keys::PRIMARY;
-            fixed_input.pressed &= !keys::PRIMARY;
-            fixed_input.released &= !keys::PRIMARY;
+            fixed_input.drop_keys(keys::PRIMARY);
         }
         InventoryFrame {
             fixed_input,
