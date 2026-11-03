@@ -93,7 +93,7 @@ struct Renderer {
     // The static node chain of the renderer is active. Spawned nodes carry their own visibility.
     active: bool,
     settings: Option<GrassSettings>,
-    /// The genie lamp renderer: a private material that takes the lamp emission.
+    /// The genie lamp renderer. It has a private material that takes the lamp emission.
     emissive: bool,
     /// The renderer node is an enabled Grass displacement writer.
     writer: bool,
@@ -161,7 +161,7 @@ pub(crate) enum CarMaterial {
 pub(crate) enum CarTarget {
     /// The renderer entity. Its `GlobalTransform` and parent visibility apply.
     Entity(Entity),
-    /// A GPU prop row: world matrix in the render-origin frame and linear surface color.
+    /// A GPU prop row, with its world matrix in the render-origin frame and linear surface color.
     Row { world: Mat4, color: Vec4 },
 }
 struct Instance {
@@ -183,7 +183,7 @@ struct Instance {
     // Nearest spawned ancestor of each glTF node. `None` is the root.
     anchors: Vec<Option<u32>>,
     active_nodes: Vec<bool>,
-    // Local render frame; retain double precision across distant rebases.
+    // Local render frame. Retain double precision across distant rebases.
     worlds: Vec<DMat4>,
     // Frozen source frame for procedural color, wind, and Grass inputs only.
     source_worlds: Vec<Mat4>,
@@ -253,7 +253,7 @@ impl LodOwner for Instance {
 pub struct SourceInstances {
     instances: Vec<Instance>,
     pending: Option<Placement>,
-    /// Where the pending owner waits, and since which frame. Startup audit only.
+    /// Where the pending owner waits, and since which frame. Only the startup audit reads it.
     owner_stage: (&'static str, u64),
     prepare_calls: u64,
     bindings_dirty: bool,
@@ -362,7 +362,7 @@ impl SourceInstances {
     }
     /// Ready visible instances with `mirrorscript` renderers: instance index, root entity,
     /// prototype index and node entities by glTF node.
-    /// Only prototypes with vehicle mirrors have mirror renderers: other instances skip the
+    /// Only prototypes with vehicle mirrors have mirror renderers. Other instances skip the
     /// renderer walk.
     pub(crate) fn mirror_cars<'a>(
         &'a self,
@@ -385,7 +385,7 @@ impl SourceInstances {
     }
     /// The ready start car: a Startup layer vehicle. Writes the active surfaces of the car and
     /// of its slot parts (ids with the car id as prefix) to `out` and returns the car root.
-    /// None while the car or one of its parts is not ready. Mirror glass is left out.
+    /// Returns None while the car or one of its parts is not ready. Mirror glass is left out.
     pub(crate) fn start_car(
         &self,
         prototypes: &crate::reference::WorldPrototypes,
@@ -451,7 +451,7 @@ impl SourceInstances {
             .filter(move |r| r.mirror && r.node == node as usize && r.visible())
             .filter_map(Renderer::entity)
     }
-    /// `mirror.Turn`: the renderers of prototype node `node` in instance `index` show `material`
+    /// `mirror.Turn`. The renderers of prototype node `node` in instance `index` show `material`
     /// with `image`, or with None the glass.
     pub(crate) fn show_mirror(
         &mut self,
@@ -1049,7 +1049,7 @@ impl SourceInstances {
                                         renderers.push(Renderer {
                                             material_source,
                                             rebind,
-                                            // The row color already holds it; the first view rewrites the same value.
+                                            // The row color already holds it. The first view rewrites the same value.
                                             color: None,
                                             variants: Vec::new(),
                                             node: source_index,
@@ -1621,7 +1621,8 @@ impl SourceInstances {
                     materials.emission(&mut renderer.binding, view.lamp, None)?;
                 }
             }
-            // displayscript.Upd: on shows defMaterial with the computer output as _EmissionMap.
+            // displayscript.Upd. When on, it shows defMaterial with the computer output as
+            // _EmissionMap.
             if view.flags & StructureRow::DISPLAY != 0 {
                 let color = if view.flags & StructureRow::DISPLAY_ON != 0 {
                     reference.computer.display.emission
@@ -1691,7 +1692,7 @@ impl SourceInstances {
                     self.lods.queue(&mut instance.lod, instance_index);
                 }
             }
-            // partconditionscript renderers: a changed state binds its material on change.
+            // partconditionscript renderers. A changed state binds its material on change.
             let mut material_pending = false;
             for renderer in &mut instance.renderers {
                 let Some(rebind) = renderer.rebind.as_deref() else {
@@ -1970,7 +1971,7 @@ impl SourceInstances {
                 }
             }
         }
-        // Descending order: `swap_remove` on this list only moves a visited entry.
+        // Visit in descending order, so `swap_remove` on this list only moves a visited entry.
         self.retiring.sort_unstable();
         let mut at = self.retiring.len();
         while at > 0 {

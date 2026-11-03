@@ -72,7 +72,7 @@ pub struct GrassJobs {
     index: HashMap<Entity, usize>,
     /// Camera view of this frame. Every instance expands for it.
     view: GrassView,
-    /// Per parent: a job is pending, and the stale instance that may start next.
+    /// Per parent, whether a job is pending, and the stale instance that may start next.
     groups: HashMap<Entity, (bool, Option<(u64, usize)>)>,
     worker: GrassWorker,
     actor_cpu: usize,

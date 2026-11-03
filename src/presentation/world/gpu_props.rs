@@ -41,7 +41,7 @@ pub struct PropRow {
     pub layer: u8,
     /// Source shadow casting mode. 3 is shadows only.
     pub cast_shadows: u8,
-    /// Source `makeinvisible`: the camera does not draw the row. Its shadow stays.
+    /// Source `makeinvisible`. The camera does not draw the row. Its shadow stays.
     pub camera_hidden: bool,
     /// Root, node and LOD visibility together, as an entity inherits them.
     pub hidden: bool,

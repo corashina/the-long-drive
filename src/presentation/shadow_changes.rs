@@ -1,5 +1,5 @@
 //! Main-world caster mutation inputs. ViewVisibility is refreshed separately every frame.
-//! Asset edits come from asset events, not from `Assets` change ticks: any `&mut Assets`
+//! Asset edits come from asset events, not from `Assets` change ticks. Any `&mut Assets`
 //! access marks the whole resource changed, and world preparation takes one every frame.
 use super::{
     materials::{

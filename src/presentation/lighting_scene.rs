@@ -31,7 +31,7 @@ pub struct ProbeActivation {
     pub distance_squared: [f32; PROBE_COUNT],
     slots: [Option<ProbeSource>; PROBE_COUNT],
     position: [Vec3; PROBE_COUNT],
-    /// Distance check candidates, nearest first. Kept to reuse the allocation.
+    /// Distance check candidates, nearest first. The list stays to reuse its allocation.
     candidates: Vec<(f32, ProbeSource)>,
     keys: Vec<ProbeSource>,
     scene: u32,
@@ -57,7 +57,7 @@ impl Default for ProbeActivation {
     }
 }
 impl ProbeActivation {
-    /// ReflectionDisableDistance: the nearest active probes within 50 m take the slots.
+    /// Source ReflectionDisableDistance. The nearest active probes within 50 m take the slots.
     /// Cars, trailers and buildings register them through `reflectionsscript`.
     fn check(
         &mut self,

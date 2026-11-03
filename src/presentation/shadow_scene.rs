@@ -57,7 +57,7 @@ pub struct ShadowScene {
     rows: Option<(u64, u64)>,
     /// Caster state of each GPU prop batch material.
     batch_casters: Vec<bool>,
-    /// Row slots with changed shadow inputs. Retained storage.
+    /// Row slots with changed shadow inputs. It keeps its storage across frames.
     row_changes: Vec<u32>,
     casters_ready: bool,
     views: [ShadowViewCache; VIEW_COUNT],
@@ -78,11 +78,11 @@ pub struct ShadowScene {
     pub contents: [[u64; 4]; VIEW_COUNT],
     /// Cascade bits of each view with an animated caster.
     pub animated_tiles: [u8; VIEW_COUNT],
-    /// Caster rows read again this frame. Retained storage.
+    /// Caster rows read again this frame. It keeps its storage across frames.
     touched: Vec<u32>,
-    /// Caster rows that change each frame, in row order. Retained storage.
+    /// Caster rows that change each frame, in row order. It keeps its storage across frames.
     pub animated: Vec<u32>,
-    /// Entity rows with a nonzero mask in any view. Retained storage.
+    /// Entity rows with a nonzero mask in any view. It keeps its storage across frames.
     visible: Vec<u32>,
 }
 /// About one texel of a 2048 tile, in radians. A smaller sun turn keeps the cascade tiles.
@@ -115,8 +115,8 @@ impl ShadowScene {
         }
     }
 }
-/// Runs after both camera culling systems and before visibility removal/extraction.
-/// Only ViewVisibility changes; camera VisibleEntities retain their camera-only membership.
+/// Runs after both camera culling systems and before visibility removal and extraction.
+/// Only ViewVisibility changes. Camera VisibleEntities keep their camera-only membership.
 pub(super) fn prepare_scene(
     frame: Res<SourceViewFrame>,
     live: Res<SourceSceneLighting>,
@@ -490,7 +490,7 @@ fn update_caster(
     Ok(true)
 }
 /// Rows enter the caster list after the entities, in slot order.
-/// `all` reads every row. Else only changed rows, or every row when a batch material changes its caster state.
+/// `all` reads every row. Else it reads only changed rows, or every row when a batch material changes its caster state.
 /// Row materials are shared and keep their content. Row data holds color and LOD fade.
 fn update_rows(
     scene: &mut ShadowScene,
@@ -564,7 +564,7 @@ fn set_pose(poses: &mut Vec<u64>, row: u32, pose: u64) {
     }
     poses[row] = pose;
 }
-/// Copy bounded arrays into retained render-world storage. No manifest, material, or handle clones.
+/// Copy bounded arrays into retained render-world storage. It clones no manifest, material or handle.
 pub fn extract_scene(
     input: bevy::render::Extract<Res<ShadowScene>>,
     mut output: ResMut<ShadowScene>,

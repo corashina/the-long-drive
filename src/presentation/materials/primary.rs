@@ -599,7 +599,7 @@ impl SourceMaterials {
             } else {
                 std::slice::from_ref(material)
             },
-            // A charge, not a request: the stream checks the shared total.
+            // This is a charge, not a request. The stream checks the shared total.
             PROTOTYPE_CPU.saturating_sub(ledger.allocation().prototype_cpu) + cpu,
             PROTOTYPE_GPU.saturating_sub(ledger.allocation().prototype_gpu) + gpu,
         )?;

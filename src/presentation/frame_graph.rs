@@ -956,7 +956,7 @@ fn finish_surface(
             .to_cols_array(),
     };
     if mirror_view(source.index) {
-        // The slot image is the source `rt`: R8G8B8A8_UNorm clamps the HDR color.
+        // The slot image is the source `rt`. Its R8G8B8A8_UNorm format clamps the HDR color.
         let (Some(mirrors), Some(image)) = (
             mirrors,
             mirror_frame
@@ -1166,7 +1166,7 @@ struct ViewAudit {
     shadow_attempts: [u32; super::lamp_shadows::TILES],
     shadow_issued: [u32; super::lamp_shadows::TILES],
     shadow_instances: [[u32; super::lamp_shadows::TILES]; 2],
-    /// GPU prop rows, camera-visible rows and issued indirect draws.
+    /// Counts of GPU prop rows, camera-visible rows and issued indirect draws.
     props: [u32; 3],
     collector_frame: u32,
     atlas_size: u32,

@@ -1,4 +1,4 @@
-//! Authored glTF accessor loading. Bevy's loader changes absent normal/tangent streams.
+//! Authored glTF accessor loading. Bevy's loader changes absent normal and tangent streams.
 use bevy::tasks::futures_lite::AsyncReadExt;
 use bevy::{
     asset as bevy_asset,

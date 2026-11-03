@@ -1,4 +1,4 @@
-//! Dedicated source layer18 draw pass, before the camera passes.
+//! The dedicated source layer18 draw pass. It runs before the camera passes.
 use super::displacement::{GrassCamera, GrassFrameUniform, GrassGpu, GrassGpuData};
 use bevy::{
     core_pipeline::schedule::RootNonCameraView,

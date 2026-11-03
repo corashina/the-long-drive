@@ -59,7 +59,7 @@ impl Default for LightingUniform {
         }
     }
 }
-/// Pose holder for one source light. Shadowed lamps get a slot in `lamp_shadows`.
+/// Holds the pose of one source light. Shadowed lamps get a slot in `lamp_shadows`.
 #[derive(Component, Clone, Copy)]
 pub struct SourceLight;
 #[derive(Clone)]
@@ -668,7 +668,7 @@ fn spot_cotangent_bits(full_cone_degrees: f32) -> u32 {
     let half = (a + a) * std::f32::consts::PI;
     (half.cos() / half.sin()).to_bits()
 }
-/// Binds a game-driven light in the next fixed slot. It starts off. False when no slot is free.
+/// Binds a game-driven light in the next fixed slot. It starts off. Returns false when no slot is free.
 fn reserve_light(
     source: &mut SourceLighting,
     commands: &mut Commands,

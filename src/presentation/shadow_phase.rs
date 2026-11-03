@@ -232,7 +232,7 @@ type DrawSourceShadow = (
     MarkDraw<true>,
 );
 
-/// Register once during renderer setup; draw-table entries remain unchanged during frames.
+/// Register once during renderer setup. Draw-table entries remain unchanged during frames.
 pub fn register(app: &mut SubApp) {
     app.init_resource::<DrawFunctions<SourceShadow>>()
         .add_render_command::<SourceShadow, DrawSourceShadow>();

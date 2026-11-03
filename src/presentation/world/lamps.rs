@@ -546,7 +546,7 @@ pub(crate) fn source_lamp_admission(
             })
             .count();
     let objects = proxies * 2;
-    // ECS and GPU transform reservations include old/new overlap until the next frame.
+    // ECS and GPU transform reservations include the old and new overlap until the next frame.
     Ok((
         objects * 2048 + proxies * 1024 + std::mem::size_of_val(&source.road_lamps.allocation),
         objects * 256,

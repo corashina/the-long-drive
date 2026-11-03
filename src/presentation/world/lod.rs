@@ -204,7 +204,7 @@ impl LodGroup {
             (threshold - size / (level.height + (previous - level.height) * level.width)).max(0.0)
         }
     }
-    /// Camera travel that cannot change `select_at`. Zero during a fade transition.
+    /// Camera travel that cannot change `select_at`. It is zero during a fade transition.
     /// The margin covers f32 rounding of the distance and the boundaries.
     pub fn safe_distance(
         &self,
@@ -308,7 +308,7 @@ struct GroupState {
     center: Vec3,
     size: f32,
     selection: Option<LodSelection>,
-    // Travel at which the group evaluates again. NaN when no entry is queued.
+    // Travel at which the group evaluates again. It is NaN when no entry is queued.
     deadline: f64,
 }
 /// Per instance LOD state. Renderers read the group results.
@@ -394,14 +394,14 @@ impl Ord for Due {
 /// Results equal `LodGroup::select` for every group on every update.
 #[derive(Default)]
 pub struct LodSchedule {
-    // Camera path length. Bounds the camera distance from each evaluation point.
+    // Camera path length. It bounds the camera distance from each evaluation point.
     travel: f64,
     camera: Option<Vec3>,
     key: Option<ViewKey>,
     view: Option<(LodView, f32, usize)>,
     due: std::collections::BinaryHeap<Due>,
     stamps: u64,
-    // Groups plus one per scheduled instance. Limits stale queue entries.
+    // Groups plus one per scheduled instance. It limits stale queue entries.
     live: usize,
     evaluated: usize,
 }
@@ -466,7 +466,7 @@ impl LodSchedule {
         });
         self.camera = Some(view.position);
         if self.key != Some(key) || !step.is_finite() {
-            // The camera factor or frame changed: evaluate every group.
+            // The camera factor or frame changed, so evaluate every group.
             self.key = Some(key);
             self.due.clear();
             for (slot, owner) in owners.iter_mut().enumerate() {
