@@ -329,7 +329,9 @@ impl WorldStream {
         d.on = !d.on;
         d.dirty = true;
         let s = &reference.computer.display.switch;
-        if let (Some(clip), Some(item)) = (reference.clip_id(&s.clip), items.get(d.item)) {
+        if let (Some(clip), Some(item)) =
+            (reference.audio.gameplay.clip_id(&s.clip), items.get(d.item))
+        {
             let position = self.origin.absolute(item.pose.position);
             self.computers.sounds.push((clip, s.volume, position));
         }

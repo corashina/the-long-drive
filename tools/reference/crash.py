@@ -1,6 +1,6 @@
 """Checked crash rule: mainscript crash speeds, fall-off counts and the fall-off power table."""
 from .source import key, source_id
-from .survival import managed_evidence, finite_record
+from .survival import managed_evidence
 
 MAIN=('level1',64919)
 # mainscript.defFallOffChance members in order.
@@ -37,22 +37,3 @@ def recover_crash(source, manifest, output) -> dict:
     print(f"Exported crash rule: fall-off {record['fall_off']}, counts {record['count']}",flush=True)
     return record
 
-
-def validate_crash(record, manifest) -> None:
-    from .acquisition import _shape,_source,_integer,_number,_list
-    _shape(record,'source blood horn fall_off fall_off_max horn_chance count fall_off_power')
-    finite_record(record)
-    _source(record['source'])
-    for f in RANGES:
-        low,high=_list(record[f])
-        _number(low);_number(high)
-        if low>high:raise ValueError(f'Crash {f} range is reversed')
-    _number(record['fall_off_max']);_number(record['horn_chance'])
-    for pair in _list(record['count']):
-        low,high=_list(pair)
-        _integer(low);_integer(high)
-        if low>high:raise ValueError('Crash fall-off count range is reversed')
-    if len(record['count'])!=2:raise ValueError('Crash fall-off count ranges differ')
-    power=_list(record['fall_off_power'])
-    if len(power)!=len(FALL_OFF_POWER):raise ValueError('Crash fall-off power table length differs')
-    for p in power:_number(p)

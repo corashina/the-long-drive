@@ -237,6 +237,9 @@ impl LodOwner for Instance {
 pub struct SourceInstances {
     instances: Vec<Instance>,
     pending: Option<Placement>,
+    /// Where the pending owner waits, and since which frame. Startup audit only.
+    owner_stage: (&'static str, u64),
+    prepare_calls: u64,
     bindings_dirty: bool,
     origin: Option<[f64; 3]>,
     /// Instances of each structure slot.
@@ -247,6 +250,8 @@ pub struct SourceInstances {
     props: GpuProps,
     /// Changes when an instance is added or removed.
     revision: u64,
+    /// Changes when an instance becomes ready or visible.
+    shown_revision: u64,
     /// `RendererWorld::structure_membership` of the last full retirement pass.
     retire_key: Option<(u64, u64, u64)>,
     /// Indices of instances whose retirement started.
@@ -312,6 +317,8 @@ impl SourceInstances {
     pub(crate) fn startup_audit(&self, grass: &GrassJobs) -> serde_json::Value {
         serde_json::json!({
             "pending_owner": self.pending.as_ref().map(|p| &p.prototype),
+            "owner_stage": self.owner_stage.0,
+            "owner_frames": self.prepare_calls - self.owner_stage.1,
             "unready": self.instances.iter().filter(|i| !i.ready).count(),
             "grass_waits": self.instances.iter().filter(|i| !i.ready).flat_map(|i| &i.renderers)
                 .filter(|r| r.entity().is_some_and(|e| r.settings.is_some() && !grass.ready(e))).count(),
@@ -339,9 +346,12 @@ impl SourceInstances {
     }
     /// Ready visible instances with `mirrorscript` renderers: instance index, root entity,
     /// prototype index and node entities by glTF node.
-    pub(crate) fn mirror_cars(
-        &self,
-    ) -> impl Iterator<Item = (usize, Entity, usize, &[Option<Entity>])> {
+    /// Only prototypes with vehicle mirrors have mirror renderers: other instances skip the
+    /// renderer walk.
+    pub(crate) fn mirror_cars<'a>(
+        &'a self,
+        prototypes: &'a crate::reference::WorldPrototypes,
+    ) -> impl Iterator<Item = (usize, Entity, usize, &'a [Option<Entity>])> {
         self.instances
             .iter()
             .enumerate()
@@ -349,6 +359,10 @@ impl SourceInstances {
                 i.ready
                     && i.visible
                     && !i.retirement.started()
+                    && prototypes[i.prototype]
+                        .vehicle
+                        .as_ref()
+                        .is_some_and(|v| !v.mirrors.is_empty())
                     && i.renderers.iter().any(|r| r.mirror)
             })
             .map(|(index, i)| (index, i.root, i.prototype, i.nodes.as_slice()))
@@ -409,6 +423,10 @@ impl SourceInstances {
     /// Changes when an instance is added or removed.
     pub(crate) fn revision(&self) -> u64 {
         self.revision
+    }
+    /// Changes when an instance becomes ready or visible.
+    pub(crate) fn shown_revision(&self) -> u64 {
+        self.shown_revision
     }
     /// Prototype index of each instance.
     pub(crate) fn prototypes(&self) -> impl Iterator<Item = usize> + '_ {
@@ -568,6 +586,12 @@ impl SourceInstances {
                 })
                 .cloned();
         }
+        self.prepare_calls += 1;
+        let mut stage = if self.pending.is_some() {
+            "claim"
+        } else {
+            "none"
+        };
         // Full pending ownership must drain through publication before another instance starts.
         // Continue polling existing renderer work below, including its readiness transfer.
         if let Some(placement) = self.pending.as_ref().filter(|placement| {
@@ -588,6 +612,7 @@ impl SourceInstances {
                 .index(&placement.prototype)
                 .ok_or_else(|| ReferenceError("Missing generated structure prototype".into()))?;
             let prototype = &reference.world.prototypes[prototype_index];
+            stage = "plan";
             let admitted = prototypes
                 .plan(stream.frame().request.session, &placement.prototype)
                 .is_some()
@@ -601,14 +626,24 @@ impl SourceInstances {
                         .plan(stream.frame().request.session, &placement.prototype)
                         .unwrap(),
                 )?;
+            if prototypes
+                .plan(stream.frame().request.session, &placement.prototype)
+                .is_some()
+            {
+                stage = "materials";
+            }
             if admitted {
-                prototypes.admit_payload(
+                stage = if prototypes.admit_payload(
                     stream,
                     ledger,
                     reference,
                     server,
                     &placement.prototype,
-                )?;
+                )? {
+                    "payload"
+                } else {
+                    "payload_credit"
+                };
                 let lods = prototypes.lods(
                     stream.frame().request.session,
                     &placement.prototype,
@@ -652,6 +687,7 @@ impl SourceInstances {
                     node_plan,
                 ) {
                     if let Some(asset) = assets.get(&loaded.asset) {
+                        stage = "construct";
                         let count = loaded.plan.nodes.len();
                         let primitives = loaded
                             .plan
@@ -1294,6 +1330,9 @@ impl SourceInstances {
                 }
             }
         }
+        if self.owner_stage.0 != stage {
+            self.owner_stage = (stage, self.prepare_calls);
+        }
         // Visit not ready instances in instance order.
         self.not_ready.sort_unstable();
         let mut at = 0;
@@ -1358,6 +1397,7 @@ impl SourceInstances {
                 ));
                 ledger.hand_over_claim(claim)?;
                 instance.ready = true;
+                self.shown_revision = self.shown_revision.wrapping_add(1);
                 instance.continuation = None;
                 instance.upload = None;
                 at -= 1;
@@ -1432,6 +1472,7 @@ impl SourceInstances {
                 commands.entity(instance.root).insert(Visibility::Inherited);
                 instance.visible = true;
                 instance.show_rows(&mut self.props);
+                self.shown_revision = self.shown_revision.wrapping_add(1);
             }
             let Some(view) = view else {
                 continue;

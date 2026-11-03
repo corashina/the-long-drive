@@ -1,6 +1,7 @@
 //! Spirit level bubbles (bubbleLevelScript) on generated items.
 use super::WorldStream;
 use super::content_index::ContentSlot;
+use super::content_kinds::{BindContext, Bound, ContentKind, ContentKinds, KindBindings};
 use crate::interaction::items::{ItemLocation, ItemStore};
 use crate::interaction::level::{Vial, pose, step};
 use crate::reference::{ItemId, ReferenceError, SpiritLevelReference, Transform};
@@ -30,62 +31,12 @@ pub struct LevelBinding {
 }
 
 impl LevelBinding {
-    pub fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.bubbles.capacity() * std::mem::size_of::<LevelBubble>()
-    }
     pub fn bubbles(&self) -> impl Iterator<Item = &LevelBubble> {
         self.bubbles.iter()
     }
 }
 
 impl WorldStream {
-    pub(super) fn sync_level_bindings(
-        &mut self,
-        level: &SpiritLevelReference,
-        items: &ItemStore,
-    ) -> Result<(), ReferenceError> {
-        let revision = (self.request.session, self.contents.active_revision());
-        if self.level_scan == Some(revision) {
-            return Ok(());
-        }
-        let mut complete = true;
-        let mut i = 0;
-        while i < self.level_bindings.len() {
-            let b = &mut self.level_bindings[i];
-            if let Some(slot) = self
-                .contents
-                .active()
-                .iter()
-                .position(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
-            {
-                b.slot = slot;
-                i += 1;
-            } else {
-                self.level_bindings.swap_remove(i);
-            }
-        }
-        for slot in 0..self.contents.active().len() {
-            let content = &self.contents.active()[slot];
-            let Some(item) = content.item else {
-                continue;
-            };
-            if content.content.placement.prototype != level.prototype
-                || self.level_bindings.iter().any(|b| b.item == item)
-            {
-                continue;
-            }
-            if !content.restored || items.get(item).and_then(|i| i.body).is_none() {
-                complete = false;
-                continue;
-            }
-            let binding = self.bind_level(level, slot, item)?;
-            self.level_bindings.push(binding);
-        }
-        self.level_scan = complete.then_some(revision);
-        Ok(())
-    }
-
     fn bind_level(
         &self,
         level: &SpiritLevelReference,
@@ -147,7 +98,7 @@ impl WorldStream {
         if !dt.is_finite() || dt < 0. {
             return;
         }
-        for b in &mut self.level_bindings {
+        for b in &mut self.kinds.levels.list {
             let Some(item) = items.get(b.item) else {
                 continue;
             };
@@ -194,6 +145,49 @@ impl WorldStream {
     }
 
     pub fn level(&self, parent: &GeneratedId) -> Option<&LevelBinding> {
-        self.level_bindings.iter().find(|b| &b.parent == parent)
+        self.kinds.levels.list.iter().find(|b| &b.parent == parent)
+    }
+}
+
+impl Bound for LevelBinding {
+    fn parent(&self) -> &GeneratedId {
+        &self.parent
+    }
+    fn item(&self) -> Option<ItemId> {
+        Some(self.item)
+    }
+    fn set_slot(&mut self, slot: usize) {
+        self.slot = slot;
+    }
+    fn heap_bytes(&self) -> usize {
+        crate::world::contents::identity_heap(&self.parent)
+            + self.bubbles.capacity() * std::mem::size_of::<LevelBubble>()
+    }
+}
+
+pub(super) struct LevelKind;
+impl ContentKind for LevelKind {
+    type Binding = LevelBinding;
+    type Script = ();
+    fn kind(kinds: &mut ContentKinds) -> &mut KindBindings<LevelBinding> {
+        &mut kinds.levels
+    }
+    fn script(
+        stream: &mut WorldStream,
+        cx: &BindContext,
+        slot: usize,
+    ) -> Result<Option<()>, ReferenceError> {
+        let prototype = &stream.contents.active()[slot].content.placement.prototype;
+        Ok((*prototype == cx.reference.small_items.spirit_level.prototype).then_some(()))
+    }
+    fn bind(
+        stream: &mut WorldStream,
+        cx: &mut BindContext,
+        slot: usize,
+        item: Option<ItemId>,
+        _: (),
+    ) -> Result<Option<LevelBinding>, ReferenceError> {
+        let level = &cx.reference.small_items.spirit_level;
+        stream.bind_level(level, slot, item.unwrap()).map(Some)
     }
 }

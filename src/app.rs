@@ -174,7 +174,7 @@ pub fn prepare(reference_json: &[u8]) -> Result<(), JsValue> {
         ReferenceManifest::from_runtime_json(reference_json)
             .map_err(|e| JsValue::from_str(&e.to_string()))?,
     );
-    if let Err(error) = crate::reference::AudioReference::from_value(&reference.audio, &reference) {
+    if let Err(error) = reference.audio.playback() {
         game_audio_error(&error.to_string());
     }
     // Reject unsupported reference data before the app starts. Systems need these resources.

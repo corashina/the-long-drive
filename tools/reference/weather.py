@@ -1,9 +1,8 @@
 """Recover the selected storm record from checked records."""
 from .source import source_id,key,vector
-from .survival import component,managed_evidence,snake,finite_record
-from .lighting import gradient,rgba,validate_gradient
-from .particles import particle,validate_particle
-from .validation import record,array,number,integer,string,optional,source as source_shape,u32
+from .survival import component,managed_evidence,snake
+from .lighting import gradient,rgba
+from .particles import particle
 from .world_biome_materials import scene_component
 
 MAIN=('level1',64919)
@@ -15,7 +14,6 @@ STORM_COLORS=['nightColor','skyColor','skyGroundColor','fogColor','CloudColor']
 STORM_EVIDENCE=['size = UnityEngine.Random.Range(0.5f, 1.5f);','speed = UnityEngine.Random.Range(3f, 12f);',
     'yield return new WaitForSeconds(1f);','nextWindTime = Time.time + UnityEngine.Random.Range(0.1f, 1.5f);',
     'mainscript.M.interiorCols[j].transform.root != windRbs[i].transform.root']
-ROLES=('storm_big','storm_small')
 TUMBLEWEED_ITEM=(312,'gthumbleweed')
 # thumbleweedMain fields: record name -> source fields. Ranges are [min, max].
 TUMBLEWEED_SCALARS={'ray_count':'rayCount','ray_length':'rayLength','ray_count_to_stay':'rayCountToStay','limit':'thumbleweedLimit','fov':'fov'}
@@ -74,19 +72,6 @@ def recover_tumbleweeds(source):
     print(f"Tumbleweed spawner {key(main)}; important objects {[(key(t),n) for t,n in zip(important,names)]}; gib {gib[1] if gib else None}",flush=True)
     return result
 
-def validate_tumbleweeds(t, manifest):
-    pair=array(number,2)
-    record(t,{'source':source_shape,'item_id':u32,'prefab':source_shape,'script':source_shape,'body':source_shape,'gib':optional(source_shape),
-        'important_objects':array(source_shape),'ray_count':u32,'ray_length':number,'ray_count_to_stay':u32,'limit':u32,'fov':number,
-        **dict.fromkeys([*TUMBLEWEED_RANGES,*TUMBLEWEED_DISTANCES],pair),**dict.fromkeys(TUMBLEWEED_MASKS,u32),
-        'long_spawn_chance':number,'spawn_height':number,'ray_height':number,'ring_degrees':number,
-        'evidence':lambda e:record(e,{'assembly_sha256':string,'methods':array(string)})})
-    if not t['important_objects']:raise ValueError('Tumbleweed important object list is empty')
-    if any(r[0]>r[1] for r in (t[k] for k in [*TUMBLEWEED_RANGES,*TUMBLEWEED_DISTANCES])):raise ValueError('Reversed tumbleweed range')
-    if t['limit']<=0 or t['ray_count']<=0 or not 0<t['ray_count_to_stay']<=t['ray_count'] or not 0<=t['fov']<=180:raise ValueError('Invalid tumbleweed spawner')
-    items=manifest['world']['catalog']['items']
-    if t['item_id']>=len(items) or items[t['item_id']]['field']!=TUMBLEWEED_ITEM[1] or items[t['item_id']]['source']!=t['prefab']:raise ValueError('Tumbleweed item differs')
-
 def recover_weather(source, output):
     main=owner(source,source.get(*MAIN),'mainscript')
     scheduler=source.resolve(main,source.read(main)['sandStormSpawn'])
@@ -110,16 +95,3 @@ def recover_weather(source, output):
         'tumbleweeds':recover_tumbleweeds(source)}
     source.lighting['textures']=list(source.lighting_textures.values())
     return result
-
-def validate_weather_export(weather, manifest):
-    pair=array(number,2);textures={t['id'] for t in manifest['lighting']['textures']}
-    record(weather,{'source':source_shape,'prefab_id':u32,'min_interval_seconds':number,'max_interval_seconds':number,'spawn_radius':number,
-        'storm':lambda s:record(s,{'source':source_shape,'biome':integer(0,255),**dict.fromkeys(map(snake,STORM_FIELDS),number),
-            **dict.fromkeys(map(snake,STORM_COLORS),array(number,4)),'day_color1':validate_gradient,'day_color2':validate_gradient,
-            'wind_lm':u32,'current_force':array(number,3),'next_force':array(number,3),'distance_lerp':number,
-            'size_range':pair,'speed_range':pair,'wind_time_range':pair,'wind_scan_seconds':number,'wind_bounds_range':pair}),
-        'evidence':lambda e:record(e,{'assembly_sha256':string,'methods':array(string)}),
-        'particles':array(lambda p:validate_particle(p,textures),len(ROLES)),'tumbleweeds':lambda t:validate_tumbleweeds(t,manifest)})
-    finite_record(weather)
-    if not 0<weather['min_interval_seconds']<=weather['max_interval_seconds'] or weather['spawn_radius']<=0:raise ValueError('Invalid storm schedule')
-    if tuple(p['role'] for p in weather['particles'])!=ROLES:raise ValueError('Missing storm particles')

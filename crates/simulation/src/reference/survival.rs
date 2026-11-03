@@ -416,7 +416,9 @@ impl SurvivalReference {
             "toilet rules",
         )?;
         let h = &self.hum;
-        let tunes = AudioGameplayReference::from_value(&m.audio)?
+        let tunes = m
+            .audio
+            .gameplay
             .binding(crate::audio::AudioKind::Hum as u32)
             .clips
             .len();

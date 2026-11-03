@@ -49,31 +49,5 @@ def recover_inventory(source, manifest):
         'inputs': inputs,
         'evidence': evidence,
     }
-    validate_inventory(result, manifest)
     return result
 
-
-def validate_inventory(record, manifest):
-    expected = {
-        'source': {'file': 'level1', 'path_id': 80125},
-        'slot_count': 4,
-        'initial_slots': [None] * 4,
-        'selected_slot': 0,
-        'swap_gain': 5.,
-        'starter_groups': [False] * 3,
-        'equip_hold_seconds': .25,
-        'hand_interpolation_factor': 20.,
-        'hand_interpolation_seconds': 1.,
-        'right_hand_anchor': {'file': 'level1', 'path_id': 23118},
-    }
-    if not isinstance(record, dict) or any(record.get(field) != value for field, value in expected.items()):
-        raise ValueError('Checked inventory startup contract differs')
-    inputs = [{'action': action, 'index': index, 'key': key} for action, index, key in INPUTS]
-    if record.get('inputs') != inputs:
-        raise ValueError('Checked inventory input contract differs')
-    evidence = record.get('evidence')
-    if evidence != {
-        'assembly_sha256': '9919a9eeddcce23bb4ff86e890437f32b4a3ef3c10af2efe3b8d889d894dd62e',
-        'methods': EVIDENCE,
-    }:
-        raise ValueError('Checked inventory managed evidence differs')

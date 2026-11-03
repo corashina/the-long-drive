@@ -1,10 +1,13 @@
 //! Source `utanfutoscript` trailers and `attachTargetscript` hitch targets on spawned world
 //! items: hitch registration, trailer wheels, brakes and rear lamps.
 use super::WorldStream;
+use super::content_kinds::{
+    BindContext, Bound, ContentKind, ContentKinds, KindBindings, Ready, ready_unless_removed,
+};
 use crate::interaction::InteractionState;
 use crate::interaction::hitch::TrailerHitch;
 use crate::interaction::items::ItemStore;
-use crate::reference::{ItemId, ReferenceError, SourceId, Transform};
+use crate::reference::{ItemId, ReferenceError, SourceId, Transform, WorldPrototypeReference};
 use crate::simulation::FIXED_DT;
 use crate::simulation::car_lights::{CarLightInput, CarLightLinks, CarLights};
 use crate::vehicle::{
@@ -45,14 +48,6 @@ struct WheelGraphic {
     root: Vector,
 }
 impl TrailerBinding {
-    pub fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.brake.as_ref().map_or(0, |s| s.file.capacity())
-            + self.wheels.heap_bytes()
-            + self.torques.capacity() * std::mem::size_of::<WheelTorques>()
-            + self.steer.capacity() * std::mem::size_of::<f32>()
-            + self.graphics.capacity() * std::mem::size_of::<WheelGraphic>()
-    }
     /// The `T` position of each wheel in the unscaled root frame.
     pub fn graphic_positions(&self) -> impl Iterator<Item = Vector> + '_ {
         self.graphics.iter().map(|g| g.root)
@@ -97,72 +92,6 @@ fn graphic_pose(g: &WheelGraphic, wheel: &crate::vehicle::WheelState) -> (Transf
 }
 
 impl WorldStream {
-    pub(super) fn sync_trailer_bindings(
-        &mut self,
-        items: &mut ItemStore,
-        interaction: &mut InteractionState,
-        physics: &mut PhysicsWorld,
-    ) -> Result<(), ReferenceError> {
-        let revision = (self.request.session, self.contents.active_revision());
-        if self.trailer_scan == Some(revision) {
-            return Ok(());
-        }
-        let mut complete = true;
-        let active = &self.contents.active();
-        self.trailer_bindings.retain(|b| {
-            active
-                .iter()
-                .any(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
-        });
-        self.hitch_owners.retain(|(parent, item)| {
-            active
-                .iter()
-                .any(|c| c.content.placement.id == *parent && c.item == Some(*item))
-        });
-        for slot in 0..self.contents.active().len() {
-            let content = &self.contents.active()[slot];
-            let Some(item) = content.item else {
-                continue;
-            };
-            let prototype = &content.content.placement.prototype;
-            let Some(index) = self
-                .trailer_prototypes
-                .iter()
-                .copied()
-                .find(|&p| &self.reference.prototypes[p].source == prototype)
-            else {
-                continue;
-            };
-            let registered = self.hitch_owners.iter().any(|(_, i)| *i == item);
-            let bound = self.trailer_bindings.iter().any(|b| b.item == item);
-            let record = &self.reference.prototypes[index];
-            if (record.hitches.is_empty() || registered) && (record.trailer.is_none() || bound) {
-                continue;
-            }
-            if !content.restored {
-                complete = false;
-                continue;
-            }
-            // A removed item has no body and no hitch to bind.
-            if items.get(item).and_then(|i| i.body).is_none() {
-                continue;
-            }
-            if !record.hitches.is_empty() && !registered {
-                self.bind_hitches(items, interaction, physics, slot, index)?;
-                let parent = self.contents.active()[slot].content.placement.id.clone();
-                self.hitch_owners.push((parent, item));
-            }
-            if record.trailer.is_some() && !bound {
-                match self.bind_trailer(items, interaction, physics, slot, index)? {
-                    Some(binding) => self.trailer_bindings.push(binding),
-                    None => complete = false,
-                }
-            }
-        }
-        self.trailer_scan = complete.then_some(revision);
-        Ok(())
-    }
-
     /// The instance body of collider record `collider` and its pose in the prototype root frame.
     fn record_body(
         &self,
@@ -379,7 +308,7 @@ impl WorldStream {
     /// utanfutoscript.Update: brake torque while the brake switch is on, then the wheels.
     /// Run before the physics step.
     pub fn step_trailers(&mut self, physics: &mut PhysicsWorld) {
-        for b in &mut self.trailer_bindings {
+        for b in &mut self.kinds.trailers.list {
             if physics.rapier().bodies.get(b.wheels.body()).is_none() {
                 continue;
             }
@@ -415,7 +344,7 @@ impl WorldStream {
         interaction: &InteractionState,
         input: impl Fn(ItemId) -> CarLightInput,
     ) {
-        let mut bindings = std::mem::take(&mut self.trailer_bindings);
+        let mut bindings = std::mem::take(&mut self.kinds.trailers.list);
         for b in &mut bindings {
             let input = interaction
                 .hitch
@@ -437,27 +366,146 @@ impl WorldStream {
             );
             self.set_car_lights(&b.parent, b.lights.lights());
         }
-        self.trailer_bindings = bindings;
+        self.kinds.trailers.list = bindings;
     }
 
     /// The lamp state of the trailer on body `body`.
     pub fn trailer_lights(&self, body: rapier3d::prelude::RigidBodyHandle) -> Option<&CarLights> {
-        self.trailer_bindings
+        self.kinds
+            .trailers
+            .list
             .iter()
             .find(|b| b.wheels.body() == body)
             .map(|b| &b.lights)
     }
 
     pub fn trailer(&self, parent: &GeneratedId) -> Option<&TrailerBinding> {
-        self.trailer_bindings.iter().find(|b| &b.parent == parent)
+        self.kinds
+            .trailers
+            .list
+            .iter()
+            .find(|b| &b.parent == parent)
     }
 
     /// Each trailer body and its lamp state.
     pub fn trailers(
         &self,
     ) -> impl Iterator<Item = (rapier3d::prelude::RigidBodyHandle, &CarLights)> {
-        self.trailer_bindings
+        self.kinds
+            .trailers
+            .list
             .iter()
             .map(|b| (b.wheels.body(), &b.lights))
+    }
+}
+
+impl Bound for TrailerBinding {
+    fn parent(&self) -> &GeneratedId {
+        &self.parent
+    }
+    fn item(&self) -> Option<ItemId> {
+        Some(self.item)
+    }
+    fn heap_bytes(&self) -> usize {
+        crate::world::contents::identity_heap(&self.parent)
+            + self.brake.as_ref().map_or(0, |s| s.file.capacity())
+            + self.wheels.heap_bytes()
+            + self.torques.capacity() * std::mem::size_of::<WheelTorques>()
+            + self.steer.capacity() * std::mem::size_of::<f32>()
+            + self.graphics.capacity() * std::mem::size_of::<WheelGraphic>()
+    }
+}
+
+/// A content whose hitch targets are registered.
+pub struct HitchOwner {
+    parent: GeneratedId,
+    item: ItemId,
+}
+impl Bound for HitchOwner {
+    fn parent(&self) -> &GeneratedId {
+        &self.parent
+    }
+    fn item(&self) -> Option<ItemId> {
+        Some(self.item)
+    }
+    fn heap_bytes(&self) -> usize {
+        crate::world::contents::identity_heap(&self.parent)
+    }
+}
+
+/// The world prototype index of the active content when it is in the trailer prototypes and
+/// `with` holds for it.
+fn trailer_prototype(
+    stream: &WorldStream,
+    slot: usize,
+    with: fn(&WorldPrototypeReference) -> bool,
+) -> Option<usize> {
+    let prototype = &stream.contents.active()[slot].content.placement.prototype;
+    let prototypes = &stream.reference.prototypes;
+    (stream.kinds.trailer_prototypes.iter())
+        .copied()
+        .find(|&p| &prototypes[p].source == prototype)
+        .filter(|&p| with(&prototypes[p]))
+}
+
+pub(super) struct HitchKind;
+impl ContentKind for HitchKind {
+    type Binding = HitchOwner;
+    /// The world prototype index.
+    type Script = usize;
+    fn kind(kinds: &mut ContentKinds) -> &mut KindBindings<HitchOwner> {
+        &mut kinds.hitches
+    }
+    fn script(
+        stream: &mut WorldStream,
+        _: &BindContext,
+        slot: usize,
+    ) -> Result<Option<usize>, ReferenceError> {
+        Ok(trailer_prototype(stream, slot, |p| !p.hitches.is_empty()))
+    }
+    fn ready(stream: &WorldStream, items: &ItemStore, slot: usize) -> Ready {
+        ready_unless_removed(stream, items, slot)
+    }
+    fn bind(
+        stream: &mut WorldStream,
+        cx: &mut BindContext,
+        slot: usize,
+        item: Option<ItemId>,
+        index: usize,
+    ) -> Result<Option<HitchOwner>, ReferenceError> {
+        stream.bind_hitches(cx.items, cx.interaction, cx.physics, slot, index)?;
+        Ok(Some(HitchOwner {
+            parent: stream.contents.active()[slot].content.placement.id.clone(),
+            item: item.unwrap(),
+        }))
+    }
+}
+
+pub(super) struct TrailerKind;
+impl ContentKind for TrailerKind {
+    type Binding = TrailerBinding;
+    /// The world prototype index.
+    type Script = usize;
+    fn kind(kinds: &mut ContentKinds) -> &mut KindBindings<TrailerBinding> {
+        &mut kinds.trailers
+    }
+    fn script(
+        stream: &mut WorldStream,
+        _: &BindContext,
+        slot: usize,
+    ) -> Result<Option<usize>, ReferenceError> {
+        Ok(trailer_prototype(stream, slot, |p| p.trailer.is_some()))
+    }
+    fn ready(stream: &WorldStream, items: &ItemStore, slot: usize) -> Ready {
+        ready_unless_removed(stream, items, slot)
+    }
+    fn bind(
+        stream: &mut WorldStream,
+        cx: &mut BindContext,
+        slot: usize,
+        _: Option<ItemId>,
+        index: usize,
+    ) -> Result<Option<TrailerBinding>, ReferenceError> {
+        stream.bind_trailer(cx.items, cx.interaction, cx.physics, slot, index)
     }
 }

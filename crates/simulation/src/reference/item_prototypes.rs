@@ -193,8 +193,10 @@ impl HoseReference {
                     && e.splash.role == format!("splash_hose_{}", index + 1),
                 "hose end particle roles",
             )?;
-            super::particles::validate_particle(&e.visual, 2)?;
-            super::particles::validate_particle(&e.splash, 2)?;
+            for particle in [&e.visual, &e.splash] {
+                super::particles::validate_particle(particle, 2)?;
+                super::particles::validate_textures(particle, m)?;
+            }
         }
         let skin = &self.skin;
         require(
@@ -323,12 +325,7 @@ fn optional_checked(source: &Option<SourceId>, path: i64) -> bool {
     source.as_ref().is_some_and(|s| checked(s, path))
 }
 pub(super) fn clip_exists(m: &ReferenceManifest, source: &SourceId) -> bool {
-    m.audio["clips"].as_array().is_some_and(|clips| {
-        clips.iter().any(|c| {
-            c["source"]["file"].as_str() == Some(source.file.as_str())
-                && c["source"]["path_id"].as_i64() == Some(source.path_id)
-        })
-    })
+    m.audio.gameplay.clip(source).is_some()
 }
 
 impl PickupReference {

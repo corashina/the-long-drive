@@ -135,12 +135,7 @@ impl MeleeReference {
             .chain(self.hit_clips.iter().flatten())
         {
             require(
-                m.audio["clips"].as_array().is_some_and(|clips| {
-                    clips.iter().any(|c| {
-                        c["source"]["file"].as_str() == Some(clip.file.as_str())
-                            && c["source"]["path_id"].as_i64() == Some(clip.path_id)
-                    })
-                }),
+                m.audio.gameplay.clip(clip).is_some(),
                 "melee audio resource",
             )?;
         }
