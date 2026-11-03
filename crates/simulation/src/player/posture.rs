@@ -87,11 +87,13 @@ impl PostureState {
         if wall.hold(input.held & keys::JUMP != 0) {
             self.grip(wall);
         }
-        if input.released & keys::CROUCH != 0 && self.last_ducked {
-            self.rising = true;
-        }
+        // Source reads key down and key up on separate frames. One step can hold both, so a tap
+        // reads the press first. Then a tap from a wheel crouch stands up.
         if input.pressed & keys::CROUCH != 0 {
             self.last_ducked = true;
+        }
+        if input.released & keys::CROUCH != 0 && self.last_ducked {
+            self.rising = true;
         }
         let mut duck = input.held & keys::CROUCH != 0 || self.space_duck;
         if input.held & keys::CROUCH != 0 {
@@ -176,5 +178,82 @@ pub(super) fn speed_multiplier(value: f32, ctrl: f32, low: f32, duck: f32) -> f3
         duck + (1.0 - duck) * ((value - ctrl) / (1.0 - ctrl))
     } else {
         low + (duck - low) * (value / ctrl)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reference::{PlayerClearanceReference, PlayerSphereReference, SourceId, Transform};
+
+    fn reference() -> PlayerPostureReference {
+        let sphere = PlayerSphereReference {
+            source: SourceId {
+                file: String::new(),
+                path_id: 0,
+            },
+            center: [0.0; 3],
+            radius: 0.1,
+            membership: 0,
+            filter: 0,
+        };
+        let head = Transform {
+            translation: [0.0; 3],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            scale: [1.0; 3],
+        };
+        PlayerPostureReference {
+            capsule_membership: 0,
+            capsule_filter: 0,
+            standing_head: head,
+            prone_head: head,
+            minimum_radius: 0.1,
+            maximum_radius: 0.3,
+            ctrl_value: 0.3,
+            scroll_step: 0.1,
+            rise_rate: 5.0,
+            feet: sphere.clone(),
+            clearance: std::array::from_fn(|i| PlayerClearanceReference {
+                posture: (i + 1) as f32 / 10.0,
+                sphere: sphere.clone(),
+            }),
+            sensor_hold_steps: 1,
+        }
+    }
+
+    #[test]
+    fn crouch_tap_in_one_step_stands_up_from_a_wheel_crouch() {
+        let reference = reference();
+        let mut posture = PostureState::new(1.0);
+        let mut wall = WallJumpState::default();
+        let forces = JumpForces {
+            duck: 0.0,
+            inverse_duck: 0.0,
+            wall: 0.0,
+            ledge: 0.0,
+        };
+        let mut step = |posture: &mut PostureState, input: FrameInput| {
+            posture.step(input, true, true, &mut wall, &reference, 0.02, forces);
+        };
+        step(
+            &mut posture,
+            FrameInput {
+                wheel: -20.0,
+                ..FrameInput::default()
+            },
+        );
+        assert_eq!(posture.value(), 0.0);
+        step(
+            &mut posture,
+            FrameInput {
+                pressed: keys::CROUCH,
+                released: keys::CROUCH,
+                ..FrameInput::default()
+            },
+        );
+        for _ in 0..50 {
+            step(&mut posture, FrameInput::default());
+        }
+        assert_eq!(posture.value(), 1.0);
     }
 }
