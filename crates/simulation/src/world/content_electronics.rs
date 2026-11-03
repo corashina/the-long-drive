@@ -1,9 +1,10 @@
 //! Source `electronicsscript` on generated contents: the jam dims its `lights` groups and
 //! switches the flashlights it powers.
 use super::WorldStream;
+use super::content_kinds::Bound;
 use crate::electronics::{Electronics, Emp};
 use crate::interaction::items::ItemStore;
-use crate::reference::{ReferenceError, SourceId};
+use crate::reference::{ItemId, ReferenceError, SourceId};
 use crate::world::GeneratedId;
 use crate::world::spawn_lamps::LIGHT_TURN_OFF;
 use crate::world::spawn_rules::*;
@@ -23,18 +24,6 @@ pub struct ElectronicsBinding {
     powered: bool,
     factor: f32,
 }
-impl ElectronicsBinding {
-    pub fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.component.file.capacity()
-            + self.lights.capacity() * std::mem::size_of::<(SourceId, f32)>()
-            + self
-                .lights
-                .iter()
-                .map(|l| l.0.file.capacity())
-                .sum::<usize>()
-    }
-}
 
 impl WorldStream {
     /// Binds each electronicsscript of the generated contents and drops gone ones.
@@ -43,11 +32,13 @@ impl WorldStream {
             self.request.session,
             self.contents.active_revision() ^ self.contents.roots_revision().rotate_left(32),
         );
-        if self.electronics_scan == Some(revision) {
+        if self.kinds.electronics.scan == Some(revision) {
             return Ok(());
         }
         let contents = &self.contents;
-        self.electronics_bindings
+        self.kinds
+            .electronics
+            .list
             .retain(|b| contents.instances().any(|c| c.placement.id == b.parent));
         let (reference, rules) = (&self.reference, &self.contents.rules);
         for content in self.contents.instances() {
@@ -55,7 +46,9 @@ impl WorldStream {
             for (owner, component) in &content.inputs.initialized {
                 if owner != parent
                     || self
-                        .electronics_bindings
+                        .kinds
+                        .electronics
+                        .list
                         .iter()
                         .any(|b| &b.parent == parent && &b.component == component)
                 {
@@ -101,7 +94,7 @@ impl WorldStream {
                 if let Some(jam) = content.inputs.jam(parent, component) {
                     state.jam = jam;
                 }
-                self.electronics_bindings.push(ElectronicsBinding {
+                self.kinds.electronics.list.push(ElectronicsBinding {
                     parent: parent.clone(),
                     component: component.clone(),
                     layer,
@@ -113,7 +106,7 @@ impl WorldStream {
                 });
             }
         }
-        self.electronics_scan = Some(revision);
+        self.kinds.electronics.scan = Some(revision);
         Ok(())
     }
 
@@ -125,8 +118,8 @@ impl WorldStream {
         items: &ItemStore,
         dt: f32,
     ) -> Result<(), ReferenceError> {
-        for index in 0..self.electronics_bindings.len() {
-            let b = &self.electronics_bindings[index];
+        for index in 0..self.kinds.electronics.list.len() {
+            let b = &self.kinds.electronics.list[index];
             let active = self
                 .contents
                 .active()
@@ -145,7 +138,7 @@ impl WorldStream {
                     Vector::from_array(self.origin.local(content.placement.pose.position))
                 }
             };
-            let b = &mut self.electronics_bindings[index];
+            let b = &mut self.kinds.electronics.list[index];
             let (layer, jam) = (b.layer, b.state.jam);
             b.state.expose(emps, at, layer, dt);
             if b.state.jam == jam && b.state.factor() == b.factor {
@@ -169,7 +162,7 @@ impl WorldStream {
             }
             b.factor = b.state.factor();
             let factor = b.factor;
-            let parent = self.electronics_bindings[index].parent.clone();
+            let parent = self.kinds.electronics.list[index].parent.clone();
             self.set_component_lights(&parent, index, factor);
         }
         Ok(())
@@ -177,7 +170,7 @@ impl WorldStream {
 
     /// Light intensity of each `lights` group of binding `index`: its maximum times `factor`.
     fn set_component_lights(&mut self, parent: &GeneratedId, index: usize, factor: f32) {
-        let lights = &self.electronics_bindings[index].lights;
+        let lights = &self.kinds.electronics.list[index].lights;
         let Some(content) = self.contents.instance_mut(parent) else {
             return;
         };
@@ -195,5 +188,24 @@ impl WorldStream {
                 current.intensity = light.intensity;
             }
         }
+    }
+}
+
+impl Bound for ElectronicsBinding {
+    fn parent(&self) -> &GeneratedId {
+        &self.parent
+    }
+    fn item(&self) -> Option<ItemId> {
+        None
+    }
+    fn heap_bytes(&self) -> usize {
+        crate::world::contents::identity_heap(&self.parent)
+            + self.component.file.capacity()
+            + self.lights.capacity() * std::mem::size_of::<(SourceId, f32)>()
+            + self
+                .lights
+                .iter()
+                .map(|l| l.0.file.capacity())
+                .sum::<usize>()
     }
 }
