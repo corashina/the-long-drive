@@ -207,17 +207,12 @@ impl<const DONE: bool> RenderCommand<SourceShadow> for MarkDraw<DONE> {
         _: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let index = state.cascade.load(Ordering::Relaxed) as usize;
-        let counts = if DONE {
-            &state.successes
+        let (counts, instances) = if DONE {
+            (&state.successes, &state.instance_successes)
         } else {
-            &state.attempts
+            (&state.attempts, &state.instance_attempts)
         };
         counts[index].fetch_add(1, Ordering::Relaxed);
-        let instances = if DONE {
-            &state.instance_successes
-        } else {
-            &state.instance_attempts
-        };
         instances[index].fetch_add(
             item.batch_range.end - item.batch_range.start,
             Ordering::Relaxed,

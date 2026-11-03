@@ -261,7 +261,7 @@ pub fn install(app: &mut App) {
 /// Target atlas placement. The collector uses the same rectangle for its atlas transform.
 /// Coordinates use wgpu's top-left viewport convention; source projection conversion is separate.
 pub fn tile_rect(atlas_size: u32, cascade: usize) -> [u32; 4] {
-    assert!(atlas_size >= 2 && atlas_size % 2 == 0 && cascade < 4);
+    assert!(atlas_size >= 2 && atlas_size.is_multiple_of(2) && cascade < 4);
     let side = atlas_size / 2;
     [
         (cascade as u32 & 1) * side,
@@ -271,6 +271,11 @@ pub fn tile_rect(atlas_size: u32, cascade: usize) -> [u32; 4] {
     ]
 }
 
+/// Draws only inside `[x, y, width, height]`.
+fn set_rect(pass: &mut TrackedRenderPass, [x, y, width, height]: [u32; 4]) {
+    pass.set_viewport(x as f32, y as f32, width as f32, height as f32, 0., 1.);
+    pass.set_scissor_rect(x, y, width, height);
+}
 /// Tiles without a draw keep their depth.
 fn tile_pass<'a>(label: &'static str, attachment: &'a TextureView) -> RenderPassDescriptor<'a> {
     RenderPassDescriptor {
@@ -384,9 +389,7 @@ pub(crate) fn render_atlas(
     let draws = StaticDraws::new(world);
     let casters = (&tile_phases, entity, &draws, state, bundles);
     let viewport = |pass: &mut TrackedRenderPass, cascade| {
-        let [x, y, width, height] = tile_rect(targets.0.atlas_size, cascade);
-        pass.set_viewport(x as f32, y as f32, width as f32, height as f32, 0., 1.);
-        pass.set_scissor_rect(x, y, width, height);
+        set_rect(pass, tile_rect(targets.0.atlas_size, cascade));
     };
     // Static casters and GPU props draw into the static tile.
     if cadence.plan.draw.contains(&true) {
@@ -442,10 +445,10 @@ pub(crate) fn render_atlas(
     let lamp_refresh = |tile: usize| tile >= 4 && cadence.lamp.refresh[tile - 4];
     let lamp_viewport = |pass: &mut TrackedRenderPass, tile: usize| {
         let slot = (tile - 4) / 6;
-        let [x, y, width, height] =
-            LampShadowUniform::viewport(slot, (tile - 4) % 6, lamps.uniforms[slot].point());
-        pass.set_viewport(x as f32, y as f32, width as f32, height as f32, 0., 1.);
-        pass.set_scissor_rect(x, y, width, height);
+        set_rect(
+            pass,
+            LampShadowUniform::viewport(slot, (tile - 4) % 6, lamps.uniforms[slot].point()),
+        );
     };
     // Static casters and GPU props draw into the static face.
     if (4..TILES).any(lamp_draw) {

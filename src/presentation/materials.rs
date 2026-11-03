@@ -155,6 +155,33 @@ struct SourceTexture {
     stalled: u32,
     label: String,
 }
+impl SourceTexture {
+    /// A texture that waits for its first load.
+    fn new(
+        record: TextureRecord,
+        input_staging: usize,
+        persistent: bool,
+        label: String,
+    ) -> Result<Self, source::ReferenceError> {
+        let payload_bytes = record.payload_bytes()?;
+        let cpu_reservation = source::fixed_reservation::png_cpu(payload_bytes, input_staging)?;
+        Ok(Self {
+            owner: Arc::new(()),
+            upload: default(),
+            failed: false,
+            persistent,
+            users: 0,
+            record: Arc::new(record),
+            chain: None,
+            input_staging,
+            payload_bytes,
+            cpu_reservation,
+            image: None,
+            stalled: 0,
+            label,
+        })
+    }
+}
 #[derive(Resource, Clone)]
 pub struct SourceMaterials {
     pub preparation: super::gpu_prepare::GpuPreparation,
@@ -235,13 +262,12 @@ impl MaterialLoading {
         let requests = (pending.requests.as_ptr() as usize, pending.requests.len());
         if state == 0 {
             pending.terminal_prewarm_audit = None;
-        } else if let Some((previous_requests, audit)) = pending.terminal_prewarm_audit {
-            if previous_requests == requests
-                && audit.state == state
-                && audit.sealed == pending.sealed
-            {
-                return audit;
-            }
+        } else if let Some((previous_requests, audit)) = pending.terminal_prewarm_audit
+            && previous_requests == requests
+            && audit.state == state
+            && audit.sealed == pending.sealed
+        {
+            return audit;
         }
         let meshes = world.get_resource::<RenderAssets<RenderMesh>>();
         let materials = world.get_resource::<ErasedRenderAssets<PreparedMaterial>>();
@@ -500,27 +526,13 @@ pub fn load_materials(
                 continue;
             }
             let input_staging = primary::primary_staging(texture, &reference.file_catalog)?;
-            let payload_bytes = texture.payload_bytes()?;
-            let cpu_reservation = source::fixed_reservation::png_cpu(payload_bytes, input_staging)?;
+            let label = format!(
+                "material {}:{} {}",
+                record.source.file, record.source.path_id, texture.slot
+            );
+            let entry = SourceTexture::new(texture.clone(), input_staging, true, label)?;
             texture_indices.insert(texture.file().to_owned(), textures.len());
-            textures.push(SourceTexture {
-                owner: Arc::new(()),
-                upload: default(),
-                failed: false,
-                persistent: true,
-                users: 0,
-                record: Arc::new(texture.clone()),
-                chain: None,
-                input_staging,
-                payload_bytes,
-                cpu_reservation,
-                image: None,
-                stalled: 0,
-                label: format!(
-                    "material {}:{} {}",
-                    record.source.file, record.source.path_id, texture.slot
-                ),
-            });
+            textures.push(entry);
         }
     }
     for texture in &reference.plates.material.textures {
@@ -528,25 +540,10 @@ pub fn load_materials(
             continue;
         }
         let input_staging = primary::primary_staging(texture, &reference.file_catalog)?;
-        let payload_bytes = texture.payload_bytes()?;
-        let cpu_reservation = source::fixed_reservation::png_cpu(payload_bytes, input_staging)?;
-
+        let label = format!("source texture {}", texture.file());
+        let entry = SourceTexture::new(texture.clone(), input_staging, true, label)?;
         texture_indices.insert(texture.file().to_owned(), textures.len());
-        textures.push(SourceTexture {
-            owner: Arc::new(()),
-            upload: default(),
-            failed: false,
-            persistent: true,
-            users: 0,
-            record: Arc::new(texture.clone()),
-            chain: None,
-            input_staging,
-            payload_bytes,
-            cpu_reservation,
-            image: None,
-            stalled: 0,
-            label: format!("source texture {}", texture.file()),
-        });
+        textures.push(entry);
     }
     let mut source = SourceMaterials {
         preparation: default(),
@@ -1803,9 +1800,7 @@ impl AsBindGroup for SourceReceiver {
     fn label() -> &'static str {
         "source lighting"
     }
-    fn bind_group_data(&self) -> Self::Data {
-        ()
-    }
+    fn bind_group_data(&self) -> Self::Data {}
     fn unprepared_bind_group(
         &self,
         _: &BindGroupLayout,
@@ -2445,44 +2440,5 @@ impl SourceMaterials {
                     .measurement_images()
                     .map(|id| (id, true)),
             )
-    }
-}
-
-impl SourceMaterials {
-    pub fn drain_ready(
-        &mut self,
-        server: &AssetServer,
-        chains: &Assets<SourcePrimaryImage>,
-        batches: &mut Assets<crate::presentation::texture_batches::SourceTextureBatch>,
-    ) -> bool {
-        self.world_textures.drain_ready(server, batches)
-            && self.textures.iter().all(|t| {
-                (t.image.is_some() && primary::pending_texture_cpu(t) == 0)
-                    || (t.image.is_none()
-                        && t.chain.iter().all(|h| {
-                            chains.contains(h.id())
-                                || matches!(server.load_state(h.id()), LoadState::Failed(_))
-                        }))
-            })
-    }
-    pub fn release_all(
-        &mut self,
-        server: &AssetServer,
-        images: &mut Assets<Image>,
-        chains: &mut Assets<SourcePrimaryImage>,
-        materials: &mut Assets<SourceMaterial>,
-    ) -> Result<(), source::ReferenceError> {
-        let assets: Vec<_> = self.world_primary.asset_ids().collect();
-        for asset in assets {
-            self.release_world_asset(asset, images, chains, materials, server)?;
-        }
-        self.world_textures.release_all(images);
-        Ok(())
-    }
-    pub fn settled(&self) -> bool {
-        self.textures
-            .iter()
-            .all(|t| !t.failed && t.image.is_some() && primary::pending_texture_cpu(t) == 0)
-            && self.world_textures.settled()
     }
 }

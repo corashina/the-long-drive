@@ -110,15 +110,14 @@ impl UploadQueue {
             .position(|j| j.as_ref().is_some_and(|j| j.identity == identity))
             .unwrap();
         let job = self.jobs[index].take().unwrap();
-        if let Some(handle) = &job.handle {
-            if !self
+        if let Some(handle) = &job.handle
+            && !self
                 .jobs
                 .iter()
                 .flatten()
                 .any(|j| j.handle.as_ref().is_some_and(|h| h.id() == handle.id()))
-            {
-                batches.remove(handle.id());
-            }
+        {
+            batches.remove(handle.id());
         }
         Some(job)
     }

@@ -140,10 +140,10 @@ fn base_pipeline(
             &Msaa::from_samples(view_key.msaa_samples()),
         );
     let cache_key = SpecializationKey::new(key.bits(), &mesh.layout.0, &material.properties);
-    if let Some(previous) = previous {
-        if previous.specialization == cache_key {
-            return Ok(Some((previous.base, indexed, cache_key)));
-        }
+    if let Some(previous) = previous
+        && previous.specialization == cache_key
+    {
+        return Ok(Some((previous.base, indexed, cache_key)));
     }
     let mut index = match state
         .specializations
@@ -289,12 +289,11 @@ pub fn queue(world: &mut World) {
                                     state.idle_probe_phases[index - PROBE_START][bit] = None;
                                 }
                             }
-                            if index >= PROBE_START {
-                                if let Some(phase) =
+                            if index >= PROBE_START
+                                && let Some(phase) =
                                     state.idle_probe_phases[index - PROBE_START][bit].take()
-                                {
-                                    phases.insert(retained, phase);
-                                }
+                            {
+                                phases.insert(retained, phase);
                             }
                             fresh |= !phases.contains_key(&retained);
                         }
@@ -423,11 +422,7 @@ pub fn queue(world: &mut World) {
                                     },
                                 );
                             }
-                            if let Some(previous) = state.queued[index].get_mut(&main) {
-                                *previous = next;
-                            } else {
-                                state.queued[index].insert(main, next);
-                            }
+                            state.queued[index].insert(main, next);
                             for bit in 0..TILE_BITS {
                                 let member = u32::from(mask & (1 << bit) != 0);
                                 state.instances[index][bit] += member;
@@ -450,6 +445,11 @@ pub fn queue(world: &mut World) {
             state.frame = scene.frame;
         });
     });
+}
+/// Light right, up and forward axes of the sun rotation in the source frame (z negated).
+pub(crate) fn light_basis(sun: Quat) -> [Vec3; 3] {
+    let h = |v: Vec3| Vec3::new(v.x, v.y, -v.z);
+    [h(sun * Vec3::X), h(sun * Vec3::Y), h(sun * -Vec3::Z)]
 }
 /// The native light camera negates its forward column before inversion.
 pub(crate) fn cascade_projection(
@@ -516,12 +516,7 @@ pub fn write_cascades(
     };
     let light = &assets.record.lights[0];
     let rotation = scene.sun;
-    let h = |v: Vec3| Vec3::new(v.x, v.y, -v.z);
-    let basis = [
-        h(rotation * Vec3::X),
-        h(rotation * Vec3::Y),
-        h(rotation * -Vec3::Z),
-    ];
+    let basis = light_basis(rotation);
     for (mut view, mut slots, cadence) in &mut views {
         if frame.skip_preparation(view.index) {
             continue;
@@ -643,7 +638,7 @@ pub(crate) fn graph_ready(
         && caster.ready(&cache, &owners)
         && resolve.ready(&cache)
         && collector.is_some_and(|c| c.prepared_frame == frame.frame)
-        && !status.failure().is_some()
+        && status.failure().is_none()
 }
 pub fn collector_encoded(
     view: bevy::render::renderer::ViewQuery<&super::shadow_collector::CollectorView>,

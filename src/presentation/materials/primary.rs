@@ -23,15 +23,9 @@ pub struct PrimaryOwnership {
 }
 /// Renderer steps an added image may wait for its GPU upload before the chain loads again.
 const STALLED_STEPS: u32 = 600;
-fn payload(texture: &TextureRecord) -> Result<usize, ReferenceError> {
-    texture.payload_bytes()
-}
-fn texture_cpu_reservation(texture: &SourceTexture) -> usize {
-    texture.cpu_reservation
-}
 pub(super) fn pending_texture_cpu(texture: &SourceTexture) -> usize {
     texture.upload.cpu_bytes(
-        texture_cpu_reservation(texture),
+        texture.cpu_reservation,
         texture.chain.is_some() || texture.image.is_some(),
     )
 }
@@ -205,7 +199,7 @@ impl SourceMaterials {
                     }
                 }
                 if !self.texture_indices.contains_key(texture.file()) {
-                    let bytes = payload(texture)?;
+                    let bytes = texture.payload_bytes()?;
                     added_gpu += bytes;
                     added_cpu += 4096
                         + std::mem::size_of::<SourceTexture>()
@@ -226,29 +220,14 @@ impl SourceMaterials {
             for texture in &record.properties.textures {
                 if !self.texture_indices.contains_key(texture.file()) {
                     let input_staging = primary_staging(texture, &reference.file_catalog)?;
-                    let payload_bytes = payload(texture)?;
-                    let cpu_reservation =
-                        crate::reference::fixed_reservation::png_cpu(payload_bytes, input_staging)?;
+                    let label = format!(
+                        "source material {}:{} {}",
+                        record.source.file, record.source.path_id, texture.slot
+                    );
+                    let entry = SourceTexture::new(texture.clone(), input_staging, false, label)?;
                     self.texture_indices
                         .insert(texture.file().to_owned(), self.textures.len());
-                    self.textures.push(SourceTexture {
-                        owner: Arc::new(()),
-                        upload: default(),
-                        failed: false,
-                        persistent: false,
-                        users: 0,
-                        record: Arc::new(texture.clone()),
-                        chain: None,
-                        input_staging,
-                        payload_bytes,
-                        cpu_reservation,
-                        image: None,
-                        stalled: 0,
-                        label: format!(
-                            "source material {}:{} {}",
-                            record.source.file, record.source.path_id, texture.slot
-                        ),
-                    });
+                    self.textures.push(entry);
                 }
             }
             if !borrowed {
@@ -299,14 +278,17 @@ impl SourceMaterials {
     ) -> Result<(), ReferenceError> {
         let mut failure = None;
         for texture in self.textures.iter_mut() {
-            if texture.image.is_some() && texture.chain.is_none() && !texture.upload.completed() {
+            if let Some(image) = &texture.image
+                && texture.chain.is_none()
+                && !texture.upload.completed()
+            {
                 texture.stalled = texture.stalled.saturating_add(1);
                 if texture.stalled == STALLED_STEPS {
                     warn!(
                         "{}: GPU upload not complete after {STALLED_STEPS} steps \
                          (main image {}, render receipt {}). Loading it again.",
                         texture.label,
-                        images.contains(texture.image.as_ref().unwrap().id()),
+                        images.contains(image.id()),
                         if texture.upload.registered() {
                             "registered"
                         } else {
@@ -375,11 +357,7 @@ impl SourceMaterials {
                 let claim = ledger.can_request_independent(1);
                 let input = ledger.request_staging(staging);
                 // A retry keeps the CPU credit of its incomplete upload.
-                let decoded = if retry {
-                    0
-                } else {
-                    texture_cpu_reservation(texture)
-                };
+                let decoded = if retry { 0 } else { texture.cpu_reservation };
                 // Without credit the load waits. Retired prototypes give their credit back.
                 let prototype = ledger.request_prototype(decoded, 0);
                 if !job {
@@ -675,11 +653,7 @@ impl SourceMaterials {
     }
 }
 
-impl PrimaryOwnership {
-    pub fn asset_ids(&self) -> impl Iterator<Item = SourceAssetId> + '_ {
-        self.assets.keys().copied()
-    }
-}
+impl PrimaryOwnership {}
 
 impl SourceMaterials {
     pub(super) fn select_lighting_textures(
@@ -723,26 +697,10 @@ impl SourceMaterials {
             };
             let input_staging =
                 png_chain_staging(&t.mips, t.sampler.mip_count, &reference.file_catalog)?;
-            let payload_bytes = payload(&record)?;
-            let cpu_reservation =
-                crate::reference::fixed_reservation::png_cpu(payload_bytes, input_staging)?;
+            let entry = SourceTexture::new(record, input_staging, true, file.clone())?;
             self.texture_indices
                 .insert(file.clone(), self.textures.len());
-            self.textures.push(SourceTexture {
-                owner: Arc::new(()),
-                upload: default(),
-                failed: false,
-                persistent: true,
-                users: 0,
-                record: Arc::new(record),
-                chain: None,
-                input_staging,
-                payload_bytes,
-                cpu_reservation,
-                image: None,
-                stalled: 0,
-                label: file.clone(),
-            });
+            self.textures.push(entry);
         }
         Ok(())
     }
