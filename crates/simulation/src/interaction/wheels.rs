@@ -422,10 +422,10 @@ impl WheelAssemblies {
         }
         for (i, part) in self.parts.iter_mut().enumerate() {
             self.indices.insert(part.item, i);
-            if let Some(tire) = &mut part.tire {
-                if *tire > index {
-                    *tire -= 1;
-                }
+            if let Some(tire) = &mut part.tire
+                && *tire > index
+            {
+                *tire -= 1;
             }
         }
     }

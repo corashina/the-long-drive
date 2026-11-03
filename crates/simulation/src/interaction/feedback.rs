@@ -143,16 +143,18 @@ impl InteractionState {
         let installation_target = valid(aim.installation_target);
         let filling_target = valid(aim.filling_target);
         let focus = valid(aim.focus_target);
-        let mut a = ActionAvailability::default();
-        a.use_item = use_target.map(|t| t.item);
-        a.active_drag = active_target.is_some_and(|t| self.mechanisms.drag_eligible(t.item));
-        a.item = use_target
-            .or(grab_target)
-            .or(filling_target)
-            .or(installation_target)
-            .or(valid(aim.push_target))
-            .or(focus)
-            .map(|t| t.item);
+        let mut a = ActionAvailability {
+            use_item: use_target.map(|t| t.item),
+            active_drag: active_target.is_some_and(|t| self.mechanisms.drag_eligible(t.item)),
+            item: use_target
+                .or(grab_target)
+                .or(filling_target)
+                .or(installation_target)
+                .or(valid(aim.push_target))
+                .or(focus)
+                .map(|t| t.item),
+            ..Default::default()
+        };
         if self.held().is_none()
             && let Some(id) = self.equipment.item()
             && self.held_controls.contains_key(&id)

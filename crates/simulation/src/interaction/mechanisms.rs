@@ -1,6 +1,7 @@
 //! Source controls use cached transform bindings for physics and rendering.
 use crate::player::body::{HandRule, ReachFrame, ReachTarget};
 use crate::reference::*;
+use crate::simulation::dials::inverse_lerp;
 use crate::simulation::{FrameInput, keys};
 use crate::vehicle::{PhysicsWorld, VehiclePose, from_rapier, to_rapier};
 use rapier3d::glamx::EulerRot;
@@ -443,10 +444,10 @@ impl MechanismState {
                 }
             }
             for f in &mut self.frames {
-                if let Some(parent) = &mut f.parent {
-                    if *parent > index {
-                        *parent -= 1;
-                    }
+                if let Some(parent) = &mut f.parent
+                    && *parent > index
+                {
+                    *parent -= 1;
                 }
             }
         }
@@ -1078,13 +1079,6 @@ impl MechanismState {
                 physics.try_edit_body(handle, |body| body.set_position(f.world, true));
             }
         }
-    }
-}
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.0
-    } else {
-        ((value - a) / (b - a)).clamp(0.0, 1.0)
     }
 }
 

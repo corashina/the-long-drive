@@ -9,7 +9,7 @@ use crate::reference::{
     BreakableReference, ColliderTag, GunBreakRule, GunKind, GunReference, GunSound, ItemId,
     ReferenceError, ReferenceManifest, SourceId, TorqueCurve, Transform, WorldPrototypeReference,
 };
-use crate::simulation::dials::unity_euler;
+use crate::simulation::dials::{inverse_lerp, unity_euler};
 use crate::vehicle::{PhysicsWorld, collider_tag, to_rapier};
 use crate::world::unity_random::UnityRandom;
 use rapier3d::math::{Pose, Rotation, Vector};
@@ -504,9 +504,6 @@ impl GunState {
     }
     pub fn runtime(&self, item: ItemId) -> Option<&GunRuntime> {
         self.runtimes.get(&item)
-    }
-    pub fn runtime_mut(&mut self, item: ItemId) -> Option<&mut GunRuntime> {
-        self.runtimes.get_mut(&item)
     }
     pub fn record(&self, item: ItemId) -> Option<&GunReference> {
         Some(&self.guns[self.runtimes.get(&item)?.gun].record)
@@ -1786,15 +1783,6 @@ fn progress(start: f32, duration: f32, time: f32) -> f32 {
         inverse_lerp(start, start + duration, time)
     } else {
         1.
-    }
-}
-
-/// Unity `Mathf.InverseLerp`.
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.
-    } else {
-        ((value - a) / (b - a)).clamp(0., 1.)
     }
 }
 

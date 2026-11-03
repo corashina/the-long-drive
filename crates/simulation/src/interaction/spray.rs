@@ -1,10 +1,6 @@
 //! Source spricniscript trigger and ammoscript count.
 use crate::reference::{AcquisitionAmmo, SprayBottleReference};
-
-/// Mathf.Lerp clamps its factor.
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
-}
+use crate::simulation::dials::lerp;
 
 /// spricniscript currentAngle, lastAngle, triggered, and pressing.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

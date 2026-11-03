@@ -28,7 +28,7 @@ impl InteractionState {
         let (equipped, carried) = (self.equipment.item(), self.held());
         if self.hand_gun() {
             Some(LmbOwner::Gun)
-        } else if self.cleaning.reserves_lmb(equipped, carried) {
+        } else if self.cleaning.reserves_lmb(equipped) {
             Some(LmbOwner::CleaningTool)
         } else if self.binoculars.reserves_lmb(equipped, carried) {
             Some(LmbOwner::Binoculars)

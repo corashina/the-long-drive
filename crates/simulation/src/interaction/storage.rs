@@ -272,9 +272,7 @@ impl StorageLocks {
                 .usables
                 .extend(record.usables.iter().filter_map(|node| usable_item(*node)));
             volume.slots.clear();
-            volume
-                .slots
-                .extend(record.slots.iter().filter_map(|source| slot(source)));
+            volume.slots.extend(record.slots.iter().filter_map(&slot));
             volume.frame = Frame::Owner {
                 local: root.inverse() * Pose::from_parts(center, record.rotation),
                 record: record_index as u16,
@@ -396,10 +394,6 @@ impl StorageLocks {
     pub fn picked_up(&mut self, item: ItemId) {
         self.till_pickup.remove(&item);
     }
-    /// The part slots that gate bound volume `volume`. Each must hold a closed part.
-    pub fn gate_slots(&self, volume: u16) -> &[PartSlotId] {
-        &self.volumes[volume as usize].slots
-    }
     fn gates_closed(volume: &Volume, parts: &PartAttachments, mechanisms: &MechanismState) -> bool {
         let open = |usable: ItemId| {
             mechanisms
@@ -435,15 +429,6 @@ impl StorageLocks {
         let owner = items.get(volume.owner)?;
         let body = physics.rapier().bodies.get(owner.body?)?;
         Some(*body.position() * to_rapier(owner.local_pose) * *local)
-    }
-    /// The world pose of the box of bound volume `volume`.
-    pub fn volume_pose(
-        &self,
-        volume: u16,
-        items: &ItemStore,
-        physics: &PhysicsWorld,
-    ) -> Option<Pose> {
-        Self::pose(self.volumes.get(volume as usize)?, items, physics)
     }
     /// Clears `current`, then fills it with the items that overlap the volume.
     fn scan_volume(
@@ -568,14 +553,7 @@ impl StorageLocks {
         } else {
             0
         };
-        self.colliders.clear();
-        for handle in physics.rapier().bodies[body].colliders() {
-            if collider_item(physics.rapier().colliders[*handle].user_data)
-                .is_some_and(|id| id == item || items.descends(id, item))
-            {
-                self.colliders.push(*handle);
-            }
-        }
+        item_colliders(&mut self.colliders, body, item, items, physics);
         for &handle in &self.colliders {
             let world = body_pose * local_pose(physics, handle);
             physics.set_collider_parent(handle, Some(carrier));
@@ -691,14 +669,7 @@ impl StorageLocks {
         let velocity = physics.rapier().bodies[carrier].velocity_at_point(body_pose.translation);
         let angular = physics.rapier().bodies[carrier].angvel();
         self.add_mass(owner, carrier, -entry.mass, items, physics);
-        self.colliders.clear();
-        for handle in physics.rapier().bodies[carrier].colliders() {
-            if collider_item(physics.rapier().colliders[*handle].user_data)
-                .is_some_and(|id| id == item || items.descends(id, item))
-            {
-                self.colliders.push(*handle);
-            }
-        }
+        item_colliders(&mut self.colliders, carrier, item, items, physics);
         for &handle in &self.colliders {
             let world = carrier_pose * local_pose(physics, handle);
             physics.set_collider_parent(handle, Some(entry.body));
@@ -895,6 +866,26 @@ impl StorageLocks {
     }
 }
 /// Collider world poses update in the next query refresh. The parent pose is current.
+/// Fills `out` with the colliders of `body` that belong to `item` or its descendants.
+fn item_colliders(
+    out: &mut Vec<ColliderHandle>,
+    body: RigidBodyHandle,
+    item: ItemId,
+    items: &ItemStore,
+    physics: &PhysicsWorld,
+) {
+    out.clear();
+    out.extend(
+        physics.rapier().bodies[body]
+            .colliders()
+            .iter()
+            .copied()
+            .filter(|handle| {
+                collider_item(physics.rapier().colliders[*handle].user_data)
+                    .is_some_and(|id| id == item || items.descends(id, item))
+            }),
+    );
+}
 fn local_pose(physics: &PhysicsWorld, handle: ColliderHandle) -> Pose {
     physics.rapier().colliders[handle]
         .position_wrt_parent()
