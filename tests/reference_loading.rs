@@ -42,9 +42,9 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
     let fields = reference.world.records[index].fields.clone();
     let mut value = serde_json::to_value(&fields).unwrap();
     value
-        .as_array_mut()
+        .as_object_mut()
         .unwrap()
-        .retain(|f| f["name"] != "m_LocalReferencePoint");
+        .remove("m_LocalReferencePoint");
     std::sync::Arc::make_mut(&mut reference.world).records[index].fields =
         serde_json::from_value(value).unwrap();
     assert!(

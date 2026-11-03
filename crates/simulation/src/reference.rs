@@ -2,6 +2,7 @@
 
 pub mod fixed_reservation;
 pub mod package;
+mod packed;
 pub mod prototype_plan;
 pub use package::{FileCatalog, FileReceipt, PlanReceipt};
 
@@ -243,10 +244,13 @@ pub enum ColliderGeometry {
         radius: f32,
     },
     Convex {
+        #[serde(with = "packed::points")]
         points: Vec<[f32; 3]>,
     },
     Trimesh {
+        #[serde(with = "packed::points")]
         points: Vec<[f32; 3]>,
+        #[serde(with = "packed::triangles")]
         triangles: Vec<[u32; 3]>,
     },
 }

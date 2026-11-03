@@ -18,9 +18,60 @@ pub const MATERIAL_TEXTURE_SLOTS: [&str; 9] = [
 pub const MATERIAL_TEXTURE_BANKS: usize = 7;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "RenderingWire", into = "RenderingWire")]
 pub struct RenderingRecord {
     pub materials: Vec<MaterialRecord>,
+}
+/// JSON form: each unique texture storage once, materials name it by index.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenderingWire {
+    textures: Vec<TextureStorage>,
+    materials: Vec<MaterialRecord<u32>>,
+}
+impl TryFrom<RenderingWire> for RenderingRecord {
+    type Error = ReferenceError;
+    fn try_from(wire: RenderingWire) -> Result<Self, ReferenceError> {
+        let materials = wire
+            .materials
+            .into_iter()
+            .map(|m| {
+                m.map_storage(|i| {
+                    wire.textures
+                        .get(i as usize)
+                        .cloned()
+                        .ok_or_else(|| ReferenceError("Material texture storage index".into()))
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self { materials })
+    }
+}
+impl From<RenderingRecord> for RenderingWire {
+    fn from(rendering: RenderingRecord) -> Self {
+        let mut textures: Vec<TextureStorage> = Vec::new();
+        let materials = rendering
+            .materials
+            .into_iter()
+            .map(|m| {
+                m.map_storage(|storage| {
+                    let index = textures
+                        .iter()
+                        .position(|t| *t == storage)
+                        .unwrap_or_else(|| {
+                            textures.push(storage);
+                            textures.len() - 1
+                        });
+                    Ok::<_, ReferenceError>(index as u32)
+                })
+                .expect("index storage")
+            })
+            .collect();
+        Self {
+            textures,
+            materials,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,9 +84,10 @@ pub enum ShaderFamily {
     PlayerModel,
 }
 
+/// `S` is the texture storage: a full value, or a table index in the JSON form.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct MaterialRecord {
+pub struct MaterialRecord<S = TextureStorage> {
     pub asset: AssetId,
     pub gltf_material: u32,
     pub source: SourceId,
@@ -45,7 +97,50 @@ pub struct MaterialRecord {
     pub condition: Option<MaterialCondition>,
     pub keywords: Vec<String>,
     pub state: MaterialState,
-    pub properties: ShaderProperties,
+    pub properties: ShaderProperties<S>,
+}
+
+impl<S> MaterialRecord<S> {
+    fn map_storage<T>(
+        self,
+        mut f: impl FnMut(S) -> Result<T, ReferenceError>,
+    ) -> Result<MaterialRecord<T>, ReferenceError> {
+        let p = self.properties;
+        Ok(MaterialRecord {
+            asset: self.asset,
+            gltf_material: self.gltf_material,
+            source: self.source,
+            shader_family: self.shader_family,
+            enable_instancing: self.enable_instancing,
+            color: self.color,
+            condition: self.condition,
+            keywords: self.keywords,
+            state: self.state,
+            properties: ShaderProperties {
+                floats: p.floats,
+                colors: p.colors,
+                textures: p
+                    .textures
+                    .into_iter()
+                    .map(|t| {
+                        Ok(TextureRecord {
+                            slot: t.slot,
+                            source: t.source,
+                            storage: f(t.storage)?,
+                            color_space: t.color_space,
+                            encoding: t.encoding,
+                            source_encoding: t.source_encoding,
+                            uv_channel: t.uv_channel,
+                            scale: t.scale,
+                            offset: t.offset,
+                            sampler: t.sampler,
+                        })
+                    })
+                    .collect::<Result<_, ReferenceError>>()?,
+                defaults: p.defaults,
+            },
+        })
+    }
 }
 
 impl MaterialRecord {
@@ -113,10 +208,10 @@ pub struct MaterialState {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ShaderProperties {
+pub struct ShaderProperties<S = TextureStorage> {
     pub floats: BTreeMap<String, f32>,
     pub colors: BTreeMap<String, [f32; 4]>,
-    pub textures: Vec<TextureRecord>,
+    pub textures: Vec<TextureRecord<S>>,
     pub defaults: BTreeMap<String, TextureDefault>,
 }
 
@@ -147,10 +242,10 @@ pub enum TextureEncoding {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TextureRecord {
+pub struct TextureRecord<S = TextureStorage> {
     pub slot: String,
     pub source: SourceId,
-    pub storage: TextureStorage,
+    pub storage: S,
     pub color_space: TextureColorSpace,
     pub encoding: TextureEncoding,
     pub source_encoding: TextureEncoding,

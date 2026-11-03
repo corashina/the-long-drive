@@ -142,6 +142,8 @@ def prepare_package(manifest, output):
     from .lighting import export_manifest_texture_batches
     export_manifest_texture_batches(manifest, output)
     manifest['file_catalog'] = build_file_catalog(manifest, output)
+    from .runtime_encoding import encode_runtime
+    encode_runtime(manifest)
     manifest['content_base'] = f"assets/runtime/{package_id(manifest)}/"
 
 
