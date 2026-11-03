@@ -256,7 +256,7 @@ def car_voice(templates, record):
 
 
 # AudioSources that the car sound records own. Other voice lists skip them.
-CAR_SOURCES={'enginescript':('SAlap','SMotor'),'carscript':('SHornSound','SSounds','CoolantBoil'),
+CAR_SOURCES={'enginescript':('SAlap','SMotor'),'carscript':('SHornSound','SSounds','SValtoSound','CoolantBoil'),
     'talajnezo':('GroundSource','SpringSource','SlideSource')}
 
 
@@ -300,7 +300,7 @@ def engine_audio(source, reader, sound, shot):
 
 
 def car_audio(source, car_reader, wheels, cycle, sound, shot):
-    """carscript horn and switch sounds and talajnezo wheel sounds, in the chassis (`RB`) frame.
+    """carscript horn, switch and handbrake sounds and talajnezo wheel sounds, in the chassis (`RB`) frame.
 
     `wheels` holds the GroundSource, SpringSource and SlideSource readers of each wheel, in wheel effect order.
     """
@@ -309,11 +309,13 @@ def car_audio(source, car_reader, wheels, cycle, sound, shot):
     owner=source.transform_for(source.resolve(body,source.read(body)['m_GameObject']))
     horn=source.resolve(car_reader,d['SHornSound'])
     switch=source.resolve(car_reader,d['SSounds'])
+    shift=source.resolve(car_reader,d['SValtoSound'])
     boil=source.resolve(car_reader,d['CoolantBoil'])
     return {'horn':None if horn is None else {'sound':sound(horn,owner,None),'stimulus':sound_stimulus(source,[horn],owner),
             'pitch':[d['HornPitchMin'],d['HornPitchMax']],'temperature':[cycle['tempNights'][0],cycle['tempDays'][0]],
             'attack_release_rate':10.},
         'switch':None if switch is None else shot(car_reader,d['turnedRadioSOund'],1.,switch,owner),
+        'handbrake':None if shift is None else shot(car_reader,d['handbrakeSound'],1.,shift,owner),
         'boil':None if boil is None else {'sound':sound(boil,owner,None),'max_gain':d['coolantBoilMaxSound']},
         'wheels':[{field:sound(w[field],owner,None) for field in ('ground','spring','slide')} for w in wheels],
         'route':None}
