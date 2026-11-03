@@ -2,7 +2,7 @@
 //! The port reads the entries each `SYNC_TIME` and sends what changed since it last sent or
 //! received it.
 use super::items::Out;
-use super::message::ConditionMessage;
+use super::message::{ConditionMessage, Message};
 use super::objects::{NetKey, ObjectIndex};
 use super::state::SYNC_TIME;
 use crate::conditions::ConditionState;
@@ -94,8 +94,14 @@ impl ConditionSync {
         }
     }
 
-    /// Source `PartConditionUpd`.
-    pub fn got(&mut self, runtime: &mut GarageRuntime, index: &ObjectIndex, m: &ConditionMessage) {
+    /// Source `PartConditionUpd` of another peer.
+    pub fn receive(&mut self, runtime: &mut GarageRuntime, index: &ObjectIndex, packet: &[u8]) {
+        if let Ok((_, m)) = ConditionMessage::decode(packet) {
+            self.got(runtime, index, &m);
+        }
+    }
+
+    fn got(&mut self, runtime: &mut GarageRuntime, index: &ObjectIndex, m: &ConditionMessage) {
         if m.state > 5 || !m.color.iter().all(|c| c.is_finite()) {
             return;
         }

@@ -3,7 +3,7 @@
 //! The port reads the mounts each `SYNC_TIME` and sends what changed since it last sent or received it.
 use super::inventory::drop_local;
 use super::items::Out;
-use super::message::MountMessage;
+use super::message::{Message, MountMessage};
 use super::objects::{NetKey, ObjectIndex};
 use super::state::SYNC_TIME;
 use crate::interaction::items::ItemLocation;
@@ -78,8 +78,16 @@ impl MountSync {
         std::mem::swap(&mut self.known, &mut self.current);
     }
 
-    /// Source `PartSlotCraft`, `PartSlotUnCraft` and `UpdAttachable`.
-    pub fn got(
+    /// Source `PartSlotCraft`, `PartSlotUnCraft` and `UpdAttachable` of another peer.
+    pub fn receive(&mut self, runtime: &mut GarageRuntime, index: &ObjectIndex, packet: &[u8]) {
+        if let Ok((_, m)) = MountMessage::decode(packet)
+            && let Some(item) = index.item(NetKey(m.key))
+        {
+            self.got(runtime, index, item, &m);
+        }
+    }
+
+    fn got(
         &mut self,
         runtime: &mut GarageRuntime,
         index: &ObjectIndex,
