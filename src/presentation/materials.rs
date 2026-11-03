@@ -1984,6 +1984,10 @@ pub fn bind_materials(
                 mask | 1u32.checked_shl(layer as u32).unwrap_or(0)
             })
         });
+        // Stage meshes are on no source layer. Their stage camera draws Bevy PBR.
+        if mask == 0 {
+            continue;
+        }
         let Some(base) = originals.get(&handle.0).cloned() else {
             continue;
         };
