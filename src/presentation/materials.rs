@@ -151,6 +151,8 @@ struct SourceTexture {
     payload_bytes: usize,
     cpu_reservation: usize,
     image: Option<Handle<Image>>,
+    /// Renderer steps since the image was added without a completed upload.
+    stalled: u32,
     label: String,
 }
 #[derive(Resource, Clone)]
@@ -513,6 +515,7 @@ pub fn load_materials(
                 payload_bytes,
                 cpu_reservation,
                 image: None,
+                stalled: 0,
                 label: format!(
                     "material {}:{} {}",
                     record.source.file, record.source.path_id, texture.slot
@@ -541,6 +544,7 @@ pub fn load_materials(
             payload_bytes,
             cpu_reservation,
             image: None,
+            stalled: 0,
             label: format!("source texture {}", texture.file()),
         });
     }
@@ -585,25 +589,30 @@ pub fn material_readiness(
         source.state = loading.0.lock().unwrap().state.clone();
     }
 }
+/// Moves loaded chains into images. Returns the bytes of new images.
+/// A retried chain replaces the data of its image. Material handles stay valid.
 fn assemble_textures(
     textures: &mut [SourceTexture],
     chains: &mut Assets<SourcePrimaryImage>,
     images: &mut Assets<Image>,
 ) -> usize {
     let mut bytes = 0;
-    for texture in textures
-        .iter_mut()
-        .filter(|t| t.image.is_none() && !t.failed)
-    {
+    for texture in textures.iter_mut().filter(|t| !t.failed) {
         let Some(handle) = &texture.chain else {
             continue;
         };
         let Some(SourcePrimaryImage(image)) = chains.remove(handle.id()) else {
             continue;
         };
-        texture.image = Some(images.add(image));
         texture.chain = None;
-        bytes += texture.payload_bytes;
+        if let Some(retried) = &texture.image {
+            images.insert(retried.id(), image).unwrap();
+            texture.upload = default();
+            texture.stalled = 0;
+        } else {
+            texture.image = Some(images.add(image));
+            bytes += texture.payload_bytes;
+        }
     }
     bytes
 }

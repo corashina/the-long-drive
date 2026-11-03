@@ -38,6 +38,11 @@ impl UploadReceipt {
         }
     }
 
+    /// The render world saw the GPU image and waits for the queue callback.
+    pub fn registered(&self) -> bool {
+        self.0.load(Ordering::Acquire) & RECEIPT_STATE == 1
+    }
+
     pub fn completed(&self) -> bool {
         self.0.load(Ordering::Acquire) & RECEIPT_STATE == 2
     }
