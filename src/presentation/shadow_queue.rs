@@ -271,7 +271,10 @@ pub fn queue(world: &mut World) {
                         }
                         if !phases.contains_key(&retained) {
                             state.queued[index].clear();
-                            world.entity_mut(entity).insert(ShadowDrawState::default());
+                            world.entity_mut(entity).insert((
+                                ShadowDrawState::default(),
+                                shadow_phase::ShadowBundles::default(),
+                            ));
                         }
                         // Source views carry NoIndirectDrawing, so their work items are direct.
                         phases.prepare_for_new_frame(
