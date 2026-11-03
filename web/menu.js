@@ -120,7 +120,10 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  }
  async function operate(operation,...args){if(operation==='newGame'&&model.readyFlag&&!model.pending&&reloadNewGame(model.started)){model.status=pendingText.newGame;paint();return;}audio?.pause();clearInput();const pending=model.run(operation,saveSession,...args);paint();if(await pending&&operation==='newGame')onNewGame?.();flush();if(operation==='save'||operation==='remove')await refresh();paint();}
  function openSaves(){model.saves();if(model.state!=='saves')return;screen.open({inMenu:!model.started,dead:model.dead,sleeping:sleeping(),seated:seated()});paint();refresh();}
- async function capture(){clearInput();const pending=captureWithAudio(model,ACTIONS.CONTINUE,async()=>{canvas.focus();await canvas.requestPointerLock();if(document.pointerLockElement!==canvas)throw Error('The browser did not capture the mouse.');},audio);paint();const success=await pending;if(!success && document.pointerLockElement===canvas)document.exitPointerLock();flush();paint();}
+ // Continue enters fullscreen, where Keyboard Lock keeps Ctrl+W (crouch + forward) in the game. Request pointer lock first: fullscreen takes the click.
+ // The settings Exit button keeps the game in a window for this page load.
+ let windowed=false;
+ async function capture(){clearInput();const pending=captureWithAudio(model,ACTIONS.CONTINUE,async()=>{canvas.focus();const lock=canvas.requestPointerLock();if(!windowed&&!document.fullscreenElement&&document.fullscreenEnabled)document.querySelector('main').requestFullscreen().catch(()=>{});await lock;if(document.pointerLockElement!==canvas)throw Error('The browser did not capture the mouse.');},audio);paint();const success=await pending;if(!success && document.pointerLockElement===canvas)document.exitPointerLock();flush();paint();}
  document.querySelector('#new-game').addEventListener('click',()=>operate('newGame'));
  document.querySelector('#pause-new-game').addEventListener('click',()=>operate('newGame'));
  for(const id of ['#save','#load','#start-load'])document.querySelector(id).addEventListener('click',openSaves);
@@ -133,7 +136,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  for(const id of backNodes)document.querySelector(id).addEventListener('click',()=>{model.back();paint();});
  document.querySelector('#recover').addEventListener('click',()=>{clearInput();model.recover();flush();paint();});
  const fullscreen=document.querySelector('#fullscreen');fullscreen.disabled=!document.fullscreenEnabled;
- fullscreen.addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.querySelector('main').requestFullscreen();}catch{model.error='Fullscreen is unavailable.';paint();}});
+ fullscreen.addEventListener('click',async()=>{windowed=Boolean(document.fullscreenElement);try{if(windowed)await document.exitFullscreen();else await document.querySelector('main').requestFullscreen();}catch{model.error='Fullscreen is unavailable.';paint();}});
  // In fullscreen, Keyboard Lock gives browser shortcuts such as Ctrl+W to the game. Hold Escape to leave fullscreen.
  document.addEventListener('fullscreenchange',()=>{fullscreen.textContent=document.fullscreenElement?'Exit':'Enter';if(document.fullscreenElement)navigator.keyboard?.lock().catch(()=>{});resize();});
  window.addEventListener('keydown',event=>{if(event.code!=='Escape'||event.repeat)return;event.preventDefault();if(model.state==='saves'&&!model.pending){if(screen.state.escape()==='back')model.back();paint();}else if(['settings','game-mode','appearance','multiplayer'].includes(model.state)){model.back();paint();}else if(model.state==='playing'||model.pending)pause(true);else if(model.state==='pause-menu')capture();});
