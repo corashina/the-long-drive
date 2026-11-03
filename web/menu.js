@@ -1,4 +1,3 @@
-import {applyLayout,layoutBox,rgba} from './ui-layout.js';
 import {createSaveScreen} from './save-screen.js';
 import {createSettingsScreen} from './settings-screen.js';
 import {createControlsScreen} from './controls-screen.js';
@@ -53,10 +52,10 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  const model=new MenuState(),menu=document.querySelector('#menu'),settingsNode=document.querySelector('#settings-screen'),gameMode=document.querySelector('#game-mode-screen'),savesNode=document.querySelector('#save-screen'),appearanceNode=document.querySelector('#appearance-screen'),multiplayerNode=document.querySelector('#multiplayer-screen'),startLast=document.querySelector('#start-load-last');
  const initial=document.querySelector('#start-actions'),paused=document.querySelector('#pause-actions'),error=document.querySelector('#capture-error'),status=document.querySelector('#status');
  const art=document.querySelector('#menu-art'),frame=document.querySelector('#menu-frame'),hud=document.querySelector('#hud');
- // The start menu buttons have their own layout (style.css). The pause menu takes the source layout.
- const initialNodes=['#new-game','#start-load','#start-load-last','#start-settings','#start-game-mode','#start-appearance','#start-multiplayer'].map(selector=>[selector]);
- const pauseNodes=[['#resume','continue'],['#save','continue'],['#load','continue'],['#pause-new-game','restart'],['#recover','recover'],['#settings','controls'],['#pause-game-mode','controls'],['#appearance','controls'],['#multiplayer','controls']];
- const actionNodes=[...initialNodes,...pauseNodes],backNodes=['#back','#game-mode-back','#save-back','#appearance-back','#multiplayer-back'],nodes=[...pauseNodes,...backNodes.filter(selector=>selector!=='#back').map(selector=>[selector,'back'])];
+ // The menus have their own layout (style.css), not the source sprites.
+ const initialNodes=['#new-game','#start-load','#start-load-last','#start-settings','#start-game-mode','#start-appearance','#start-multiplayer'];
+ const pauseNodes=['#resume','#save','#load','#pause-new-game','#recover','#settings','#pause-game-mode','#appearance','#multiplayer'];
+ const actionNodes=[...initialNodes,...pauseNodes],backNodes=['#back','#game-mode-back','#save-back','#appearance-back','#multiplayer-back'];
  let lastState='',lastError='',lastStatus='',lastTravel=-1,pendingDriving=0,canLast=false,startResult=null;
  const screen=createSaveScreen({settings,word:language.word,paint:()=>paint(),run:(operation,name)=>operate(operation,...(operation==='save'?[name,thumbnail()]:operation==='loadLast'?[buildId]:[name]))});
  const clutch=document.querySelector('#automatic-clutch'),gears=document.querySelector('#automatic-gears');
@@ -74,14 +73,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  const settingsScreen=createSettingsScreen(settingsNode,settings,language,()=>!model.started,{...resets,controls:[assistReset,...resets.controls??[]]});
  const controlsScreen=createControlsScreen(document.querySelector('#key-bindings'),document.querySelector('#key-bindings-reset'),settings,language,bindings);
  language.listen(()=>{lastTravel=-1;});
- function resize(){
-  const narrow=innerWidth<800;menu.classList.toggle('narrow',narrow);
-  for(const [selector,role] of nodes){const n=document.querySelector(selector);applyLayout(n,ui.layouts[role],ui.urls);if(ui.layoutUrls[role]){n.style.backgroundImage='url("'+ui.layoutUrls[role]+'")';n.style.backgroundColor='transparent';}if(narrow&&!backNodes.includes(selector)){Object.assign(n.style,{left:'auto',top:'auto',width:'100%',height:'44px',fontSize:'18px'});}}
-  if(!narrow){
-   const row=layoutBox(ui.layouts.continue,innerWidth,innerHeight),gap=Math.min(16,row.height*.25),top=innerHeight-16-pauseNodes.length*row.height-(pauseNodes.length-1)*gap;
-   pauseNodes.forEach(([selector],index)=>Object.assign(document.querySelector(selector).style,{left:row.x+'px',top:(top+index*(row.height+gap))+'px',width:row.width+'px',height:row.height+'px'}));
-  }
- }
+ function resize(){menu.classList.toggle('narrow',innerWidth<800);}
  function paint(){
   const state=model.state;menu.hidden=state==='playing';settingsNode.hidden=state!=='settings';gameMode.hidden=state!=='game-mode';savesNode.hidden=state!=='saves';appearanceNode.hidden=state!=='appearance';multiplayerNode.hidden=state!=='multiplayer';initial.hidden=!['start-menu','error'].includes(state);menu.classList.toggle('covered',state==='loading');paused.hidden=state!=='pause-menu';
   if(hud&&state!=='playing')hud.hidden=true;
@@ -90,7 +82,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
   clutch.disabled=model.pending;gears.disabled=model.pending||!clutch.checked;
   slider.lock(model.pending||model.started||!(state==='start-menu'||state==='settings'&&model.origin==='start-menu'));
   if(state==='settings')settingsScreen.paint();else controlsScreen.cancel();
-  for(const [selector] of actionNodes)document.querySelector(selector).disabled=!model.readyFlag||model.pending;
+  for(const selector of actionNodes)document.querySelector(selector).disabled=!model.readyFlag||model.pending;
   document.querySelector('#recover').disabled ||= model.dead;
   document.querySelector('#resume').disabled ||= model.deathComplete;
   // Source guests have no save: the host world is the one world.
