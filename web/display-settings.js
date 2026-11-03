@@ -45,9 +45,11 @@ export function mirrorPosition(value,{minimum,maximum,half}){
 export function displayFields(mirror){
  const fields={};
  for(const [name,row] of Object.entries(ROWS)){
-  fields[name]=row.range?{tab:'graphics',default:mirror.default,valid:v=>Number.isFinite(v)&&v>=mirror.minimum&&v<=mirror.maximum}
-   :row.values?{tab:'graphics',default:row.default,valid:v=>row.values.includes(v)}
-   :{tab:'graphics',default:row.default,valid:v=>typeof v==='boolean'};
+  let valid;
+  if(row.range)valid=v=>Number.isFinite(v)&&v>=mirror.minimum&&v<=mirror.maximum;
+  else if(row.values)valid=v=>row.values.includes(v);
+  else valid=v=>typeof v==='boolean';
+  fields[name]={tab:'graphics',default:row.range?mirror.default:row.default,valid};
  }
  return fields;
 }

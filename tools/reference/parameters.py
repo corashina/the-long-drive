@@ -1,5 +1,4 @@
 """Recover selected fields and retain their source evidence."""
-import hashlib
 from .source import key, source_id
 
 REQUIRED_CLASSES = {

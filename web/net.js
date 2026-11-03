@@ -50,8 +50,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  function failure(error){
   const type=error?.type;
   if(type==='peer-unavailable')stop(STATUS.notFound);
-  else if(type==='unavailable-id')stop(STATUS.server);
-  else if(['network','server-error','socket-error','browser-incompatible'].includes(type))stop(STATUS.server);
+  else if(['unavailable-id','network','server-error','socket-error','browser-incompatible'].includes(type))stop(STATUS.server);
   else stop(error?.message??String(error));
  }
  // Host: send to every guest except `except`.
@@ -59,7 +58,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  function removeGuest(id){
   const g=guests.get(id);if(!g)return;
   guests.delete(id);g.reliable?.close();g.pose?.close();closeVoice(g);
-  for(const other of guests.values()){other.voiceOut.get(g.slot)?.close();other.voiceOut.delete(g.slot);}
+  for(const other of guests.values())unrelay(other,g.slot);
   if(g.welcomed){emit('voice',g.slot,null);broadcast({t:'leave',slot:g.slot});emit('leave',g.slot);setLook(g.slot,null);}
  }
  async function hello(g,m){
@@ -110,6 +109,8 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  function closeVoice(g){g.voiceCall?.close();g.voiceCall=null;g.voiceIn=null;for(const call of g.voiceOut.values())call.close();g.voiceOut.clear();}
  // Host: sends the voice of `from` to guest `g`.
  function relay(g,from,stream){g.voiceOut.get(from)?.close();g.voiceOut.set(from,peer.call(g.id,stream,{metadata:{slot:from}}));}
+ // Host: stops sending the voice of `from` to guest `g`.
+ function unrelay(g,from){g.voiceOut.get(from)?.close();g.voiceOut.delete(from);}
  // Host: a guest microphone. It plays here and goes to the other guests.
  function hostCall(call){
   const g=guests.get(call.peer);if(!g?.welcomed){call.close();return;}
@@ -122,7 +123,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   call.on('close',()=>{
    if(g.voiceCall!==call)return;
    g.voiceCall=null;g.voiceIn=null;emit('voice',g.slot,null);
-   for(const other of guests.values()){other.voiceOut.get(g.slot)?.close();other.voiceOut.delete(g.slot);}
+   for(const other of guests.values())unrelay(other,g.slot);
   });
  }
  // Guest: the voice of one speaker from the host.
@@ -231,7 +232,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   // The local microphone stream, or null. It keeps across sessions.
   voice(stream){
    if(stream===mic)return;mic=stream;
-   if(role===ROLE.HOST){for(const g of guests.values()){if(!g.welcomed)continue;g.voiceOut.get(0)?.close();g.voiceOut.delete(0);if(mic)relay(g,0,mic);}}
+   if(role===ROLE.HOST){for(const g of guests.values()){if(!g.welcomed)continue;unrelay(g,0);if(mic)relay(g,0,mic);}}
    else if(role===ROLE.GUEST)callHost();
   },
   leave(){

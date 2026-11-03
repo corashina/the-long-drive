@@ -87,8 +87,6 @@ pub fn deform(prototype: &RoadPrototype, pose: &RoadPose) -> RoadMesh {
         .reserve_exact(prototype.skins.iter().map(|s| s.triangles.len()).sum());
     for skin in &prototype.skins {
         let base = output.vertices.len() as u32;
-        output.vertices.reserve(skin.positions.len());
-        output.normals.reserve(skin.positions.len());
         for index in 0..skin.positions.len() {
             let p = skin.positions[index];
             let normal = skin.normals[index];

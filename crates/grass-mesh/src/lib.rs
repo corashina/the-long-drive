@@ -5,7 +5,7 @@ mod expansion;
 pub use codec::*;
 pub use domain::GrassDomain;
 pub use expansion::{GrassAllocation, GrassExpansion, GrassMeshData};
-use glam::{Vec2, Vec3, Vec4};
+use glam::{Vec2, Vec3, Vec3Swizzles, Vec4};
 
 #[derive(Clone, Copy)]
 pub struct GrassPatch {
@@ -123,7 +123,6 @@ impl GrassSettings {
         }
     }
 }
-use glam::Vec3Swizzles;
 fn smooth(value: f32) -> f32 {
     let t = value.max(0.0).min(1.0);
     t * t * (3.0 - 2.0 * t)

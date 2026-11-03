@@ -1,6 +1,5 @@
 """Source BC primary storage and checked private-package conversion."""
 import hashlib
-from pathlib import Path
 
 
 def mip_sizes(width, height, count, block):

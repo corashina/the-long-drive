@@ -5,10 +5,9 @@ import math
 import struct
 from pathlib import Path
 from .source import Source, key, source_id, vector
-from .gltf import converted_transform, convert_point
+from .gltf import converted_transform
 from .collision import world_pose
 
-HOUSE=(67484,68886,72019,75508,76065)
 IDENTITY={'translation':[0.,0.,0.],'rotation':[0.,0.,0.,1.],'scale':[1.,1.,1.]}
 
 def rgba(value):return [value[c] for c in ('r','g','b','a')]

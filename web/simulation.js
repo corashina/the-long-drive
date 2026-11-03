@@ -53,11 +53,6 @@ export function joinPackets(packets){
  for(const p of packets){out[at]=p.length&255;out[at+1]=p.length>>8;out.set(p,at+2);at+=2+p.length;}
  return out;
 }
-export function splitPackets(bytes){
- const packets=[];
- for(let at=0;at+2<=bytes.length;){const n=bytes[at]|bytes[at+1]<<8;packets.push(bytes.subarray(at+2,at+2+n));at+=2+n;}
- return packets;
-}
 
 export function installSimulationBridge(target,simulation){
  target.gameSimSend=simulation.send;

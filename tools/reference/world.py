@@ -1,9 +1,8 @@
 """Recover selected world inputs from the checked source library."""
-import hashlib
 import math
 import copy
 from pathlib import Path
-from .source import LibrarySource, key, source_id, vector
+from .source import LibrarySource, key, source_id
 from .library.reader import LibraryReader
 from .library.types import ObjectId
 from .gltf import GltfExporter, convert_bind_poses, converted_transform
@@ -352,7 +351,6 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
         raise ValueError('level1:64898 roadGens: unsupported selected generator')
     roots={}
     roles={}
-    selections=[]
     def add(owner,role):
         root=_source_root(source,owner)
         if key(root) not in roots:

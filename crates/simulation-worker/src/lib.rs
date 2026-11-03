@@ -54,15 +54,11 @@ pub fn load_error() -> String {
 /// Runs one encoded command. Returns the encoded frame.
 #[wasm_bindgen]
 pub fn tick(command: &[u8]) -> Result<Vec<u8>, JsValue> {
-    SESSION.with_borrow_mut(|session| {
-        let session = session
-            .as_mut()
-            .ok_or_else(|| JsValue::from_str("The simulation is not started."))?;
-        session
-            .tick(command)
+    with_session(|s| {
+        s.tick(command)
             .map(<[u8]>::to_vec)
             .map_err(|e| JsValue::from_str(&e.0))
-    })
+    })?
 }
 
 fn with_session<T>(f: impl FnOnce(&mut Session) -> T) -> Result<T, JsValue> {

@@ -1,4 +1,4 @@
-use super::TerrainEvaluator;
+use super::{TerrainEvaluator, noise::inverse_lerp};
 use glam::Vec3 as Vector;
 
 /// Strict source thresholds. A supplied index is already zero based.
@@ -59,13 +59,6 @@ pub struct TerrainContext<'a> {
     pub biome_override: Option<u8>,
 }
 
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.0
-    } else {
-        ((value as f64 - a as f64) / (b as f64 - a as f64)).clamp(0.0, 1.0) as f32
-    }
-}
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
     (a as f64 + (b as f64 - a as f64) * t.clamp(0.0, 1.0) as f64) as f32
 }
@@ -206,11 +199,7 @@ impl TerrainSurfaceJob {
         let tile = context.tile;
         let n = tile.resolution as usize;
         *self = Self::default();
-        output.origin = [
-            unit[0] as f64 * tile.size as f64,
-            tile.y as f64,
-            -(unit[1] as f64 * tile.size as f64),
-        ];
+        output.origin = surface_origin(unit, tile);
         output.vertices.clear();
         output.normals.clear();
         output.tangents.clear();

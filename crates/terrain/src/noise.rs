@@ -153,7 +153,7 @@ struct Layer {
     threshold: [f32; 2],
 }
 
-fn inverse_lerp(start: f32, end: f32, value: f32) -> f32 {
+pub(crate) fn inverse_lerp(start: f32, end: f32, value: f32) -> f32 {
     if start == end {
         return 0.0;
     }
