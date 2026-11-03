@@ -1,5 +1,7 @@
 // One actor and its datasets belong to one presentation world.
 import {workerClockHandshake,workerDeliveryInterval,workerInputDeliveryInterval} from './cpu-profile.js';
+// Dataset layout written by `grass_mesh::encode_dataset`. The patch count is the last header word.
+export const GRASS_DATASET_HEADER=44,GRASS_PATCH_BYTES=60;
 const MAX_U64=18446744073709551615n;
 const u64=v=>typeof v==='string'&&/^(0|[1-9][0-9]{0,19})$/.test(v)&&BigInt(v)<=MAX_U64;
 const valid=id=>id?.kind==='grass'&&u64(id.session)&&u64(id.revision)&&u64(id.entity);
@@ -60,7 +62,7 @@ export function createGrass(worker,profile,now=()=>performance.now()){
   publicationStartedRaw(bytes){const key=entity(bytes);diagnostic(()=>{const r=publications.get(key);if(r)r.publicationStart=now();});},
   publicationEndedRaw(bytes,accepted){const key=entity(bytes),r=publications.get(key);publications.delete(key);diagnostic(()=>{if(r){const at=now();emit({...r,phase:'publication',accepted,publicationWaitMs:(r.publicationStart??at)-r.consumedAt,publicationMs:at-(r.publicationStart??at)});}});},
   capacityLimit(bytes){live();if(!Number.isSafeInteger(bytes)||bytes<capacityLimit)throw Error('Invalid grass capacity admission.');capacityLimit=bytes;},
-  install(id,input,scratch){live();if(!initialized||!valid(id)||sources.has(id.entity)||!Number.isSafeInteger(scratch)||scratch<0||input.byteLength<44)throw Error('Invalid grass installation.');const count=new DataView(input.buffer,input.byteOffset,input.byteLength).getUint32(40,true);if(input.byteLength!==44+count*60)throw Error('Invalid grass dataset size.');const record=copyPost('install',id,input);sources.set(id.entity,{identity:{...id},state:'Installing',count,scratch,record});},
+  install(id,input,scratch){live();if(!initialized||!valid(id)||sources.has(id.entity)||!Number.isSafeInteger(scratch)||scratch<0||input.byteLength<GRASS_DATASET_HEADER)throw Error('Invalid grass installation.');const count=new DataView(input.buffer,input.byteOffset,input.byteLength).getUint32(GRASS_DATASET_HEADER-4,true);if(input.byteLength!==GRASS_DATASET_HEADER+count*GRASS_PATCH_BYTES)throw Error('Invalid grass dataset size.');const record=copyPost('install',id,input);sources.set(id.entity,{identity:{...id},state:'Installing',count,scratch,record});},
   installed(key){live();return sources.get(key)?.state==='Installed';},
   retire(key){live();const s=sources.get(key);if(!s)return true;if(job?.identity.entity===key)return false;if(s.state!=='Retiring'){s.state='Retiring';post({type:'retire',identity:s.identity});}return false;},
   submit(id,input){live();const s=sources.get(id.entity);if(state!=='Idle'||!valid(id)||BigInt(id.revision)<=lastRevision||s?.state!=='Installed'||s.identity.session!==id.session||input.byteLength!==80)throw Error('Invalid grass submission.');const record=copyPost('plan',id,input);job={identity:{...id},record,plan:null,patchCount:s.count,scratch:s.scratch};lastRevision=BigInt(id.revision);state='Planning';},
