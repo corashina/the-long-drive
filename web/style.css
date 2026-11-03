@@ -26,34 +26,54 @@ button:focus-visible {outline:2px solid #fff;outline-offset:3px;}
 #performance p {margin:8px 0 0;color:#bbb;font:11px/1.4 Arial,sans-serif;}
 .menu-actions {position:absolute;inset:0;}
 #session-distance {position:absolute;right:24px;bottom:16px;margin:0;font-size:clamp(16px,1.5vw,24px);text-shadow:2px 2px 2px #000;}
-#settings-screen,#game-mode-screen,#save-screen,#multiplayer-screen {position:absolute;inset:0;}
-#settings-title,#game-mode-title,#save-title,#multiplayer-title {position:absolute;left:24px;top:20px;margin:0;font-size:clamp(24px,3.2vw,60px);font-weight:400;}
+#game-mode-screen,#save-screen,#multiplayer-screen {position:absolute;inset:0;}
+#game-mode-title,#save-title,#multiplayer-title {position:absolute;left:24px;top:20px;margin:0;font-size:clamp(24px,3.2vw,60px);font-weight:400;}
 #menu:has(#settings-screen:not([hidden]),#game-mode-screen:not([hidden]),#multiplayer-screen:not([hidden])) h1,#menu:has(#settings-screen:not([hidden]),#game-mode-screen:not([hidden]),#multiplayer-screen:not([hidden])) #status {visibility:hidden;}
-#settings-tabs {position:absolute;left:24px;right:24px;top:clamp(64px,7vw,110px);display:flex;flex-wrap:wrap;gap:8px;}
-#settings-tabs button,#settings-reset,.setting-slider button {position:static;min-height:44px;padding:4px 16px;background:#b4804640;border:1px solid #b48046;font:18px Arial,sans-serif;}
-#settings-tabs button.selected {border:2px solid #fff;}
-.settings-body {position:absolute;left:24px;right:24px;top:calc(clamp(64px,7vw,110px) + 60px);bottom:80px;overflow:auto;font:18px Arial,sans-serif;text-shadow:2px 2px 2px #000;}
-.settings-list {display:flex;flex-direction:column;gap:4px;margin:0 0 24px;max-width:900px;}
-.settings-list label,.setting-row {display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;min-height:44px;}
-.setting-slider {display:flex;flex:1;flex-wrap:wrap;align-items:center;gap:8px 12px;}
-.setting-slider label {min-width:14em;}
-.setting-slider input[type=range] {flex:1;min-width:120px;accent-color:#b48046;}
-.setting-slider input[type=number] {width:6em;min-height:36px;background:#0008;border:1px solid #b48046;color:#fff;font:inherit;}
-.settings-list input[type=checkbox] {margin:0;width:20px;height:20px;accent-color:#b48046;}
-.setting-toggle:has(input:disabled) {opacity:.45;}
+/* Settings screen: a solid window in the middle of a dimmed screen. */
+#settings-screen {position:absolute;inset:0;display:grid;place-items:center;padding:16px;background:#000b;}
+.settings-panel {display:flex;flex-direction:column;width:min(880px,100%);height:min(760px,calc(100dvh - 32px));background:#1b1b1b;border:1px solid #3a3a3a;box-shadow:0 20px 60px #000c;font:16px Arial,sans-serif;color:#d2d2d2;}
+#settings-title {margin:0;padding:18px 20px 0;font-size:26px;font-weight:400;color:#fff;}
+#settings-tabs {display:flex;flex-wrap:wrap;gap:0 24px;margin:12px 20px 0;border-bottom:1px solid #333;}
+#settings-tabs button {position:static;padding:8px 0 10px;border-bottom:2px solid transparent;color:#999;text-shadow:none;}
+#settings-tabs button.selected {color:#fff;border-bottom-color:#b48046;}
+.settings-body {flex:1;min-height:0;overflow:auto;padding:4px 20px 16px;}
+.settings-columns {display:grid;grid-template-columns:1fr 1fr;gap:0 28px;}
+#settings-screen h3,#settings-screen legend {margin:14px 0 4px;padding:0;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#b48046;}
+.settings-list {display:flex;flex-direction:column;}
+.settings-list label,.setting-row,#driving-assists label,#mouse-driving label {display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px;min-height:36px;padding:2px 4px;border-bottom:1px solid #262626;}
+.settings-list small {color:#888;font-size:12px;}
+.settings-list label > span:first-child,.settings-list label > small,#mouse-driving label > span {margin-right:auto;}
+.settings-list label > span:first-child:has(+ small) {margin-right:0;}
+.setting-row label {min-height:0;padding:0;border:0;}
+.setting-row > .setting-toggle:only-child {flex:1;}
+.settings-list label > input[type=checkbox],#driving-assists input {order:1;}
+.setting-slider {display:flex;flex:1;flex-wrap:wrap;align-items:center;gap:4px 10px;}
+.setting-slider label {flex:1 1 8em;}
+.setting-slider input[type=range] {flex:1 1 120px;min-width:80px;}
+.setting-slider input[type=number] {width:4.5em;}
+#settings-screen input[type=range] {width:150px;accent-color:#b48046;}
+#settings-screen output {min-width:4.5em;text-align:right;color:#bbb;}
+#settings-screen select,#settings-screen input[type=number],#settings-screen button:not([role=tab]) {position:static;min-width:0;height:32px;padding:0 12px;background:#2a2a2a;border:1px solid #444;color:#eee;font:inherit;text-shadow:none;}
+#settings-screen select {min-width:150px;}
+#settings-screen input[type=checkbox] {appearance:none;flex:none;position:relative;margin:0;width:38px;height:20px;border-radius:10px;background:#444;cursor:pointer;}
+#settings-screen input[type=checkbox]::after {content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#bbb;}
+#settings-screen input[type=checkbox]:checked {background:#b48046;}
+#settings-screen input[type=checkbox]:checked::after {left:21px;background:#fff;}
+#settings-screen input:focus-visible,#settings-screen select:focus-visible {outline:2px solid #fff;outline-offset:2px;}
+#settings-screen label:has(input:disabled) {opacity:.45;cursor:default;}
+.settings-foot {display:flex;justify-content:space-between;padding:14px 20px;border-top:1px solid #333;}
+#settings-screen #back {margin-left:auto;background:#b48046;border-color:#b48046;color:#fff;padding:0 24px;}
 .key-bindings-head {display:flex;align-items:center;gap:16px;margin:0 0 8px;}
-.key-bindings-head h3 {font-size:clamp(20px,2.5vw,50px);font-weight:400;margin:0;text-shadow:2px 2px 2px #000;}
-.key-bindings {display:flex;flex-direction:column;gap:4px;max-width:1100px;font:16px Arial,sans-serif;}
-.key-row {display:grid;grid-template-columns:minmax(160px,1.4fr) repeat(3,minmax(72px,1fr)) auto auto;align-items:center;gap:8px;min-height:44px;}
-.key-row span {text-shadow:2px 2px 2px #000;}
-.key-gap {margin-top:44px;}
-.key-row button,#key-bindings-reset {position:static;min-height:44px;padding:4px 12px;background:#b4804640;border:1px solid #b48046;font:16px Arial,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.key-bindings-head h3 {margin:0;}
+.key-bindings {display:flex;flex-direction:column;gap:4px;}
+.key-row {display:grid;grid-template-columns:minmax(160px,1.4fr) repeat(3,minmax(72px,1fr)) auto auto;align-items:center;gap:8px;min-height:36px;}
+.key-gap {margin-top:24px;}
+.key-row button {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .display-controls {position:absolute;left:16px;right:16px;bottom:16px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;font:18px Arial,sans-serif;}
 .display-controls label {display:flex;align-items:center;gap:8px;}
 #draw-distance-value {min-width:5.5em;}
-#fullscreen,#display-scene-scale,#display-shadows,#display-grass,#biome {min-height:44px;padding:8px 16px;background:#b4804640;border:1px solid #b48046;font:inherit;color:#fff;}
-#fullscreen {position:relative;align-self:flex-start;}
-#settings-screen #back,#game-mode-back {position:static;left:auto!important;top:auto!important;width:150px!important;height:44px!important;font-size:18px!important;}
+#biome {min-height:44px;padding:8px 16px;background:#b4804640;border:1px solid #b48046;font:inherit;color:#fff;}
+#game-mode-back {position:static;left:auto!important;top:auto!important;width:150px!important;height:44px!important;font-size:18px!important;}
 #menu:has(#save-screen:not([hidden])) h1 {visibility:hidden;}
 #appearance-screen {position:absolute;inset:0;z-index:2;}
 #menu:has(#appearance-screen:not([hidden])) :is(#menu-art,#menu-frame,h1,#status) {display:none;}
@@ -151,7 +171,7 @@ button:focus-visible {outline:2px solid #fff;outline-offset:3px;}
  #menu.narrow #session-distance {position:static;margin:8px 0;font-size:16px;}
  .key-row {grid-template-columns:repeat(3,minmax(0,1fr));}
  .key-row span {grid-column:1/-1;}
- .settings-body {left:16px;right:16px;}
+ .settings-columns {grid-template-columns:1fr;}
  #menu.narrow #status {top:70px;font-size:18px;}
  .save-body {inset:190px 16px 76px;grid-template-columns:1fr;}
  #save-tiles {grid-template-columns:repeat(2,minmax(0,1fr));}
@@ -165,26 +185,17 @@ button:focus-visible {outline:2px solid #fff;outline-offset:3px;}
 
 #sleep-feedback{position:fixed;inset:0;pointer-events:none;z-index:3}.sleep-label{position:absolute;text-align:center;white-space:nowrap}#sleep-hint{position:fixed;z-index:3;pointer-events:none}
 
-#driving-assists {border:0;margin:0 0 24px;padding:0;font-size:18px;text-shadow:2px 2px 2px #000;}
-#driving-assists legend {margin-bottom:8px;}
-#driving-assists label {display:flex;align-items:center;gap:12px;min-height:44px;cursor:pointer;}
-#driving-assists input {margin:0;width:20px;height:20px;accent-color:#b48046;}
-#driving-assists input:focus-visible {outline:2px solid #fff;outline-offset:3px;}
+#driving-assists {border:0;margin:0 0 16px;padding:0;}
+#driving-assists label {cursor:pointer;}
 #driving-assists label:has(input:disabled) {opacity:.45;cursor:default;}
-#mouse-driving {border:0;margin:0 0 24px;padding:0;font-size:18px;text-shadow:2px 2px 2px #000;}
-#mouse-driving legend {margin-bottom:8px;}
-#mouse-driving label {display:flex;align-items:center;gap:12px;min-height:44px;}
-#mouse-driving input {flex:1;min-width:0;accent-color:#b48046;}
-#mouse-driving output {min-width:3em;}
-#steering-wheel {border:0;margin:0 0 24px;padding:0;font-size:18px;text-shadow:2px 2px 2px #000;}
-#steering-wheel legend,#steering-wheel h4 {margin:0 0 8px;font-size:inherit;}
+#mouse-driving {border:0;margin:0 0 16px;padding:0;}
+#steering-wheel {border:0;margin:0;padding:0;}
+#steering-wheel legend,#steering-wheel h4 {margin:12px 0 4px;font-size:inherit;}
 #steering-wheel .wheel-axis {margin-bottom:16px;}
-#steering-wheel .wheel-bind,#steering-wheel .wheel-checks,#steering-wheel .wheel-check,#steering-wheel .wheel-slider {display:flex;flex-wrap:wrap;align-items:center;gap:12px;min-height:44px;}
+#steering-wheel .wheel-bind,#steering-wheel .wheel-checks,#steering-wheel .wheel-check,#steering-wheel .wheel-slider {display:flex;flex-wrap:wrap;align-items:center;gap:12px;min-height:36px;}
 #steering-wheel .wheel-bind span {min-width:6em;}
 #steering-wheel .wheel-bind output {flex:1;min-width:7em;}
-#steering-wheel button {position:static;min-height:44px;padding:0 8px;}
-#steering-wheel input[type=checkbox] {margin:0;width:20px;height:20px;accent-color:#b48046;}
-#steering-wheel input[type=range] {flex:1;min-width:0;accent-color:#b48046;}
+#steering-wheel input[type=range] {flex:1;min-width:0;}
 #steering-wheel .wheel-slider output {min-width:3em;}
 #steering-wheel .wheel-live {display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-variant-numeric:tabular-nums;}
 #driving-gear {position:absolute;left:50%;bottom:96px;margin:0;transform:translateX(-50%);font-size:18px;font-variant-numeric:tabular-nums;}
