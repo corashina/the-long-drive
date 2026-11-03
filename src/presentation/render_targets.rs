@@ -12,7 +12,7 @@ pub const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth24PlusStencil8;
 pub const SHADOW_FORMAT: TextureFormat = TextureFormat::Depth16Unorm;
 pub const EXPOSURE_FORMAT: TextureFormat = TextureFormat::R32Float;
 pub const HISTOGRAM_FORMAT: TextureFormat = TextureFormat::Rgba32Uint;
-/// World view samples with antialiasing on. The source uses 8. WebGPU allows only 1 or 4.
+/// World view samples with antialiasing high. The source uses 8. WebGPU allows only 1 or 4.
 pub const MSAA_SAMPLES: u32 = 4;
 
 pub struct Target {

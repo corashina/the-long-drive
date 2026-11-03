@@ -487,10 +487,12 @@ pub(crate) fn snapshot(
         }
         Some(snapshot)
     });
-    let main_motion = (antialiasing.0 || blur.0).then(|| {
+    let main_motion = (antialiasing.taa() || blur.0).then(|| {
         temporal.advance(
             snapshots[0].as_mut().unwrap(),
-            antialiasing.0.then_some(&assets.record.postprocessing.taa),
+            antialiasing
+                .taa()
+                .then_some(&assets.record.postprocessing.taa),
             origin.0,
             sim.frame.state.motion_revision,
             epoch.0,

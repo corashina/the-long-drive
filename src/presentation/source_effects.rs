@@ -315,12 +315,12 @@ pub(crate) fn prepare(
     };
     let colors = surfaces.targets.world.clone();
     let extent = [colors.width, colors.height];
-    let motion = if antialiasing.0 || input.motion_blur {
+    let motion = if antialiasing.taa() || input.motion_blur {
         let Some(pass) = motion.pass(&colors) else {
             return;
         };
         Some(MotionInputs {
-            taa: antialiasing.0.then_some(record.taa),
+            taa: antialiasing.taa().then_some(record.taa),
             blur: input.motion_blur.then_some(record.motion_blur),
             motion: pass.view(),
         })
