@@ -757,9 +757,7 @@ impl GarageRuntime {
             self.previous_speed = None;
             return;
         }
-        let speed = self.physics.rapier().bodies[self.area.player.body_handle()]
-            .linvel()
-            .length();
+        let speed = self.area.player.motion_velocity(&self.physics).length();
         if !self.death_protected
             && self
                 .previous_speed
