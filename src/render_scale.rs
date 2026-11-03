@@ -1,7 +1,7 @@
 //! The scene scale setting as a Bevy resource. Auto steps the scale on the F3 GPU time.
 use crate::{
-    browser::game_scene_scale,
-    presentation::{gpu_timing, readiness::RendererStateHandle},
+    display_settings::{AUTO_SCALE, DisplaySettings},
+    presentation::gpu_timing,
 };
 use bevy::{ecs as bevy_ecs, prelude::*};
 use simulation::render_scale::AutoScale;
@@ -11,8 +11,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SceneScaleSetting(pub SceneScale);
 
-/// The menu value for Auto.
-const AUTO: u32 = 0;
 /// The scale percent that F3 shows.
 static PERCENT: AtomicU32 = AtomicU32::new(100);
 
@@ -31,20 +29,13 @@ pub(crate) fn update(
     mut scale: ResMut<SceneScaleSetting>,
     mut state: Local<AutoState>,
     budget: Res<crate::app::FrameBudget>,
-    status: Res<RendererStateHandle>,
+    display: Res<DisplaySettings>,
 ) {
-    let percent = game_scene_scale();
-    let value = if percent == AUTO {
+    let value = if display.scene_scale == AUTO_SCALE {
         auto_scale(&mut state, budget.ms)
     } else {
         state.auto = None;
-        match SceneScale::from_percent(percent) {
-            Ok(value) => value,
-            Err(error) => {
-                status.fail(error.into());
-                return;
-            }
-        }
+        SceneScale::from_percent(display.scene_scale).expect("DisplaySettings::parse checks it")
     };
     if scale.0 != value {
         scale.0 = value;

@@ -52,11 +52,9 @@ extern "C" {
     #[wasm_bindgen(method,structural,js_name=dispose)]
     pub fn grass_dispose(this: &GrassTransport);
 
-    #[wasm_bindgen(js_namespace = window, js_name = gameSceneScale)]
-    pub fn game_scene_scale() -> u32;
-    /// "Shadows" setting: 0 high, 1 medium, 2 low.
-    #[wasm_bindgen(js_namespace = window, js_name = gameShadowQuality)]
-    pub fn game_shadow_quality() -> u32;
+    /// Pending `DisplaySettings` JSON, or none.
+    #[wasm_bindgen(js_namespace = window, js_name = gameDisplaySettings)]
+    pub fn game_display_settings() -> Option<String>;
     #[wasm_bindgen(js_name = gameAudioError)]
     pub fn game_audio_error(message: &str);
     #[wasm_bindgen(js_namespace = window, js_name = gameAudioSurvival)]
@@ -287,37 +285,6 @@ extern "C" {
     /// Voice position of a remote figure in listener space (`gameAudioListener`). `alive` false: it is gone.
     #[wasm_bindgen(js_namespace = window, js_name = gameRemoteVoice)]
     pub fn game_remote_voice(slot: u32, x: f32, y: f32, z: f32, alive: bool);
-    /// "Antialiasing" setting at page load: 0 high, 1 low, 2 off.
-    #[wasm_bindgen(js_namespace = window, js_name = gameAntialiasing)]
-    pub fn game_antialiasing() -> u32;
-    /// "Grass" setting at page load: 0 high, 1 medium, 2 low.
-    #[wasm_bindgen(js_namespace = window, js_name = gameGrassQuality)]
-    pub fn game_grass_quality() -> u32;
-    /// Pending "Ambient occlusion" setting, or none.
-    #[wasm_bindgen(js_namespace = window, js_name = gameAmbientOcclusion)]
-    pub fn game_ambient_occlusion() -> Option<bool>;
-    /// Pending "Motion blur" setting, or none.
-    #[wasm_bindgen(js_namespace = window, js_name = gameMotionBlur)]
-    pub fn game_motion_blur() -> Option<bool>;
-    /// Pending "Depth of field" setting, or none.
-    #[wasm_bindgen(js_namespace = window, js_name = gameDepthOfField)]
-    pub fn game_depth_of_field() -> Option<bool>;
-    /// Pending "Sunglasses effects" setting, or none.
-    #[wasm_bindgen(js_namespace = window, js_name = gameSunglassesEffects)]
-    pub fn game_sunglasses_effects() -> Option<bool>;
-    /// Pending `ScreenEffects` JSON, or none.
-    #[wasm_bindgen(js_namespace = window, js_name = gameScreenEffects)]
-    pub fn game_screen_effects() -> Option<String>;
-    /// Pending "Lamp shadows" setting, or none.
-    #[wasm_bindgen(js_namespace = window, js_name = gameLampShadows)]
-    pub fn game_lamp_shadows() -> Option<bool>;
-    /// Pending "Reflections" setting, or none.
-    #[wasm_bindgen(js_namespace = window, js_name = gameReflections)]
-    pub fn game_reflections() -> Option<bool>;
-    /// Fills the pending "Mirrors" setting: on (0 or 1) and the draw distance in meters.
-    /// False when nothing changed.
-    #[wasm_bindgen(js_namespace = window, js_name = gameMirrors)]
-    pub fn game_mirrors(setting: &mut [f32]) -> bool;
     /// Fills the appearance preview rect: x, y, width and height in canvas fractions.
     /// False while the appearance screen is closed.
     #[wasm_bindgen(js_namespace = window, js_name = gameAppearancePreview)]

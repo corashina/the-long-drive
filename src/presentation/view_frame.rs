@@ -180,7 +180,7 @@ pub struct SourceViewFrame {
     pub session: u64,
     pub selection_revision: u64,
     pub(crate) scale: crate::render_scale::SceneScale,
-    pub(crate) shadow_quality: super::shadow_quality::ShadowQuality,
+    pub(crate) shadow_quality: crate::display_settings::ShadowQuality,
     pub preparation_warmup: bool,
     pub motion_revision: u32,
     pub scene: u32,
@@ -326,23 +326,22 @@ pub(crate) fn snapshot(
     status: Res<RendererStateHandle>,
     settings: (
         Res<crate::render_scale::SceneScaleSetting>,
-        Res<super::shadow_quality::ShadowQuality>,
+        Res<crate::display_settings::DisplaySettings>,
         Res<super::mirrors::MirrorFrame>,
     ),
     views: Query<(&SourceSurfaceView, &Camera, &GlobalTransform)>,
     sky_view: Query<(&Camera, &GlobalTransform), With<super::frame_graph::SourceSkyCamera>>,
-    (antialiasing, blur, mut temporal, origin): (
+    (antialiasing, mut temporal, origin): (
         Res<super::antialiasing::Antialiasing>,
-        Res<super::motion_blur::MotionBlur>,
         ResMut<super::temporal::TemporalView>,
         Res<super::lighting_scene::SourceWorldOrigin>,
     ),
 ) {
     frame.session = sim.frame.state.session;
     frame.selection_revision = sim.frame.state.selection_revision;
-    let (scale, shadow_quality, mirrors) = settings;
+    let (scale, display, mirrors) = settings;
     frame.scale = scale.0;
-    frame.shadow_quality = *shadow_quality;
+    frame.shadow_quality = display.shadows;
     frame.scene = epoch.0;
     frame.probe_job = None;
     frame.views = [None; VIEW_COUNT];
@@ -487,7 +486,7 @@ pub(crate) fn snapshot(
         }
         Some(snapshot)
     });
-    let main_motion = (antialiasing.taa() || blur.0).then(|| {
+    let main_motion = (antialiasing.taa() || display.motion_blur).then(|| {
         temporal.advance(
             snapshots[0].as_mut().unwrap(),
             antialiasing
@@ -528,7 +527,7 @@ pub(crate) fn snapshot(
         session: sim.frame.state.session,
         selection_revision: sim.frame.state.selection_revision,
         scale: scale.0,
-        shadow_quality: *shadow_quality,
+        shadow_quality: display.shadows,
         preparation_warmup: warmup,
         scene: epoch.0,
         motion_revision: sim.frame.state.motion_revision,
@@ -608,13 +607,11 @@ pub fn install(app: &mut App) {
         .init_resource::<SourceViewClock>()
         .init_resource::<SourceSceneEpoch>()
         .init_resource::<super::lighting_scene::ProbeActivation>()
-        .init_resource::<super::reflections::Reflections>()
         .init_resource::<SourceViewFrame>()
         .init_resource::<super::temporal::TemporalView>()
         .add_plugins(bevy::render::extract_resource::ExtractResourcePlugin::<
             SourceViewFrame,
         >::default())
-        .add_systems(Update, super::reflections::poll)
         .add_systems(
             PostUpdate,
             sync_probe_cameras
