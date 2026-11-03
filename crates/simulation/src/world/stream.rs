@@ -1092,7 +1092,73 @@ impl WorldStream {
             "terrain": self.terrain_execution.has_pending(),
             "contents": self.contents.has_replay(),
             "available": self.available_external_jobs(),
+            "missing": self.missing_required_audit(),
+            "gates": {
+                "generation": self.initial_generation_ready,
+                "views": self.required.views_ready,
+                "startup": self.startup.is_some(),
+                "failure": self.failure.is_some(),
+                "ramps_wait": self.ramps_wait,
+                "plan_current": self.plan_revision == self.request.revision,
+                "roads_discovered": self.next_road == self.road_candidates.len(),
+                "supports": self.required_content().collision_ranges.into_iter().all(|bounds| self.supports(bounds)),
+                "props_selected": self.props.selection_complete(),
+                "discovery": format!("{:?}", self.contents.discovery_ready(&self.reference, &self.wanted_structures, &self.replay_roots)),
+            },
         })
+    }
+    /// The required items that are not published yet, and where each waits.
+    fn missing_required_audit(&self) -> serde_json::Value {
+        let road_surface = |id: u32| {
+            self.surfaces
+                .iter()
+                .any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(id))
+        };
+        let roads: Vec<_> = self
+            .required
+            .roads
+            .iter()
+            .filter(|id| !road_surface(**id))
+            .map(|id| {
+                serde_json::json!({
+                    "id": id,
+                    "wanted": self.wanted_roads.contains(id),
+                    "in_work": self.road_work.as_ref().is_some_and(|w| w.segment.index == *id),
+                })
+            })
+            .collect();
+        let terrain: Vec<_> = self
+            .required
+            .terrain
+            .iter()
+            .filter(|key| !self.surfaces.iter().any(|s| s.key == **key))
+            .map(|key| format!("{key:?}"))
+            .collect();
+        let structures: Vec<_> = self
+            .required
+            .structures
+            .iter()
+            .filter(|id| {
+                !(self.structures.iter().any(|s| s.placement.id == **id) && self.bindings_ready(id))
+            })
+            .map(|id| {
+                let mut audit = match self.wanted_structures.iter().find(|p| &p.id == id) {
+                    Some(p) => {
+                        let mut audit = self.structure_audit(p);
+                        audit["prototype"] = format!("{:?}", p.prototype).into();
+                        audit
+                    }
+                    None => serde_json::json!({}),
+                };
+                audit["id"] = format!("{id:?}").into();
+                audit["wanted"] = self.wanted_structures.contains(id).into();
+                audit["published"] = self.structures.iter().any(|s| s.placement.id == *id).into();
+                audit["bindings_ready"] = self.bindings_ready(id).into();
+                audit["content"] = self.contents.contains(id).into();
+                audit
+            })
+            .collect();
+        serde_json::json!({ "roads": roads, "terrain": terrain, "structures": structures })
     }
     /// The road prototype index to fill and the stream bytes of a new hold.
     fn hold_cost(&self, source: &SourceId) -> (Option<usize>, usize) {
