@@ -1,4 +1,4 @@
-//! Source four-cascade atlas dispatch over the persistent caster phase.
+//! Source four-cascade atlas dispatch over the persistent caster phase of each tile bit.
 use super::{
     lamp_shadows::{LampShadowUniform, LampShadows, TILES, tile_bit},
     lighting_assets::LightingRenderAssets,
@@ -8,6 +8,7 @@ use super::{
     shadow_phase::{CasterSet, ShadowDrawState, SourceShadow},
     shadow_queue::ShadowQueues,
     shadow_scene::ShadowScene,
+    shadow_tiles::{ShadowTileViews, TILE_BITS},
     surface_graph::SurfaceViewTargets,
     surface_views::{SourceSurfaceView, WORLD_VIEWS},
     view_frame::SourceViewFrame,
@@ -23,7 +24,6 @@ use bevy::render::{
     render_phase::{TrackedRenderPass, ViewBinnedRenderPhases},
     render_resource::{binding_types::texture_depth_2d, *},
     renderer::{RenderContext, RenderDevice, ViewQuery},
-    view::ExtractedView,
 };
 use bevy::{ecs as bevy_ecs, prelude::*};
 use std::sync::Arc;
@@ -288,11 +288,11 @@ fn tile_pass<'a>(label: &'static str, attachment: &'a TextureView) -> RenderPass
 pub(crate) fn render_atlas(
     world: &World,
     view: ViewQuery<(
-        &ExtractedView,
         &SurfaceViewTargets,
         &ShadowDrawState,
         &SourceSurfaceView,
         &ShadowCadence,
+        &ShadowTileViews,
     )>,
     pipelines: Option<Res<AtlasPipelines>>,
     phases: Res<ViewBinnedRenderPhases<SourceShadow>>,
@@ -309,7 +309,7 @@ pub(crate) fn render_atlas(
         return;
     }
     let entity = view.entity();
-    let (view, targets, state, source, cadence) = view.into_inner();
+    let (targets, state, source, cadence, tiles) = view.into_inner();
     if frame.views[source.index].is_none()
         || cadence.frame != frame.frame
         || queues.frame != frame.frame
@@ -317,9 +317,15 @@ pub(crate) fn render_atlas(
     {
         return;
     }
-    let Some(phase) = phases.get(&view.retained_view_entity) else {
-        return;
-    };
+    // Tile bit N draws from phase N. Lamp faces of one slot share the phase of the slot.
+    let mut tile_phases = [None; TILE_BITS];
+    for bit in 0..tiles.count {
+        let Some(phase) = phases.get(&tiles.retained[bit]) else {
+            return;
+        };
+        tile_phases[bit] = Some(phase);
+    }
+    let phase_of = |tile: usize| tile_phases[tile_bit(tile)];
     let Some((clear, restore)) = pipelines.and_then(|p| {
         Some((
             cache.get_render_pipeline(p.clear)?,
@@ -329,12 +335,13 @@ pub(crate) fn render_atlas(
         return;
     };
     // Pipeline preparation is asynchronous. No partial atlas can be published.
-    if phase
-        .batchable_meshes
-        .keys()
-        .chain(phase.unbatchable_meshes.keys())
-        .any(|(key, _)| cache.get_render_pipeline(key.pipeline).is_none())
-    {
+    if tile_phases.iter().flatten().any(|phase| {
+        phase
+            .batchable_meshes
+            .keys()
+            .chain(phase.unbatchable_meshes.keys())
+            .any(|(key, _)| cache.get_render_pipeline(key.pipeline).is_none())
+    }) {
         return;
     }
     state.begin();
@@ -354,7 +361,9 @@ pub(crate) fn render_atlas(
             viewport(&mut pass, cascade);
             pass.set_render_pipeline(clear);
             pass.draw(0..3, 0..1);
-            if let Err(error) = phase.render(&mut pass, world, entity) {
+            if let Some(phase) = phase_of(cascade)
+                && let Err(error) = phase.render(&mut pass, world, entity)
+            {
                 status.fail(format!("Source shadow atlas draw: {error:?}"));
                 return;
             }
@@ -386,7 +395,9 @@ pub(crate) fn render_atlas(
             pass.set_render_pipeline(restore);
             pass.set_bind_group(0, &cadence.restore, &[]);
             pass.draw(0..3, 0..1);
-            if let Err(error) = phase.render(&mut pass, world, entity) {
+            if let Some(phase) = phase_of(cascade)
+                && let Err(error) = phase.render(&mut pass, world, entity)
+            {
                 status.fail(format!("Source shadow atlas draw: {error:?}"));
                 return;
             }
@@ -412,7 +423,9 @@ pub(crate) fn render_atlas(
             lamp_viewport(&mut pass, tile);
             pass.set_render_pipeline(clear);
             pass.draw(0..3, 0..1);
-            if let Err(error) = phase.render(&mut pass, world, entity) {
+            if let Some(phase) = phase_of(tile)
+                && let Err(error) = phase.render(&mut pass, world, entity)
+            {
                 status.fail(format!("Source lamp shadow draw: {error:?}"));
                 return;
             }
@@ -446,7 +459,9 @@ pub(crate) fn render_atlas(
             pass.set_render_pipeline(restore);
             pass.set_bind_group(0, lamp_restore, &[]);
             pass.draw(0..3, 0..1);
-            if let Err(error) = phase.render(&mut pass, world, entity) {
+            if let Some(phase) = phase_of(tile)
+                && let Err(error) = phase.render(&mut pass, world, entity)
+            {
                 status.fail(format!("Source lamp shadow draw: {error:?}"));
                 return;
             }

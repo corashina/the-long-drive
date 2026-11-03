@@ -1,6 +1,6 @@
 //! Persistent source shadow items use Bevy's mesh extraction and instance buffers.
 use super::caster::CasterViews;
-use super::lamp_shadows::{TILES, tile_bit};
+use super::lamp_shadows::TILES;
 use bevy::ecs as bevy_ecs;
 use bevy::ecs::{query::ROQueryItem, system::SystemParamItem};
 use bevy::pbr::{DrawMesh, SetMeshBindGroup};
@@ -13,7 +13,7 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-/// All members use the same draw state and recovered cascade membership.
+/// All members use the same draw state. Each tile bit has its own phase.
 pub type ShadowBatchKey = super::shadow_batch::ShadowBatchKey<
     CachedRenderPipelineId,
     DrawFunctionId,
@@ -174,7 +174,7 @@ impl RenderCommand<SourceShadow> for SelectCaster {
         } else {
             CasterSet::Animated
         };
-        if item.key.split_mask & (1 << tile_bit(cascade)) == 0 || set == excluded as u32 {
+        if set == excluded as u32 {
             return RenderCommandResult::Skip;
         }
         pass.set_bind_group(1, views.binding(cascade), &[]);
