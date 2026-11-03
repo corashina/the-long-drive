@@ -2,6 +2,7 @@
 from .source import key, source_id
 from .world import _source_root
 from .mechanisms import recover_mechanisms
+from .vehicles import handbrake_lever, handbrake_recipe
 
 def recover_world_mechanisms(source, selected, world):
     result=[]
@@ -48,4 +49,10 @@ def recover_world_mechanisms(source, selected, world):
             if r['slide'] and r['slide']['animation_source']:
                 a=r['slide']['animation_source'];selected.record(source.get(a['file'],a['path_id']))
             result.append(dict(prototype=prototype['source'],node=node-1,recipe=r))
+        lever=handbrake_lever(source,hierarchy) if prototype.get('vehicle') else None
+        if lever is not None:
+            selected.record(lever)
+            node=mapping[key(lever)]
+            recipe=handbrake_recipe(lever,node,max((r['id'] for r in recipes),default=0)+1)
+            result.append(dict(prototype=prototype['source'],node=node-1,recipe=recipe))
     return result

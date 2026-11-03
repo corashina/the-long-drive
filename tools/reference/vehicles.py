@@ -149,6 +149,53 @@ def control_pedals(proto, car_reader, car) -> list:
     return pedals
 
 
+def handbrake_lever(source, hierarchy):
+    """The first PedalsHandBrake Transform of a car hierarchy, or None."""
+    for n in hierarchy:
+        for c in n['components']:
+            if c.type.name=='MonoBehaviour' and source.class_name(c)=='carscript':
+                pedals=source.read(c)['PedalsHandBrake']
+                return source.resolve(c,pedals[0]['T']) if pedals else None
+    return None
+
+
+def handbrake_collider(source, hierarchy, lever, mapping, body, body_pose):
+    """Port addition: a trigger box around the handbrake lever mesh, so the use ray can toggle it.
+    The source lever has no collider. Thin sides grow to 10 percent of the longest side."""
+    from .collision import bake_points
+    from .source import vector
+    def under(reader):
+        while reader is not None:
+            if key(reader)==key(lever):return True
+            reader=source.resolve(reader,source.read(reader)['m_Father'])
+        return False
+    for n in hierarchy:
+        if not under(n['reader']):continue
+        for c in n['components']:
+            if c.type.name!='MeshFilter':continue
+            aabb=source.read(source.resolve(c,source.read(c)['m_Mesh']))['m_LocalAABB']
+            center=vector(aabb['m_Center']);extent=vector(aabb['m_Extent'])
+            least=max(extent)*0.1
+            if least<=0:raise ValueError(f'Empty handbrake lever mesh: {key(c)}')
+            extent=[max(e,least) for e in extent]
+            points=[tuple(center[i]+(x,y,z)[i]*extent[i] for i in range(3)) for x in (-1,1) for y in (-1,1) for z in (-1,1)]
+            return {'source':source_id(c),'node':mapping[key(n['reader'])],'enabled':True,'body':body,'trigger':True,
+                'material':None,'deformed_skin':None,'source_empty_mesh':None,
+                'geometry':{'kind':'convex','points':bake_points(points,source.chain(n['reader']),body_pose)},
+                'role':None,'step_surface':None,'tag':None}
+    raise ValueError(f'Handbrake lever without a mesh: {key(lever)}')
+
+
+def handbrake_recipe(lever, node, mechanism_id):
+    """Port addition: a usable on the handbrake lever node (1-based) that calls carscript.InteractHandbrake."""
+    zero=[0.,0.,0.]
+    return {'id':mechanism_id,'source':source_id(lever),'driven_nodes':[],'enabled':True,'invert_child':False,'invert_value':False,
+        'drag':{'mode':'direct','node':node,'node2':node,'axis':zero,'axes2':[zero,zero]},
+        'rotation':None,'slide':None,'reaction':{'kind':'none'},'hand_target':None,'right_hand':False,'left_hand':False,
+        'not_nearest_hand':False,'turn':{'action':{'kind':'toggle_handbrake'},'max_state':0,'initial_state':0},
+        'item':node,'parent_item':None,'child':None,'disable_on_craft':False,'disable_on_uncraft':False}
+
+
 def reach_record(proto, car_reader, car) -> dict:
     """carscript control targets (null when unset) and limb flags after the Start Vinv inversion."""
     flags={name:bool(car[field])!=(bool(car['Vinv']) and i<5) for i,(name,field) in enumerate(REACH_FLAGS)}

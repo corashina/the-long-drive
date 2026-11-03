@@ -925,7 +925,16 @@ def export_world_prototypes(source,reader,selected,output,roots,roles,scope_cach
             'materials':[dict(material,asset=index) for material in report['materials']],'sled':sled,'pushes':pushes,
             'trailer':trailer,'hitches':recover_hitches(source,hierarchy,mapping,colliders),'help_texts':recover_help_texts(source,hierarchy,mapping),
             'probes':probe_records(source,hierarchy)}
-        from .vehicles import vehicle_record, part_records
+        from .vehicles import vehicle_record, part_records, handbrake_lever, handbrake_collider
+        # Port addition after the source collider passes: the handbrake lever usable.
+        lever=handbrake_lever(source,hierarchy)
+        if lever is not None:
+            owner_node=lever
+            while key(owner_node) not in body_nodes and key(owner_node)!=key(root):
+                owner_node=source.resolve(owner_node,source.read(owner_node)['m_Father'])
+            body=body_nodes.get(key(owner_node))
+            colliders.append(handbrake_collider(local,hierarchy,lever,mapping,body,bodies[body]['pose'] if body is not None else IDENTITY))
+            selected.record(source.get(colliders[-1]['source']['file'],colliders[-1]['source']['path_id']))
         vehicle=vehicle_record(source,hierarchy,bodies,colliders,index,report['material_indices'],output)
         if vehicle:prototype['vehicle']=vehicle
         prototype['followers']=recover_followers(source,hierarchy,mapping,vehicle,trailer)
