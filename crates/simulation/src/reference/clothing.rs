@@ -1,10 +1,8 @@
-pub mod menu_figure;
 pub mod pose;
 pub mod preview;
 pub mod ragdoll;
 use super::postprocessing::{DeadProfile, GlassesProfile};
 use super::*;
-pub use menu_figure::*;
 pub use pose::*;
 pub use preview::*;
 pub use ragdoll::*;
@@ -27,7 +25,6 @@ pub struct ClothingReference {
     pub dead_profile: DeadProfile,
     pub ragdoll: RagdollReference,
     pub preview: PreviewReference,
-    pub menu_figure: MenuFigureReference,
     pub evidence: ManagedEvidence,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -228,7 +225,6 @@ impl ClothingReference {
             })
             .collect();
         self.preview.validate(&joint_names)?;
-        self.menu_figure.validate(&joint_names)?;
         require(self.wearables.len() == 6, "selected wearable families")?;
         for (w, (wearable, root, item, type_index)) in self.wearables.iter().zip([
             (146739, 70812, 217, 0),

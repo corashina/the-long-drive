@@ -26,6 +26,7 @@ pub struct DrivingReference {
     pub pedal_rate: f32,
     pub force_manual: bool,
     pub min_motor_torque_nm: f32,
+    /// Port choice: both off. Source `tabControls` defaults are on.
     pub default_assists: DrivingAssists,
     pub bindings: Vec<InputBinding>,
     pub mouse_drive: MouseDriveReference,

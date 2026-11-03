@@ -294,11 +294,9 @@ def _export_selected(source, output: Path, library, snapshot) -> None:
     def transform(go):return source.transform_for(source.get('level1',go))
     roots = {'home':[source.get('level1',21400)],
         'items':[transform(go) for go in (13023,13027,18878,13019,15637)]}
-    spare=source.get('level1',71403)
     from .flashlights import prepare_flashlight_roots, validate_flashlight_mesh_export
     prepare_flashlight_roots(source, roots)
     prepare_cleaning_roots(source, roots)
-    roots['items'].append(source.transform_for(source.resolve(spare,source.read(spare)['m_GameObject'])))
     roots['items'].append(transform(3542))
     from .survival import prepare_food, recover_survival, bind_survival
     from .particles import recover_particles, recover_outlet_particles
