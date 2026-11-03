@@ -2,10 +2,10 @@
 
 use super::feedback::ItemPrompt;
 use super::items::{ItemLocation, ItemStore};
-use super::level::{inverse_lerp, lerp};
 use super::{AimTarget, InteractionState, OpeningState};
 use crate::fluids::transfer;
 use crate::reference::{HOSE_SEGMENTS, ItemId, ItemPrototype, OpeningId, ReferenceError};
+use crate::simulation::dials::{inverse_lerp, lerp};
 use crate::vehicle::{PhysicsWorld, to_rapier};
 use rapier3d::math::{Pose, Vector};
 use rapier3d::prelude::{ImpulseJointHandle, RigidBodyHandle, SphericalJointBuilder};

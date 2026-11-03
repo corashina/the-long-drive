@@ -1288,10 +1288,8 @@ impl CleaningTools {
         &mut self,
         frame: ToolFrame,
         reference: &ReferenceManifest,
-        _conditions: &mut ConditionStore,
         items: &ItemStore,
         physics: &PhysicsWorld,
-        _parts: &PartAttachments,
     ) {
         if !frame.active || !frame.dt.is_finite() || frame.dt <= 0. {
             return;

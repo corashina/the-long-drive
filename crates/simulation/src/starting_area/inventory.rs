@@ -552,10 +552,8 @@ impl GarageRuntime {
         self.area.interaction.cleaning.finish_frame(
             frame,
             reference,
-            &mut self.area.interaction.conditions,
             &self.area.items,
             &self.physics,
-            &self.area.interaction.parts,
         );
         for item in self.area.interaction.cleaning.take_changed() {
             self.area.items.mark_dirty(item);
