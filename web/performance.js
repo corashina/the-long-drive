@@ -39,7 +39,7 @@ function renderLines(audit){
  const view=audit.graph.views[0],sum=values=>values.reduce((a,b)=>a+b,0);
  const [rows,visible,draws]=view.props;
  return '\nDraws shadow / surface: '+sum(view.shadow_issued)+' / '+(view.surface[2]+view.surface[4])+
-  '\nGPU props rows / visible / indirect draws: '+rows+' / '+visible+' / '+draws+gpuLine(audit.gpu_ms);
+  '\nGPU props rows / visible / indirect draws: '+rows+' / '+visible+' / '+draws+gpuLine(audit.gpu_ms)+'\nScene scale: '+audit.scene_scale+'%';
 }
 
 // `readWorker` gives the simulation worker tick average since its last read and its WASM bytes.

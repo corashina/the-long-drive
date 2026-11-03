@@ -1,6 +1,7 @@
 pub(crate) use simulation::cpu_profile;
 mod frame_cpu;
 mod frame_limit;
+pub(crate) use frame_limit::FrameBudget;
 mod performance;
 pub(crate) mod save;
 mod sim_link;
@@ -239,8 +240,12 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
         })
         .insert_resource(ClearColor(Color::BLACK))
         .init_resource::<crate::render_scale::SceneScaleSetting>()
+        .init_resource::<FrameBudget>()
         .add_systems(Startup, frame_limit::keep_proxy)
-        .add_systems(PreUpdate, (update_scene_scale, frame_limit::update))
+        .add_systems(
+            PreUpdate,
+            (frame_limit::update, crate::render_scale::update).chain(),
+        )
         .init_resource::<presentation::shadow_quality::ShadowQuality>()
         .add_systems(PreUpdate, presentation::shadow_quality::poll)
         .add_plugins(presentation::source_io::SourceIoPlugin::new(
@@ -404,22 +409,6 @@ fn setup(
         drive.startup.far_plane,
         *antialiasing,
     );
-}
-
-fn update_scene_scale(
-    mut scale: ResMut<crate::render_scale::SceneScaleSetting>,
-    status: Res<presentation::readiness::RendererStateHandle>,
-) {
-    match crate::render_scale::SceneScale::from_percent(game_scene_scale()) {
-        Ok(value) => {
-            if scale.0 != value {
-                scale.0 = value;
-            }
-        }
-        Err(error) => {
-            status.fail(error.into());
-        }
-    }
 }
 
 fn check_ready(
