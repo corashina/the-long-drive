@@ -428,7 +428,7 @@ impl InteractionState {
             && !latched_fill
             && !drink_guard
             && !food_guard
-            && !self.reserves_lmb();
+            && self.lmb_owner().is_none();
         if self.latched_mechanism.is_none()
             && let Some(t) = aim.light_target
             && t.distance.is_finite()
@@ -466,10 +466,11 @@ impl InteractionState {
         if !a.active_drag && a.actions.0 & ActionMask::MOUNT != 0 {
             a.actions.0 &= !(ActionMask::DROP | ActionMask::THROW);
         }
-        if let Some(held) = self.equipment.item().filter(|_| {
-            self.cleaning
-                .reserves_lmb(self.equipment.item(), self.held())
-        }) {
+        if let Some(held) = self
+            .equipment
+            .item()
+            .filter(|_| self.lmb_owner() == Some(super::claims::LmbOwner::CleaningTool))
+        {
             a.item = Some(held);
             a.actions.0 &= !(ActionMask::DOOR
                 | ActionMask::FILL

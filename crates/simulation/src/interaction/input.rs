@@ -21,11 +21,6 @@ pub(super) struct ResolvedInput {
     carry_mouse_owned: bool,
     carry_wheel_owned: bool,
 }
-fn remove(input: &mut FrameInput, keys: u32) {
-    input.held &= !keys;
-    input.pressed &= !keys;
-    input.released &= !keys;
-}
 impl InteractionState {
     pub(super) fn active_mechanism_target(
         &self,
@@ -53,7 +48,7 @@ impl InteractionState {
         self.cancelled_input &= !input.pressed;
         let blocked = self.cancelled_input;
         self.cancelled_input &= input.held;
-        remove(&mut input, blocked);
+        input.drop_keys(blocked);
         if blocked & (keys::RECENTER | keys::TRANSLATE | keys::ROTATE) != 0 {
             input.wheel = 0.;
         }
@@ -133,7 +128,7 @@ impl InteractionState {
             carry_mouse_owned: false,
             carry_wheel_owned: self.held().is_some(),
         };
-        remove(&mut resolved.carry_input, keys::RECENTER);
+        resolved.carry_input.drop_keys(keys::RECENTER);
         let primary_use = available.lmb_use && self.held_light_control().is_none();
         let use_held =
             input.held & keys::USE != 0 || (primary_use && input.held & keys::PRIMARY != 0);
@@ -150,11 +145,11 @@ impl InteractionState {
         if active_drag {
             // RayStuff skips new F targets. Existing carry and grip release run separately.
             if self.held().is_none() && !self.push.gripping() {
-                remove(&mut resolved.grab_input, keys::GRAB);
+                resolved.grab_input.drop_keys(keys::GRAB);
             }
-            remove(&mut resolved.push_input, keys::GRAB);
+            resolved.push_input.drop_keys(keys::GRAB);
         } else if mounting {
-            remove(&mut resolved.use_input, keys::USE | keys::PRIMARY);
+            resolved.use_input.drop_keys(keys::USE | keys::PRIMARY);
             resolved.use_input.mouse = [0.; 2];
             resolved.use_input.wheel = 0.;
         }
@@ -174,7 +169,7 @@ impl InteractionState {
             resolved.carry_input.wheel = 0.;
         }
         if input.pressed & keys::PRIMARY != 0 && self.held_light_control().is_some() {
-            remove(&mut resolved.carry_input, keys::PRIMARY);
+            resolved.carry_input.drop_keys(keys::PRIMARY);
         }
         resolved
     }

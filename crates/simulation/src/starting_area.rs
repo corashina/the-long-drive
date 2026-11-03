@@ -949,13 +949,7 @@ impl GarageRuntime {
                 picked_up,
             );
         // fpscontroller `scrubbing`: `drotkefe.Use` in the hand, or pointing.
-        let scrubbing = (input.held & keys::PRIMARY != 0
-            && self
-                .area
-                .interaction
-                .equipment
-                .item()
-                .is_some_and(|id| self.area.interaction.cleaning.is_brush(id)))
+        let scrubbing = self.area.interaction.scrubbing(&input)
             || input.player_held & crate::simulation::player_keys::POINT != 0;
         PlayerStepContext {
             scrubbing,
@@ -1079,11 +1073,9 @@ impl GarageRuntime {
             self.survival.output(),
             factors.fluid_scale,
         );
-        if self.area.interaction.reserves_lmb() {
-            // fpscontroller noLMBUse: the binocular LMB does not use the aimed item.
-            input.held &= !keys::PRIMARY;
-            input.pressed &= !keys::PRIMARY;
-            input.released &= !keys::PRIMARY;
+        if self.area.interaction.lmb_owner().is_some() {
+            // fpscontroller noLMBUse: the held tool LMB does not use the aimed item.
+            input.drop_keys(keys::PRIMARY);
         }
         let action = outcome.action;
         if action.is_none()

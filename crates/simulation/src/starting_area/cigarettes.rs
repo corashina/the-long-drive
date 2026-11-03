@@ -213,12 +213,6 @@ impl CigaretteRuntime {
     }
 }
 
-fn strip(input: &mut FrameInput, bits: u32) {
-    input.held &= !bits;
-    input.pressed &= !bits;
-    input.released &= !bits;
-}
-
 impl GarageRuntime {
     /// Source `pickedUp`, or the right-hand item when one is held there.
     fn smoke_held(&self) -> Option<ItemId> {
@@ -326,7 +320,7 @@ impl GarageRuntime {
                 .is_some_and(PackState::can_take)
                 && input.pressed & keys::USE != 0
             {
-                strip(input, keys::USE);
+                input.drop_keys(keys::USE);
                 self.take_one(reference, id);
             }
             // Held cigarette: LMB.
@@ -353,7 +347,7 @@ impl GarageRuntime {
                         self.area.cigarettes.exhale.charge(&exhale, dt);
                     }
                 }
-                strip(input, keys::PRIMARY);
+                input.drop_keys(keys::PRIMARY);
             }
         }
         let blocked = smoking
