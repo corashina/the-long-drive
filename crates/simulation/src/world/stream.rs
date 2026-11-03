@@ -52,135 +52,9 @@ pub struct WorldRequest {
     pub player: [f64; 3],
     pub vehicle: [f64; 3],
 }
-/// Renderer-owned allocations, including loader staging.
-#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PresentationAllocation {
-    pub grass_worker_wasm_bytes: usize,
-    pub grass_worker_cache_bytes: usize,
-    pub grass_worker_reserved_bytes: usize,
-    pub active_cpu: usize,
-    pub active_gpu: usize,
-    pub prototype_cpu: usize,
-    pub prototype_gpu: usize,
-    pub jobs: usize,
-    pub pending: usize,
-    pub staging_bytes: usize,
-    pub dependency_staging_bytes: usize,
-    pub objects: usize,
-}
-impl PresentationAllocation {
-    /// Applies `f` to each pair of fields.
-    pub fn zip(self, other: Self, f: impl Fn(usize, usize) -> usize) -> Self {
-        Self {
-            grass_worker_wasm_bytes: f(self.grass_worker_wasm_bytes, other.grass_worker_wasm_bytes),
-            grass_worker_cache_bytes: f(
-                self.grass_worker_cache_bytes,
-                other.grass_worker_cache_bytes,
-            ),
-            grass_worker_reserved_bytes: f(
-                self.grass_worker_reserved_bytes,
-                other.grass_worker_reserved_bytes,
-            ),
-            active_cpu: f(self.active_cpu, other.active_cpu),
-            active_gpu: f(self.active_gpu, other.active_gpu),
-            prototype_cpu: f(self.prototype_cpu, other.prototype_cpu),
-            prototype_gpu: f(self.prototype_gpu, other.prototype_gpu),
-            jobs: f(self.jobs, other.jobs),
-            pending: f(self.pending, other.pending),
-            staging_bytes: f(self.staging_bytes, other.staging_bytes),
-            dependency_staging_bytes: f(
-                self.dependency_staging_bytes,
-                other.dependency_staging_bytes,
-            ),
-            objects: f(self.objects, other.objects),
-        }
-    }
-}
-
-/// The renderer use of one frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PresentationReport {
-    pub used: PresentationAllocation,
-    /// Totals the renderer wanted to reach this frame.
-    pub want: PresentationAllocation,
-    /// Credit the renderer gave back. It no longer spends it.
-    pub release: PresentationAllocation,
-}
-impl PresentationReport {
-    /// Adds a later report: its use and wants, and both releases.
-    pub fn merge(self, later: Self) -> Self {
-        Self {
-            used: later.used,
-            want: later.want,
-            release: self.release.zip(later.release, usize::saturating_add),
-        }
-    }
-}
-
-/// Renderer fields that own stream work waited for this step. The stream grants none of them,
-/// and the renderer gives back their unused credit.
-#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Reclaim {
-    pub jobs: bool,
-    pub pending: bool,
-    /// Staging and dependency staging.
-    pub staging: bool,
-    pub prototype_cpu: bool,
-}
-impl Reclaim {
-    const JOBS: u8 = 1;
-    const PENDING: u8 = 2;
-    const STAGING: u8 = 4;
-    const PROTOTYPE_CPU: u8 = 8;
-    fn from_bits(bits: u8) -> Self {
-        Self {
-            jobs: bits & Self::JOBS != 0,
-            pending: bits & Self::PENDING != 0,
-            staging: bits & Self::STAGING != 0,
-            prototype_cpu: bits & Self::PROTOTYPE_CPU != 0,
-        }
-    }
-    /// `allocation` without the fields own work waited for.
-    fn keep(self, mut allocation: PresentationAllocation) -> PresentationAllocation {
-        if self.jobs {
-            allocation.jobs = 0;
-        }
-        if self.pending {
-            allocation.pending = 0;
-        }
-        if self.staging {
-            allocation.staging_bytes = 0;
-            allocation.dependency_staging_bytes = 0;
-        }
-        if self.prototype_cpu {
-            allocation.prototype_cpu = 0;
-        }
-        allocation
-    }
-    /// Only the fields of `allocation` that own work waited for.
-    pub fn take(self, allocation: PresentationAllocation) -> PresentationAllocation {
-        allocation.zip(self.keep(allocation), usize::saturating_sub)
-    }
-}
-
-/// The stream answer: added credit, and the fields own work waits for.
-#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PresentationGrant {
-    pub credit: PresentationAllocation,
-    pub reclaim: Reclaim,
-    /// The stream lends its publication slot of this frame.
-    pub publication: bool,
-}
-impl PresentationGrant {
-    /// Adds a later grant: both credits. The later step decides reclaim and the lend.
-    pub fn merge(self, later: Self) -> Self {
-        Self {
-            credit: self.credit.zip(later.credit, usize::saturating_add),
-            reclaim: later.reclaim,
-            publication: later.publication,
-        }
-    }
-}
+pub use presentation_ledger::{
+    PresentationAllocation, PresentationGrant, PresentationReport, Reclaim,
+};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SurfaceKey {
     pub layer: WorldLayer,
@@ -300,11 +174,7 @@ pub struct WorldStream {
     reference: Arc<WorldReference>,
     pub distances: super::DrawDistances,
     limits: super::stream_limits::StreamLimits,
-    presentation: PresentationAllocation,
-    dependency_staging_reserve: usize,
-    dependency_metadata: usize,
-    /// Fields that own work waited for this step, as `Reclaim` bits.
-    reclaim: std::sync::atomic::AtomicU8,
+    ledger: presentation_ledger::PresentationLedger,
     changes: super::ChangeRecords,
     replay_roots: Vec<Placement>,
     replay_indices: Vec<super::changes::ChangeRecordIndex>,
@@ -401,14 +271,6 @@ pub struct WorldStream {
     /// The last publication found a renderer-ready surface that waits, such as a road that
     /// waits for a required structure.
     surface_waits: bool,
-    /// Renderer want of the last report above its covered use.
-    presentation_want: PresentationAllocation,
-    /// The last grant: renderer want above its covered use, and the fields own work waited for.
-    last_wait: (PresentationAllocation, Reclaim),
-    /// Renderer use of the last report above its credit. The grant credits it back.
-    presentation_cover: PresentationAllocation,
-    /// Renderer use of the last report.
-    presentation_used: PresentationAllocation,
     /// A building lookup waits for prototype CPU room. Its ramps are not appended yet.
     ramps_wait: bool,
     failure: Option<String>,
@@ -909,10 +771,7 @@ impl WorldStream {
             start_car,
             structure_helpers,
             building_components: Default::default(),
-            presentation: PresentationAllocation::default(),
-            dependency_staging_reserve: 0,
-            dependency_metadata: 0,
-            reclaim: std::sync::atomic::AtomicU8::new(0),
+            ledger: Default::default(),
             terrain_layer: *terrain_layer as u8,
             road_layers,
             reference: Arc::clone(world),
@@ -1030,43 +889,34 @@ impl WorldStream {
             publication_available: false,
             publication_lent: false,
             surface_waits: false,
-            presentation_want: PresentationAllocation::default(),
-            last_wait: Default::default(),
-            presentation_used: PresentationAllocation::default(),
             ramps_wait: false,
-            presentation_cover: PresentationAllocation::default(),
             failure: None,
             last_road_work: 0,
         })
     }
 
-    pub(crate) fn set_presentation_allocation(
-        &mut self,
-        next: PresentationAllocation,
-    ) -> Result<(), ReferenceError> {
-        for budget in self.presentation_budgets(next) {
-            if budget.used > budget.limit {
-                return Err(ReferenceError(format!(
-                    "{} budget exceeded: requested {} {}, limit {} {}.",
-                    budget.name, budget.used, budget.unit, budget.limit, budget.unit,
-                )));
-            }
+    /// Own use for one ledger call.
+    fn stream_use(&self) -> presentation_ledger::StreamUse {
+        presentation_ledger::StreamUse {
+            totals: self.metrics(),
+            generation_pending: self.generation_pending_bytes(),
+            binding_reserved: self.binding_reserved,
+            jobs: self.own_jobs(),
+            jobs_open: self.initial_generation_ready,
+            active_cpu_limit: self.limits.active_cpu,
+            active_gpu_limit: self.limits.active_gpu,
+            objects_limit: self.limits.objects,
         }
-        self.presentation = next;
-        Ok(())
     }
-
+    /// Own external jobs: terrain, road and replay.
+    fn own_jobs(&self) -> usize {
+        usize::from(self.terrain_execution.has_pending())
+            + usize::from(self.road_work.is_some())
+            + usize::from(self.contents.has_replay())
+    }
     /// Takes the renderer report before own work: given-back credit returns and use is
     /// covered. Use above the credit must fit the limits, or the stream fails as before.
     pub fn take_presentation_report(&mut self, report: PresentationReport) {
-        let credit = self.presentation.zip(report.release, usize::saturating_sub);
-        let mut covered = credit.zip(report.used, usize::max);
-        // Dependency staging is part of the staging credit. Per-field give-backs can leave
-        // more dependency credit than staging credit.
-        covered.dependency_staging_bytes = covered
-            .dependency_staging_bytes
-            .min(covered.staging_bytes)
-            .max(report.used.dependency_staging_bytes);
         // With no work that can publish, the renderer takes this frame's publication slot.
         // A prepared surface without its renderer receipt cannot publish, and a road can wait
         // for a required structure. The renderer work that finishes the receipt or the
@@ -1077,178 +927,22 @@ impl WorldStream {
                 .as_ref()
                 .is_none_or(|work| !work.renderer_ready || self.surface_waits)
             && self.ready_structures.is_empty();
-        if let Err(error) = self.set_presentation_allocation(covered) {
-            self.presentation = credit;
-            self.failure.get_or_insert(format!(
-                "{} Renderer asset CPU: use {} bytes, credit {} bytes.",
-                error.0, report.used.prototype_cpu, credit.prototype_cpu,
-            ));
+        let own = self.stream_use();
+        if let Err(error) = self.ledger.take_report(&own, report) {
+            self.failure.get_or_insert(error);
         }
-        self.presentation_cover = self.presentation_cover.zip(
-            covered.zip(credit, usize::saturating_sub),
-            usize::saturating_add,
-        );
-        self.presentation_want = report.want.zip(covered, usize::saturating_sub);
-        self.presentation_used = report.used;
     }
     /// Answers the last report after own work. The renderer gets the credit for its covered
     /// use, and the room that own work left, but no field that own work waited for.
     pub fn grant_presentation(&mut self) -> PresentationGrant {
-        let reclaim =
-            Reclaim::from_bits(self.reclaim.swap(0, std::sync::atomic::Ordering::Relaxed));
-        self.last_wait = (self.presentation_want, reclaim);
-        let want = reclaim.keep(std::mem::take(&mut self.presentation_want));
-        if self.failure.is_some() {
-            return PresentationGrant {
-                reclaim,
-                ..Default::default()
-            };
-        }
-        let covered = self.presentation;
-        let mut target = covered.zip(want.zip(self.presentation_room(), usize::min), |a, b| {
-            a.saturating_add(b)
-        });
-        // Dependency staging is part of the staging credit.
-        target.dependency_staging_bytes = target
-            .dependency_staging_bytes
-            .min(target.staging_bytes)
-            .max(covered.dependency_staging_bytes);
-        if self.set_presentation_allocation(target).is_err() {
-            target = covered;
-            self.presentation = covered;
-        }
-        let cover = std::mem::take(&mut self.presentation_cover);
-        PresentationGrant {
-            credit: target
-                .zip(covered, usize::saturating_sub)
-                .zip(cover, usize::saturating_add),
-            reclaim,
-            publication: self.publication_lent,
-        }
-    }
-    /// Free room of each renderer field next to the current credit.
-    fn presentation_room(&self) -> PresentationAllocation {
-        let budgets = self.presentation_budgets(self.presentation);
-        let free = |i: usize| (budgets[i].limit as usize).saturating_sub(budgets[i].used as usize);
-        let pending = MAX_PENDING.saturating_sub(self.pending_work()).min(free(5));
-        let jobs = if self.initial_generation_ready {
-            free(9)
-        } else {
-            0
-        };
-        PresentationAllocation {
-            grass_worker_wasm_bytes: usize::MAX,
-            grass_worker_cache_bytes: usize::MAX,
-            grass_worker_reserved_bytes: usize::MAX,
-            active_cpu: free(0),
-            active_gpu: free(1),
-            prototype_cpu: free(2),
-            prototype_gpu: free(3),
-            objects: free(4),
-            pending,
-            staging_bytes: free(6).min(self.available_dependency_staging_bytes()),
-            dependency_staging_bytes: usize::MAX,
-            jobs,
-        }
+        let own = self.failure.is_none().then(|| self.stream_use());
+        self.ledger.grant(own.as_ref(), self.publication_lent)
     }
     pub fn presentation_budgets(
         &self,
         next: PresentationAllocation,
     ) -> [super::metrics::ResourceBudget; 10] {
-        use super::metrics::ResourceBudget;
-        let current = self.metrics();
-        let old = self.presentation;
-        let active_cpu = current
-            .active_cpu_bytes
-            .saturating_sub(old.active_cpu)
-            .saturating_add(next.active_cpu);
-        let active_gpu = current
-            .active_gpu_bytes
-            .saturating_sub(old.active_gpu)
-            .saturating_add(next.active_gpu);
-        let prototype_cpu = current
-            .prototype_cpu_bytes
-            .saturating_sub(old.prototype_cpu)
-            .saturating_add(next.prototype_cpu);
-        let prototype_gpu = current
-            .prototype_gpu_bytes
-            .saturating_sub(old.prototype_gpu)
-            .saturating_add(next.prototype_gpu);
-        let objects = current
-            .generated_objects
-            .saturating_sub(old.objects)
-            .saturating_add(next.objects);
-        let pending = current
-            .pending_work
-            .saturating_sub(old.pending)
-            .saturating_add(next.pending);
-        let staging = next.staging_bytes + self.generation_pending_bytes();
-        let jobs = next.jobs
-            + usize::from(self.terrain_execution.has_pending())
-            + usize::from(self.road_work.is_some())
-            + usize::from(self.contents.has_replay());
-        [
-            ResourceBudget {
-                name: super::metrics::BUDGET_LABELS[0].0,
-                used: active_cpu,
-                limit: self.limits.active_cpu,
-                unit: super::metrics::BUDGET_LABELS[0].1,
-            },
-            ResourceBudget {
-                name: super::metrics::BUDGET_LABELS[1].0,
-                used: active_gpu,
-                limit: self.limits.active_gpu,
-                unit: super::metrics::BUDGET_LABELS[1].1,
-            },
-            ResourceBudget {
-                name: super::metrics::BUDGET_LABELS[2].0,
-                used: prototype_cpu,
-                limit: PROTOTYPE_CPU,
-                unit: super::metrics::BUDGET_LABELS[2].1,
-            },
-            ResourceBudget {
-                name: super::metrics::BUDGET_LABELS[3].0,
-                used: prototype_gpu,
-                limit: PROTOTYPE_GPU,
-                unit: super::metrics::BUDGET_LABELS[3].1,
-            },
-            ResourceBudget {
-                name: super::metrics::BUDGET_LABELS[4].0,
-                used: objects,
-                limit: self.limits.objects,
-                unit: super::metrics::BUDGET_LABELS[4].1,
-            },
-            ResourceBudget {
-                name: super::metrics::BUDGET_LABELS[5].0,
-                used: pending,
-                limit: 32,
-                unit: super::metrics::BUDGET_LABELS[5].1,
-            },
-            ResourceBudget {
-                name: super::metrics::BUDGET_LABELS[6].0,
-                used: staging,
-                limit: STAGING,
-                unit: super::metrics::BUDGET_LABELS[6].1,
-            },
-            ResourceBudget {
-                name: super::metrics::BUDGET_LABELS[7].0,
-                used: next.dependency_staging_bytes,
-                limit: next.staging_bytes,
-                unit: super::metrics::BUDGET_LABELS[7].1,
-            },
-            ResourceBudget {
-                name: super::metrics::BUDGET_LABELS[8].0,
-                used: self.generation_pending_bytes() - self.binding_reserved,
-                limit: STAGING - self.dependency_staging_reserve,
-                unit: super::metrics::BUDGET_LABELS[8].1,
-            },
-            ResourceBudget {
-                name: super::metrics::BUDGET_LABELS[9].0,
-                used: jobs,
-                limit: EXTERNAL_JOBS,
-                unit: super::metrics::BUDGET_LABELS[9].1,
-            },
-        ]
+        self.ledger.budgets(&self.stream_use(), next)
     }
     fn generation_pending_bytes(&self) -> usize {
         self.binding_reserved
@@ -1266,63 +960,35 @@ impl WorldStream {
             })
     }
     fn admit_generation(&mut self, bytes: usize) -> bool {
-        if bytes > STAGING - self.dependency_staging_reserve
+        let staging = self.ledger.staging_limit();
+        if bytes > staging
             || self.metrics().active_cpu_bytes.saturating_add(bytes) > self.limits.active_cpu
         {
             self.failure = Some(format!(
-                "Source generation budget exceeded: CPU requested {} bytes, limit {} bytes; staging requested {bytes} bytes, limit {} bytes",
+                "Source generation budget exceeded: CPU requested {} bytes, limit {} bytes; staging requested {bytes} bytes, limit {staging} bytes",
                 self.metrics().active_cpu_bytes.saturating_add(bytes),
                 self.limits.active_cpu,
-                STAGING - self.dependency_staging_reserve
             ));
             return false;
         }
-        self.wait_for_staging(bytes)
-    }
-    /// True if `bytes` of generation staging fit. Generation reclaims renderer staging only
-    /// when renderer credit blocks the bytes. Credit that comes back does not enlarge the
-    /// generation share. Work at that share can wait for renderer loads, and a reclaim then
-    /// stops those loads: the first page load stalls (K4).
-    fn wait_for_staging(&self, bytes: usize) -> bool {
-        bytes <= self.generation_share_bytes()
-            && self.wait_for_room(
-                bytes <= self.available_dependency_staging_bytes(),
-                Reclaim::STAGING,
-            )
+        self.ledger.wait_for_staging(
+            bytes,
+            self.generation_pending_bytes(),
+            self.binding_reserved,
+        )
     }
     // Retained generation may wait for resources. Keep one checked input window free.
     // Grass and synchronous published bindings drain without further resource loads.
     pub(crate) fn available_staging_bytes(&self) -> usize {
-        self.available_dependency_staging_bytes()
-            .min(self.generation_share_bytes())
-    }
-    /// Free generation staging. The dependency reserve stays for the renderer.
-    fn generation_share_bytes(&self) -> usize {
-        (STAGING - self.dependency_staging_reserve)
-            .saturating_sub(self.generation_pending_bytes() - self.binding_reserved)
+        let pending = self.generation_pending_bytes();
+        (self.ledger.dependency_room(pending))
+            .min(self.ledger.generation_share(pending, self.binding_reserved))
     }
     pub(crate) fn available_dependency_staging_bytes(&self) -> usize {
-        STAGING.saturating_sub(self.presentation.staging_bytes + self.generation_pending_bytes())
+        self.ledger.dependency_room(self.generation_pending_bytes())
     }
     pub fn dependency_staging_configured(&self) -> bool {
-        self.dependency_staging_reserve != 0
-    }
-    fn configure_dependency_staging(
-        &mut self,
-        reserve: usize,
-        metadata: usize,
-    ) -> Result<(), ReferenceError> {
-        if reserve == 0 || reserve >= STAGING {
-            return Err(ReferenceError(
-                "Invalid dependency staging reservation".into(),
-            ));
-        }
-        if self.dependency_staging_configured() {
-            return Ok(());
-        }
-        self.dependency_staging_reserve = reserve;
-        self.dependency_metadata = metadata;
-        Ok(())
+        self.ledger.dependency_staging_configured()
     }
     /// The pending work parts, for the sandbox: replay, contents, props, ready structures,
     /// prepared surface, terrain, road and renderer.
@@ -1337,7 +1003,7 @@ impl WorldStream {
             usize::from(self.ready.is_some()),
             usize::from(self.terrain_execution.has_pending()),
             usize::from(self.road_work.is_some()),
-            self.presentation.pending,
+            self.ledger.credit().pending,
         ]
     }
     fn pending_work(&self) -> usize {
@@ -1348,27 +1014,14 @@ impl WorldStream {
             .pending_work()
             .checked_add(claims)
             .is_some_and(|count| count <= MAX_PENDING);
-        self.wait_for_room(fits, Reclaim::PENDING)
-    }
-    /// Keeps `field` from the next renderer grant when own work does not fit.
-    fn wait_for_room(&self, fits: bool, field: u8) -> bool {
-        if !fits {
-            self.reclaim
-                .fetch_or(field, std::sync::atomic::Ordering::Relaxed);
-        }
-        fits
+        self.ledger.wait_for_room(fits, Reclaim::PENDING)
     }
     pub(crate) fn available_external_jobs(&self) -> usize {
         if !self.initial_generation_ready {
             return 0;
         }
-        let free = EXTERNAL_JOBS.saturating_sub(
-            self.presentation.jobs
-                + usize::from(self.terrain_execution.has_pending())
-                + usize::from(self.road_work.is_some())
-                + usize::from(self.contents.has_replay()),
-        );
-        self.wait_for_room(free > 0, Reclaim::JOBS);
+        let free = EXTERNAL_JOBS.saturating_sub(self.ledger.credit().jobs + self.own_jobs());
+        self.ledger.wait_for_room(free > 0, Reclaim::JOBS);
         free
     }
     /// Where a wanted structure waits on its way to publication.
@@ -1425,9 +1078,9 @@ impl WorldStream {
                 "published_terrain": self.required.terrain.iter().filter(|key| self.surfaces.iter().any(|s| s.key == **key)).count(),
                 "published_structures": self.required.structures.iter().filter(|id| self.structures.iter().any(|s| s.placement.id == **id) && self.bindings_ready(id)).count(),
             },
-            "presentation": self.presentation.jobs,
+            "presentation": self.ledger.credit().jobs,
             "pending": {
-                "presentation": self.presentation.pending,
+                "presentation": self.ledger.credit().pending,
                 "structures": self.ready_structures.len(),
                 "contents": self.contents.pending_requests(),
                 "props": self.props.pending_requests(),
@@ -1499,20 +1152,20 @@ impl WorldStream {
     }
     /// Renderer credit: the renderer share of the budgets.
     pub fn presentation_credit(&self) -> PresentationAllocation {
-        self.presentation
+        self.ledger.credit()
     }
     /// Renderer use of the last report.
     pub fn presentation_used(&self) -> PresentationAllocation {
-        self.presentation_used
+        self.ledger.used()
     }
     /// Who holds Asset CPU, and which budgets the renderer and own work wait for.
     pub fn budget_audit(&self) -> serde_json::Value {
-        let (renderer_want, stream_waits) = self.last_wait;
+        let (renderer_want, stream_waits) = self.ledger.last_wait();
         serde_json::json!({
             "asset_cpu": {
-                "stream": self.metrics().prototype_cpu_bytes - self.presentation.prototype_cpu,
-                "renderer_credit": self.presentation.prototype_cpu,
-                "renderer_used": self.presentation_used.prototype_cpu,
+                "stream": self.metrics().prototype_cpu_bytes - self.ledger.credit().prototype_cpu,
+                "renderer_credit": self.ledger.credit().prototype_cpu,
+                "renderer_used": self.ledger.used().prototype_cpu,
                 "limit": PROTOTYPE_CPU,
             },
             "renderer_want": renderer_want,
@@ -1741,7 +1394,7 @@ impl WorldStream {
         }
         timer.next(Stage::DescriptorPlan);
         while !self.initial_generation_ready {
-            let slots = EXTERNAL_JOBS.saturating_sub(self.presentation.jobs);
+            let slots = EXTERNAL_JOBS.saturating_sub(self.ledger.credit().jobs);
             let before = (
                 self.roads.prepared_segments(),
                 self.placements.prepared_buildings(),
@@ -2165,13 +1818,13 @@ impl WorldStream {
         if !self.ramps_wait {
             return;
         }
-        if self.presentation.prototype_cpu > self.presentation_used.prototype_cpu {
-            self.wait_for_room(false, Reclaim::PROTOTYPE_CPU);
+        if self.ledger.credit().prototype_cpu > self.ledger.used().prototype_cpu {
+            self.ledger.wait_for_room(false, Reclaim::PROTOTYPE_CPU);
             return;
         }
         self.failure = Some(format!(
             "Source building metadata exceeds prototype CPU budget: used {used} of {PROTOTYPE_CPU} bytes, renderer {} bytes",
-            self.presentation.prototype_cpu,
+            self.ledger.credit().prototype_cpu,
         ));
     }
     fn refresh_poles(&mut self) {
@@ -3514,8 +3167,8 @@ impl WorldStream {
                     self.hold_prototype(source)?;
                 }
                 BindPrototype(source) => self.bind_prototype(&source)?,
-                ConfigureStaging { reserve, metadata } => {
-                    self.configure_dependency_staging(reserve, metadata)?
+                ConfigureStaging { reserve, .. } => {
+                    self.ledger.configure_dependency_staging(reserve)?
                 }
                 ReleasePrototype(source) => self.release_prototype(&source)?,
                 BindRecipe(source) => self.bind_structure_recipe(&source)?,
@@ -3578,7 +3231,7 @@ impl WorldStream {
         let cpu = surface_render_cpu(&work.published.surface);
         let gpu = surface_render_bytes(&work.published.surface);
         let metrics = self.metrics();
-        let staging = STAGING - self.dependency_staging_reserve;
+        let staging = self.ledger.staging_limit();
         if work.pending_bytes.saturating_add(cpu) > staging
             || metrics.active_cpu_bytes.saturating_add(cpu) > self.limits.active_cpu
             || metrics.active_gpu_bytes.saturating_add(gpu) > self.limits.active_gpu
@@ -3592,7 +3245,11 @@ impl WorldStream {
                 self.limits.active_gpu,
             )));
         }
-        if !self.wait_for_staging(cpu) {
+        if !self.ledger.wait_for_staging(
+            cpu,
+            self.generation_pending_bytes(),
+            self.binding_reserved,
+        ) {
             return Ok(false);
         }
         self.ready.as_mut().unwrap().offered = true;
@@ -4261,14 +3918,14 @@ impl WorldStream {
         let owner_bytes = super::metrics::map_insert_bytes(&self.recipes) + source.file.len();
         let used = self.metrics().prototype_cpu_bytes;
         if used.saturating_add(bytes).saturating_add(owner_bytes) > PROTOTYPE_CPU {
-            if self.presentation.prototype_cpu > self.presentation_used.prototype_cpu {
-                self.wait_for_room(false, Reclaim::PROTOTYPE_CPU);
+            if self.ledger.credit().prototype_cpu > self.ledger.used().prototype_cpu {
+                self.ledger.wait_for_room(false, Reclaim::PROTOTYPE_CPU);
                 return Ok(());
             }
             return Err(ReferenceError(format!(
                 "Source collision recipe exceeds prototype CPU budget: recipe {} bytes, used {used} of {PROTOTYPE_CPU} bytes, renderer {} bytes",
                 bytes + owner_bytes,
-                self.presentation.prototype_cpu,
+                self.ledger.credit().prototype_cpu,
             )));
         }
         let recipe = super::StructureRecipe::new(&self.reference, prototype)?;
@@ -4312,11 +3969,9 @@ impl WorldStream {
             ));
         }
         // The claim credit moves to the ready queue in one step.
-        self.presentation.pending = self
-            .presentation
-            .pending
-            .checked_sub(1)
-            .ok_or_else(|| ReferenceError("Missing instance renderer claim".into()))?;
+        if !self.ledger.take_claim() {
+            return Err(ReferenceError("Missing instance renderer claim".into()));
+        }
         self.ready_structures.push(id.clone());
         debug_assert!(self.metrics().pending_work <= 32);
         Ok(())
@@ -4400,7 +4055,7 @@ impl WorldStream {
         let (binding_reservation, binding_objects) =
             self.binding_reservation(prototype, &placement.id, fixed_decoration)?;
         // Renderer staging credit is transient. The publication waits for it to come back.
-        if !self.wait_for_room(
+        if !self.ledger.wait_for_room(
             binding_reservation <= self.available_dependency_staging_bytes(),
             Reclaim::STAGING,
         ) {
@@ -5096,14 +4751,14 @@ impl WorldStream {
                 + self.structures.len()
                 + self.supplies.len() * 2
                 + self.lights.len()
-                + self.presentation.objects,
-            jobs: self.presentation.jobs
+                + self.ledger.credit().objects,
+            jobs: self.ledger.credit().jobs
                 + usize::from(self.terrain_execution.has_pending())
                 + usize::from(self.road_work.is_some())
                 + usize::from(self.contents.has_replay()),
             pending: self.pending_work(),
-            render_cpu_bytes: self.presentation.active_cpu + self.presentation.prototype_cpu,
-            render_gpu_bytes: self.presentation.active_gpu + self.presentation.prototype_gpu,
+            render_cpu_bytes: self.ledger.credit().active_cpu + self.ledger.credit().prototype_cpu,
+            render_gpu_bytes: self.ledger.credit().active_gpu + self.ledger.credit().prototype_gpu,
             ..Default::default()
         };
         for surface in &self.surfaces {
@@ -5131,20 +4786,17 @@ impl WorldStream {
         let mut metrics = WorldMetrics {
             road_worker_wasm_bytes: self.road_worker.wasm_bytes(),
             road_worker_reserved_bytes: self.road_worker_reserved_bytes,
-            grass_worker_wasm_bytes: self.presentation.grass_worker_wasm_bytes,
-            grass_worker_cache_bytes: self.presentation.grass_worker_cache_bytes,
-            grass_worker_reserved_bytes: self.presentation.grass_worker_reserved_bytes,
+            grass_worker_wasm_bytes: self.ledger.credit().grass_worker_wasm_bytes,
+            grass_worker_cache_bytes: self.ledger.credit().grass_worker_cache_bytes,
+            grass_worker_reserved_bytes: self.ledger.credit().grass_worker_reserved_bytes,
             road_worker_cache_bytes: self.road_worker.cache_bytes(),
             imported_snapshot_bytes,
             road_checkpoints: self.roads.checkpoint_count(),
             building_checkpoints: self.placements.checkpoint_count(),
             road_replay_ms: self.roads.replay_ms(),
             peak_road_replay_ms: self.roads.peak_replay_ms(),
-            generation_jobs: self.presentation.jobs
-                + usize::from(self.terrain_execution.has_pending())
-                + usize::from(self.road_work.is_some())
-                + usize::from(self.contents.has_replay()),
-            pending_bytes: self.presentation.staging_bytes + self.generation_pending_bytes(),
+            generation_jobs: self.ledger.credit().jobs + self.own_jobs(),
+            pending_bytes: self.ledger.credit().staging_bytes + self.generation_pending_bytes(),
             pending_work: self.pending_work(),
             spawn_boundaries: self.contents.state.boundary_count(),
             spawn_boundary_bytes: self.contents.state.retained_bytes(),
@@ -5179,15 +4831,15 @@ impl WorldStream {
                 + self.contents.rules.retained_bytes()
                 + self.building_components.retained_bytes()
                 + self.structure_helpers.retained_bytes()
-                + self.presentation.prototype_cpu
+                + self.ledger.credit().prototype_cpu
                 + self
                     .recipes
                     .values()
                     .map(|recipe| recipe.cpu_bytes)
                     .sum::<usize>(),
             reference_cpu_bytes: self.reference_cpu_bytes,
-            prototype_gpu_bytes: self.presentation.prototype_gpu,
-            active_gpu_bytes: self.presentation.active_gpu,
+            prototype_gpu_bytes: self.ledger.credit().prototype_gpu,
+            active_gpu_bytes: self.ledger.credit().active_gpu,
             changed_record_bytes: self.changes.retained_bytes(),
             changed_objects: self.changes.len(),
             active_cpu_bytes: std::mem::size_of::<Self>()
@@ -5238,7 +4890,7 @@ impl WorldStream {
                 + self.tools.heap_bytes()
                 + self.contents.retained_bytes()
                 + self.props.retained_bytes()
-                + self.presentation.active_cpu
+                + self.ledger.credit().active_cpu
                 + self.color_foundations.capacity() * std::mem::size_of::<super::FoundationPoint>()
                 + self.color_helpers.capacity() * std::mem::size_of::<TerrainFoundation>()
                 + self
@@ -5340,7 +4992,7 @@ impl WorldStream {
                     .count()
                 + self.supplies.len() * 2
                 + self.lights.len()
-                + self.presentation.objects,
+                + self.ledger.credit().objects,
             ..WorldMetrics::default()
         };
         for surface in &self.surfaces {
@@ -5539,6 +5191,8 @@ pub mod content_seats;
 mod content_sleds;
 #[path = "content_trailers.rs"]
 pub mod content_trailers;
+#[path = "presentation_ledger.rs"]
+mod presentation_ledger;
 
 #[path = "content_small_items.rs"]
 pub mod content_small_items;
