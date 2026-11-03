@@ -1277,29 +1277,12 @@ fn put_poses(out: &mut Vec<u8>, frame: &SimFrame, encoder: Option<&mut FrameEnco
 }
 
 fn take_poses(rest: &mut &[u8], frame: &mut SimFrame) -> Result<(), DecodeError> {
-    let count = |rest: &mut &[u8]| -> Result<usize, DecodeError> {
-        Ok(u32::from_le_bytes(take(rest, 4)?.try_into().expect("4 bytes")) as usize)
-    };
-    let rows = count(rest)?;
-    let changed = count(rest)?;
+    let rows = take_count(rest)?;
+    let changed = take_count(rest)?;
     if changed == ALL_POSES as usize {
-        for target in [&mut frame.previous, &mut frame.current] {
-            let bytes = take(rest, rows * size_of::<PoseRow>())?;
-            target.clear();
-            target.extend(
-                bytes
-                    .chunks_exact(size_of::<PoseRow>())
-                    .map(bytemuck::pod_read_unaligned::<PoseRow>),
-            );
-        }
-        let bytes = take(rest, rows * size_of::<ItemRow>())?;
-        frame.items.clear();
-        frame.items.extend(
-            bytes
-                .chunks_exact(size_of::<ItemRow>())
-                .map(bytemuck::pod_read_unaligned::<ItemRow>),
-        );
-        return Ok(());
+        read_rows(rest, rows, &mut frame.previous)?;
+        read_rows(rest, rows, &mut frame.current)?;
+        return read_rows(rest, rows, &mut frame.items);
     }
     frame.previous.resize(rows, PoseRow::default());
     frame.current.resize(rows, PoseRow::default());
@@ -1308,13 +1291,11 @@ fn take_poses(rest: &mut &[u8], frame: &mut SimFrame) -> Result<(), DecodeError>
     let previous = take(rest, changed * size_of::<PoseRow>())?;
     let current = take(rest, changed * size_of::<PoseRow>())?;
     let items = take(rest, changed * size_of::<ItemRow>())?;
-    fn rows_of(bytes: &[u8], size: usize) -> std::slice::ChunksExact<'_, u8> {
-        bytes.chunks_exact(size)
-    }
-    for (((slot, previous), current), item) in rows_of(slots, 4)
-        .zip(rows_of(previous, size_of::<PoseRow>()))
-        .zip(rows_of(current, size_of::<PoseRow>()))
-        .zip(rows_of(items, size_of::<ItemRow>()))
+    for (((slot, previous), current), item) in slots
+        .chunks_exact(4)
+        .zip(previous.chunks_exact(size_of::<PoseRow>()))
+        .zip(current.chunks_exact(size_of::<PoseRow>()))
+        .zip(items.chunks_exact(size_of::<ItemRow>()))
     {
         let slot = u32::from_le_bytes(slot.try_into().expect("4 bytes")) as usize;
         if slot >= rows {
@@ -1440,7 +1421,7 @@ fn take_value<T: DeserializeOwned>(rest: &mut &[u8]) -> Result<T, DecodeError> {
 }
 
 fn take_list<T: DeserializeOwned>(rest: &mut &[u8], rows: &mut Vec<T>) -> Result<(), DecodeError> {
-    let n = u32::from_le_bytes(take(rest, 4)?.try_into().expect("4 bytes")) as usize;
+    let n = take_count(rest)?;
     rows.clear();
     for _ in 0..n {
         rows.push(take_value(rest)?);
@@ -1457,8 +1438,18 @@ fn take<'a>(rest: &mut &'a [u8], n: usize) -> Result<&'a [u8], DecodeError> {
     Ok(head)
 }
 
+/// A u32 count.
+fn take_count(rest: &mut &[u8]) -> Result<usize, DecodeError> {
+    Ok(u32::from_le_bytes(take(rest, 4)?.try_into().expect("4 bytes")) as usize)
+}
+
 fn take_rows<T: Pod>(rest: &mut &[u8], rows: &mut Vec<T>) -> Result<(), DecodeError> {
-    let n = u32::from_le_bytes(take(rest, 4)?.try_into().expect("4 bytes")) as usize;
+    let n = take_count(rest)?;
+    read_rows(rest, n, rows)
+}
+
+/// Reads `n` rows into `rows`.
+fn read_rows<T: Pod>(rest: &mut &[u8], n: usize, rows: &mut Vec<T>) -> Result<(), DecodeError> {
     let bytes = take(rest, n * size_of::<T>())?;
     rows.clear();
     rows.extend(

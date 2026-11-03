@@ -171,20 +171,8 @@ impl InstrumentState {
             let target = match n.signal.as_str() {
                 "speed" => s.speed_kmh.abs(),
                 "rpm" => s.rpm,
-                "fuel" => {
-                    if s.local_ignition {
-                        s.fuel_liters
-                    } else {
-                        0.
-                    }
-                }
-                "temp" => {
-                    if s.local_ignition {
-                        s.temperature
-                    } else {
-                        0.
-                    }
-                }
+                "fuel" if s.local_ignition => s.fuel_liters,
+                "temp" if s.local_ignition => s.temperature,
                 _ => 0.,
             };
             self.signals[i] = if !initialize && n.signal_smoothing > 0. {

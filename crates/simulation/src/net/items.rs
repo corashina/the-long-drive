@@ -441,20 +441,6 @@ fn spawn(
     .ok()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn small_moves_are_below_the_source_limits() {
-        assert!(distance(&[1e6, 0., 0.], &[1e6 + 0.04, 0., 0.]) <= SYNC_MIN_POS);
-        assert!(distance(&[1e6, 0., 0.], &[1e6, 0.06, 0.]) > SYNC_MIN_POS);
-        let turned = Rotation::from_rotation_y(2f32.to_radians()).to_array();
-        assert!(angle(&[0., 0., 0., 1.], &turned) > SYNC_MIN_ROT);
-        assert!(angle(&turned, &turned) <= SYNC_MIN_ROT);
-    }
-}
-
 /// Source `SPush`: impulses of the local player on items that another peer owns.
 pub(super) fn send_pushes(
     runtime: &mut GarageRuntime,
@@ -509,4 +495,18 @@ fn apply_push(runtime: &mut GarageRuntime, item: ItemId, m: &PushMessage) {
     runtime
         .physics
         .edit_body(body, |b| b.apply_impulse_at_point(impulse, point, true));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn small_moves_are_below_the_source_limits() {
+        assert!(distance(&[1e6, 0., 0.], &[1e6 + 0.04, 0., 0.]) <= SYNC_MIN_POS);
+        assert!(distance(&[1e6, 0., 0.], &[1e6, 0.06, 0.]) > SYNC_MIN_POS);
+        let turned = Rotation::from_rotation_y(2f32.to_radians()).to_array();
+        assert!(angle(&[0., 0., 0., 1.], &turned) > SYNC_MIN_ROT);
+        assert!(angle(&turned, &turned) <= SYNC_MIN_ROT);
+    }
 }

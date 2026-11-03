@@ -152,9 +152,6 @@ impl PowertrainParts {
     pub fn engine(&self, item: ItemId) -> Option<&EnginePart> {
         self.engines.get(&item)
     }
-    pub fn engine_mut(&mut self, item: ItemId) -> Option<&mut EnginePart> {
-        self.engines.get_mut(&item)
-    }
     pub fn engines(&self) -> impl Iterator<Item = &EnginePart> {
         self.engines.values()
     }
@@ -169,9 +166,6 @@ impl PowertrainParts {
     }
     pub fn radiator(&self, item: ItemId) -> Option<&RadiatorPart> {
         self.radiators.get(&item)
-    }
-    pub fn radiator_mut(&mut self, item: ItemId) -> Option<&mut RadiatorPart> {
-        self.radiators.get_mut(&item)
     }
     /// The engine and the radiator of one car, both writable.
     pub fn pair_mut(

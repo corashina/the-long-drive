@@ -1,4 +1,5 @@
 use crate::reference::DrivingReference;
+use crate::simulation::dials::{inverse_lerp, lerp};
 use crate::simulation::{FIXED_DT, FrameInput, GamepadFrame, keys, player_keys};
 use rapier3d::prelude::RigidBodyHandle;
 use serde::{Deserialize, Serialize};
@@ -132,20 +133,6 @@ impl AxisSetting {
             (value + 1.) * self.sens - 1.
         };
         inverse_lerp(-1., 1., value)
-    }
-}
-
-/// Unity `Mathf.Lerp`.
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
-}
-
-/// Unity `Mathf.InverseLerp`.
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a != b {
-        ((value - a) / (b - a)).clamp(0., 1.)
-    } else {
-        0.
     }
 }
 

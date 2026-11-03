@@ -108,10 +108,7 @@ impl Station {
         if bag.is_empty() {
             return None;
         }
-        self.random ^= self.random << 13;
-        self.random ^= self.random >> 17;
-        self.random ^= self.random << 5;
-        let index = (u64::from(self.random) * bag.len() as u64 >> 32) as usize;
+        let index = (u64::from(xorshift(&mut self.random)) * bag.len() as u64 >> 32) as usize;
         let recording = recordings[bag.remove(index)];
         Some(Selected { recording, music })
     }
@@ -120,28 +117,23 @@ impl Station {
         if self.source.custom {
             return false;
         }
-        if self.current.is_none() {
-            self.current = self.select(self.source.initial_music, calendar, ranges, true);
-            self.start = seconds;
-            self.next = self
-                .current
-                .and_then(|s| self.select(s.music, calendar, ranges, false));
-            self.current.is_some()
-        } else if self
-            .current
-            .is_some_and(|s| seconds - self.start >= s.recording.duration)
-        {
-            self.current = self
-                .next
-                .or_else(|| self.select(self.current.unwrap().music, calendar, ranges, true));
-            self.start = seconds;
-            self.next = self
-                .current
-                .and_then(|s| self.select(s.music, calendar, ranges, false));
-            true
-        } else {
-            false
-        }
+        let (current, changed) = match self.current {
+            None => {
+                let current = self.select(self.source.initial_music, calendar, ranges, true);
+                (current, current.is_some())
+            }
+            Some(s) if seconds - self.start >= s.recording.duration => {
+                let current = self
+                    .next
+                    .or_else(|| self.select(s.music, calendar, ranges, true));
+                (current, true)
+            }
+            Some(_) => return false,
+        };
+        self.current = current;
+        self.start = seconds;
+        self.next = current.and_then(|s| self.select(s.music, calendar, ranges, false));
+        changed
     }
     /// Source `radioCH.GetCurrentIndex`: talk index, or talk count plus music index. -1 for none.
     fn current_index(&self) -> i32 {
@@ -181,25 +173,28 @@ impl Station {
         self.start = seconds - f64::from(offset);
     }
     fn playback(&self, seconds: f64, gain: f32, primary: bool, custom_gain: f32) -> RadioPlayback {
+        let clip_gain = if self.source.custom {
+            custom_gain
+        } else if primary {
+            self.current.map_or(0., |s| s.recording.gain)
+        } else {
+            1.
+        };
         RadioPlayback {
             station: Some(self.source.id),
             clip: self.current.map(|s| s.recording.clip),
-            offset_seconds: if self.current.is_some() {
-                (seconds - self.start).max(0.)
-            } else {
-                0.
-            },
-            gain: gain
-                * if self.source.custom {
-                    custom_gain
-                } else if primary {
-                    self.current.map_or(0., |s| s.recording.gain)
-                } else {
-                    1.
-                },
+            offset_seconds: self.current.map_or(0., |_| (seconds - self.start).max(0.)),
+            gain: gain * clip_gain,
             next_clip: self.next.map(|s| s.recording.clip),
         }
     }
+}
+/// One xorshift step of `random`.
+fn xorshift(random: &mut u32) -> u32 {
+    *random ^= *random << 13;
+    *random ^= *random >> 17;
+    *random ^= *random << 5;
+    *random
 }
 fn holiday(value: u8, calendar: [u8; 2], ranges: &[[u8; 4]; 2]) -> bool {
     if value == 0 {
@@ -476,10 +471,7 @@ impl RadioBroadcasts {
             let Some(first) = self.stations.first_mut() else {
                 return;
             };
-            first.random ^= first.random << 13;
-            first.random ^= first.random >> 17;
-            first.random ^= first.random << 5;
-            let limit = 1 + ((u64::from(first.random) * 5) >> 32) as usize;
+            let limit = 1 + ((u64::from(xorshift(&mut first.random)) * 5) >> 32) as usize;
             if iteration >= limit {
                 break;
             }

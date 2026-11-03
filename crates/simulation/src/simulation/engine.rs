@@ -3,20 +3,9 @@
 use crate::fluids::{FluidContainer, FluidMixture, VehicleFluids, suitability};
 use crate::reference::{EngineGlobals, EnginePartReference, RadiatorPartReference, TorqueCurve};
 use crate::save::{EngineSnapshot, SaveError, identity::unsigned};
+use crate::simulation::dials::{inverse_lerp, lerp};
 
 const RUN_GRACE_SECONDS: f32 = 0.2;
-
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.0
-    } else {
-        ((value - a) / (b - a)).clamp(0.0, 1.0)
-    }
-}
-
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0.0, 1.0)
-}
 
 /// The installed Lada curve has unweighted keys and clamps at both ends.
 pub fn torque(curve: &TorqueCurve, rpm: f32) -> f32 {
