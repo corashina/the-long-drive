@@ -1,4 +1,8 @@
 //! Web Worker entry for source terrain tile jobs. It owns its own WASM memory.
+// DLmalloc spends seconds in many small reference allocations. Talc is much faster on WASM.
+#[cfg(target_arch = "wasm32")]
+#[global_allocator]
+static ALLOCATOR: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();
 use wasm_bindgen::prelude::*;
 
 /// Each getter moves one attribute out once, as a flat array.
