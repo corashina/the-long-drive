@@ -28,7 +28,6 @@ import {installDrawDistance} from './draw-distance.js';
 import {installDrivingSettings} from './driving-settings.js';
 import {installOutfit} from './outfit.js';
 import {createAppearance} from './appearance.js';
-import {createMenuFigure} from './menu-figure.js';
 import {createGamepad} from './gamepad.js';
 import {installSteeringWheel} from './steering-wheel.js';
 const gamepad=createGamepad(()=>navigator.getGamepads?.());
@@ -226,7 +225,6 @@ async function load(){
  const response=await fetch('./assets/reference/manifest.json');
  if(!response.ok)throw Error('Cannot load reference manifest (HTTP '+response.status+').');
  const bytes=await downloadManifest(response);
- status.textContent='Loading game code...';
  loading.step('code',0);
  const [{default:init,prepare,run,manifest_shell,source_render_failure,source_render_audit,cpu_profile,request_thumbnail,wake_frame},module]=await code;
  const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;
@@ -281,7 +279,6 @@ async function load(){
  // Source `S.inputs`: the input maps change once per binding change.
  {let inputs=settings.values.inputs;settings.listen(v=>{if(v.inputs!==inputs){inputs=v.inputs;input.setMaps(compileBindings(bindings,inputs));}});}
  bootstrap.manifestUtf16PayloadBytes=text.length*2;
- status.textContent='Loading interface assets...';
  loading.step('interface',0);
  await loadUiAssets(manifest.ui);
   survival=createSurvival(manifest.ui,manifest.sleep.cooldown_seconds,settings,language,actionIds);survival.setSurvival(settings.values.survival);
@@ -290,17 +287,18 @@ async function load(){
  window.addEventListener('pagehide',()=>audio.dispose());
  window.addEventListener('beforeunload',event=>{if(menu?.model.started&&!reloading)event.preventDefault();});
  const appearance=createAppearance({target:window,document,canvas,edit:outfit,characters:manifest.clothing.characters,language});
- const figure=createMenuFigure({target:window,canvas});
+ // Rust reads this once per frame: the start car stage shows while it is true.
+ let carShown=false;window.gameMenuCar=()=>carShown;
  // Source tab resets of the controls that keep their own storage.
  const resets={graphics:[()=>slider.reset()],controls:[()=>drivingSettings.resetMouse()]};
- menu=createMenu({canvas,language,appearance,figure,settings,resets,defaultAssists:manifest.driving.default_assists,ui:manifest.ui,bindings,saveSession,buildId:manifest.build_id,thumbnail:()=>lastThumbnail,sleeping:()=>sleeping,seated:()=>window.gameState.seated,guest:()=>multiplayer?.role===ROLE.GUEST,slider,audio,onNewGame:()=>seed.reroll(),reloadNewGame,autoNewGame:newGameSeed!==undefined,onPause:()=>thumbnail.capture().then(blob=>{lastThumbnail=blob;}),clearInput:()=>input.clear(),queueAction:a=>{actions=a;}});
+ menu=createMenu({canvas,language,appearance,showCar:shown=>{carShown=shown;},settings,resets,defaultAssists:manifest.driving.default_assists,ui:manifest.ui,bindings,saveSession,buildId:manifest.build_id,thumbnail:()=>lastThumbnail,sleeping:()=>sleeping,seated:()=>window.gameState.seated,guest:()=>multiplayer?.role===ROLE.GUEST,slider,audio,onNewGame:()=>seed.reroll(),reloadNewGame,autoNewGame:newGameSeed!==undefined,onPause:()=>thumbnail.capture().then(blob=>{lastThumbnail=blob;}),clearInput:()=>input.clear(),queueAction:a=>{actions=a;}});
  multiplayer=createMultiplayer({document,target:window,Peer:window.peerjs.Peer,buildId:manifest.build_id,exportHash:manifestHash,simulation,saveSession,menu,outfit,storage:()=>localStorage,
   room:joinRoom,joined:(save,error)=>joined({save,error,operation:'join'}),reloadJoin:room=>reloadWith(JOIN_KEY,JSON.stringify(room)),
   audio,media:navigator.mediaDevices,voiceKeys:()=>actionIds.voicechat===undefined?[]:settings.values.inputs[actionIds.voicechat]});
  {const changed=outfit.changed;outfit.changed=()=>{changed();multiplayer.look(outfit.outfit);};}
  feedback=createFeedback(manifest.ui,manifest,settings,actionIds,language);
  startup.end('interface');
- if(failed)return;status.textContent='Loading the garage...';loading.step('interface',1);
+ if(failed)return;loading.step('interface',1);
  startup.begin('generation');startup.begin('decodeUpload');startup.begin('pipeline');
  // Parse the reference here while the worker parses its own copy and starts.
  // The start message goes out in the first callback of `startWorld`, before this await ends.
