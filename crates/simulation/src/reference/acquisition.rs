@@ -197,30 +197,18 @@ fn valid_pose(p: &AcquisitionPose) -> bool {
     valid_source(&p.source)
         && p.parent.as_ref().is_none_or(valid_source)
         && p.coordinate_space == "source_parent_local"
-        && valid_transform(&p.transform)
+        && transform(&p.transform)
         && checked_pose(p)
-}
-fn valid_transform(t: &Transform) -> bool {
-    t.translation
-        .iter()
-        .chain(&t.rotation)
-        .chain(&t.scale)
-        .all(|v| v.is_finite())
-        && t.scale.iter().all(|v| *v != 0.)
-        && (t.rotation.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 0.002
-}
-fn same_transform(a: &Transform, b: &Transform) -> bool {
-    a.translation == b.translation && a.rotation == b.rotation && a.scale == b.scale
 }
 fn valid_marker(p: &AcquisitionMarker, asset: AssetId, m: &ReferenceManifest) -> bool {
     valid_source(&p.source)
-        && valid_transform(&p.transform)
+        && transform(&p.transform)
         && m.world
             .prototypes
             .iter()
             .find(|v| v.asset == asset)
             .and_then(|v| v.nodes.get(p.node.0 as usize))
-            .is_some_and(|n| n.source == p.source && same_transform(&n.transform, &p.transform))
+            .is_some_and(|n| n.source == p.source && n.transform == p.transform)
 }
 fn prototype<'a>(
     id: &PrototypeId,
@@ -368,11 +356,11 @@ impl AcquisitionReference {
                     id != category.id || !category.categories,
                     "acquisition category cycle",
                 )?;
-                if visited.insert(id) && category.categories {
-                    if let Some(child) = self.categories.iter().find(|c| c.id == id && c.categories)
-                    {
-                        pending.extend(&child.children);
-                    }
+                if visited.insert(id)
+                    && category.categories
+                    && let Some(child) = self.categories.iter().find(|c| c.id == id && c.categories)
+                {
+                    pending.extend(&child.children);
                 }
             }
         }

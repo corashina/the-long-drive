@@ -262,17 +262,15 @@ pub fn texture_bank_groups<'a>(
                 })?;
             record.validate_chunks()?;
             let key = TextureArrayKey::from(record);
-            let index = if let Some(index) = groups.iter().position(|(old, _)| *old == key) {
-                index
-            } else {
-                groups.push((key, Vec::new()));
-                groups.len() - 1
-            };
-            if let Some(old) = groups[index]
-                .1
+            let index = groups
                 .iter()
-                .find(|old| old.source == record.source)
-            {
+                .position(|(old, _)| *old == key)
+                .unwrap_or_else(|| {
+                    groups.push((key, Vec::new()));
+                    groups.len() - 1
+                });
+            let bank = &mut groups[index].1;
+            if let Some(old) = bank.iter().find(|old| old.source == record.source) {
                 if old.chunks.len() != record.chunks.len()
                     || old
                         .chunks
@@ -286,7 +284,7 @@ pub fn texture_bank_groups<'a>(
                     )));
                 }
             } else {
-                groups[index].1.push(record);
+                bank.push(record);
             }
         }
     }

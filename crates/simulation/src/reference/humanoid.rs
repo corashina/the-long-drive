@@ -10,7 +10,6 @@ pub const HUMAN_BONES: usize = 55;
 pub const MUSCLES: usize = 95;
 /// Humanoid clip attributes: `RootT` 7..10, `RootQ` 10..14, muscles 42..137.
 pub const ROOT_T: u32 = 7;
-pub const ROOT_Q: u32 = 10;
 pub const FIRST_MUSCLE: u32 = 42;
 
 /// Avatar `m_AxesArray` entry of one human bone.

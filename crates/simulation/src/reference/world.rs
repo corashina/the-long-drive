@@ -1095,9 +1095,8 @@ impl WorldReference {
             &self.collision_rules.source,
             &["PhysicsManager"],
         )?;
-        let rows = match collision.fields.get("m_LayerCollisionMatrix") {
-            Some(WorldValue::Array(rows)) => rows,
-            _ => return Err(ReferenceError("Missing source collision matrix".into())),
+        let Some(WorldValue::Array(rows)) = collision.fields.get("m_LayerCollisionMatrix") else {
+            return Err(ReferenceError("Missing source collision matrix".into()));
         };
         require(rows.len() == 32 && rows.iter().zip(self.collision_rules.layers).all(|(value, row)|
             matches!(value, WorldValue::Integer(value) if *value == row as i64))
