@@ -4,7 +4,7 @@ use grass_mesh::GrassSettings;
 /// "Grass" setting at page load as (blade spacing, fade distance) factors.
 /// High keeps the source. Lower steps make blades sparser and fade them nearer.
 pub fn quality_scale() -> (f32, f32) {
-    match crate::browser::game_grass_quality() {
+    match crate::display_settings::loaded().grass {
         0 => (1., 1.),
         1 => (1.5, 0.75),
         _ => (2., 0.5),
