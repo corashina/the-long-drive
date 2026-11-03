@@ -2,7 +2,7 @@
 use super::{
     CarAudioReference, CarShotReference, CarSoundReference, ColliderId, CurveKey,
     EngineAudioReference, ItemId, LightControlId, MechanismId, NodeId, PartSlotId, ReferenceError,
-    ReferenceManifest, SourceId, Transform, hash, ids, require,
+    ReferenceManifest, SourceId, Transform, finite, hash, ids, require,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -323,7 +323,7 @@ impl AudioReference {
             self.radio_stimuli.iter().all(|r| {
                 radio_sources.contains(&r.radio)
                     && r.voice < 3
-                    && r.offset.iter().all(|v| v.is_finite())
+                    && finite(&r.offset)
                     && r.max_sound_value >= 0.
             }),
             "radio stimuli",
@@ -690,7 +690,7 @@ impl AudioReference {
             s.node.is_none_or(|n| game.nodes.iter().any(|v| v.id == n))
                 && method(&s.method)
                 && s.radius.is_none_or(|r| r.is_finite() && r > 0.0)
-                && s.local_position.is_none_or(|p| values(p))
+                && s.local_position.is_none_or(values)
         };
         require(
             r.tuning_repeat_seconds.is_finite()

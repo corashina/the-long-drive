@@ -226,8 +226,7 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
             && *mip_count == texture.sampler.mip_count
             && *mip_count > 0
             && *mip_count <= 32 - width.max(height).leading_zeros()
-            && !texture.source.file.is_empty()
-            && texture.source.path_id != 0,
+            && texture.source.is_set(),
         "Native BC source gate",
     )?;
     let space = if texture.color_space == super::TextureColorSpace::Srgb {

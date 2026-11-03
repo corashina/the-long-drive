@@ -10,8 +10,8 @@ use super::{
     AssetId, AssetRecord, AssetUsage, ColliderGeometry, EngineGlobals, EnginePartReference,
     GaugePartReference, LibraryProvenance, NodeId, PrototypeBounds, RadiatorPartReference,
     ReferenceError, ReferenceManifest, SourceHash, SourceId, Transform, WorldFollowersReference,
-    WorldHitchReference, WorldTrailerReference, WorldVehicleReference, finite, hash, require,
-    transform,
+    WorldHitchReference, WorldTrailerReference, WorldVehicleReference, field, finite, hash,
+    require, source_valid, transform,
 };
 pub use grass::*;
 pub use initial_materials::*;
@@ -860,12 +860,6 @@ impl WorldReference {
         Ok(())
     }
 }
-fn source_valid(source: &SourceId, hashes: &[SourceHash]) -> bool {
-    source.path_id != 0 && hashes.iter().any(|h| h.file == source.file)
-}
-fn field(source: &SourceId, name: &str) -> String {
-    format!("{}:{} {name}", source.file, source.path_id)
-}
 fn values_valid(value: &WorldValue, receipts: &HashSet<&SourceId>) -> bool {
     match value {
         WorldValue::Number(n) => n.is_finite(),
@@ -1095,9 +1089,8 @@ impl WorldReference {
             &self.collision_rules.source,
             &["PhysicsManager"],
         )?;
-        let rows = match collision.fields.get("m_LayerCollisionMatrix") {
-            Some(WorldValue::Array(rows)) => rows,
-            _ => return Err(ReferenceError("Missing source collision matrix".into())),
+        let Some(WorldValue::Array(rows)) = collision.fields.get("m_LayerCollisionMatrix") else {
+            return Err(ReferenceError("Missing source collision matrix".into()));
         };
         require(rows.len() == 32 && rows.iter().zip(self.collision_rules.layers).all(|(value, row)|
             matches!(value, WorldValue::Integer(value) if *value == row as i64))
@@ -1616,7 +1609,7 @@ impl WorldReference {
                         == c.categories
                             .as_ref()
                             .or(c.items.as_ref())
-                            .map_or(0, |a| a.len()),
+                            .map_or(0, Vec::len),
                     &label,
                 )?;
             }

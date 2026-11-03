@@ -688,7 +688,7 @@ impl PrototypeBounds<'_> {
 }
 
 fn check(source: &SourceId, name: &str, ok: bool) -> Result<(), ReferenceError> {
-    require(ok, &format!("{}:{} {name}", source.file, source.path_id))
+    require(ok, &field(source, name))
 }
 
 fn curve_valid(c: &TorqueCurve) -> bool {
@@ -1149,28 +1149,6 @@ impl EngineGlobals {
                 && self.max_car_velocity > 0.,
         )
     }
-}
-
-/// A small engine part record for native tests: petrol, 120 Nm, oil fluid 3.
-#[cfg(test)]
-pub fn engine_part_fixture() -> serde_json::Value {
-    serde_json::json!({"source": {"file": "a", "path_id": 14}, "node": 3, "oil_tank": 1, "gear_stick": null, "start_chance": 0.9, "starter_rpm": 300.0, "starter_rpm_lerp": 2.0, "idle_rpm": 800.0, "max_rpm": 6000.0, "shutdown_rpm": 200.0, "max_torque_nm": 120.0, "starting_push_force": 1080.0, "consumption_modifier": 1.0, "oil_consumption_modifier": 1.0, "engine_brake_modifier": 1.0, "rpm_change_modifier": 1.0, "engine_start_time_modifier": 1.0, "heat_gain_min": 1.0, "heat_gain_max": 2.0, "heat_loss": 1.0, "initial_temperature": 20.0, "heat_loss_speed_modifier": 1.0, "optimal_temperature": [80.0, 90.0, 70.0, 100.0], "fuel_consumption": [0.0, 0.0, 1.0, 0.0, 0.0, 0.0], "two_stroke": false, "oil_toleration_min": 0.02, "oil_toleration_max": 0.3,
-                "torque_curve": {"keys": [{"time": 0.0, "value": 0.5, "in_tangent": 0.0, "out_tangent": 0.0, "in_weight": 0.0, "out_weight": 0.0, "weighted_mode": 0}, {"time": 1.0, "value": 1.0, "in_tangent": 0.0, "out_tangent": 0.0, "in_weight": 0.0, "out_weight": 0.0, "weighted_mode": 0}], "pre_wrap_mode": 2, "post_wrap_mode": 2},
-                "max_rpm_difference": 100.0, "torque_modifier": 1.0, "oil_fluid": 3, "no_overheat": false, "kickstart": false, "start_chance_interval_seconds": 1.0, "auto_shift_clutch_rpm": 1000.0, "auto_shift_clutch_rpm_range": 200.0, "smoke_rate": 5.0, "audio": engine_audio_fixture()})
-}
-
-/// Engine sounds for native tests. Source `SStart` is set.
-#[cfg(test)]
-pub fn engine_audio_fixture() -> serde_json::Value {
-    serde_json::json!({
-        "idle": {"voice": 1, "position": [0.0, 0.5, 0.0]},
-        "motor": {"voice": 2, "position": [0.0, 0.5, 0.0]},
-        "starter": {"voice": 3, "clip": 7, "gain": 0.6, "position": [0.0, 0.0, 0.0]},
-        "stop": {"voice": 3, "clip": 8, "gain": 0.6, "position": [0.0, 0.0, 0.0]},
-        "idle_rpm": [600.0, 1400.0], "motor_rpm": [500.0, 1300.0],
-        "idle_gain": 0.7, "motor_gain": 0.8, "stimulus": null,
-        "idle_pitch": [0.9, 1.2], "motor_pitch": [0.8, 1.5]
-    })
 }
 
 /// Gauge limits for native tests: low fuel 5 L, low oil 1 L, full electronics.

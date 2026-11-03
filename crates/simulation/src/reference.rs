@@ -153,6 +153,13 @@ pub struct SourceId {
     pub path_id: i64,
 }
 
+impl SourceId {
+    /// The ID names a file and a nonzero path ID.
+    pub fn is_set(&self) -> bool {
+        !self.file.is_empty() && self.path_id != 0
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceHash {
@@ -1024,12 +1031,19 @@ fn require(ok: bool, field: &str) -> Result<(), ReferenceError> {
 fn finite(v: &[f32]) -> bool {
     v.iter().all(|x| x.is_finite())
 }
+/// Finite quaternion with a length within 0.002 of one.
+fn unit_quaternion(q: &[f32; 4]) -> bool {
+    finite(q) && (q.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 0.002
+}
 fn transform(t: &Transform) -> bool {
     finite(&t.translation)
-        && finite(&t.rotation)
         && finite(&t.scale)
         && t.scale.iter().all(|x| *x != 0.0)
-        && (t.rotation.iter().map(|v| v * v).sum::<f32>() - 1.0).abs() < 0.002
+        && unit_quaternion(&t.rotation)
+}
+/// IDs are 1, 2, 3, ... in record order.
+fn dense(ids: impl Iterator<Item = u32>) -> bool {
+    ids.zip(1..).all(|(id, i)| id == i)
 }
 fn ids<T: Eq + std::hash::Hash>(
     values: impl Iterator<Item = T>,
@@ -1043,6 +1057,20 @@ fn ids<T: Eq + std::hash::Hash>(
 }
 fn hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+/// Error field name prefixed by its source ID.
+fn field(source: &SourceId, name: &str) -> String {
+    format!("{}:{} {name}", source.file, source.path_id)
+}
+/// The source has a nonzero path ID in a hashed source file.
+fn source_valid(source: &SourceId, hashes: &[SourceHash]) -> bool {
+    source.path_id != 0 && hashes.iter().any(|h| h.file == source.file)
+}
+fn lowercase_hash(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn valid_tune_icon(can_tune: bool, icon: &Option<SourceId>, ui: &UiReference) -> bool {
@@ -1126,10 +1154,7 @@ impl ReferenceManifest {
             .count()
     }
     pub fn from_json(bytes: &[u8]) -> Result<Self, ReferenceError> {
-        require(bytes.len() <= MAX_MANIFEST_BYTES, "manifest size")?;
-        let mut manifest: Self =
-            serde_json::from_slice(bytes).map_err(|e| ReferenceError(e.to_string()))?;
-        std::sync::Arc::make_mut(&mut manifest.file_catalog).admit()?;
+        let manifest = Self::parse(bytes)?;
         manifest.validate()?;
         Ok(manifest)
     }
@@ -1143,11 +1168,16 @@ impl ReferenceManifest {
     /// Parses runtime bytes that `from_runtime_json` checks in another place.
     /// The renderer uses it: the simulation worker checks the same bytes.
     pub fn from_checked_runtime_json(bytes: &[u8]) -> Result<Self, ReferenceError> {
+        let mut manifest = Self::parse(bytes)?;
+        AudioRecord::check_playback(&mut manifest);
+        Ok(manifest)
+    }
+
+    fn parse(bytes: &[u8]) -> Result<Self, ReferenceError> {
         require(bytes.len() <= MAX_MANIFEST_BYTES, "manifest size")?;
         let mut manifest: Self =
             serde_json::from_slice(bytes).map_err(|e| ReferenceError(e.to_string()))?;
         std::sync::Arc::make_mut(&mut manifest.file_catalog).admit()?;
-        AudioRecord::check_playback(&mut manifest);
         Ok(manifest)
     }
 
@@ -1170,14 +1200,7 @@ impl ReferenceManifest {
             .content_base
             .strip_prefix("assets/runtime/")
             .and_then(|v| v.strip_suffix('/'));
-        require(
-            package.is_some_and(|v| {
-                v.len() == 64
-                    && v.bytes()
-                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            }),
-            "content base",
-        )?;
+        require(package.is_some_and(lowercase_hash), "content base")?;
         for asset in &self.assets {
             require(
                 self.file_catalog.file(&asset.path)?.sha256 == asset.sha256,
@@ -1309,7 +1332,7 @@ impl ReferenceManifest {
             require(
                 p.scan_radius.is_finite()
                     && p.scan_radius >= 0.
-                    && p.local_rotation_after_mount.iter().all(|v| v.is_finite()),
+                    && finite(&p.local_rotation_after_mount),
                 "part mount rotation",
             )?;
             require(
@@ -1380,35 +1403,12 @@ impl ReferenceManifest {
             )?;
         }
         require(
-            self.assets
-                .iter()
-                .enumerate()
-                .all(|(i, r)| r.id.0 == i as u32 + 1)
-                && self
-                    .nodes
-                    .iter()
-                    .enumerate()
-                    .all(|(i, r)| r.id.0 == i as u32 + 1)
-                && self
-                    .bodies
-                    .iter()
-                    .enumerate()
-                    .all(|(i, r)| r.id.0 == i as u32 + 1)
-                && self
-                    .colliders
-                    .iter()
-                    .enumerate()
-                    .all(|(i, r)| r.id.0 == i as u32 + 1)
-                && self
-                    .anchors
-                    .iter()
-                    .enumerate()
-                    .all(|(i, r)| r.id.0 == i as u32 + 1)
-                && self
-                    .items
-                    .iter()
-                    .enumerate()
-                    .all(|(i, r)| r.id.0 == i as u32 + 1),
+            dense(self.assets.iter().map(|r| r.id.0))
+                && dense(self.nodes.iter().map(|r| r.id.0))
+                && dense(self.bodies.iter().map(|r| r.id.0))
+                && dense(self.colliders.iter().map(|r| r.id.0))
+                && dense(self.anchors.iter().map(|r| r.id.0))
+                && dense(self.items.iter().map(|r| r.id.0)),
             "dense runtime IDs",
         )?;
         ids(
@@ -1630,7 +1630,6 @@ impl ReferenceManifest {
             self.mechanisms.iter().map(|m| m.item),
             "duplicate mechanism item",
         )?;
-        let mechanism_items: HashSet<_> = self.mechanisms.iter().map(|m| m.item).collect();
         for r in &self.mechanisms {
             if let EndpointReactionReference::Rotation { node, force, .. } = &r.reaction {
                 require(

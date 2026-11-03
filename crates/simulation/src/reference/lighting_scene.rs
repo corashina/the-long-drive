@@ -1,6 +1,6 @@
 //! Complete fixed-startup lighting contract and runtime resource links.
 use super::postprocessing::{CameraStage, PostprocessingRecord};
-use super::render_lighting::{LightKind, LightRecord, ProbeRecord, valid_pose, valid_source};
+use super::render_lighting::{LightKind, LightRecord, ProbeRecord, valid_pose};
 use super::rendering::{SamplerRecord, TextureColorSpace, TextureMip, safe_path};
 use super::{FileReceipt, NodeRecord, ReferenceError, SourceId, Transform, finite, hash, require};
 use serde::{Deserialize, Serialize};
@@ -180,7 +180,7 @@ impl LightingRecord {
         let mut textures = HashSet::new();
         for texture in &self.textures {
             require(
-                valid_source(&texture.source) && textures.insert(texture.source.clone()),
+                texture.source.is_set() && textures.insert(texture.source.clone()),
                 "lighting texture identity",
             )?;
             let sampler = &texture.sampler;
@@ -273,8 +273,8 @@ impl LightingRecord {
         )?;
         let sky = &self.sky;
         require(
-            valid_source(&sky.source)
-                && valid_source(&sky.shader)
+            sky.source.is_set()
+                && sky.shader.is_set()
                 && finite(&sky.tint)
                 && finite(&sky.ground)
                 && finite(&[
@@ -295,7 +295,7 @@ impl LightingRecord {
         )?;
         let mesh = &sky.cloud_mesh;
         require(
-            valid_source(&mesh.source)
+            mesh.source.is_set()
                 && mesh.vertex_count == 829
                 && mesh.index_count == 4596
                 && finite(&mesh.bounds_center)
@@ -314,9 +314,9 @@ impl LightingRecord {
         let mut clouds = HashSet::new();
         for cloud in &sky.clouds {
             require(
-                valid_source(&cloud.source)
+                cloud.source.is_set()
                     && clouds.insert(cloud.source.clone())
-                    && valid_source(&cloud.material)
+                    && cloud.material.is_set()
                     && valid_pose(&cloud.transform)
                     && finite(&cloud.color)
                     && cloud.speed.is_finite()

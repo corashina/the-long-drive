@@ -366,9 +366,7 @@ impl PickupReference {
                 && self.recenter_distance.is_finite()
                 && [&self.right_hand_rotation, &self.recenter_rotation]
                     .iter()
-                    .all(|q| {
-                        finite(*q) && (q.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 0.002
-                    }),
+                    .all(|q| unit_quaternion(q)),
             "pickup pose",
         )
     }
