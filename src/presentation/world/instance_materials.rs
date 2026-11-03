@@ -157,6 +157,7 @@ impl InstanceMaterials<'_> {
             receive,
             reflected,
             gpu,
+            color: None,
         };
         let visible = if initial.is_none() && (selected.is_some() || primitive.has_source_material)
         {
@@ -329,7 +330,46 @@ impl InstanceMaterials<'_> {
         binding: &mut RendererMaterial,
         color: [f32; 4],
     ) -> Result<(), ReferenceError> {
+        // A shared binding moves to the shared entry of its color. Same colors batch.
+        let colored = binding.shared.as_ref().map(|key| SharedMaterialKey {
+            color: Some(color.map(f32::to_bits)),
+            ..key.clone()
+        });
+        if let Some(key) = &colored {
+            if binding.shared.as_ref() == Some(key) {
+                return Ok(());
+            }
+            if let Some(shared) = self.cache.generated.acquire(key) {
+                let old = std::mem::replace(
+                    binding,
+                    RendererMaterial {
+                        visible: shared.visible,
+                        sort: binding.sort.clone(),
+                        shared: Some(key.clone()),
+                    },
+                );
+                self.release(old);
+                return Ok(());
+            }
+        }
         self.make_private(binding);
+        self.set_color(binding, color)?;
+        if let Some(key) = colored {
+            self.cache.generated.insert(
+                key.clone(),
+                SharedBinding {
+                    visible: binding.visible.clone(),
+                },
+            );
+            binding.shared = Some(key);
+        }
+        Ok(())
+    }
+    fn set_color(
+        &mut self,
+        binding: &RendererMaterial,
+        color: [f32; 4],
+    ) -> Result<(), ReferenceError> {
         let linear = linear_color(color);
         let color = Color::srgba(color[0], color[1], color[2], color[3]);
         match &binding.visible {

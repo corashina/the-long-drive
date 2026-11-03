@@ -111,6 +111,24 @@ pub struct CasterPasses {
     inspected: usize,
     classified: HashSet<CachedRenderPipelineId>,
     variants: HashMap<CachedRenderPipelineId, Option<CachedRenderPipelineId>>,
+    /// Active caster pipelines by descriptor. Bases that differ only in surface state share one.
+    active: Vec<(RenderPipelineDescriptor, CachedRenderPipelineId)>,
+}
+/// Surface-only defs. The caster shader and its imports do not read them.
+fn surface_only(def: &ShaderDefVal) -> bool {
+    let (ShaderDefVal::Bool(name, _) | ShaderDefVal::Int(name, _) | ShaderDefVal::UInt(name, _)) =
+        def;
+    name.starts_with("STANDARD_MATERIAL_")
+        || name.starts_with("BLEND_")
+        || [
+            "MAY_DISCARD",
+            "PREMULTIPLY_ALPHA",
+            "SOURCE_STANDARD",
+            "SOURCE_UNLIT",
+            "SOURCE_TRANSPARENT",
+            "SOURCE_REPLACEMENT",
+        ]
+        .contains(&name.as_str())
 }
 fn flag(defs: &[ShaderDefVal], name: &str) -> Option<bool> {
     defs.iter().find_map(|d| match d {
@@ -221,55 +239,59 @@ impl CasterPasses {
                 }
                 return;
             };
-            let id = match owners.queue_companion(cache, base_id, || {
-                let mut descriptor = base.clone();
-                descriptor.label = Some("source_shadow_caster".into());
-                descriptor.layout[0] = super::source_lighting::source_camera_layout();
-                descriptor.layout[1] = caster_layout();
-                if !world_shader
-                    && flag(&fragment.shader_defs, "WORLD_TEXTURE_ARRAYS") != Some(true)
-                {
-                    descriptor.layout[3] = super::caster_material::layout();
+            let mut descriptor = base.clone();
+            descriptor.label = Some("source_shadow_caster".into());
+            descriptor.layout[0] = super::source_lighting::source_camera_layout();
+            descriptor.layout[1] = caster_layout();
+            if !world_shader && flag(&fragment.shader_defs, "WORLD_TEXTURE_ARRAYS") != Some(true) {
+                descriptor.layout[3] = super::caster_material::layout();
+            }
+            descriptor.multisample = MultisampleState::default();
+            if !world_shader {
+                descriptor.vertex.shader = shader.clone();
+            }
+            descriptor.vertex.entry_point = Some("vertex".into());
+            let fragment = descriptor.fragment.as_mut().unwrap();
+            if !world_shader {
+                fragment.shader = shader.clone();
+            }
+            fragment.entry_point = Some("fragment".into());
+            fragment.targets.clear();
+            for defs in [
+                &mut descriptor.vertex.shader_defs,
+                &mut fragment.shader_defs,
+            ] {
+                defs.retain(|v|!matches!(v,ShaderDefVal::Bool(n,_)if n=="SOURCE_SURFACE"||n=="SOURCE_FORWARD_ADD"||n=="SOURCE_FORWARD_ONE"||n=="SOURCE_LAMPS"||n=="SOURCE_WORLD"));
+                defs.retain(|v| !surface_only(v));
+                defs.push(ShaderDefVal::Bool("SOURCE_CASTER".into(), true));
+                if world_shader {
+                    defs.push(ShaderDefVal::Bool("PREPASS_PIPELINE".into(), true));
                 }
-                descriptor.multisample = MultisampleState::default();
-                if !world_shader {
-                    descriptor.vertex.shader = shader.clone();
-                }
-                descriptor.vertex.entry_point = Some("vertex".into());
-                let fragment = descriptor.fragment.as_mut().unwrap();
-                if !world_shader {
-                    fragment.shader = shader.clone();
-                }
-                fragment.entry_point = Some("fragment".into());
-                fragment.targets.clear();
-                for defs in [
-                    &mut descriptor.vertex.shader_defs,
-                    &mut fragment.shader_defs,
-                ] {
-                    defs.retain(|v|!matches!(v,ShaderDefVal::Bool(n,_)if n=="SOURCE_SURFACE"||n=="SOURCE_FORWARD_ADD"||n=="SOURCE_FORWARD_ONE"||n=="SOURCE_LAMPS"||n=="SOURCE_WORLD"));
-                    defs.push(ShaderDefVal::Bool("SOURCE_CASTER".into(), true));
-                    if world_shader {
-                        defs.push(ShaderDefVal::Bool("PREPASS_PIPELINE".into(), true));
-                    }
-                }
-                if !world_shader {
-                    descriptor.primitive.cull_mode = Some(Face::Back);
-                }
-                // RenderShadowMaps sets userBackfaceMode=false for Directional1, even inside cube capture.
-                descriptor.primitive.front_face = if reflected {
-                    FrontFace::Ccw
-                } else {
-                    FrontFace::Cw
-                };
-                descriptor.depth_stencil = Some(DepthStencilState {
-                    format: SHADOW_FORMAT,
-                    depth_write_enabled: Some(true),
-                    depth_compare: Some(CompareFunction::GreaterEqual),
-                    stencil: StencilState::default(),
-                    bias: DepthBiasState::default(),
-                });
-                Some(*descriptor)
-            }) {
+            }
+            if !world_shader {
+                descriptor.primitive.cull_mode = Some(Face::Back);
+            }
+            // RenderShadowMaps sets userBackfaceMode=false for Directional1, even inside cube capture.
+            descriptor.primitive.front_face = if reflected {
+                FrontFace::Ccw
+            } else {
+                FrontFace::Cw
+            };
+            descriptor.depth_stencil = Some(DepthStencilState {
+                format: SHADOW_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(CompareFunction::GreaterEqual),
+                stencil: StencilState::default(),
+                bias: DepthBiasState::default(),
+            });
+            // An active base reuses an equal active caster, so its draws batch with it.
+            let owned = owners.owned(base_id);
+            if !owned && let Some((_, id)) = self.active.iter().find(|(d, _)| *d == *descriptor) {
+                self.variants.insert(base_id, Some(*id));
+                continue;
+            }
+            let queued = (!owned).then(|| (*descriptor).clone());
+            let id = match owners.queue_companion(cache, base_id, || Some(*descriptor)) {
                 Ok(id) => id,
                 Err(error) => {
                     if !owners.fail(base_id, error.0.clone()) {
@@ -278,6 +300,9 @@ impl CasterPasses {
                     None
                 }
             };
+            if let (Some(descriptor), Some(id)) = (queued, id) {
+                self.active.push((descriptor, id));
+            }
             self.variants.insert(base_id, id);
         }
         for id in self
