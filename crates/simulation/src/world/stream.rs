@@ -2312,14 +2312,13 @@ impl WorldStream {
         if self.change_revision != self.changes.revision() || self.change_bounds != Some(bounds) {
             self.replay_indices.clear();
             for bounds in bounds {
+                // Selection only lists records. Each replay root waits for its own room
+                // below, so only a reservation that can never fit fails here. Staging
+                // room is transient: the spray bottle changes its count every frame.
                 let (count, bytes) = self.changes.query_reservation(bounds);
                 if count > self.limits.objects
-                    || bytes.saturating_mul(4) > self.available_staging_bytes()
-                    || self
-                        .metrics()
-                        .active_cpu_bytes
-                        .saturating_add(bytes.saturating_mul(4))
-                        > self.limits.active_cpu
+                    || bytes.saturating_mul(4) > self.ledger.staging_limit()
+                    || bytes.saturating_mul(4) > self.limits.active_cpu
                 {
                     self.failure =
                         Some("Changed destination selection exceeds staging admission".into());
@@ -2375,12 +2374,14 @@ impl WorldStream {
             }
             let descriptor_bytes = super::contents::placement_heap(origin)
                 + usize::from(self.replay_roots.capacity() == 0) * std::mem::size_of::<Placement>();
-            if descriptor_bytes > self.available_staging_bytes()
-                || self
-                    .metrics()
-                    .active_cpu_bytes
-                    .saturating_add(descriptor_bytes)
-                    > self.limits.active_cpu
+            if !self.ledger.wait_for_room(
+                descriptor_bytes <= self.available_staging_bytes(),
+                Reclaim::STAGING,
+            ) || self
+                .metrics()
+                .active_cpu_bytes
+                .saturating_add(descriptor_bytes)
+                > self.limits.active_cpu
             {
                 return;
             }
