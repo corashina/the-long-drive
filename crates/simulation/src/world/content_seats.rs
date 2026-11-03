@@ -1,5 +1,8 @@
 //! Source seatscript seats on world prototypes and their hit colliders on spawned items.
 use super::WorldStream;
+use super::content_kinds::{
+    BindContext, Bound, ContentKind, ContentKinds, KindBindings, Ready, ready_unless_removed,
+};
 use crate::interaction::InteractionState;
 use crate::interaction::items::ItemStore;
 use crate::player::SeatOwner;
@@ -238,27 +241,6 @@ pub struct SeatBinding {
     item: ItemId,
     seats: Vec<(Arc<ItemSeat>, Vec<ColliderHandle>)>,
 }
-impl SeatBinding {
-    pub fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.seats.capacity() * std::mem::size_of::<(Arc<ItemSeat>, Vec<ColliderHandle>)>()
-            + self
-                .seats
-                .iter()
-                .map(|(seat, colliders)| {
-                    std::mem::size_of::<ItemSeat>()
-                        + colliders.capacity() * std::mem::size_of::<ColliderHandle>()
-                        + match &seat.owner {
-                            SeatOwner::Vehicle(ObjectKey::Generated(id))
-                            | SeatOwner::Item(ObjectKey::Generated(id)) => {
-                                crate::world::contents::identity_heap(id)
-                            }
-                            _ => 0,
-                        }
-                })
-                .sum::<usize>()
-    }
-}
 
 /// Prototype seats with shared records.
 pub type PrototypeSeats = (SourceId, Vec<Arc<WorldSeatReference>>);
@@ -311,67 +293,11 @@ pub fn world_seats(
 impl WorldStream {
     /// The seats of a prototype. A prototype without seats has none.
     fn seats_of(&self, prototype: &SourceId) -> &[Arc<WorldSeatReference>] {
-        self.seat_prototypes
+        self.kinds
+            .seat_prototypes
             .iter()
             .find(|(p, _)| p == prototype)
             .map_or(&[], |(_, seats)| seats)
-    }
-    pub(super) fn sync_seat_bindings(
-        &mut self,
-        items: &ItemStore,
-        interaction: &mut InteractionState,
-        physics: &PhysicsWorld,
-    ) -> Result<(), ReferenceError> {
-        let revision = (self.request.session, self.contents.active_revision());
-        if self.seat_scan == Some(revision) {
-            return Ok(());
-        }
-        let mut complete = true;
-        let mut i = 0;
-        while i < self.seat_bindings.len() {
-            let b = &self.seat_bindings[i];
-            if self
-                .contents
-                .active()
-                .iter()
-                .any(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
-            {
-                i += 1;
-            } else {
-                for (_, colliders) in &b.seats {
-                    for handle in colliders {
-                        interaction.remove_item_seat(*handle);
-                    }
-                }
-                self.seat_bindings.swap_remove(i);
-            }
-        }
-        for slot in 0..self.contents.active().len() {
-            let content = &self.contents.active()[slot];
-            let Some(item) = content.item else {
-                continue;
-            };
-            if self.seat_bindings.iter().any(|b| b.item == item) {
-                continue;
-            }
-            let seats = self.seats_of(&content.content.placement.prototype);
-            if seats.is_empty() {
-                continue;
-            }
-            if !content.restored {
-                complete = false;
-                continue;
-            }
-            // A removed item has no body and no seats to bind.
-            if items.get(item).and_then(|i| i.body).is_none() {
-                continue;
-            }
-            let seats = seats.to_vec();
-            let binding = self.bind_seats(items, interaction, physics, slot, item, seats)?;
-            self.seat_bindings.push(binding);
-        }
-        self.seat_scan = complete.then_some(revision);
-        Ok(())
     }
     fn bind_seats(
         &self,
@@ -495,5 +421,72 @@ impl WorldStream {
             item,
             seats: bound,
         })
+    }
+}
+
+impl Bound for SeatBinding {
+    fn parent(&self) -> &GeneratedId {
+        &self.parent
+    }
+    fn item(&self) -> Option<ItemId> {
+        Some(self.item)
+    }
+    fn heap_bytes(&self) -> usize {
+        crate::world::contents::identity_heap(&self.parent)
+            + self.seats.capacity() * std::mem::size_of::<(Arc<ItemSeat>, Vec<ColliderHandle>)>()
+            + self
+                .seats
+                .iter()
+                .map(|(seat, colliders)| {
+                    std::mem::size_of::<ItemSeat>()
+                        + colliders.capacity() * std::mem::size_of::<ColliderHandle>()
+                        + match &seat.owner {
+                            SeatOwner::Vehicle(ObjectKey::Generated(id))
+                            | SeatOwner::Item(ObjectKey::Generated(id)) => {
+                                crate::world::contents::identity_heap(id)
+                            }
+                            _ => 0,
+                        }
+                })
+                .sum::<usize>()
+    }
+}
+
+pub(super) struct SeatKind;
+impl ContentKind for SeatKind {
+    type Binding = SeatBinding;
+    type Script = Vec<Arc<WorldSeatReference>>;
+    fn kind(kinds: &mut ContentKinds) -> &mut KindBindings<SeatBinding> {
+        &mut kinds.seats
+    }
+    fn script(
+        stream: &mut WorldStream,
+        _: &BindContext,
+        slot: usize,
+    ) -> Result<Option<Self::Script>, ReferenceError> {
+        let seats = stream.seats_of(&stream.contents.active()[slot].content.placement.prototype);
+        Ok((!seats.is_empty()).then(|| seats.to_vec()))
+    }
+    fn ready(stream: &WorldStream, items: &ItemStore, slot: usize) -> Ready {
+        ready_unless_removed(stream, items, slot)
+    }
+    fn bind(
+        stream: &mut WorldStream,
+        cx: &mut BindContext,
+        slot: usize,
+        item: Option<ItemId>,
+        seats: Self::Script,
+    ) -> Result<Option<SeatBinding>, ReferenceError> {
+        let (items, physics) = (&*cx.items, &*cx.physics);
+        stream
+            .bind_seats(items, cx.interaction, physics, slot, item.unwrap(), seats)
+            .map(Some)
+    }
+    fn unbind(binding: &SeatBinding, interaction: &mut InteractionState) {
+        for (_, colliders) in &binding.seats {
+            for handle in colliders {
+                interaction.remove_item_seat(*handle);
+            }
+        }
     }
 }

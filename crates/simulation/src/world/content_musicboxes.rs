@@ -1,6 +1,7 @@
 //! Source music boxes: musicboxscript crank, notes and turning parts on generated items.
 use super::WorldStream;
 use super::content_index::ContentSlot;
+use super::content_kinds::{BindContext, Bound, ContentKind, ContentKinds, KindBindings};
 use crate::interaction::items::ItemStore;
 use crate::interaction::{InteractionState, Knob};
 use crate::reference::{ColliderId, ItemId, ReferenceError, SourceId, Transform, WorldValue};
@@ -32,72 +33,8 @@ pub struct MusicBoxBinding {
     chance: f32,
     pub nodes: Vec<MusicBoxNode>,
 }
-impl MusicBoxBinding {
-    pub fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.knobs.capacity() * std::mem::size_of::<ColliderId>()
-            + self.music.heap_bytes()
-            + self.nodes.capacity() * std::mem::size_of::<MusicBoxNode>()
-    }
-}
 
 impl WorldStream {
-    pub(super) fn sync_music_box_bindings(
-        &mut self,
-        items: &ItemStore,
-        interaction: &mut InteractionState,
-        physics: &mut PhysicsWorld,
-    ) -> Result<(), ReferenceError> {
-        let revision = (self.request.session, self.contents.active_revision());
-        if self.music_box_scan == Some(revision) {
-            return Ok(());
-        }
-        let mut complete = true;
-        let mut i = 0;
-        while i < self.music_box_bindings.len() {
-            let b = &mut self.music_box_bindings[i];
-            if let Some(slot) = self
-                .contents
-                .active()
-                .iter()
-                .position(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
-            {
-                b.slot = slot;
-                i += 1;
-            } else {
-                for knob in &b.knobs {
-                    interaction.remove_dial_knob(*knob);
-                }
-                self.music_box_bindings.swap_remove(i);
-            }
-        }
-        for slot in 0..self.contents.active().len() {
-            let content = &self.contents.active()[slot];
-            let Some(item) = content.item else {
-                continue;
-            };
-            if self.music_box_bindings.iter().any(|b| b.item == item) {
-                continue;
-            }
-            let root = &content.content.placement.prototype;
-            let Some(script) =
-                self.contents
-                    .rules
-                    .component(&self.reference, root, "musicboxscript")?
-            else {
-                continue;
-            };
-            if !content.restored || items.get(item).and_then(|i| i.body).is_none() {
-                complete = false;
-                continue;
-            }
-            let script = script.source.clone();
-            let binding = self.bind_music_box(items, interaction, physics, slot, item, &script)?;
-            self.music_box_bindings.push(binding);
-        }
-        self.music_box_scan = complete.then_some(revision);
-        Ok(())
-    }
     fn bind_music_box(
         &self,
         items: &ItemStore,
@@ -194,7 +131,9 @@ impl WorldStream {
     /// usablescript.Rot from the crank look input. Returns false when the knob is not a crank.
     pub fn crank_music_box(&mut self, knob: ColliderId, look: [f32; 2]) -> bool {
         let Some(b) = self
-            .music_box_bindings
+            .kinds
+            .music_boxes
+            .list
             .iter_mut()
             .find(|b| b.knobs.contains(&knob))
         else {
@@ -206,7 +145,7 @@ impl WorldStream {
     /// musicboxscript.Update. Calls `play` with the item, pitch, pitch difference and chance
     /// of each note.
     pub fn advance_music_boxes(&mut self, dt: f32, mut play: impl FnMut(ItemId, f32, f32, f32)) {
-        for b in &mut self.music_box_bindings {
+        for b in &mut self.kinds.music_boxes.list {
             let look = std::mem::take(&mut b.crank);
             let (item, detune, chance) = (b.item, b.detune, b.chance);
             let speed = b
@@ -228,6 +167,65 @@ impl WorldStream {
         }
     }
     pub fn music_box(&self, parent: &GeneratedId) -> Option<&MusicBoxBinding> {
-        self.music_box_bindings.iter().find(|b| &b.parent == parent)
+        self.kinds
+            .music_boxes
+            .list
+            .iter()
+            .find(|b| &b.parent == parent)
+    }
+}
+
+impl Bound for MusicBoxBinding {
+    fn parent(&self) -> &GeneratedId {
+        &self.parent
+    }
+    fn item(&self) -> Option<ItemId> {
+        Some(self.item)
+    }
+    fn set_slot(&mut self, slot: usize) {
+        self.slot = slot;
+    }
+    fn heap_bytes(&self) -> usize {
+        crate::world::contents::identity_heap(&self.parent)
+            + self.knobs.capacity() * std::mem::size_of::<ColliderId>()
+            + self.music.heap_bytes()
+            + self.nodes.capacity() * std::mem::size_of::<MusicBoxNode>()
+    }
+}
+
+pub(super) struct MusicBoxKind;
+impl ContentKind for MusicBoxKind {
+    type Binding = MusicBoxBinding;
+    type Script = SourceId;
+    fn kind(kinds: &mut ContentKinds) -> &mut KindBindings<MusicBoxBinding> {
+        &mut kinds.music_boxes
+    }
+    fn script(
+        stream: &mut WorldStream,
+        _: &BindContext,
+        slot: usize,
+    ) -> Result<Option<SourceId>, ReferenceError> {
+        let root = &stream.contents.active()[slot].content.placement.prototype;
+        let rules = &stream.contents.rules;
+        Ok(rules
+            .component(&stream.reference, root, "musicboxscript")?
+            .map(|s| s.source.clone()))
+    }
+    fn bind(
+        stream: &mut WorldStream,
+        cx: &mut BindContext,
+        slot: usize,
+        item: Option<ItemId>,
+        script: SourceId,
+    ) -> Result<Option<MusicBoxBinding>, ReferenceError> {
+        let (items, physics) = (&*cx.items, &mut *cx.physics);
+        stream
+            .bind_music_box(items, cx.interaction, physics, slot, item.unwrap(), &script)
+            .map(Some)
+    }
+    fn unbind(binding: &MusicBoxBinding, interaction: &mut InteractionState) {
+        for knob in &binding.knobs {
+            interaction.remove_dial_knob(*knob);
+        }
     }
 }

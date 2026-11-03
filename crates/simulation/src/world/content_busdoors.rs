@@ -2,11 +2,13 @@
 //! `busdooropenscript` leaves and `dinamiccolliderforbus` boxes.
 use super::WorldStream;
 use super::content_index::ContentSlot;
+use super::content_kinds::{BindContext, Bound, ContentKind, ContentKinds, KindBindings, Ready};
 use crate::electronics::{Emp, NodeElectronics};
 use crate::interaction::items::ItemStore;
 use crate::interaction::{InteractionState, Knob};
 use crate::reference::{
-    CarShotReference, ColliderId, ReferenceError, SourceId, Transform, WorldPrototypeReference,
+    CarShotReference, ColliderId, ItemId, ReferenceError, SourceId, Transform,
+    WorldPrototypeReference,
 };
 use crate::simulation::dials::{lerp, unity_euler};
 use crate::vehicle::{PhysicsWorld, to_rapier};
@@ -190,29 +192,6 @@ pub struct BusDoorBinding {
     scale: f32,
 }
 impl BusDoorBinding {
-    pub fn heap_bytes(&self) -> usize {
-        let ids = |v: &Vec<SourceId>| {
-            v.capacity() * std::mem::size_of::<SourceId>()
-                + v.iter().map(|s| s.file.capacity()).sum::<usize>()
-        };
-        crate::world::contents::identity_heap(&self.parent)
-            + self.buttons.capacity() * std::mem::size_of::<(ColliderId, usize, bool)>()
-            + self
-                .materials
-                .iter()
-                .map(|m| m.file.capacity())
-                .sum::<usize>()
-            + self.state.doors.capacity() * std::mem::size_of::<Door>()
-            + self
-                .state
-                .doors
-                .iter()
-                .map(|d| ids(&d.green) + ids(&d.red))
-                .sum::<usize>()
-            + self.state.leaves.capacity() * std::mem::size_of::<DoorLeaf>()
-            + self.colliders.capacity() * std::mem::size_of::<LeafCollider>()
-            + self.boxes.capacity() * std::mem::size_of::<DynamicBox>()
-    }
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub fn leaves(&self) -> &[DoorLeaf] {
         &self.state.leaves
@@ -274,7 +253,11 @@ impl WorldStream {
         &mut self,
         prototype: &SourceId,
     ) -> Result<(Option<SourceId>, Vec<SourceId>), ReferenceError> {
-        if let Some((_, doors, boxes)) = self.bus_door_scripts.iter().find(|(p, ..)| p == prototype)
+        if let Some((_, doors, boxes)) = self
+            .kinds
+            .bus_door_scripts
+            .iter()
+            .find(|(p, ..)| p == prototype)
         {
             return Ok((doors.clone(), boxes.clone()));
         }
@@ -304,75 +287,10 @@ impl WorldStream {
             &mut found,
         )?;
         let boxes: Vec<SourceId> = found.into_iter().cloned().collect();
-        self.bus_door_scripts
+        self.kinds
+            .bus_door_scripts
             .push((prototype.clone(), doors.clone(), boxes.clone()));
         Ok((doors, boxes))
-    }
-    pub(super) fn sync_bus_door_bindings(
-        &mut self,
-        interaction: &mut InteractionState,
-        physics: &mut PhysicsWorld,
-    ) -> Result<(), ReferenceError> {
-        let revision = (self.request.session, self.contents.active_revision());
-        if self.bus_door_scan == Some(revision) {
-            return Ok(());
-        }
-        let mut complete = true;
-        let mut i = 0;
-        while i < self.bus_door_bindings.len() {
-            let b = &mut self.bus_door_bindings[i];
-            if let Some(slot) = self
-                .contents
-                .active()
-                .iter()
-                .position(|c| c.content.placement.id == b.parent)
-            {
-                b.slot = slot;
-                i += 1;
-            } else {
-                for (knob, ..) in &b.buttons {
-                    interaction.remove_dial_knob(*knob);
-                }
-                self.bus_door_bindings.swap_remove(i);
-            }
-        }
-        for slot in 0..self.contents.active().len() {
-            let content = &self.contents.active()[slot];
-            if self
-                .bus_door_bindings
-                .iter()
-                .any(|b| b.parent == content.content.placement.id)
-            {
-                continue;
-            }
-            let parent = content.content.placement.id.clone();
-            let prototype = content.content.placement.prototype.clone();
-            let restored = content.restored;
-            let (doors, boxes) = self.bus_door_scripts(&prototype)?;
-            if doors.is_none() && boxes.is_empty() {
-                continue;
-            }
-            if !restored || !self.structures.iter().any(|s| s.placement.id == parent) {
-                complete = false;
-                continue;
-            }
-            let binding =
-                self.bind_bus_doors(interaction, physics, slot, doors.as_ref(), &boxes)?;
-            self.bus_door_bindings.push(binding);
-            let index = self.bus_door_bindings.len() - 1;
-            if self
-                .changes
-                .bus_doors(&ObjectKey::Generated(parent))
-                .is_some()
-            {
-                for door in 0..self.bus_door_bindings[index].state.doors.len() {
-                    self.show_door_lamps(index, door);
-                }
-            }
-            self.place_bus_doors(index, physics);
-        }
-        self.bus_door_scan = complete.then_some(revision);
-        Ok(())
     }
     fn bind_bus_doors(
         &self,
@@ -603,7 +521,7 @@ impl WorldStream {
     }
     /// `Refresh` materials of one door.
     fn show_door_lamps(&mut self, index: usize, door: usize) {
-        let b = &self.bus_door_bindings[index];
+        let b = &self.kinds.bus_doors.list[index];
         let d = &b.state.doors[door];
         let [red_on, red_off, green_on, green_off] = &b.materials;
         let (green, red) = match d.lamps() {
@@ -631,20 +549,22 @@ impl WorldStream {
         mut play: impl FnMut(&ObjectKey, &CarShotReference),
     ) -> bool {
         let Some(index) = self
-            .bus_door_bindings
+            .kinds
+            .bus_doors
+            .list
             .iter()
             .position(|b| b.buttons.iter().any(|(k, ..)| *k == knob))
         else {
             return false;
         };
         let reference = self.reference.clone();
-        let audio = reference.prototypes[self.bus_door_bindings[index].prototype]
+        let audio = reference.prototypes[self.kinds.bus_doors.list[index].prototype]
             .vehicle
             .as_ref()
             .and_then(|v| v.audio.as_ref());
-        let key = ObjectKey::Generated(self.bus_door_bindings[index].parent.clone());
-        for button in 0..self.bus_door_bindings[index].buttons.len() {
-            let b = &mut self.bus_door_bindings[index];
+        let key = ObjectKey::Generated(self.kinds.bus_doors.list[index].parent.clone());
+        for button in 0..self.kinds.bus_doors.list[index].buttons.len() {
+            let b = &mut self.kinds.bus_doors.list[index];
             let (k, door, open) = b.buttons[button];
             if k != knob {
                 continue;
@@ -664,7 +584,7 @@ impl WorldStream {
     }
     /// EMPs jam the bus door electronics at the bus item position.
     pub fn expose_bus_doors(&mut self, emps: &[Emp], items: &ItemStore, dt: f32) {
-        for b in &mut self.bus_door_bindings {
+        for b in &mut self.kinds.bus_doors.list {
             let Some(e) = &mut b.state.electronics else {
                 continue;
             };
@@ -683,8 +603,8 @@ impl WorldStream {
         if !dt.is_finite() || dt < 0. {
             return;
         }
-        for index in 0..self.bus_door_bindings.len() {
-            let b = &mut self.bus_door_bindings[index];
+        for index in 0..self.kinds.bus_doors.list.len() {
+            let b = &mut self.kinds.bus_doors.list[index];
             b.state.time += dt;
             let mut moved = false;
             for leaf in &mut b.state.leaves {
@@ -701,7 +621,7 @@ impl WorldStream {
     }
     /// Turns the leaf colliders and sets the dynamic box lengths after a leaf moved.
     fn place_bus_doors(&self, index: usize, physics: &mut PhysicsWorld) {
-        let b = &self.bus_door_bindings[index];
+        let b = &self.kinds.bus_doors.list[index];
         let prototype = &self.reference.prototypes[b.prototype];
         for c in &b.colliders {
             let node = b.state.leaves[c.leaf].node;
@@ -737,20 +657,24 @@ impl WorldStream {
     }
     /// The parent seed and the doors of each bound bus.
     pub fn bus_door_states(&self) -> impl Iterator<Item = (u64, &[Door])> {
-        self.bus_door_bindings
+        self.kinds
+            .bus_doors
+            .list
             .iter()
             .map(|b| (b.parent.seed(), &b.state.doors[..]))
     }
     /// Source `UpdBus`: bit i of `opened` and `signed` is door i. False if no bus has seed `seed`.
     pub fn set_bus_doors(&mut self, seed: u64, opened: u32, signed: u32) -> bool {
         let Some(index) = self
-            .bus_door_bindings
+            .kinds
+            .bus_doors
+            .list
             .iter()
             .position(|b| b.parent.seed() == seed)
         else {
             return false;
         };
-        let b = &mut self.bus_door_bindings[index];
+        let b = &mut self.kinds.bus_doors.list[index];
         let mut changed = 0u32;
         for (i, d) in b.state.doors.iter_mut().enumerate().take(32) {
             let open = opened & (1 << i) != 0;
@@ -776,6 +700,102 @@ impl WorldStream {
         true
     }
     pub fn bus_doors(&self, parent: &GeneratedId) -> Option<&BusDoorBinding> {
-        self.bus_door_bindings.iter().find(|b| &b.parent == parent)
+        self.kinds
+            .bus_doors
+            .list
+            .iter()
+            .find(|b| &b.parent == parent)
+    }
+}
+
+impl Bound for BusDoorBinding {
+    fn parent(&self) -> &GeneratedId {
+        &self.parent
+    }
+    fn item(&self) -> Option<ItemId> {
+        None
+    }
+    fn set_slot(&mut self, slot: usize) {
+        self.slot = slot;
+    }
+    fn heap_bytes(&self) -> usize {
+        let ids = |v: &Vec<SourceId>| {
+            v.capacity() * std::mem::size_of::<SourceId>()
+                + v.iter().map(|s| s.file.capacity()).sum::<usize>()
+        };
+        crate::world::contents::identity_heap(&self.parent)
+            + self.buttons.capacity() * std::mem::size_of::<(ColliderId, usize, bool)>()
+            + self
+                .materials
+                .iter()
+                .map(|m| m.file.capacity())
+                .sum::<usize>()
+            + self.state.doors.capacity() * std::mem::size_of::<Door>()
+            + self
+                .state
+                .doors
+                .iter()
+                .map(|d| ids(&d.green) + ids(&d.red))
+                .sum::<usize>()
+            + self.state.leaves.capacity() * std::mem::size_of::<DoorLeaf>()
+            + self.colliders.capacity() * std::mem::size_of::<LeafCollider>()
+            + self.boxes.capacity() * std::mem::size_of::<DynamicBox>()
+    }
+}
+
+pub(super) struct BusDoorKind;
+impl ContentKind for BusDoorKind {
+    type Binding = BusDoorBinding;
+    type Script = (Option<SourceId>, Vec<SourceId>);
+    const BY_ITEM: bool = false;
+    fn kind(kinds: &mut ContentKinds) -> &mut KindBindings<BusDoorBinding> {
+        &mut kinds.bus_doors
+    }
+    fn script(
+        stream: &mut WorldStream,
+        _: &BindContext,
+        slot: usize,
+    ) -> Result<Option<Self::Script>, ReferenceError> {
+        let prototype = stream.contents.active()[slot]
+            .content
+            .placement
+            .prototype
+            .clone();
+        let (doors, boxes) = stream.bus_door_scripts(&prototype)?;
+        Ok((doors.is_some() || !boxes.is_empty()).then_some((doors, boxes)))
+    }
+    fn ready(stream: &WorldStream, _: &ItemStore, slot: usize) -> Ready {
+        let content = &stream.contents.active()[slot];
+        let parent = &content.content.placement.id;
+        if content.restored && stream.structures.iter().any(|s| &s.placement.id == parent) {
+            Ready::Bind
+        } else {
+            Ready::Wait
+        }
+    }
+    fn bind(
+        stream: &mut WorldStream,
+        cx: &mut BindContext,
+        slot: usize,
+        _: Option<ItemId>,
+        (doors, boxes): Self::Script,
+    ) -> Result<Option<BusDoorBinding>, ReferenceError> {
+        stream
+            .bind_bus_doors(cx.interaction, cx.physics, slot, doors.as_ref(), &boxes)
+            .map(Some)
+    }
+    fn bound(stream: &mut WorldStream, cx: &mut BindContext, index: usize) {
+        let parent = ObjectKey::Generated(stream.kinds.bus_doors.list[index].parent.clone());
+        if stream.changes.bus_doors(&parent).is_some() {
+            for door in 0..stream.kinds.bus_doors.list[index].state.doors.len() {
+                stream.show_door_lamps(index, door);
+            }
+        }
+        stream.place_bus_doors(index, cx.physics);
+    }
+    fn unbind(binding: &BusDoorBinding, interaction: &mut InteractionState) {
+        for (knob, ..) in &binding.buttons {
+            interaction.remove_dial_knob(*knob);
+        }
     }
 }

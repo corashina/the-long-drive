@@ -1,6 +1,7 @@
 //! Source portable radios: radioscript controls, needle and screen materials on generated items.
 use super::WorldStream;
 use super::content_index::ContentSlot;
+use super::content_kinds::{BindContext, Bound, ContentKind, ContentKinds, KindBindings};
 use crate::electronics::{Electronics, Emp, NodeElectronics};
 use crate::interaction::items::ItemStore;
 use crate::interaction::{InteractionState, Knob};
@@ -34,16 +35,6 @@ pub struct RadioBinding {
     shown: Option<bool>,
 }
 impl RadioBinding {
-    pub fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.script.file.capacity()
-            + self.knobs.capacity() * std::mem::size_of::<(ColliderId, Knob)>()
-            + self
-                .screens
-                .iter()
-                .map(|(n, m)| n.file.capacity() + m[0].file.capacity() + m[1].file.capacity())
-                .sum::<usize>()
-    }
     fn place_needle(&mut self) -> bool {
         let translation = self
             .start
@@ -88,7 +79,12 @@ fn saved_controls(
 impl WorldStream {
     /// The radioscript of a prototype, cached because it sits below the item root.
     fn radio_script(&mut self, prototype: &SourceId) -> Result<Option<SourceId>, ReferenceError> {
-        if let Some((_, script)) = self.radio_scripts.iter().find(|(p, _)| p == prototype) {
+        if let Some((_, script)) = self
+            .kinds
+            .radio_scripts
+            .iter()
+            .find(|(p, _)| p == prototype)
+        {
             return Ok(script.clone());
         }
         let mut scripts = Vec::new();
@@ -104,64 +100,10 @@ impl WorldStream {
             [script] => Some((*script).clone()),
             _ => return Err(ReferenceError("Item has more than one radio".into())),
         };
-        self.radio_scripts.push((prototype.clone(), script.clone()));
+        self.kinds
+            .radio_scripts
+            .push((prototype.clone(), script.clone()));
         Ok(script)
-    }
-    pub(super) fn sync_radio_bindings(
-        &mut self,
-        ui: &UiReference,
-        items: &ItemStore,
-        interaction: &mut InteractionState,
-        physics: &mut PhysicsWorld,
-    ) -> Result<(), ReferenceError> {
-        let revision = (self.request.session, self.contents.active_revision());
-        if self.radio_scan == Some(revision) {
-            return Ok(());
-        }
-        let mut complete = true;
-        let mut i = 0;
-        while i < self.radio_bindings.len() {
-            let b = &mut self.radio_bindings[i];
-            if let Some(slot) = self
-                .contents
-                .active()
-                .iter()
-                .position(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
-            {
-                b.slot = slot;
-                i += 1;
-            } else {
-                for (knob, _) in &b.knobs {
-                    interaction.remove_dial_knob(*knob);
-                }
-                self.radio_bindings.swap_remove(i);
-            }
-        }
-        for slot in 0..self.contents.active().len() {
-            let content = &self.contents.active()[slot];
-            let Some(item) = content.item else {
-                continue;
-            };
-            if self.radio_bindings.iter().any(|b| b.item == item) {
-                continue;
-            }
-            let prototype = content.content.placement.prototype.clone();
-            let restored = content.restored;
-            let Some(script) = self.radio_script(&prototype)? else {
-                continue;
-            };
-            if !restored || items.get(item).and_then(|i| i.body).is_none() {
-                complete = false;
-                continue;
-            }
-            let mut binding =
-                self.bind_radio(ui, items, interaction, physics, slot, item, &script)?;
-            binding.place_needle();
-            self.radio_bindings.push(binding);
-            self.show_radio_power(self.radio_bindings.len() - 1);
-        }
-        self.radio_scan = complete.then_some(revision);
-        Ok(())
     }
     fn bind_radio(
         &self,
@@ -307,7 +249,7 @@ impl WorldStream {
     }
     /// radioscript RS and RMutato materials follow the powered state.
     fn show_radio_power(&mut self, index: usize) {
-        let b = &mut self.radio_bindings[index];
+        let b = &mut self.kinds.radios.list[index];
         let power = b.state.on && b.electronics.state.output() > self.reference.electronics_cutoff;
         if b.shown == Some(power) {
             return;
@@ -349,10 +291,12 @@ impl WorldStream {
         items: &mut ItemStore,
     ) -> Option<(ItemId, bool)> {
         let index = self
-            .radio_bindings
+            .kinds
+            .radios
+            .list
             .iter()
             .position(|b| b.knobs.iter().any(|(k, _)| *k == knob))?;
-        let b = &mut self.radio_bindings[index];
+        let b = &mut self.kinds.radios.list[index];
         let kind = b.knobs.iter().find(|(k, _)| *k == knob)?.1;
         let control = match (kind, direction > 0.) {
             (Knob::Volume, true) => RadioControl::VolumeUp,
@@ -378,7 +322,9 @@ impl WorldStream {
     }
     /// The controls of radio `item`.
     pub fn radio_state(&self, item: ItemId) -> Option<&RadioState> {
-        self.radio_bindings
+        self.kinds
+            .radios
+            .list
             .iter()
             .find(|b| b.item == item)
             .map(|b| &b.state)
@@ -390,10 +336,10 @@ impl WorldStream {
         saved: &crate::save::RadioSnapshot,
         items: &mut ItemStore,
     ) {
-        let Some(index) = self.radio_bindings.iter().position(|b| b.item == item) else {
+        let Some(index) = self.kinds.radios.list.iter().position(|b| b.item == item) else {
             return;
         };
-        let b = &mut self.radio_bindings[index];
+        let b = &mut self.kinds.radios.list[index];
         if !saved.tuning.is_finite()
             || !saved.volume.is_finite()
             || b.state.restore_save(saved).is_err()
@@ -411,14 +357,18 @@ impl WorldStream {
     }
     /// The radio of a knob collider.
     pub fn knob_radio(&self, knob: ColliderId) -> Option<&RadioState> {
-        self.radio_bindings
+        self.kinds
+            .radios
+            .list
             .iter()
             .find(|b| b.knobs.iter().any(|(k, _)| *k == knob))
             .map(|b| &b.state)
     }
     /// The controls saved with a radio item.
     pub(super) fn radio_value(&self, item: ItemId) -> Option<crate::save::RadioSnapshot> {
-        self.radio_bindings
+        self.kinds
+            .radios
+            .list
             .iter()
             .find(|b| b.item == item)
             .map(|b| b.state.capture_save())
@@ -428,15 +378,15 @@ impl WorldStream {
     pub fn portable_radios(
         &self,
     ) -> impl Iterator<Item = (ItemId, &SourceId, &RadioState, f32, &GeneratedId)> + Clone {
-        self.radio_bindings.iter().map(|b| {
+        self.kinds.radios.list.iter().map(|b| {
             let output = b.electronics.state.output();
             (b.item, &b.script, &b.state, output, &b.parent)
         })
     }
     /// EMPs jam each radio at its item position. The screens follow the power.
     pub fn expose_radios(&mut self, emps: &[Emp], items: &ItemStore, dt: f32) {
-        for index in 0..self.radio_bindings.len() {
-            let b = &mut self.radio_bindings[index];
+        for index in 0..self.kinds.radios.list.len() {
+            let b = &mut self.kinds.radios.list[index];
             let Some(item) = items.get(b.item) else {
                 continue;
             };
@@ -447,7 +397,7 @@ impl WorldStream {
         }
     }
     pub fn radio(&self, parent: &GeneratedId) -> Option<&RadioBinding> {
-        self.radio_bindings.iter().find(|b| &b.parent == parent)
+        self.kinds.radios.list.iter().find(|b| &b.parent == parent)
     }
 }
 
@@ -455,7 +405,78 @@ impl WorldStream {
 impl WorldStream {
     /// Test probe: the first knob of `kind` on the portable radio `item`.
     pub fn radio_knob(&self, item: ItemId, kind: Knob) -> Option<ColliderId> {
-        let b = self.radio_bindings.iter().find(|b| b.item == item)?;
+        let b = self.kinds.radios.list.iter().find(|b| b.item == item)?;
         b.knobs.iter().find(|(_, k)| *k == kind).map(|(c, _)| *c)
+    }
+}
+
+impl Bound for RadioBinding {
+    fn parent(&self) -> &GeneratedId {
+        &self.parent
+    }
+    fn item(&self) -> Option<ItemId> {
+        Some(self.item)
+    }
+    fn set_slot(&mut self, slot: usize) {
+        self.slot = slot;
+    }
+    fn heap_bytes(&self) -> usize {
+        crate::world::contents::identity_heap(&self.parent)
+            + self.script.file.capacity()
+            + self.knobs.capacity() * std::mem::size_of::<(ColliderId, Knob)>()
+            + self
+                .screens
+                .iter()
+                .map(|(n, m)| n.file.capacity() + m[0].file.capacity() + m[1].file.capacity())
+                .sum::<usize>()
+    }
+}
+
+pub(super) struct RadioKind;
+impl ContentKind for RadioKind {
+    type Binding = RadioBinding;
+    type Script = SourceId;
+    fn kind(kinds: &mut ContentKinds) -> &mut KindBindings<RadioBinding> {
+        &mut kinds.radios
+    }
+    fn script(
+        stream: &mut WorldStream,
+        _: &BindContext,
+        slot: usize,
+    ) -> Result<Option<SourceId>, ReferenceError> {
+        let prototype = stream.contents.active()[slot]
+            .content
+            .placement
+            .prototype
+            .clone();
+        stream.radio_script(&prototype)
+    }
+    fn bind(
+        stream: &mut WorldStream,
+        cx: &mut BindContext,
+        slot: usize,
+        item: Option<ItemId>,
+        script: SourceId,
+    ) -> Result<Option<RadioBinding>, ReferenceError> {
+        let (ui, items, physics) = (&cx.reference.ui, &*cx.items, &mut *cx.physics);
+        let mut binding = stream.bind_radio(
+            ui,
+            items,
+            cx.interaction,
+            physics,
+            slot,
+            item.unwrap(),
+            &script,
+        )?;
+        binding.place_needle();
+        Ok(Some(binding))
+    }
+    fn bound(stream: &mut WorldStream, _: &mut BindContext, index: usize) {
+        stream.show_radio_power(index);
+    }
+    fn unbind(binding: &RadioBinding, interaction: &mut InteractionState) {
+        for (knob, _) in &binding.knobs {
+            interaction.remove_dial_knob(*knob);
+        }
     }
 }
