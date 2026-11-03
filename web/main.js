@@ -10,6 +10,7 @@ const joinRoom=(()=>{try{return JSON.parse(takeSession(JOIN_KEY)??'null');}catch
 const seed=installSeed(window,document.querySelector('#seed'),Math.random,newGameSeed);
 import {createSettings,frameLimit,installSettingsBridge} from './settings.js';
 import {displayFields,installDisplaySettings} from './display-settings.js';
+import {installQualityPresets,qualityField} from './quality-presets.js';
 import {createLanguage,installLanguageSelect,languageField} from './language.js';
 import {installFramePacer} from './frame-pacer.js';
 import {actionIndex,compileBindings,inputsField} from './bindings.js';
@@ -233,7 +234,7 @@ async function load(){
  const text=manifest_shell(bytes),manifest=JSON.parse(text);
  const {manifest_sha256:manifestHash}=await manifestStamp(bytes,manifest);
  const bindings=manifest.driving.bindings,actionIds=actionIndex(bindings);
- settings=createSettings(()=>localStorage,manifest.settings,{...displayFields(manifest.world.mirrors.draw_distance),...gameFields(manifest.world.start_cars.length),inputs:inputsField(bindings),language:languageField(manifest.language)});
+ settings=createSettings(()=>localStorage,manifest.settings,{...displayFields(manifest.world.mirrors.draw_distance),quality:qualityField,...gameFields(manifest.world.start_cars.length),inputs:inputsField(bindings),language:languageField(manifest.language)});
  const language=createLanguage(manifest.language,settings,document);
  installLanguageSelect(document.querySelector('#language'),settings,language.names);
  installGameMode(window,document.querySelector('#biome'),settings);
@@ -241,6 +242,7 @@ async function load(){
  const gameOptions=installGameOptions(window,{peaceful:document.querySelector('#peaceful'),survival:document.querySelector('#survival-mode'),homesick:document.querySelector('#homesick')},settings,options=>survival?.setSurvival(options.survival));
  installSettingsBridge(window,settings,()=>menu?.model.state==='playing',actionIds);
  installDisplaySettings(window,settings,document,manifest.world.mirrors.draw_distance);
+ installQualityPresets(settings,document.querySelector('#display-quality'));
  installFramePacer(f=>requestAnimationFrame(f),()=>frameLimit(settings.values,menu?.model.state==='playing'),wake_frame);
  const autosaveToggles=v=>{toggles.autosave=v.BAutoSave;toggles.inCar=!v.BDisableAutoSaveInCar;};
  autosaveToggles(settings.values);settings.listen(autosaveToggles);
