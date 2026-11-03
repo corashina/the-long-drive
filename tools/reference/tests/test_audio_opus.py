@@ -17,13 +17,15 @@ class AudioOpusTests(unittest.TestCase):
                 clip.setnchannels(2); clip.setsampwidth(2); clip.setframerate(44100)
                 clip.writeframes(b''.join(struct.pack('<hh', s, -s) for s in
                     (int(9000 * math.sin(i / 20)) for i in range(frames))))
-            encode_opus(root / 'clip.wav', root / 'a.ogg', 2)
-            encode_opus(root / 'clip.wav', root / 'b.ogg', 2)
+            encode_opus(root / 'clip.wav', root / 'a.ogg', 2, 48000)
+            encode_opus(root / 'clip.wav', root / 'b.ogg', 2, 48000)
             self.assertEqual((root / 'a.ogg').read_bytes(), (root / 'b.ogg').read_bytes())
             channels, decoded = opus_frames(root / 'a.ogg')
             self.assertEqual(channels, 2)
             self.assertLessEqual(abs(decoded - frames * OPUS_RATE / 44100), 2)
             self.assertLess((root / 'a.ogg').stat().st_size * 8, (root / 'clip.wav').stat().st_size)
+            encode_opus(root / 'clip.wav', root / 'radio.ogg', 2, 32000)
+            self.assertLess((root / 'radio.ogg').stat().st_size, (root / 'a.ogg').stat().st_size)
 
 
 if __name__ == '__main__':
