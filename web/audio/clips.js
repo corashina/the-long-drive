@@ -1,5 +1,5 @@
 import {readPackageAsset} from '../world-assets.js';
-// Accepted WAV bytes are checked before browser decoding.
+// Accepted Ogg Opus bytes are checked before browser decoding.
 export class ClipCache {
  constructor(context,raw,current,fail){this.context=context;this.clips=new Map(raw.clips.map(c=>[c.id,c]));this.current=current;this.fail=fail;this.buffers=new Map();this.pending=new Map();this.failed=new Set();this.controllers=new Set();this.generation=0;this.radioBuffers=new Map();this.radioPending=new Map();this.radioWanted=new Set();this.radioDemand=[];this.radioDirty=true;}
  async effect(id,session){
@@ -19,9 +19,7 @@ export class ClipCache {
    const input=await readPackageAsset(clip.path,abort.signal),bytes=input.buffer;
    if(generation!==this.generation||session!==this.current())return null;
    if(bytes.byteLength!==clip.bytes)throw Error('Audio byte count');
-   const view=new DataView(bytes);if(view.getUint32(0,true)!==0x46464952||view.getUint32(8,true)!==0x45564157)throw Error('Audio WAV header');
-   let format=false,data=false;for(let offset=12;offset+8<=bytes.byteLength;){const size=view.getUint32(offset+4,true),end=offset+8+size;if(end>bytes.byteLength)throw Error('Audio WAV chunk');if(view.getUint32(offset,true)===0x20746d66){if(size<16||view.getUint16(offset+8,true)!==clip.format_tag||view.getUint16(offset+10,true)!==clip.channels||view.getUint32(offset+12,true)!==clip.frequency||view.getUint16(offset+22,true)!==clip.bits_per_sample)throw Error('Audio WAV format');format=true;}if(view.getUint32(offset,true)===0x61746164){if(size!==clip.data_bytes)throw Error('Audio WAV samples');data=true;}offset=end+(size&1);}
-   if(!format||!data)throw Error('Audio WAV data');
+   if(new DataView(bytes).getUint32(0,true)!==0x5367674f)throw Error('Audio Ogg header');
    const buffer=await this.context.decodeAudioData(bytes);
    if(generation!==this.generation||session!==this.current())return null;
    if(Math.abs(buffer.duration-clip.duration_seconds)>.02||buffer.numberOfChannels!==clip.channels)throw Error('Audio decoded samples');
