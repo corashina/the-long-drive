@@ -8,4 +8,3 @@
 - Make architectural decisions for the long term. Do not accept a stopgap that only works for now and is meant to be replaced later.
 - Avoid allocations and repeated setup in per-frame update and render paths.
 - Implement only critical tests.
-- Author and commit as Tomasz. Before you commit, run `git config user.name "Tomasz Zielinski"` and `git config user.email "edisoner97@gmail.com"`. Do not add `Co-Authored-By` or other Claude trailers to commits.
