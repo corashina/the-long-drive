@@ -254,11 +254,7 @@ mod tests {
     use crate::vehicle::PhysicsWorld;
     use rapier3d::prelude::{ColliderBuilder, QueryFilter};
 
-    /// The garage door jamb next to the light switch touched the feet sphere at its side.
-    /// The step lifted the player 0.29 m in one step. That is 14 m/s, over the 13.5 m/s death
-    /// change.
-    #[test]
-    fn wall_corner_is_no_step() {
+    fn test_shape() -> PlayerSweepShape {
         let clearance = (1..=10)
             .map(|i| serde_json::json!({"posture": i as f32 * 0.1, "sphere": {"source": {"file": "level1", "path_id": 1}, "center": [0.0, 0.0, 0.0], "radius": 0.15, "membership": 1, "filter": 1}}))
             .collect::<Vec<_>>();
@@ -271,7 +267,15 @@ mod tests {
             "clearance": clearance, "sensor_hold_steps": 3
         }))
         .unwrap();
-        let shape = PlayerSweepShape::from_posture(&posture);
+        PlayerSweepShape::from_posture(&posture)
+    }
+
+    /// The garage door jamb next to the light switch touched the feet sphere at its side.
+    /// The step lifted the player 0.29 m in one step. That is 14 m/s, over the 13.5 m/s death
+    /// change.
+    #[test]
+    fn wall_corner_is_no_step() {
+        let shape = test_shape();
         let offset = 0.01 * shape.compute_local_aabb().extents().y;
         let feet_y = -0.573;
         let floor = feet_y - 0.3 - offset;
@@ -313,5 +317,37 @@ mod tests {
                 .edge_step(&queries, &stairs, -Vector::X, edge, offset)
                 .is_some()
         );
+    }
+
+    /// Many garage walls are resting kinematic bodies. A player on the floor who touched one
+    /// could not walk away from it, and stopped dead while sliding along the next wall.
+    #[test]
+    fn resting_kinematic_wall_lets_go() {
+        use rapier3d::control::KinematicCharacterController;
+        use rapier3d::prelude::RigidBodyBuilder;
+        let shape = test_shape();
+        let controller = KinematicCharacterController::default();
+        let offset = 0.01 * shape.compute_local_aabb().extents().y;
+        let floor = -0.573 - 0.3 - offset;
+        let mut physics = PhysicsWorld::empty_for_tests();
+        physics.insert_collider(
+            ColliderBuilder::cuboid(5.0, 0.1, 5.0).translation(Vector::new(0.0, floor - 0.1, 0.0)),
+        );
+        // A kinematic wall behind the player, one offset from the capsule.
+        physics.insert(
+            RigidBodyBuilder::kinematic_position_based().translation(Vector::new(
+                0.0,
+                floor + 1.5,
+                -(0.3 + offset + 0.1),
+            )),
+            ColliderBuilder::cuboid(2.0, 1.5, 0.1),
+        );
+        physics.refresh_queries();
+        let queries = physics.character_queries(QueryFilter::default());
+        // Walk away from the wall with gravity, so the floor hit runs the kinematic body pass.
+        let desired = Vector::new(0.0, -0.004, 0.035);
+        let movement =
+            controller.move_shape(0.02, &queries, &shape, &Pose::IDENTITY, desired, |_| {});
+        assert!(movement.translation.z > 0.9 * desired.z, "{movement:?}");
     }
 }
