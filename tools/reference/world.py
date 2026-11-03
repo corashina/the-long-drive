@@ -835,8 +835,9 @@ def recover_help_texts(source,hierarchy,mapping):
         for c in n['components']:
             if c.type.name!='MonoBehaviour' or source.class_name(c)!='helptextscript':continue
             d=source.read(c)
-            # isFix boxes do not join mainscript.helpTexts and keep an empty text.
-            if d['isFix'] or not d['m_Enabled']:raise ValueError(f'{key(c)}: fixed or disabled help text is not ported')
+            # isFix boxes do not join mainscript.helpTexts and keep their own text. The port does not show it yet.
+            if d['isFix']:continue
+            if not d['m_Enabled']:raise ValueError(f'{key(c)}: disabled help text is not ported')
             result.append({'source':source_id(c),'node':mapping[key(n['reader'])],'force_auto':bool(d['ForceAuto']),
                 'motorcycle':bool(d['isMotorcycle']),'bike':bool(d['isBike']),'always':bool(d['showifmenudisabledtoo'])})
     return result
