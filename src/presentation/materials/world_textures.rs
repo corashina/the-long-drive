@@ -437,7 +437,7 @@ impl WorldTextures {
         let mut queue = self.uploads.lock().unwrap();
         queue.poll(server, batches);
         let mut failure = None;
-        // Current first. The second owner cannot advance array progress before it.
+        // Owners in order. A later owner cannot advance array progress before an earlier one.
         let identities = queue.ownership.slots.map(|o| o.map(|o| o.identity));
         for identity in identities
             .into_iter()
@@ -445,20 +445,22 @@ impl WorldTextures {
             .filter(|id| id.session == self.session)
         {
             let owner = *queue.ownership.owner(identity).unwrap();
-            if let Some(job) = queue.remove(identity, batches) {
-                let array = self.arrays[job.array].as_mut().unwrap();
-                if owner.state == BatchState::Failed {
-                    array.failed = true;
-                    failure = job.error.map(ReferenceError);
-                } else if !owner.cancelled {
-                    if array.next_layer != job.layer || array.next_batch != job.batch {
-                        return Err(ReferenceError("Texture batch completion order".into()));
-                    }
-                    array.next_batch += 1;
-                    if array.next_batch == array.layers[array.next_layer].batches.len() {
-                        array.next_layer += 1;
-                        array.next_batch = 0;
-                    }
+            // Owners complete in order. A later owner waits for the earlier ones.
+            let Some(job) = queue.remove(identity, batches) else {
+                break;
+            };
+            let array = self.arrays[job.array].as_mut().unwrap();
+            if owner.state == BatchState::Failed {
+                array.failed = true;
+                failure = job.error.map(ReferenceError);
+            } else if !owner.cancelled {
+                if array.next_layer != job.layer || array.next_batch != job.batch {
+                    return Err(ReferenceError("Texture batch completion order".into()));
+                }
+                array.next_batch += 1;
+                if array.next_batch == array.layers[array.next_layer].batches.len() {
+                    array.next_layer += 1;
+                    array.next_batch = 0;
                 }
             }
         }
@@ -479,15 +481,23 @@ impl WorldTextures {
         let metadata = self.metadata_bytes();
         let cpu_available = ledger.available_prototype_cpu_bytes() + self.bytes().0;
         let mut queue = self.uploads.lock().unwrap();
-        let current = queue.ownership.slots[0].and_then(|owner| {
-            queue
-                .jobs
-                .iter()
-                .flatten()
-                .find(|j| j.identity == owner.identity)
-                .map(|job| (owner, job.array, job.layer, job.batch))
-        });
-        let empty = current.is_none();
+        // New batches follow the last owner in batch order.
+        let last = queue
+            .ownership
+            .slots
+            .iter()
+            .flatten()
+            .last()
+            .copied()
+            .and_then(|owner| {
+                queue
+                    .jobs
+                    .iter()
+                    .flatten()
+                    .find(|j| j.identity == owner.identity)
+                    .map(|job| (owner, job.array, job.layer, job.batch))
+            });
+        let empty = last.is_none();
         queue.counters[0] += 1;
         let state = queue.ownership.slots[0].map(|o| o.state);
         let index = match state {
@@ -499,10 +509,10 @@ impl WorldTextures {
         };
         queue.counters[index] += 1;
         queue.counters[6] += u64::from(queue.ownership.slots[1].is_some());
-        let refill = current
+        let refill = last
             .as_ref()
             .is_some_and(|(owner, ..)| owner.identity.session == self.session && !owner.cancelled)
-            && queue.ownership.slots[1].is_none();
+            && queue.ownership.slots.iter().any(Option::is_none);
         if empty || refill {
             let count = if empty { 2 } else { 1 };
             let mut selected = Vec::new();
@@ -522,7 +532,7 @@ impl WorldTextures {
                         0
                     };
                     for batch in first..array.layers[layer].batches.len() {
-                        if current
+                        if last
                             .as_ref()
                             .is_some_and(|(_, a, l, b)| (index, layer, batch) <= (*a, *l, *b))
                         {
@@ -561,7 +571,21 @@ impl WorldTextures {
             selected.truncate(jobs.max(1));
             // Every request runs, so the report asks for all credit of the batches at once.
             let claims = ledger.can_request_independent(selected.len());
-            let shared = if let Some((owner, _, _, _)) = &current {
+            // Ask ahead for the claims and jobs of every free slot. Credit takes a stream round
+            // trip, so a slot that asks only when it fills waits several frames for each batch.
+            let ahead = queue
+                .ownership
+                .slots
+                .iter()
+                .filter(|slot| slot.is_none())
+                .count()
+                .max(selected.len());
+            ledger.can_request_independent(ahead);
+            ledger.request(crate::world::PresentationAllocation {
+                jobs: ahead,
+                ..Default::default()
+            });
+            let shared = if let Some((owner, _, _, _)) = &last {
                 let path = &queue
                     .jobs
                     .iter()
@@ -597,9 +621,16 @@ impl WorldTextures {
                 .available_staging_bytes()
                 .min(cpu_available.saturating_sub(metadata + queue.ownership.bytes()));
             let requested = selected.iter().map(|s| s.4).sum::<usize>();
+            // Staging asked ahead stays within two batches, so stream generation keeps its room.
+            let batch_bytes = selected.iter().map(|s| s.4).max().unwrap_or(0);
+            let ahead_bytes = requested.max(
+                (2 * batch_bytes)
+                    .saturating_sub(queue.ownership.bytes())
+                    .min(batch_bytes * ahead),
+            );
             // Short credit waits. The report asks the stream for the rest.
-            ledger.request_staging(requested);
-            ledger.request_prototype(requested, 0);
+            ledger.request_staging(ahead_bytes);
+            ledger.request_prototype(ahead_bytes, 0);
             if !claims || jobs == 0 {
                 queue.counters[7] += 1;
                 return Ok(());
