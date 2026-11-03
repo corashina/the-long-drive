@@ -1,5 +1,6 @@
 //! Web Worker entry for source terrain tile jobs. It owns its own WASM memory.
 use wasm_bindgen::prelude::*;
+use wasm_heap as _;
 
 /// Each getter moves one attribute out once, as a flat array.
 #[wasm_bindgen]

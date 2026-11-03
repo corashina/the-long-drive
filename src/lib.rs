@@ -1,5 +1,6 @@
 //! Browser application: renderer and presentation over the simulation crate.
 #![recursion_limit = "256"]
+use wasm_heap as _;
 
 pub use ::simulation::{
     animation, audio, conditions, damage, exhaust, fluids, flyers, interaction, inventory,

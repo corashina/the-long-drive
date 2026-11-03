@@ -166,18 +166,18 @@ thread_local! {
 }
 
 #[wasm_bindgen]
-/// Parses and checks the reference. It runs while the simulation worker starts.
+/// Parses the reference. It runs while the simulation worker parses and checks its copy.
 pub fn prepare(reference_json: &[u8]) -> Result<(), JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
     console_error_panic_hook::set_once();
     let reference = Arc::new(
-        ReferenceManifest::from_runtime_json(reference_json)
+        ReferenceManifest::from_checked_runtime_json(reference_json)
             .map_err(|e| JsValue::from_str(&e.to_string()))?,
     );
     if let Err(error) = reference.audio.playback() {
         game_audio_error(&error.to_string());
     }
-    // Reject unsupported reference data before the app starts. Systems need these resources.
+    // The simulation worker checks the reference. Systems need these resources.
     let materials = presentation::materials::load_materials(&reference)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let fixed_assets = presentation::fixed_assets::SourceFixedAssets::new(&reference)
@@ -707,19 +707,43 @@ fn select_world_views(
     views: Res<presentation::view_frame::SourceViewFrame>,
     mut required_views: Local<Option<crate::world::RequiredViews>>,
     epoch: Res<presentation::view_frame::SourceSceneEpoch>,
+    cameras: Query<(
+        &presentation::surface_views::SourceSurfaceView,
+        &Camera,
+        &GlobalTransform,
+    )>,
 ) {
     let drive = &mut *drive;
     drive.world.views.clear();
     let state = &sim.frame.state;
-    let Some(first) = world_snapshot(&views, &epoch, state.session) else {
+    // The world camera view needs no lighting assets, so the world loads while they load.
+    let first = cameras
+        .iter()
+        .find(|(view, ..)| view.index == 0)
+        .and_then(|(_, camera, pose)| {
+            presentation::view_frame::world_view_snapshot(
+                camera,
+                pose,
+                state.fov_degrees,
+                state.far_plane,
+                reference.0.render_lighting.shadows.distance,
+            )
+        });
+    let Some(first) = first else {
         *required_views = None;
         return;
+    };
+    // Probe views come from the lighting frame. Before it is current, no probe is enabled.
+    let probes = if world_snapshot(&views, &epoch, state.session).is_some() {
+        views.probe_enabled
+    } else {
+        Default::default()
     };
     let forward = light_forward(&sim.frame.lighting.cycle);
     let origin = state.stream_origin;
     let mask = reference.0.render_lighting.lights[0].mask;
     let result = (|| -> Result<(), crate::reference::ReferenceError> {
-        let first = presentation::view_frame::required_view(first, origin, forward, mask)?;
+        let first = presentation::view_frame::required_view(&first, origin, forward, mask)?;
         let required =
             required_views.get_or_insert_with(|| crate::world::RequiredViews::new(first));
         required.reset(first);
@@ -728,7 +752,7 @@ fn select_world_views(
             &reference.0.render_lighting.probes,
             &views.probe_position,
             &views.probe_near,
-            &views.probe_enabled,
+            &probes,
             origin,
             forward,
             mask,

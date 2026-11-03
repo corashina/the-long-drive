@@ -1,6 +1,7 @@
 //! Road worker entry. Source data belongs to this WASM instance.
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
+use wasm_heap as _;
 
 thread_local! {
     static PROTOTYPES: RefCell<[Option<road_mesh::RoadPrototype>; 3]> = const { RefCell::new([None, None, None]) };
