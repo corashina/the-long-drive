@@ -2,7 +2,7 @@
 //! and bus doors. The port reads them each `SYNC_TIME` and sends what changed since it last sent or
 //! received it.
 use super::items::Out;
-use super::message::{BusMessage, LampMessage};
+use super::message::{BusMessage, LampMessage, Message};
 use super::state::SYNC_TIME;
 use crate::reference::{LightControllerKind, ReferenceManifest};
 use crate::starting_area::GarageRuntime;
@@ -82,8 +82,22 @@ impl LampSync {
         }
     }
 
+    /// Source `UpdFlashlight` and `UpdBus` of another peer.
+    pub fn receive(
+        &mut self,
+        reference: &ReferenceManifest,
+        runtime: &mut GarageRuntime,
+        packet: &[u8],
+    ) {
+        if let Ok((_, m)) = LampMessage::decode(packet) {
+            self.got_lamp(reference, runtime, &m);
+        } else if let Ok((_, m)) = BusMessage::decode(packet) {
+            self.got_bus(runtime, &m);
+        }
+    }
+
     /// Source `UpdFlashlight`.
-    pub fn got_lamp(
+    fn got_lamp(
         &mut self,
         reference: &ReferenceManifest,
         runtime: &mut GarageRuntime,
@@ -117,7 +131,7 @@ impl LampSync {
     }
 
     /// Source `UpdBus`.
-    pub fn got_bus(&mut self, runtime: &mut GarageRuntime, m: &BusMessage) {
+    fn got_bus(&mut self, runtime: &mut GarageRuntime, m: &BusMessage) {
         if runtime.stream.set_bus_doors(m.key, m.opened, m.signed) {
             self.buses.insert(m.key, (m.opened, m.signed));
         }
