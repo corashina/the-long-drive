@@ -1,6 +1,9 @@
-//! Two ordered batch owners. Loading and submitted cancellation retain their charges.
+//! Ordered batch owners. Loading and submitted cancellation retain their charges.
 use crate::reference::texture_batch::{TextureBatchReference, TextureBatchRegion};
 pub const STAGING_LIMIT: usize = 32 * 1024 * 1024;
+/// Batches in flight. A batch waits several main frames for its load, upload and GPU
+/// acknowledgement, so more owners keep the queue busy.
+pub const SLOTS: usize = 4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BatchIdentity {
     pub session: u64,
@@ -31,7 +34,7 @@ pub struct BatchOwner {
 }
 #[derive(Default)]
 pub struct BatchQueue {
-    pub slots: [Option<BatchOwner>; 2],
+    pub slots: [Option<BatchOwner>; SLOTS],
 }
 impl BatchQueue {
     pub fn bytes(&self) -> usize {
@@ -50,10 +53,10 @@ impl BatchQueue {
         available: usize,
         releasable: bool,
     ) -> Result<(), Admission> {
-        let mut proposed = [None; 2];
+        let mut proposed = [None; SLOTS];
         let mut total = 0usize;
         for (i, (identity, bytes)) in requests.into_iter().enumerate() {
-            if i >= 2 {
+            if i >= SLOTS {
                 return Err(Admission::Permanent);
             }
             total = total.checked_add(bytes).ok_or(Admission::Permanent)?;
@@ -79,21 +82,20 @@ impl BatchQueue {
         self.slots = proposed;
         Ok(())
     }
-    /// Reserve a new prefetch without changing the retained current owner.
+    /// Reserve a new prefetch after the last owner, without changing the retained owners.
     pub fn refill(
         &mut self,
         identity: BatchIdentity,
         bytes: usize,
         available: usize,
     ) -> Result<(), Admission> {
-        let Some(current) = self.slots[0] else {
-            return Err(Admission::Permanent);
+        let free = match self.slots.iter().position(Option::is_none) {
+            Some(0) => return Err(Admission::Permanent),
+            Some(free) => free,
+            None => return Err(Admission::Wait),
         };
-        if self.slots[1].is_some() {
-            return Err(Admission::Wait);
-        }
-        if current
-            .bytes
+        if self
+            .bytes()
             .checked_add(bytes)
             .is_none_or(|n| n > STAGING_LIMIT)
         {
@@ -102,7 +104,7 @@ impl BatchQueue {
         if bytes > available {
             return Err(Admission::Wait);
         }
-        self.slots[1] = Some(BatchOwner {
+        self.slots[free] = Some(BatchOwner {
             identity,
             bytes,
             state: BatchState::Queued,
@@ -114,7 +116,7 @@ impl BatchQueue {
     }
     pub fn start(&mut self, available_jobs: usize) -> Vec<BatchIdentity> {
         let mut started = Vec::new();
-        let free = available_jobs.min(2usize.saturating_sub(self.jobs()));
+        let free = available_jobs.min(SLOTS.saturating_sub(self.jobs()));
         for o in self
             .slots
             .iter_mut()
@@ -167,16 +169,30 @@ impl BatchQueue {
             o.state = BatchState::Failed;
         }
     }
+    /// The next owner to upload: the first owner that is not submitted yet.
+    pub fn next_upload(&self) -> Option<BatchOwner> {
+        self.slots
+            .iter()
+            .flatten()
+            .find(|o| !matches!(o.state, BatchState::Submitted | BatchState::Complete))
+            .copied()
+    }
+    /// Uploads keep owner order: only the next upload can submit.
     pub fn submit(&mut self, identity: BatchIdentity) -> bool {
-        if let Some(o) = self.slots[0]
-            .as_mut()
-            .filter(|o| o.identity == identity && o.state == BatchState::Ready && !o.cancelled)
+        if self
+            .next_upload()
+            .is_none_or(|o| o.identity != identity || o.state != BatchState::Ready || o.cancelled)
         {
-            o.state = BatchState::Submitted;
-            true
-        } else {
-            false
+            return false;
         }
+        let o = self
+            .slots
+            .iter_mut()
+            .flatten()
+            .find(|o| o.identity == identity)
+            .unwrap();
+        o.state = BatchState::Submitted;
+        true
     }
     pub fn acknowledge(&mut self, identity: BatchIdentity) -> bool {
         if let Some(o) = self
@@ -224,9 +240,8 @@ impl BatchQueue {
             other.shared_with = None;
             other.shared_bytes = 0;
         }
-        if i == 0 {
-            self.slots[0] = self.slots[1].take();
-        }
+        // Keep owner order with no gaps.
+        self.slots[i..].rotate_left(1);
         Some(bytes - transferred)
     }
 }

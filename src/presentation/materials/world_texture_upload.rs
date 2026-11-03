@@ -1,6 +1,6 @@
 //! Ordered CPU batch owners and GPU acknowledgement.
 use crate::{
-    ownership::texture_batch::{BatchIdentity, BatchQueue, BatchState},
+    ownership::texture_batch::{BatchIdentity, BatchQueue, BatchState, SLOTS},
     presentation::{
         gpu_prepare::GpuPreparation,
         texture_batches::{SourceTextureBatch, SourceTextureBatchSettings},
@@ -36,7 +36,7 @@ pub(super) struct Upload {
 #[derive(Default)]
 pub(super) struct UploadQueue {
     pub ownership: BatchQueue,
-    pub jobs: [Option<Upload>; 2],
+    pub jobs: [Option<Upload>; SLOTS],
     pub next_request: u64,
     /// Main frames by queue state. Startup audit only. See `COUNTER_NAMES`.
     pub counters: [u64; COUNTER_NAMES.len()],
@@ -173,23 +173,36 @@ fn upload(
 ) {
     let Some(shared) = &uploads.0 else { return };
     let mut shared = shared.lock().unwrap();
-    let Some(owner) = shared.ownership.slots[0] else {
-        return;
-    };
-    if owner.state != BatchState::Ready || owner.cancelled {
-        return;
+    // Upload every ready owner in order.
+    while let Some(owner) = shared.ownership.next_upload() {
+        if owner.state != BatchState::Ready || owner.cancelled {
+            return;
+        }
+        if !upload_job(&shared, owner.identity, &images, &queue, &device) {
+            return;
+        }
+        shared.ownership.submit(owner.identity);
     }
+}
+/// Writes the rows of one ready batch. False while its image is not on the GPU.
+fn upload_job(
+    shared: &UploadQueue,
+    identity: BatchIdentity,
+    images: &RenderAssets<GpuImage>,
+    queue: &RenderQueue,
+    device: &RenderDevice,
+) -> bool {
     let job = shared
         .jobs
         .iter()
         .flatten()
-        .find(|j| j.identity == owner.identity)
+        .find(|j| j.identity == identity)
         .unwrap();
     let Some(image) = images.get(job.image.id()) else {
-        return;
+        return false;
     };
     let batch = job.payload.as_ref().unwrap();
-    let _scope = job.preparation.scope(&device);
+    let _scope = job.preparation.scope(device);
     for region in batch.regions.iter() {
         queue.write_texture(
             TexelCopyTextureInfo {
@@ -217,26 +230,23 @@ fn upload(
     }
     if job.preparation.isolated() {
         queue.submit([]);
-        job.preparation.submitted(&queue);
+        job.preparation.submitted(queue);
     }
-    shared.ownership.submit(owner.identity);
+    true
 }
 fn complete(uploads: Res<RenderUploads>, queue: Res<RenderQueue>) {
     let Some(shared) = &uploads.0 else { return };
     let mut shared = shared.lock().unwrap();
-    let Some(owner) = shared.ownership.slots[0] else {
-        return;
-    };
-    if owner.state != BatchState::Submitted {
-        return;
-    }
-    let job = shared
-        .jobs
-        .iter_mut()
-        .flatten()
-        .find(|j| j.identity == owner.identity)
-        .unwrap();
-    if !job.callback_registered {
+    let shared = &mut *shared;
+    for job in shared.jobs.iter_mut().flatten() {
+        if job.callback_registered
+            || shared
+                .ownership
+                .owner(job.identity)
+                .is_none_or(|o| o.state != BatchState::Submitted)
+        {
+            continue;
+        }
         job.callback_registered = true;
         let completion = Arc::clone(&job.completion);
         let identity = job.identity;
