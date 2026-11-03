@@ -512,6 +512,8 @@ impl AudioReference {
                     && h.attack_release_rate > 0.
             }) && a.switch.as_ref().is_none_or(shot)
                 && a.handbrake.as_ref().is_none_or(shot)
+                && a.grind.as_ref().is_none_or(shot)
+                && a.shift.iter().all(shot)
                 && a.boil.as_ref().is_none_or(|b| {
                     loop_voice(&b.sound) && b.max_gain.is_finite() && b.max_gain >= 0.
                 })

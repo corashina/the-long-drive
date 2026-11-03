@@ -63,6 +63,8 @@ pub struct DrivetrainOutput {
     pub wheel_rpm: f32,
     pub free_run: bool,
     pub ignition_request: bool,
+    /// Source `rosszvaltoSound` gain: a shift request without enough clutch.
+    pub grind: Option<f32>,
 }
 impl DrivetrainState {
     pub fn new(vehicle: Gearbox<'_>) -> Self {
@@ -106,6 +108,7 @@ impl DrivetrainState {
         let automatic =
             (vehicle.driving.force_automatic || assists.automatic_gears) && !driving.force_manual;
         let mut ignition_request = false;
+        let mut grind = None;
         if controlled
             && automatic
             && let Some((engine, part)) = engine
@@ -207,6 +210,17 @@ impl DrivetrainState {
                 requested = self.gear as i32 - 2;
                 shifted = true;
             }
+            // Source `ControlStuff`: the grind sound with manual clutch and a running engine.
+            // Only a request for another gear grinds, so a held H-shifter key does not repeat it.
+            if shifted
+                && requested != self.gear as i32 - 1
+                && depression < 0.8
+                && engine.is_some_and(|(engine, _)| engine.running)
+                && !assists.automatic_clutch
+                && !(vehicle.driving.force_automatic && !driving.force_manual)
+            {
+                grind = Some(1. - depression);
+            }
             if shifted
                 && requested >= -1
                 && requested < vehicle.gear_ratios.len() as i32 - 1
@@ -229,6 +243,7 @@ impl DrivetrainState {
             wheel_rpm: self.wheel_rpm,
             free_run: vehicle.gear_free_run[self.gear],
             ignition_request,
+            grind,
         }
     }
 }
