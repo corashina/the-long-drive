@@ -1,7 +1,7 @@
 """Rabbit prefab (aispawn.AIPrefab), the human monster prefab (newAiScript) and the stimulscript sources
 that rabbits sense.
 
-Directions and positions use the converted space: Unity z is negated. Angles are in degrees.
+Directions and positions use the converted space. The conversion negates Unity z. Angles are in degrees.
 """
 import math
 from .source import key, source_id, vector
@@ -190,7 +190,7 @@ def size_record(source, nyul, node):
     return {'source': source_id(nyul), 'scale': [d['minScale'], d['maxScale']], 'mass': [d['minMass'], d['maxMass']],
         'health': [d['minHp'], d['maxHp']], 'shoot_health': [d['minShootHp'], d['maxShootHp']],
         'speed': [d['minSpeed'], d['maxSpeed']],
-        # SetBasedOnSize lerps from maxRotSpeed to minRotSpeed: big rabbits turn slower.
+        # SetBasedOnSize lerps from maxRotSpeed to minRotSpeed, so big rabbits turn slower.
         'rot_speed': [d['maxRotSpeed'], d['minRotSpeed']], 'run_lerp': d['lerp'],
         'eyes': [node(renderer_transform(source, source.resolve(nyul, r))) for r in d['Eye']]}
 

@@ -1,10 +1,10 @@
 """Compact runtime forms of the largest manifest sections. Export code keeps its own shapes.
 
 The Rust reference structs read only these forms:
-- world values: plain JSON; a link is {"$":[file,path_id]}; records are sorted objects.
+- world values: plain JSON. A link is {"$":[file,path_id]}. Records are sorted objects.
 - world receipts: source ids only. Hashes stay in the world provenance sidecar.
 - convex and trimesh colliders: base64 of little-endian f32 points and u32 triangles.
-- material textures: rendering.textures holds each unique storage; a texture storage is its index.
+- material textures: rendering.textures holds each unique storage. A texture storage is its index.
 """
 import base64
 import json

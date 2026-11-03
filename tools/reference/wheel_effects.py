@@ -36,7 +36,7 @@ def recover_wheel_effects(source, car_reader, car, root, wheels, index, output):
     """One record per road wheel, in `wheels` order. `root` is the car root Transform."""
     result=[]
     for w,(script,d) in enumerate(wheel_links(source,root,wheels)):
-        # A null Car is legal: the wheel uses its own gains and has no slide sound.
+        # A null Car is legal. The wheel uses its own gains and has no slide sound.
         linked=source.resolve(script,d['Car'])
         if linked is not None and key(linked)!=key(car_reader):raise ValueError(f'talajnezo Car link differs: {source_id(script)}')
         node=source.transform_for(source.resolve(script,d['m_GameObject']))
@@ -72,7 +72,7 @@ def effect_gains(car):
 
 
 def recover_skid(source, output):
-    """mainscript skid data. Clip fields hold AudioClip ids; recover_audio replaces them with clip ids."""
+    """mainscript skid data. Clip fields hold AudioClip ids. recover_audio replaces them with clip ids."""
     managed_evidence(source,EVIDENCE)
     main=source.get(*MAIN);d=source.read(main)
     if source.class_name(main)!='mainscript':raise ValueError(f'{key(main)} is not mainscript')
@@ -80,7 +80,7 @@ def recover_skid(source, output):
     for name,index in SKID_PARTICLES:
         system=source.resolve(main,d['Particles'][index])
         if system is None or system.type.name!='ParticleSystem':raise ValueError(f'mainscript particle {name} is not ParticleSystem')
-        # Particle() moves the shared system and calls Emit(num); emission does not run.
+        # Particle() moves the shared system and calls Emit(num). Emission does not run.
         particles.append(particle(source,system,f'skid_{name}',0.,output))
     clips=[]
     for field in ('SSkidRoad','SSkidDirt'):

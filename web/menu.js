@@ -86,9 +86,9 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
   for(const selector of actionNodes)document.querySelector(selector).disabled=!model.readyFlag||model.pending;
   document.querySelector('#recover').disabled ||= model.dead;
   document.querySelector('#resume').disabled ||= model.deathComplete;
-  // Source guests have no save: the host world is the one world.
+  // Source guests have no save. The host world is the one world.
   for(const id of ['#save','#load'])document.querySelector(id).hidden=guest();
-  // The player already started: the pause menu offers New game only after death.
+  // The player already started, so the pause menu offers New game only after death.
   document.querySelector('#pause-new-game').hidden=guest()||!model.dead;
   startLast.hidden=!canLast;
   if(state==='saves')screen.paint(!model.readyFlag||model.pending);
@@ -115,7 +115,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  }
  async function operate(operation,...args){if(operation==='newGame'&&model.readyFlag&&!model.pending&&reloadNewGame(model.started)){model.status=pendingText.newGame;paint();return;}audio?.pause();clearInput();const pending=model.run(operation,saveSession,...args);paint();if(await pending&&operation==='newGame')onNewGame?.();flush();if(operation==='save'||operation==='remove')await refresh();paint();}
  function openSaves(){model.saves();if(model.state!=='saves')return;screen.open({inMenu:!model.started,dead:model.dead,sleeping:sleeping(),seated:seated()});paint();refresh();}
- // Continue enters fullscreen, where Keyboard Lock keeps Ctrl+W (crouch + forward) in the game. Request pointer lock first: fullscreen takes the click.
+ // Continue enters fullscreen, where Keyboard Lock keeps Ctrl+W (crouch + forward) in the game. Request pointer lock first, because fullscreen takes the click.
  // The settings Exit button keeps the game in a window for this page load.
  let windowed=false;
  async function capture(){clearInput();const pending=captureWithAudio(model,ACTIONS.CONTINUE,async()=>{canvas.focus();const lock=canvas.requestPointerLock();if(!windowed&&!document.fullscreenElement&&document.fullscreenEnabled)document.querySelector('main').requestFullscreen().catch(()=>{});await lock;if(document.pointerLockElement!==canvas)throw Error('The browser did not capture the mouse.');},audio);paint();const success=await pending;if(!success && document.pointerLockElement===canvas)document.exitPointerLock();flush();paint();}

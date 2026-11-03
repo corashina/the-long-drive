@@ -10,7 +10,7 @@ DITHER_SHA256 = '609ff1d7287e09600b6aff7ce87202b6207cb66b644e7be9f1ea158c4cd0a2c
 
 
 def caster_dither_bytes():
-    # GenerateDitherTextures RVA0x372b80. A8 storage; x, then y, then z.
+    # GenerateDitherTextures RVA0x372b80. A8 storage, in x, then y, then z order.
     thresholds = (0,9,3,9,9,4,9,7,2,9,1,9,9,6,9,5)
     pixels = bytearray(256)
     for z in range(8):

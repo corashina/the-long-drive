@@ -152,7 +152,7 @@ def start_placements(source, settings_owner, settings, catalog, cars):
     return rows
 
 def spare_prefab(source, catalog, node):
-    """The rimtire catalog prefab of a scene spare wheel. Built scenes keep no prefab link: the names match."""
+    """The rimtire catalog prefab of a scene spare wheel. Built scenes keep no prefab link, so the lookup matches names."""
     name=source.read(node['game_object'])['m_Name']
     if name.endswith(')') and ' (' in name:name=name.rsplit(' (',1)[0]
     matches=[]
@@ -165,7 +165,7 @@ def spare_prefab(source, catalog, node):
 
 def start_items(source, catalog):
     """One startup row per active StartSpawnItems copy outside START_OWNED. The copy keeps its scene pose
-    and scene state; the row prototype is its catalog prefab. recover_world sets the prototype after selection."""
+    and scene state. The row prototype is its catalog prefab. recover_world sets the prototype after selection."""
     group=source.get('level1',START_ITEMS)
     rows=[];indices=[]
     for child in source.read(group)['m_Children']:
@@ -173,7 +173,7 @@ def start_items(source, catalog):
         if not source.read(go)['m_IsActive'] or key(go)[1] in START_OWNED:continue
         save=[c for c in components if c.type.name=='MonoBehaviour' and source.class_name(c)=='tosaveitemscript']
         if not save:continue
-        # Hanging copies (air fresheners, a sausage) have a scene ConfigurableJoint to a holder body. Not supported yet.
+        # Hanging copies (air fresheners, a sausage) have a scene ConfigurableJoint to a holder body. The port does not support them yet.
         if any(c.type.name=='ConfigurableJoint' for c in components):continue
         data=source.read(save[0]);index=data['id']
         if not 0<=index<len(catalog['items']):raise ValueError('{}:{} start item has no catalog item'.format(*key(save[0])))
@@ -429,7 +429,7 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
             root=source.resolve(settings_owner,pointer)
             startup.append({'group':field,'source':source_id(root),'pose':world_pose(source,root),'prototype':None,'start_car':False,'conditions':[],'tanks':[],'buried':False})
             selected.transform_chain(root)
-    # Start car candidates. Startup frames ignore these groups; the vehicle binder spawns the picked one.
+    # Start car candidates. Startup frames ignore these groups. The vehicle binder spawns the picked one.
     starts=start_placements(source,settings_owner,settings,catalog,cars)
     for row in starts:selected.transform_chain(source.get(row['source']['file'],row['source']['path_id']))
     startup.extend(starts)
@@ -524,7 +524,7 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
                 if component.type.name!='MonoBehaviour':continue
                 cname=source.class_name(component)
                 if cname=='attachgripscript':
-                    # attachgripscript.Start instantiates GripPrefab: the grip is its own prototype.
+                    # attachgripscript.Start instantiates GripPrefab, so the grip is its own prototype.
                     prefab=source.resolve(component,source.read(component)['GripPrefab'])
                     if prefab:add(prefab,'nested')
                 if cname in RULE_CLASSES or key(component) in EDIBLE_COMPONENTS:
@@ -632,7 +632,7 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
     return world
 
 def bind_tune_icons(source, world):
-    """mainscript.CrossHairStuff: GCMMB shows the img of a looked tuneAble usable or canTune cap."""
+    """In mainscript.CrossHairStuff, GCMMB shows the img of a looked tuneAble usable or canTune cap."""
     for r in world['records']:
         flag={'usablescript':'tuneAble','tankcapscript':'canTune'}.get(r['class_name'])
         img=r['fields'].get('img') if flag else None

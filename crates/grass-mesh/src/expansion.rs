@@ -11,7 +11,7 @@ struct PatchPlan {
 pub struct GrassMeshData {
     pub anchors: Vec<[f32; 3]>,
     pub uvs: Vec<[f32; 2]>,
-    /// Fraction along blade, side, source domain smoothing, distance thin scale.
+    /// The fraction along the blade, the side, the source domain smoothing and the distance thin scale.
     pub blades: Vec<[f32; 4]>,
     pub patches: Vec<u32>,
     pub indices: Vec<u32>,
@@ -250,7 +250,7 @@ impl GrassExpansion {
             }
             if step < segments {
                 let a = start + step * 2;
-                // Source triangle strip, with one source-to-runtime winding reflection.
+                // This is the source triangle strip, with one source-to-runtime winding reflection.
                 self.output
                     .indices
                     .extend_from_slice(&[a, a + 2, a + 1, a + 2, a + 3, a + 1]);

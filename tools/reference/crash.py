@@ -6,7 +6,7 @@ MAIN=('level1',64919)
 # mainscript.defFallOffChance members in order.
 CATEGORIES=('none','frontMirror','headlight','sideMirror','napEllenzo','radio','hubcap','wheel','gumi','kmh',
     'coolant','engine','door','bumper','hood','kesztyutarto','seat','foreignfragiletank')
-# mainscript.fallOffPowerNeeded by category. A C# static: the scene does not hold it. EVIDENCE proves the values.
+# mainscript.fallOffPowerNeeded by category. It is a C# static, so the scene does not hold it. EVIDENCE proves the values.
 FALL_OFF_POWER=(-1.,.2,.2,.2,.2,.2,0.,.6,-1.,.3,.6,.7,.6,.5,.3,.3,.7,.01)
 EVIDENCE=[
     'public static float[] fallOffPowerNeeded = new float[18]\n\t{\n'

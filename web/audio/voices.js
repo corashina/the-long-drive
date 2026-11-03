@@ -23,7 +23,7 @@ export class VoiceBank {
  slot(record,emitter,event){const gain=this.context.createGain(),dry=this.context.createGain(),wet=this.context.createGain(),panner=this.context.createPanner(),pan=this.context.createStereoPanner();panner.distanceModel='linear';panner.rolloffFactor=0;panner.panningModel='HRTF';gain.connect(dry);dry.connect(pan);gain.connect(wet);wet.connect(panner);panner.connect(pan);pan.connect(this.mixers.get(record.mixer??this.raw.shared.mixer));return {record,emitter,event,gain,dry,wet,panner,pan,source:null,buffer:null,clip:record.clip,playing:false,looping:record.loop,loading:false,token:0,offset:0,start:0,pitch:1,volume:1,seen:0,position:new Float32Array(3),previousPosition:new Float32Array(3),motionFrame:0,rate:1,survivalKey:null,survivalLoop:false,priority:record.priority,distanceScale:1,destroyAfter:0,mixer:record.mixer??this.raw.shared.mixer};}
  clock(seconds){this.seconds=seconds;this.motionDelta=this.previousSeconds===null?0:Math.max(0,seconds-this.previousSeconds);this.previousSeconds=seconds;}
  motionRevision(revision){if(this.revision!==revision){this.revision=revision;this.motionDelta=0;}}
- // The car and voice instance emitters stay alive: their voices carry their own positions.
+ // The car and voice instance emitters stay alive, because their voices carry their own positions.
  begin(){this.frame++;const car=this.emitters.get(CAR_EMITTER),voice=this.emitters.get(VOICE_EMITTER);car.alive=voice.alive=true;car.seen=voice.seen=this.frame;}
  survivalEmitter(kind,x,y,z){const e=this.emitters.get(0x40000000+kind);if(e){e.position[0]=x;e.position[1]=y;e.position[2]=z;e.alive=true;e.seen=this.frame;}}
  // A remote player body sound (instance slot+1) plays at its own position, not at the local survival emitter.

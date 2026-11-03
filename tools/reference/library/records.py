@@ -223,7 +223,7 @@ def build_catalog(source, snapshot, records_root: Path) -> Catalog:
                 parents[identity] = _pointer(source, reader, data['m_Father'])
                 children[identity] = tuple(_pointer(source, reader, value) for value in data['m_Children'])
             if 'm_GameObject' in data:
-                # Ownership fields are verified only when their tree declares a PPtr.
+                # This check verifies ownership fields only when their tree declares a PPtr.
                 fields = {child.m_Name: child for child in source.record_tree(reader).m_Children}
                 if 'm_GameObject' in fields and fields['m_GameObject'].m_Type.startswith('PPtr<'):
                     owners[identity] = _pointer(source, reader, data['m_GameObject'])

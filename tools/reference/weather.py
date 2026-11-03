@@ -15,7 +15,7 @@ STORM_EVIDENCE=['size = UnityEngine.Random.Range(0.5f, 1.5f);','speed = UnityEng
     'yield return new WaitForSeconds(1f);','nextWindTime = Time.time + UnityEngine.Random.Range(0.1f, 1.5f);',
     'mainscript.M.interiorCols[j].transform.root != windRbs[i].transform.root']
 TUMBLEWEED_ITEM=(312,'gthumbleweed')
-# thumbleweedMain fields: record name -> source fields. Ranges are [min, max].
+# thumbleweedMain fields: record name to source fields. Ranges are [min, max].
 TUMBLEWEED_SCALARS={'ray_count':'rayCount','ray_length':'rayLength','ray_count_to_stay':'rayCountToStay','limit':'thumbleweedLimit','fov':'fov'}
 TUMBLEWEED_RANGES={'wind_force_range':'WindForce','wind_time_range':'WindTime','wind_live_time_range':'WindLiveTime',
     'short_spawn_time_range':'ShortSpawnTime','long_spawn_time_range':'LongSpawnTime'}

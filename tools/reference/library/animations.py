@@ -261,7 +261,7 @@ def bake_track(track: AnimationTrack, transform=None, rotation=None, evaluate=No
         steps=[any(math.isinf(v) for v in row) for row in track.out_tangents[:-1]]
         if any(steps):
             # glTF has one interpolation mode per sampler. Constant components
-            # may share a STEP sampler; continuous components cannot.
+            # may share a STEP sampler. Continuous components cannot.
             for i in range(len(track.times)-1):
                 for c in range(len(track.values[i])):
                     if not math.isinf(track.out_tangents[i][c]) and not (track.values[i][c] == track.values[i+1][c] and track.out_tangents[i][c] == track.in_tangents[i+1][c] == 0):

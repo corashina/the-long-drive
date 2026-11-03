@@ -124,7 +124,7 @@ class GltfExporter(GltfBuilder):
                 elif name == 'radioscript':
                     for field in ('SOn','SOff','MutatoOn','MutatoOff'): add(component, data[field])
                 elif name == 'mirrorscript' and data['M']['R']['m_PathID'] and data['M']['C']['m_PathID']:
-                    # mirrorscript.FStart: a live mirror shows a copy of defMirrorMaterial.
+                    # In mirrorscript.FStart, a live mirror shows a copy of defMirrorMaterial.
                     main = self.source.get('level1', 64919)
                     add(main, self.source.read(main)['defMirrorMaterial'])
         from .world_biome_materials import used_sets
@@ -401,7 +401,7 @@ class GltfExporter(GltfBuilder):
                             matrices = list(self.source.read(mesh_reader)['m_BindPose'])
                             if len(matrices) != len(bones):
                                 raise ValueError(f'Skin bind pose count: {key(reader)}')
-                            # A missing bone leaves its vertices in place: a new child of the renderer node
+                            # A missing bone leaves its vertices in place. It becomes a new child of the renderer node
                             # with an identity bind pose. Each one is a new node, because glTF joints are unique.
                             joints = []
                             for i, bone in enumerate(bones):

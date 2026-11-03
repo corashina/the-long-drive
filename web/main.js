@@ -290,7 +290,7 @@ async function load(){
  window.addEventListener('pagehide',()=>audio.dispose());
  window.addEventListener('beforeunload',event=>{if(menu?.model.started&&!reloading)event.preventDefault();});
  const appearance=createAppearance({target:window,document,canvas,edit:outfit,characters:manifest.clothing.characters,language});
- // Rust reads this once per frame: the start car stage shows while it is true.
+ // Rust reads this once per frame. The start car stage shows while it is true.
  let carShown=false;window.gameMenuCar=()=>carShown;
  // Source tab resets of the controls that keep their own storage.
  const resets={graphics:[()=>slider.reset()],controls:[()=>drivingSettings.resetMouse()]};

@@ -32,7 +32,7 @@ def region_bytes(fmt, width, rows):
 
 
 def chunk_format(obj, cpu):
-    """Rows keep source BC1/BC3 blocks. Cookies stay RGBA8: the renderer reads their pixels on the CPU."""
+    """Rows keep source BC1/BC3 blocks. Cookies stay RGBA8, because the renderer reads their pixels on the CPU."""
     if cpu or obj.m_Width % 4 or obj.m_Height % 4:
         return 'rgba8'
     return {10: 'bc1', 28: 'bc1', 12: 'bc3', 29: 'bc3'}.get(int(obj.m_TextureFormat), 'rgba8')
@@ -351,7 +351,7 @@ def recover_road_lamp(source: Source, output: Path) -> dict:
 
 REAR_SIGNALS=(('H','tail'),('F','brake'),('R','reverse'))
 def vehicle_states(f, kind, state, intensity):
-    """headlightscript or rearlights states. `state` builds one state; `intensity` reads the first light."""
+    """headlightscript or rearlights states. `state` builds one state. `intensity` reads the first light."""
     if kind=='rear':
         return [state(signal,intensity(f.get(p+'Light',[])),f.get(p+'Light',[]),f[p+'Lamp'],f[p+'LampOn'],f[p+'LampOff'],dont_overwrite=f[p+'DontOverwrite'])
             for p,signal in REAR_SIGNALS]

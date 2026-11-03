@@ -12,7 +12,7 @@ pub fn biome(color: [f32; 4], override_index: Option<u8>) -> u8 {
     })
 }
 
-/// Source `GetTerrainColor`: a fixed biome forces the color and keeps alpha.
+/// Source `GetTerrainColor`. A fixed biome forces the color and keeps alpha.
 pub fn forced_color(color: [f32; 4], override_index: Option<u8>) -> [f32; 4] {
     match override_index {
         Some(0) => [1.0, 0.0, 0.0, color[3]],
@@ -411,7 +411,7 @@ impl TerrainSurfaceJob {
                         .push(forced_color(color, context.biome_override));
                     output.vertices[i][2] = -p[2];
                     output.normals[i][2] = -output.normals[i][2];
-                    // Source missing tangent (1,0,0,1), reflected once.
+                    // The source has no tangent. Use (1,0,0,1), reflected once.
                     output.tangents.push([1.0, 0.0, 0.0, -1.0]);
                     self.cursor += 1;
                     if self.cursor == n * n {
@@ -441,7 +441,7 @@ pub fn regular_grid(tile: TerrainTile, vertices: &[[f32; 3]], triangles: &[[u32;
     let n = tile.resolution as usize;
     let spacing = (tile.size as f64 / (n - 1) as f64) as f32;
     let offset = -(tile.size as f32) * 0.5;
-    // Same math as phase 0, with the phase 6 z flip.
+    // This is the same math as phase 0, with the phase 6 z flip.
     let grid = |index: usize| (index as f64 * spacing as f64 + offset as f64) as f32;
     vertices.len() == n * n
         && triangles.len() == 2 * (n - 1) * (n - 1)

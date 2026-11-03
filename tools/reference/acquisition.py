@@ -334,7 +334,7 @@ def validate_acquisition(a, manifest):
 
 def recover_rules(code):
     database=_block(code,code.index('public class itemdatabase :'))
-    # CarType has 23 source values; unassigned index17 retains the CLR zero value.
+    # CarType has 23 source values. Unassigned index17 retains the CLR zero value.
     car_map=[0]*23
     for i,v in re.findall(r'carTypeToCarID\[(\d+)\] = (\d+);',database):car_map[int(i)]=int(v)
     return {'integer_upper_exclusive':True,'float_upper_inclusive':True,

@@ -37,7 +37,7 @@ def default_words(source) -> list[str]:
 
 
 def cap_presentation(fields, words):
-    """GetCapString shows ls.l.g(nameText): `word` is the ls.w index. The serialized nameString is not read."""
+    """GetCapString shows ls.l.g(nameText). `word` is the ls.w index. The serialized nameString is not read."""
     if fields['hasName'] and not 0<=fields['nameText']<len(words):raise ValueError('Cap name word outside language table')
     return {'has_name':bool(fields['hasName']),'word':fields['nameText'] if fields['hasName'] else 0,'no_text':bool(fields['noText'])}
 
@@ -50,7 +50,7 @@ def opening_metadata(source, reader, node_ids, fluid_tune_speed):
         if target.type.name=='GameObject':target=source.transform_for(target)
         if key(target) not in node_ids:raise ValueError(f'Cap visual outside selected hierarchy: {key(target)}')
         return node_ids[key(target)]
-    # mainscript.CrossHairStuff: GCMMB shows img, or ICap when img is null.
+    # In mainscript.CrossHairStuff, GCMMB shows img, or ICap when img is null.
     icon=source.resolve(reader,fields['img']) if fields['canTune'] else None
     if icon is not None:source.crosshair_icons.add(key(icon))
     def euler(value):
