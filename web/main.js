@@ -3,7 +3,9 @@ import {gameFields,installGameMode,installGameOptions,installSeed,installStartCa
 // then starts in the menu game mode, from the save or from the host world, so one world exists at a time.
 const NEW_GAME_KEY='tls-new-game',LOAD_KEY='tls-load',JOIN_KEY='tls-join';
 const takeSession=key=>{try{const v=sessionStorage.getItem(key);sessionStorage.removeItem(key);return v;}catch{return null;}};
-const reloadWith=(key,value)=>{try{sessionStorage.setItem(key,value);}catch{}location.reload();return new Promise(()=>{});};
+// A browser shortcut (Ctrl+W while the crouch key is held) must not close a running game. The game's own reloads skip the prompt.
+let reloading=false;
+const reloadWith=(key,value)=>{try{sessionStorage.setItem(key,value);}catch{}reloading=true;location.reload();return new Promise(()=>{});};
 const newGameSeed=(()=>{const v=Number(takeSession(NEW_GAME_KEY)??NaN);return Number.isInteger(v)?v:undefined;})();
 const loadName=takeSession(LOAD_KEY);
 const joinRoom=(()=>{try{return JSON.parse(takeSession(JOIN_KEY)??'null');}catch{return null;}})();
@@ -286,6 +288,7 @@ async function load(){
  audio=createAudio(manifest.audio);installAudioBridge(window,audio);
  const volume=v=>audio.volume(v.FSound);volume(settings.values);settings.listen(volume);
  window.addEventListener('pagehide',()=>audio.dispose());
+ window.addEventListener('beforeunload',event=>{if(menu?.model.started&&!reloading)event.preventDefault();});
  const appearance=createAppearance({target:window,document,canvas,edit:outfit,characters:manifest.clothing.characters,language});
  const figure=createMenuFigure({target:window,canvas});
  // Source tab resets of the controls that keep their own storage.
