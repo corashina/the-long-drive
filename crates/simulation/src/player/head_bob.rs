@@ -14,7 +14,7 @@ pub(super) struct WalkBob {
     wdown: bool,
     /// True on the step a source footstep fires.
     pub(super) beat: bool,
-    /// Source `currentAdd`: the state step. 0 when the bob does not advance.
+    /// Source `currentAdd`: the state step. It is 0 when the bob does not advance.
     pub(super) add: f32,
 }
 impl WalkBob {

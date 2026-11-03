@@ -108,7 +108,7 @@ impl Spawner {
             return;
         }
         if count < r.max_count as usize && random.unit() <= r.chance {
-            // The loop bound is drawn again each step.
+            // The source draws the loop bound again each step.
             let mut i = 0.;
             while i < random.range(r.count_range[0], r.count_range[1] + 1.) {
                 let place = (0..=RETRIES)

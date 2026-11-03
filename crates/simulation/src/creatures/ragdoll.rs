@@ -29,7 +29,7 @@ pub fn poses(r: &CreatureRagdoll, nodes: &[usize], root: Pose, pose: &RigPose) -
         .collect()
 }
 
-/// Inserts the bones at `poses`. `SetMass` gives each bone `mass`; none keeps the Rigidbody
+/// Inserts the bones at `poses`. `SetMass` gives each bone `mass`. None keeps the Rigidbody
 /// mass. Unity scales the colliders and the joint anchors with the root scale.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn(

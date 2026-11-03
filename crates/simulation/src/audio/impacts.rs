@@ -9,7 +9,7 @@ use std::collections::HashSet;
 
 type Vehicles = std::collections::BTreeMap<crate::world::ObjectKey, crate::car::VehicleRuntime>;
 
-/// Played item hit gain. `None` below the source minimum or for a loose item in an interior.
+/// Played item hit gain. It is `None` below the source minimum or for a loose item in an interior.
 pub fn item_hit_gain(
     speed: f32,
     gain: f32,

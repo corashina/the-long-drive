@@ -28,7 +28,7 @@ impl OldHeatHaze {
         if !self.active {
             self.active = true;
             self.state.restart();
-            // Prewarm: one full loop before the first visible frame.
+            // The prewarm runs one full loop before the first visible frame.
             for _ in 0..(self.duration / dt).ceil() as u32 {
                 self.advance(dt, physics);
             }
@@ -36,7 +36,7 @@ impl OldHeatHaze {
         self.advance(dt, physics);
     }
     fn advance(&mut self, dt: f32, physics: &PhysicsWorld) {
-        // Random between two constants: one draw for each emission update.
+        // The rate is random between two constants, with one draw for each emission update.
         let draw = self.state.random_draw();
         let rate = particle_curve(&self.rate, self.state.time() / self.duration, draw);
         self.state.set_rates(rate, 0.);

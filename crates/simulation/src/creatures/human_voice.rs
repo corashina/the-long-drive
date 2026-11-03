@@ -175,7 +175,7 @@ impl Voice {
         Some(self.play(s.attack[i], pitch, now))
     }
 
-    /// `SoundNotice`: the AI sees the player and was not chasing.
+    /// `SoundNotice`. The AI sees the player and was not chasing.
     pub(crate) fn notice(
         &mut self,
         s: &HumanVoiceReference,

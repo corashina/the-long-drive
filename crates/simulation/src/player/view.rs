@@ -73,7 +73,7 @@ impl ViewState {
         self.prone
             .lerp(self.standing + Vector::Y * self.walk_bob_offset(), posture)
     }
-    /// Source `TStandHeadPos`: the bob adds only with `BWalkHeadBob`. It still runs for footsteps.
+    /// Source `TStandHeadPos`. The bob adds only with `BWalkHeadBob`. It still runs for footsteps.
     fn walk_bob_offset(&self) -> f32 {
         if self.settings.head_bob[0] {
             self.walk_bob.offset
@@ -89,7 +89,7 @@ impl ViewState {
     pub(super) fn step_car_bob(&mut self, dt: f32, velocity: Vector, dead: bool, head: Rotation) {
         self.walk_bob.beat = false;
         self.walk_bob.add = 0.;
-        // Source `BDriveHeadBob` off: the head stays at the lean position and the bob stops.
+        // With source `BDriveHeadBob` off, the head stays at the lean position and the bob stops.
         if self.settings.head_bob[1] {
             self.car_offset = self.car_bob.step(dt, velocity, dead, head);
         } else {
@@ -124,7 +124,8 @@ impl ViewState {
         self.lean = self.neutral_head(posture);
         self.head = self.lean;
     }
-    /// Source `GetLook` `BkeyLook`: seated, not leaning and with key look held, the move keys look.
+    /// Source `GetLook` `BkeyLook`. When the player sits, does not lean and holds key look, the
+    /// move keys look.
     pub(super) fn key_look(&self, input: &FrameInput, seated: bool) -> Option<[f32; 2]> {
         if !seated || self.seated_lean || input.player_held & player_keys::KEY_LOOK == 0 {
             return None;
@@ -180,7 +181,7 @@ impl ViewState {
         } else {
             0.
         };
-        // Source lookInsteadOfLean: a seated lean turns the camera, and release lerps it back.
+        // Source lookInsteadOfLean. A seated lean turns the camera, and release lerps it back.
         let look_mode = seated && look_mode;
         self.seated_lean = seated && held && !look_mode;
         self.looking = (!seated || look_mode) && (held || self.standing_lean);

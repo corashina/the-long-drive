@@ -1,4 +1,4 @@
-//! Source AirPlaneSpawnScript: planes that fly over the player. Not saved.
+//! Source AirPlaneSpawnScript: planes that fly over the player. Saves do not keep them.
 use crate::particles::ParticleState;
 use crate::reference::SkyReference;
 use crate::vehicle::PhysicsWorld;
@@ -13,9 +13,9 @@ pub struct Plane {
     /// Position relative to the anchor: player + up * height.
     pub offset: Vector,
     pub heading: Rotation,
-    /// Source planetrail. It simulates in the anchor space: its positions are anchor offsets.
+    /// Source planetrail. It simulates in the anchor space. Its positions are anchor offsets.
     pub contrail: Option<ParticleState>,
-    /// fedoscript `seat.inUse`: the `seatedObj` shows.
+    /// fedoscript `seat.inUse`. The `seatedObj` shows.
     pub seated: bool,
 }
 
@@ -90,7 +90,8 @@ impl SkyTraffic {
                 continue;
             };
             contrail.rotation = plane.heading;
-            // Set the field directly: set_origin resets the emitter, and the anchor moves each step.
+            // Set the field directly, because set_origin resets the emitter and the anchor moves
+            // each step.
             contrail.origin = origin;
             contrail.advance(dt, plane.offset.to_array().map(f64::from), 1., physics);
         }

@@ -1,5 +1,5 @@
-//! Source `mainscript.RandomHorrorSound`: every few nights the player horror source plays for a
-//! few seconds. The night count is not saved, as in the source.
+//! Source `mainscript.RandomHorrorSound`. Every few nights the player horror source plays for a
+//! few seconds. Saves do not keep the night count, as in the source.
 use crate::weather::StormRandom;
 
 /// Source `minHorrorNight` and `maxHorrorNight`.
