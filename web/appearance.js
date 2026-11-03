@@ -46,7 +46,8 @@ export function createAppearance({target,document,canvas,edit,characters,languag
   parts.style.gridTemplateRows='repeat('+Math.ceil(segments.length/2)+',auto)';
   parts.replaceChildren(...segments.map((segment,i)=>{
    const row=document.createElement('div'),button=document.createElement('button');
-   button.type='button';button.textContent=language.index(segment.language_name);button.addEventListener('click',()=>select(i));
+   // A `languageName` of 0 or less shows the segment name (the male parts).
+   button.type='button';button.textContent=segment.language_name>0?language.index(segment.language_name):segment.name;button.addEventListener('click',()=>select(i));
    row.append(button);
    if(segment.disable_able){
     const toggle=document.createElement('input');toggle.type='checkbox';toggle.checked=current().segments[i].enabled;
