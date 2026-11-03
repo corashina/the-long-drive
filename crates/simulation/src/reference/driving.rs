@@ -26,7 +26,7 @@ pub struct DrivingReference {
     pub pedal_rate: f32,
     pub force_manual: bool,
     pub min_motor_torque_nm: f32,
-    /// Port choice: both off. Source `tabControls` defaults are on.
+    /// The port turns both off. Source `tabControls` defaults are on.
     pub default_assists: DrivingAssists,
     pub bindings: Vec<InputBinding>,
     pub mouse_drive: MouseDriveReference,
@@ -34,7 +34,7 @@ pub struct DrivingReference {
     pub steering_wheel: SteeringWheelReference,
 }
 
-/// Source `slidersettingscript`: `GetValue` range and default, multiplier applied.
+/// Source `slidersettingscript` `GetValue` range and default, with the multiplier applied.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SliderRange {

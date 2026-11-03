@@ -166,7 +166,7 @@ impl StartupPackReference {
         pack_start_car(self.source.path_id)
     }
 }
-/// Source `StartCar01` keeps pack 14079, `StartCar02` pack 14082.
+/// Source `StartCar01` keeps pack 14079, and `StartCar02` keeps pack 14082.
 fn pack_start_car(pack: i64) -> &'static str {
     if pack == 14079 {
         "StartCar01"

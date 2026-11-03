@@ -2,7 +2,7 @@
 //! Runtime identities belong to the target cache. They are not Unity file IDs.
 use std::cmp::Ordering;
 
-/// Source preserves only the low twelve material identity bits after this shift.
+/// The source keeps only the low twelve material identity bits after this shift.
 pub fn material_sort_key(identity: u32, instancing: bool, property_block_id: u32) -> u32 {
     (identity << 20)
         | if instancing {
@@ -71,7 +71,7 @@ impl PassSortKey {
                 return order;
             }
         }
-        // Source marks the first eligible pass, then clears this bit for later passes.
+        // The source marks the first eligible pass, then clears this bit for later passes.
         let first = (other.pass_data & 0x01000000).cmp(&(self.pass_data & 0x01000000));
         if first != Ordering::Equal {
             return first;

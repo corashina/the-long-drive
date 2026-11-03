@@ -40,7 +40,7 @@ pub struct CarCrashReference {
 #[serde(deny_unknown_fields)]
 pub struct CarBloodReference {
     pub node: u32,
-    /// Source `objects`: `GotDirty` and `GotClean` set them active with the trigger node.
+    /// Source `objects`. `GotDirty` and `GotClean` set them active with the trigger node.
     pub objects: Vec<u32>,
     /// Source `CleanProperty`: the clean table row.
     pub permission: u8,

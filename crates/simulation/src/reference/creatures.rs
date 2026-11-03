@@ -67,7 +67,7 @@ pub struct SpawnerReference {
     pub chance: f32,
     /// Seconds between spawn tries.
     pub time_range: [f32; 2],
-    /// `Random.Range(minCount, maxCount + 1)` is read again each loop step.
+    /// `aispawn` reads `Random.Range(minCount, maxCount + 1)` again at each loop step.
     pub count_range: [f32; 2],
     pub max_count: u32,
     pub distance_range: [f32; 2],
@@ -132,14 +132,14 @@ pub struct MotionReference {
     pub grounded_mask: u32,
 }
 
-/// One `sensoryscript.visionRay`. The direction is in eye space; the mirror ray negates x.
+/// One `sensoryscript.visionRay`. The direction is in eye space. The mirror ray negates x.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VisionRay {
     pub enabled: bool,
     pub inverted: bool,
     pub symmetry: bool,
-    /// Source `BOOL`: full value on any hit.
+    /// Source `BOOL`. Any hit gives the full value.
     pub boolean: bool,
     /// Unit, from `Quaternion.Euler(rayDir) * Vector3.forward`.
     pub direction: [f32; 3],
@@ -181,7 +181,7 @@ pub struct RabbitSizeReference {
     pub health: [f32; 2],
     pub shoot_health: [f32; 2],
     pub speed: [f32; 2],
-    /// From `maxRotSpeed` to `minRotSpeed`: big rabbits turn slower.
+    /// It goes from `maxRotSpeed` to `minRotSpeed`, so big rabbits turn slower.
     pub rot_speed: [f32; 2],
     /// `RunValue` lerp rate.
     pub run_lerp: f32,
@@ -205,7 +205,7 @@ pub struct SenseChild {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreatureDamage {
-    /// The rabbit `breakablescript`. It has no owners: the creature runtime binds it.
+    /// The rabbit `breakablescript`. It has no owners. The creature runtime binds it.
     pub rules: BreakableReference,
     /// In `rules.children` order.
     pub children: Vec<SenseChild>,
@@ -287,7 +287,7 @@ pub struct ActionState {
     pub leave: ActionTransition,
 }
 
-/// A fixed-duration transition. `exit_time` is the normalized source state time; none means
+/// A fixed-duration transition. `exit_time` is the normalized source state time. None means
 /// the transition waits only for its trigger. `offset` is the normalized start time of the target.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -344,7 +344,7 @@ pub struct ElectronicsCollider {
     pub source: SourceId,
     /// Unity layer index.
     pub layer: u32,
-    /// In `ragdollactivatescript.animColliders`: `SetRagdol(true)` disables it.
+    /// It is in `ragdollactivatescript.animColliders`, so `SetRagdol(true)` disables it.
     pub anim: bool,
 }
 
@@ -427,7 +427,7 @@ pub struct HumanReference {
     pub item_id: u32,
     pub start: HumanStart,
     pub head: NodeId,
-    /// The `breakablescript`. It has no owners: the creature runtime binds it.
+    /// The `breakablescript`. It has no owners. The creature runtime binds it.
     pub breakable: BreakableReference,
     pub body: CreatureBody,
     pub ragdoll: CreatureRagdoll,

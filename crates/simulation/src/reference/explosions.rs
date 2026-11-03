@@ -26,10 +26,10 @@ pub struct ExplosionType {
     pub prefab: SourceId,
     pub source: SourceId,
     pub explosion_force: f32,
-    /// Unused by explosionscript.Explode.
+    /// explosionscript.Explode does not use it.
     pub multiplier: f32,
     pub explosion_dist: f32,
-    /// explosionscript.particle; its pose is under the prefab root.
+    /// explosionscript.particle. Its pose is under the prefab root.
     pub particle: ParticleReference,
     /// explosionscript.Source.
     pub sound: ExplosionSound,

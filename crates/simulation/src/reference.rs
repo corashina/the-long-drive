@@ -372,11 +372,11 @@ pub struct MechanismReference {
     pub turn: Option<TurnReference>,
     /// Source `usablescript.handTarget`: the using hand parent. When null, the slide door or the hit serves.
     pub hand_target: Option<NodeId>,
-    /// Source `usablescript.rightHand`: the right hand uses it.
+    /// Source `usablescript.rightHand`. The right hand uses it.
     pub right_hand: bool,
-    /// Source `usablescript.leftHand`: the left hand uses it.
+    /// Source `usablescript.leftHand`. The left hand uses it.
     pub left_hand: bool,
-    /// Source `usablescript.notNearestHand`: the hand farther from the target uses it.
+    /// Source `usablescript.notNearestHand`. The hand farther from the target uses it.
     pub not_nearest_hand: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -531,7 +531,7 @@ pub struct PickupReference {
     pub right_hand_rotation: [f32; 4],
     pub right_hand_grip: Option<SourceId>,
     pub left_hand_grip: Option<SourceId>,
-    /// Source `pickupable.doubleHand`: both hands hold it, as when mass exceeds `onehandLimit`.
+    /// Source `pickupable.doubleHand`. Both hands hold it, as when the mass exceeds `onehandLimit`.
     pub double_hand: bool,
     pub disable_when_stored: Option<SourceId>,
     pub keep_when_stored: Option<SourceId>,
@@ -720,7 +720,7 @@ pub struct PlayerReference {
     pub ledge_jump_multiplier: f32,
     /// Source `FGripLoose`: slowest fall speed while gripping.
     pub grip_loose: f32,
-    /// Source `FmaxGripFallSpeed`: grip only below this speed.
+    /// Source `FmaxGripFallSpeed`. The player grips only below this speed.
     pub max_grip_fall_speed: f32,
     pub wall_sensors: PlayerWallSensorsReference,
     pub interior_sensor: PlayerInteriorSensorReference,
@@ -1031,7 +1031,7 @@ fn require(ok: bool, field: &str) -> Result<(), ReferenceError> {
 fn finite(v: &[f32]) -> bool {
     v.iter().all(|x| x.is_finite())
 }
-/// Finite quaternion with a length within 0.002 of one.
+/// Returns true for a finite quaternion with a length within 0.002 of one.
 fn unit_quaternion(q: &[f32; 4]) -> bool {
     finite(q) && (q.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 0.002
 }
@@ -1041,7 +1041,7 @@ fn transform(t: &Transform) -> bool {
         && t.scale.iter().all(|x| *x != 0.0)
         && unit_quaternion(&t.rotation)
 }
-/// IDs are 1, 2, 3, ... in record order.
+/// Returns true when the IDs are 1, 2, 3, ... in record order.
 fn dense(ids: impl Iterator<Item = u32>) -> bool {
     ids.zip(1..).all(|(id, i)| id == i)
 }
@@ -1058,7 +1058,7 @@ fn ids<T: Eq + std::hash::Hash>(
 fn hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
-/// Error field name prefixed by its source ID.
+/// Returns the error field name, prefixed by its source ID.
 fn field(source: &SourceId, name: &str) -> String {
     format!("{}:{} {name}", source.file, source.path_id)
 }
@@ -1166,7 +1166,7 @@ impl ReferenceManifest {
     }
 
     /// Parses runtime bytes that `from_runtime_json` checks in another place.
-    /// The renderer uses it: the simulation worker checks the same bytes.
+    /// The renderer uses it. The simulation worker checks the same bytes.
     pub fn from_checked_runtime_json(bytes: &[u8]) -> Result<Self, ReferenceError> {
         let mut manifest = Self::parse(bytes)?;
         AudioRecord::check_playback(&mut manifest);

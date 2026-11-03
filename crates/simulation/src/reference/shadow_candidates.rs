@@ -41,7 +41,7 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
         a[0] * b[1] - a[1] * b[0],
     ]
 }
-/// IntersectThreePlanes2db3d0: preserve separate products, reciprocal and final multiply.
+/// IntersectThreePlanes2db3d0. Keep the separate products, the reciprocal and the final multiply.
 fn intersect(a: Plane, b: Plane, c: Plane) -> [f32; 3] {
     let ab = cross(normal(a), normal(b));
     let ac = cross(normal(a), normal(c));
