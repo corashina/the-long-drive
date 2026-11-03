@@ -60,7 +60,7 @@ def pedal_record(source, proto, car_reader, car, wheels, seats) -> dict | None:
     """carscript.bikepedal (bikepedalscript). None for a null link.
 
     `driven_wheels` index `wheels`. `seat` indexes `seats`. `driven_slots` are partslotscript
-    prototype node ids, as wheel `slot`: a slot with a part is a mounted driven wheel.
+    prototype node ids, as wheel `slot`. A slot with a part is a mounted driven wheel.
     `pedals`, `pedals_inverse`, `feet_holders` and `axes` are prototype node ids.
     """
     reader=source.resolve(car_reader,car['bikepedal'])
@@ -100,7 +100,7 @@ def engine_fields(engine: dict) -> dict:
 
 
 def radiator_fields(radiator: dict) -> dict:
-    """coolantTankscript values. Links to the fan and the coolant tank are added by the caller."""
+    """coolantTankscript values. The caller adds links to the fan and the coolant tank."""
     return {'thermostat_range':[radiator['minThermostatTemp'],radiator['maxThermostatTemp']],
         'fan_on_when_engine_runs':bool(radiator['fanOnWhenEngineRuns']),
         **{field:radiator[unity] for field,unity in RADIATOR_FIELDS.items()}}
@@ -290,7 +290,7 @@ def material_link(source, owner, pointer, asset, material_indices):
 def light_records(source, proto, car_reader, car, asset, material_indices):
     """headlightscript and rearlights controllers and the light switch of one car or trailer prototype."""
     scripts=[c for n in proto.hierarchy for c in n['components'] if c.type.name=='MonoBehaviour' and source.read(c)['m_Script']['m_PathID']]
-    # A trailer has no carscript: no cabin routes, no switch and no electronics.
+    # A trailer has no carscript, so it has no cabin routes, no switch and no electronics.
     routes,switches=vehicle_light_links(source,scripts,car_reader) if car_reader else ({},[])
     if len(switches)>1:raise ValueError(f'{key(car_reader)} has more than one light switch')
     def lights(owner,pointers):
@@ -360,7 +360,7 @@ def vehicle_record(source, hierarchy, bodies, colliders, asset, material_indices
     """`vehicle` record of a world prototype whose root has carscript, else None.
 
     `hierarchy` is source.hierarchy(root, activate_root=True). `bodies` and `colliders` are the
-    prototype tables; their order gives the local ids.
+    prototype tables. Their order gives the local ids.
     """
     proto=Prototype(source,hierarchy)
     cars=[c for i,c in proto.scripts('carscript') if i==0]
@@ -396,7 +396,7 @@ def vehicle_record(source, hierarchy, bodies, colliders, asset, material_indices
     lights,light_switch=light_records(source,proto,car_reader,car,asset,material_indices)
     instruments=instrument_record(source,car_reader,proto.nodes,asset,material_indices)
     tanks=[c for c in hierarchy[0]['components'] if c.type.name=='MonoBehaviour' and source.class_name(c)=='tankscript']
-    # carscript.DamageStuff: blood is the washtriggerscript that a hard crash makes dirty. SBlood01 plays there.
+    # In carscript.DamageStuff, blood is the washtriggerscript that a hard crash makes dirty. SBlood01 plays there.
     blood=source.resolve(car_reader,car['blood'])
     if blood is not None and (blood.type.name!='MonoBehaviour' or source.class_name(blood)!='washtriggerscript'):raise ValueError(f'{key(car_reader)} blood is not washtriggerscript')
     blood_clip=source.resolve(car_reader,car['SBlood01'])

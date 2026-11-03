@@ -7,10 +7,9 @@ use crate::vehicle::{PhysicsWorld, VehiclePose, to_rapier};
 use rapier3d::prelude::{Ball, QueryFilter};
 use std::collections::HashSet;
 
-type Vehicles =
-    std::collections::BTreeMap<crate::world::ObjectKey, crate::starting_area::VehicleRuntime>;
+type Vehicles = std::collections::BTreeMap<crate::world::ObjectKey, crate::car::VehicleRuntime>;
 
-/// Played item hit gain. `None` below the source minimum or for a loose item in an interior.
+/// Played item hit gain. It is `None` below the source minimum or for a loose item in an interior.
 pub fn item_hit_gain(
     speed: f32,
     gain: f32,

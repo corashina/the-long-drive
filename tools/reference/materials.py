@@ -25,7 +25,7 @@ def decode_normal_image(image: Image.Image, encoding: str) -> Image.Image:
 
 def normal_encoding(texture, shader, shader_name: str, identity: dict) -> str:
     # Unity 2021.3.18f1 uses UnpackNormal/UnpackScaleNormal on D3D11.
-    # DXT5nm stores X in alpha; BC5 stores X in red. Both store Y in green.
+    # DXT5nm stores X in alpha. BC5 stores X in red. Both store Y in green.
     platforms = shader['platforms'] if shader else []
     if shader_name in {'Standard', 'FX/Glass/Stained BumpDistort', 'Custom/playermodelshader'} and set(platforms) == {4}:
         from UnityPy.enums import TextureFormat
@@ -211,7 +211,7 @@ def recover_material(source, reader, color_override=None, condition=None, textur
         uv_channel = int(floats['_UVSec'] != 0) if family == 'standard' and slot in {
             '_DetailAlbedoMap', '_DetailNormalMap'} else 0
         scale = [uv_env['m_Scale'][c] for c in ('x', 'y')]
-        # UnityPy flips source images; export reverses that flip. UV coordinates stay authored.
+        # UnityPy flips source images. The export reverses that flip. UV coordinates stay authored.
         offset = [uv_env['m_Offset'][c] for c in ('x', 'y')]
         if not all(math.isfinite(v) for v in scale + offset):
             raise ValueError(f'{source_id(reader)} {slot}: nonfinite UV transform')
@@ -396,7 +396,7 @@ def material_source_evidence(source, reader, record):
 
 
 
-# UnityStandardInput.cginc Albedo and MetallicGloss; retain inputs for GPU probes.
+# UnityStandardInput.cginc Albedo and MetallicGloss. Retain the inputs for GPU probes.
 SOURCE_CHANNEL_SAMPLES = [
     dict(operation='detail_albedo', color_space='gamma', detail=.2, mask_alpha=.5, albedo_multiplier=.7),
     dict(operation='smoothness', keyword='_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A',

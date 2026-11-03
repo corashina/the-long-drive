@@ -234,7 +234,7 @@ impl PipelineBatchWork {
         Ok(true)
     }
 }
-/// Fixed render-stack keys preserve first occurrence and shadow/view order.
+/// Fixed render-stack keys preserve first occurrence and the shadow and view order.
 pub struct PipelineKeys<K> {
     values: [Option<K>; PIPELINE_BATCH_KEYS],
     pub len: usize,

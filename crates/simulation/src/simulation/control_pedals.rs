@@ -1,4 +1,4 @@
-//! Source `carscript.UpdPedal`: the pedal and handbrake lever nodes follow the car inputs.
+//! Source `carscript.UpdPedal`. The pedal and handbrake lever nodes follow the car inputs.
 use crate::reference::{ControlPedalReference, PedalInput, Transform};
 use crate::simulation::instruments::source_rotation;
 
@@ -66,7 +66,7 @@ impl ControlPedals {
     }
 }
 
-/// Source `UpdPedal`: the rotation, or the position when `push`, is `value * amount` on one axis.
+/// Source `UpdPedal`. The rotation, or the position when `push`, is `value * amount` on one axis.
 pub fn pose(p: &ControlPedalReference, value: f32, rest: Transform) -> Transform {
     let mut target = [0.; 3];
     target[p.axis as usize] = value * p.amount;

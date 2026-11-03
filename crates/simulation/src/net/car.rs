@@ -5,13 +5,14 @@ use super::message::{
     CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage, CarLampsMessage,
     Message, PoseMessage,
 };
+use crate::car::VehicleRuntime;
 use crate::reference::ReferenceManifest;
-use crate::starting_area::{GarageRuntime, VehicleRuntime};
+use crate::starting_area::GarageRuntime;
 use crate::vehicle::VehiclePose;
 use crate::world::ObjectKey;
 use glam::{DQuat, DVec3, Quat, Vec3};
 
-/// Source `carscript.CarSyncValue` values. Steer is the port steer: positive steers left.
+/// Source `carscript.CarSyncValue` values. Steer is the port steer. Positive steers left.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CarFloats {
     pub steer: f32,
@@ -86,13 +87,13 @@ impl CarNet {
         }
     }
 
-    /// Ends the session: no peer drives the car.
+    /// Ends the session. No peer drives the car.
     pub fn clear(&mut self) {
         *self = Self::new(self.key);
     }
 }
 
-/// Source `UpdMulti` receiver: a remote value replaces a smaller local one. Without a local
+/// Source `UpdMulti` receiver. A remote value replaces a smaller local one. Without a local
 /// driver, the remote steer replaces the local steer.
 pub fn with_remote(
     local: crate::simulation::input::DrivingControls,
@@ -123,7 +124,7 @@ pub fn shared(vehicle: &VehicleRuntime) -> CarShared {
     }
 }
 
-/// Source `carscript.UpdMulti`: driver values older than 1 s drop.
+/// Source `carscript.UpdMulti`. Driver values older than 1 s drop.
 const VALUES_SECONDS: f64 = 1.;
 
 /// Source `carscript.CarSyncValues` entry of one peer and one car.
@@ -143,7 +144,7 @@ pub struct CarSync {
 }
 
 impl CarSync {
-    /// The session ended: no peer drives a car.
+    /// The session ended. No peer drives a car.
     pub fn end(&mut self, runtime: &mut GarageRuntime) {
         self.values.clear();
         if std::mem::take(&mut self.touched) {
@@ -247,7 +248,7 @@ impl CarSync {
                     pad: 0,
                 });
             }
-            // Source sends on a toggle and when the starter begins.
+            // The source sends on a toggle and when the starter begins.
             if now.ignition != was.ignition || (now.starter && !was.starter) {
                 let mut flags = 0;
                 if now.ignition {
@@ -307,7 +308,7 @@ fn got_gear(reference: &ReferenceManifest, runtime: &mut GarageRuntime, car: u64
     }
 }
 
-/// Source `UpdMultiIgnition`. The port does not pulse the starter: source `mstarting` lasts one
+/// Source `UpdMultiIgnition`. The port does not pulse the starter. Source `mstarting` lasts one
 /// frame, and the rpm carries the start.
 fn got_ignition(runtime: &mut GarageRuntime, m: &CarIgnitionMessage) {
     if let Some(v) = find(runtime, m.car) {

@@ -132,7 +132,7 @@ impl GarageRuntime {
             |point| stream.terrain_sample(point),
         );
         let (bindings, items) = (&self.weather_bindings, &self.area.items);
-        // WaitForSeconds resumes after Update: apply cached targets before later rescans.
+        // WaitForSeconds resumes after Update. Apply the cached targets before later rescans.
         self.weather.apply_wind(
             &mut self.physics,
             &reference.weather,
@@ -193,7 +193,7 @@ impl GarageRuntime {
 
     /// Source thumbleweedMain and thumbleweedScript. The player body is the important object.
     fn advance_tumbleweeds(&mut self, reference: &ReferenceManifest, dt: f32) {
-        // Source `thumbleweedMain`: only the host spawns weeds and gives them wind (`bwind`).
+        // Source `thumbleweedMain`. Only the host spawns weeds and gives them wind (`bwind`).
         // Guests get the weeds as spawned items.
         if self.net_guest {
             return;
@@ -235,7 +235,7 @@ impl GarageRuntime {
             self.weather
                 .tumbleweeds
                 .spawn(r, now, &[player], |item| spawned.contains(item), cast);
-        // Unity AddForce uses Force mode: integrate one fixed step.
+        // Unity AddForce uses Force mode. Integrate one fixed step.
         let integration_dt = physics.rapier().integration_parameters.dt;
         for (item, force) in self.weather.tumbleweeds.forces() {
             if let Some(handle) = body(item) {

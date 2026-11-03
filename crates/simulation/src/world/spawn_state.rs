@@ -1,4 +1,4 @@
-//! Source caller boundaries survive unloading; generated content does not.
+//! Source caller boundaries survive unloading. Generated content does not.
 use super::{GeneratedId, UnityRandom, UnityRandomState, WorldLayer};
 use crate::reference::{ReferenceError, SourceId};
 use bevy_platform::collections::HashTable;
@@ -26,7 +26,7 @@ pub struct SpawnParent {
     pub ordinal: u32,
     pub children: Vec<(u32, u32)>,
 }
-/// One first invocation. `caller` indexes `sources`; `context` and `pools` index their tables.
+/// One first invocation. `caller` indexes `sources`. `context` and `pools` index their tables.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SpawnBoundary {
@@ -48,10 +48,10 @@ pub struct SpawnInitialization {
     pub scales: Vec<(GeneratedId, SourceId, [f32; 3])>,
     pub lamps: Vec<(GeneratedId, SourceId, bool)>,
     /// Source `Lamp.broken` set by flashlightscript.Break. Bit i is `Lamps[i]`.
-    /// Runtime state only: spawn boundaries do not keep it.
+    /// It is runtime state only. Spawn boundaries do not keep it.
     #[serde(skip)]
     pub broken_lamps: Vec<(GeneratedId, SourceId, u64)>,
-    /// Live `electronicsscript.jamValue` of a component. Runtime state only, as the source.
+    /// Live `electronicsscript.jamValue` of a component. It is runtime state only, as in the source.
     #[serde(skip)]
     pub jams: Vec<(GeneratedId, SourceId, f32)>,
     pub conditions: Vec<super::spawn_conditions::ConditionState>,
@@ -150,7 +150,7 @@ impl SpawnInitialization {
         }
     }
 
-    /// Source flashlightscript.Break: sets the lamps in `lamps` broken. True when one changed.
+    /// Source flashlightscript.Break. Sets the lamps in `lamps` broken. True when one changed.
     pub fn break_lamps(&mut self, parent: &GeneratedId, source: &SourceId, lamps: u64) -> bool {
         match self
             .broken_lamps
@@ -230,7 +230,7 @@ impl SpawnInitialization {
             + self
                 .conditions
                 .iter()
-                .map(|c| c.retained_heap())
+                .map(super::spawn_conditions::ConditionState::retained_heap)
                 .sum::<usize>()
             + self.initialized.capacity() * std::mem::size_of::<(GeneratedId, SourceId)>()
             + self.selectors.capacity() * std::mem::size_of::<(GeneratedId, SourceId, usize)>()
@@ -292,7 +292,7 @@ pub enum SpawnPhase {
 }
 
 /// The supplied controlled startup state does not describe untouched game startup.
-/// Boundaries refer to the tables by index, so each source, context and pool state is stored once.
+/// Boundaries refer to the tables by index, so the tables store each source, context and pool state once.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SpawnHistory {
@@ -557,9 +557,9 @@ impl SourceSpawnState {
     fn push(&mut self, record: Record) {
         let records = &self.records;
         self.index.insert_unique(
-            FixedHasher.hash_one(&record.key),
+            FixedHasher.hash_one(record.key),
             records.len() as u32,
-            |&i| FixedHasher.hash_one(&records[i as usize].key),
+            |&i| FixedHasher.hash_one(records[i as usize].key),
         );
         self.heap_bytes += record.initialization.as_ref().map_or(0, |i| i.len());
         self.records.push(record);
@@ -577,7 +577,7 @@ impl SourceSpawnState {
             context,
         )
     }
-    /// Constant time: per-boundary heap is summed when a boundary is pushed.
+    /// Constant time. A push adds the heap of its boundary to the sum.
     pub fn retained_bytes(&self) -> usize {
         std::mem::size_of::<Self>()
             + pools_bytes(&self.painting_pools)
@@ -625,7 +625,7 @@ impl SourceSpawnState {
                 .as_deref()
                 .map(unpack)
                 .unwrap_or_default();
-            // Broken lamps are runtime state that the boundary does not keep: the live inputs
+            // Broken lamps are runtime state that the boundary does not keep. The live inputs
             // carry them on.
             if !initialization.broken_lamps.is_empty() {
                 inputs.broken_lamps = initialization.broken_lamps.clone();
@@ -643,7 +643,7 @@ impl SourceSpawnState {
             + caller.file.len()
             + pools_bytes(&self.painting_pools)
             + initialization.retained_bytes();
-        // History growth is not frame staging; try_reserve reports a real allocation failure.
+        // History growth is not frame staging. Here try_reserve reports a real allocation failure.
         let overlap = extra + pools_bytes(&self.painting_pools);
         if overlap > staging {
             return Err(ReferenceError(

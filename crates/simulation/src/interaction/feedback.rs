@@ -37,18 +37,23 @@ impl ActionMask {
     pub const CRANK: u32 = 1 << 31;
 }
 /// Item prompt bits. Hose: attach on the mount key, coil up on R, drain on LMB.
-/// Ammo: reload on R, unload on E. Binoculars: use on LMB, focus on MMB.
+/// Ammo: reload on R, unload on E. Binoculars: use on LMB, focus on MMB. Guns: R and the
+/// mouse break the barrel or open the cylinder.
 pub struct ItemPrompt;
 impl ItemPrompt {
-    pub const ATTACH: u8 = 1;
-    pub const COIL: u8 = 2;
-    pub const DRAIN: u8 = 4;
-    pub const RELOAD: u8 = 8;
-    pub const UNLOAD: u8 = 16;
+    pub const ATTACH: u16 = 1;
+    pub const COIL: u16 = 2;
+    pub const DRAIN: u16 = 4;
+    pub const RELOAD: u16 = 8;
+    pub const UNLOAD: u16 = 16;
     /// Binoculars: LMB use.
-    pub const LOOK: u8 = 32;
+    pub const LOOK: u16 = 32;
     /// Binoculars in use: MMB focus.
-    pub const FOCUS: u8 = 64;
+    pub const FOCUS: u16 = 64;
+    /// A break barrel gun is active: source `Rtext` breakbarrel.
+    pub const BREAK_BARREL: u16 = 128;
+    /// A revolver is active: source `Rtext` opencylinder.
+    pub const OPEN_CYLINDER: u16 = 256;
 }
 /// Computer prompt bits: R turns on or off, LMB uses, E connects or disconnects a held one.
 pub struct ComputerPrompt;
@@ -96,7 +101,7 @@ pub struct ActionAvailability {
     pub lmb_use: bool,
     pub fill_reservation: Option<OpeningId>,
     /// `ItemPrompt` bits.
-    pub prompts: u8,
+    pub prompts: u16,
     pub(super) hose_cap: Option<OpeningId>,
     /// The adjust icon of the looked usable.
     pub adjust: super::crosshair::AdjustIcon,
@@ -107,7 +112,7 @@ pub struct FluidFeedback<'a> {
     pub amount: f32,
     pub capacity: f32,
     pub quantities: [f32; 6],
-    /// Source list order: fluid type + 1 per 4 bits, low bits first, 0 ends.
+    /// Fluid type + 1 per 4 bits in source list order, low bits first. A 0 ends the list.
     pub order: u32,
     pub presentation: &'a FluidPresentation,
 }
@@ -143,16 +148,18 @@ impl InteractionState {
         let installation_target = valid(aim.installation_target);
         let filling_target = valid(aim.filling_target);
         let focus = valid(aim.focus_target);
-        let mut a = ActionAvailability::default();
-        a.use_item = use_target.map(|t| t.item);
-        a.active_drag = active_target.is_some_and(|t| self.mechanisms.drag_eligible(t.item));
-        a.item = use_target
-            .or(grab_target)
-            .or(filling_target)
-            .or(installation_target)
-            .or(valid(aim.push_target))
-            .or(focus)
-            .map(|t| t.item);
+        let mut a = ActionAvailability {
+            use_item: use_target.map(|t| t.item),
+            active_drag: active_target.is_some_and(|t| self.mechanisms.drag_eligible(t.item)),
+            item: use_target
+                .or(grab_target)
+                .or(filling_target)
+                .or(installation_target)
+                .or(valid(aim.push_target))
+                .or(focus)
+                .map(|t| t.item),
+            ..Default::default()
+        };
         if self.held().is_none()
             && let Some(id) = self.equipment.item()
             && self.held_controls.contains_key(&id)
@@ -341,7 +348,7 @@ impl InteractionState {
                     {
                         a.actions.0 |= ActionMask::DISMOUNT;
                     }
-                    // A hitched grip body sleeps; picking it up detaches it first.
+                    // A hitched grip body sleeps. Picking it up detaches it first.
                     ItemLocation::World
                         if t.slot.is_none()
                             && ((self.hitch.is_hitched(t.item)
@@ -428,7 +435,7 @@ impl InteractionState {
             && !latched_fill
             && !drink_guard
             && !food_guard
-            && !self.reserves_lmb();
+            && self.lmb_owner().is_none();
         if self.latched_mechanism.is_none()
             && let Some(t) = aim.light_target
             && t.distance.is_finite()
@@ -466,10 +473,11 @@ impl InteractionState {
         if !a.active_drag && a.actions.0 & ActionMask::MOUNT != 0 {
             a.actions.0 &= !(ActionMask::DROP | ActionMask::THROW);
         }
-        if let Some(held) = self.equipment.item().filter(|_| {
-            self.cleaning
-                .reserves_lmb(self.equipment.item(), self.held())
-        }) {
+        if let Some(held) = self
+            .equipment
+            .item()
+            .filter(|_| self.lmb_owner() == Some(super::claims::LmbOwner::CleaningTool))
+        {
             a.item = Some(held);
             a.actions.0 &= !(ActionMask::DOOR
                 | ActionMask::FILL

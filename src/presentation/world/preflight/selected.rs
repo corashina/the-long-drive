@@ -86,10 +86,6 @@ impl<P, A> SelectedMetadata<P, A> {
         };
         *self = Self::Ready(Arc::new(LoadedPrototype { plan, asset }));
     }
-    /// A retired physical load still owns its IO charge until the asset backend settles.
-    pub fn can_retire(&self, terminal: bool) -> bool {
-        !matches!(self, Self::PlanLoading(_) | Self::Loading { .. }) || terminal
-    }
     pub fn io(&self, staging: usize) -> IoLedger {
         match self {
             Self::Queued => IoLedger {

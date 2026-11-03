@@ -45,7 +45,7 @@ pub(super) fn bind(
         )?;
     }
     let attached = attached_at_start(content, prototype, rules, reference)?;
-    // An attached body rides on its target body.
+    // An attached body moves with its target body.
     let rides_on = |c: &WorldColliderReference, body_index: usize| {
         c.body == Some(body_index as u32)
             || attached
@@ -72,7 +72,7 @@ pub(super) fn bind(
         }
         let main_types = texts(part.fields, "maintipus")?;
         let part_types = texts(part.fields, "tipus")?;
-        // Every part registers: a slot of any car can take it, even one that loads later.
+        // Every part registers. A slot of any car can take it, even one that loads later.
         let pickup_record = rules.get(&reference.world, link(part.fields, "p")?)?;
         // Car roots have no pickupable. Only a root that is itself a part needs one.
         let pickup = if part_node == 0 {
@@ -137,7 +137,7 @@ pub(super) fn bind(
                         | (item.0 as u128 + 1);
                     collider.set_active_events(super::stream::content_bindings::hit_events(hit));
                 });
-                // Keep the cap binding: source looks at the cap collider on the part.
+                // Keep the cap binding. The source looks at the cap collider on the part.
                 let use_owner = interaction.use_owner(*handle);
                 interaction.bind_surface(
                     *handle,
@@ -342,10 +342,9 @@ pub(super) fn nearest_owner(
         }
         if let Some(part) =
             rules.component(&reference.world, &prototype.nodes[i].source, "partscript")?
+            && let Some(binding) = content.bindings.iter().find(|b| &b.source == part.source)
         {
-            if let Some(binding) = content.bindings.iter().find(|b| &b.source == part.source) {
-                return Ok(Some(binding.item));
-            }
+            return Ok(Some(binding.item));
         }
         node = prototype.nodes[i].parent.map(|n| n as usize);
     }

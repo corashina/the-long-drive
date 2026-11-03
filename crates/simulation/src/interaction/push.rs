@@ -47,7 +47,7 @@ pub fn grip_hand(local: &Transform, grip: &Transform, hand: Option<&Transform>) 
     from_rapier(&hand.map_or(local, |hand| local * pose(grip).inverse() * pose(hand)))
 }
 /// The root body of `body`: the body of its root item, else `body` itself.
-/// Source `transform.root`: car parts share the root of their car.
+/// Source `transform.root`. Car parts share the root of their car.
 fn root_body(items: &ItemStore, body: RigidBodyHandle) -> RigidBodyHandle {
     let Some(mut id) = items.iter().find(|i| i.body == Some(body)).map(|i| i.id) else {
         return body;
@@ -449,7 +449,7 @@ impl PushState {
             }
             let grip = self.grip.as_mut().unwrap();
             debug_assert_eq!(grip.body, body_handle);
-            // Source: `MoveNearestHand(pushgrip.HT)`, else the grip, every gripping frame.
+            // The source calls `MoveNearestHand(pushgrip.HT)`, else the grip, every gripping frame.
             body.move_nearest_hand(
                 ReachTarget {
                     frame: ReachFrame::Body(body_handle),

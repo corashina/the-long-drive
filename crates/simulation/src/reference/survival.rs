@@ -67,7 +67,7 @@ pub struct FoodReference {
     pub bites: u8,
     pub index: u8,
     pub destroy_on_end: bool,
-    /// `ediblescript.spawnIfShot`: a `hurtFood` melee hit cuts the food in two.
+    /// `ediblescript.spawnIfShot`. A `hurtFood` melee hit cuts the food in two.
     pub spawn_if_shot: bool,
     pub asset: AssetId,
     pub root: NodeId,
@@ -183,7 +183,7 @@ pub struct SurvivalReference {
     pub run_food_loss_modifier: f32,
     pub run_water_loss_modifier: f32,
     pub delay_speed: f32,
-    /// Source `mainscript.FoodParticles`, in `foodParticleType` order. Emit only, world space.
+    /// Source `mainscript.FoodParticles`, in `foodParticleType` order. The runtime only emits them, in world space.
     pub food_particles: Vec<ParticleReference>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]

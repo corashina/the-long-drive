@@ -221,7 +221,6 @@ def recover_acquisition(source, manifest):
     evidence = recover_methods(source, code)
     stations, categories, box_table = recover_station_graphs(source, manifest, code)
     prototypes = {p['item_id']:p for p in manifest['item_prototypes'] if p['item_id'] is not None}
-    nodes = {(n['source']['file'],n['source']['path_id']):n for n in manifest['nodes']}
     def ptr(reader, d, field):
         target = source.resolve(reader,d[field])
         return source_id(target) if target else None
@@ -335,7 +334,7 @@ def validate_acquisition(a, manifest):
 
 def recover_rules(code):
     database=_block(code,code.index('public class itemdatabase :'))
-    # CarType has 23 source values; unassigned index17 retains the CLR zero value.
+    # CarType has 23 source values. Unassigned index17 retains the CLR zero value.
     car_map=[0]*23
     for i,v in re.findall(r'carTypeToCarID\[(\d+)\] = (\d+);',database):car_map[int(i)]=int(v)
     return {'integer_upper_exclusive':True,'float_upper_inclusive':True,

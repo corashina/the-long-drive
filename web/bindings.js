@@ -32,7 +32,9 @@ export function keyName(key){
  if(key===null)return 'None';
  if(UNITY[key])return UNITY[key];
  const m=/^(Key|Digit|Numpad)(.+)$/.exec(key);
- return m?(m[1]==='Key'?'':m[1]==='Digit'?'Alpha':'Keypad')+m[2]:key;
+ if(!m)return key;
+ const prefix={Key:'',Digit:'Alpha',Numpad:'Keypad'}[m[1]];
+ return prefix+m[2];
 }
 // Source `oneInput.GetName`: the first key that is not None.
 export function actionName(keys){for(const k of keys)if(k!==null)return keyName(k);return 'None';}

@@ -58,7 +58,7 @@ pub struct ItemState {
     pub hit_sound: Option<HitSound>,
     pub removed: bool,
     pub pending_attachment: bool,
-    /// Source tosaveitemscript.buried: kinematic, no pickup, lifted by digging.
+    /// Source tosaveitemscript.buried. The body is kinematic, has no pickup, and digging lifts it.
     pub buried: bool,
 }
 
@@ -746,7 +746,7 @@ impl ItemStore {
     pub fn body_id(&self, id: ItemId) -> Option<BodyId> {
         self.indices.get(&id).map(|index| self.body_ids[*index])
     }
-    /// Source stock is applied once; later publications cannot refill the container.
+    /// Source stock applies once. Later publications cannot refill the container.
     pub fn initialize_generated_supply(
         &mut self,
         id: ItemId,
@@ -919,23 +919,6 @@ impl ItemStore {
         self.states.iter_mut()
     }
 
-    #[cfg(test)]
-    pub fn from_states(states: Vec<ItemState>) -> Self {
-        Self {
-            dirty: HashSet::new(),
-            indices: states.iter().enumerate().map(|(i, s)| (s.id, i)).collect(),
-            states,
-            body_ids: Vec::new(),
-            names: Vec::new(),
-            slot_owners: HashMap::new(),
-            generated: BevyHashMap::new(),
-            membership_revision: 0,
-            initialized_supplies: HashSet::new(),
-            next_generated: 0,
-            origin: WorldOrigin::default(),
-        }
-    }
-
     pub fn get(&self, id: ItemId) -> Option<&ItemState> {
         self.indices.get(&id).map(|index| &self.states[*index])
     }
@@ -1011,11 +994,9 @@ impl ItemStore {
 
     pub fn bind_body(&mut self, id: BodyId, handle: RigidBodyHandle) {
         for (state, body) in self.states.iter_mut().zip(&self.body_ids) {
-            if *body == id {
-                if state.body != Some(handle) {
-                    state.body = Some(handle);
-                    self.membership_revision += 1;
-                }
+            if *body == id && state.body != Some(handle) {
+                state.body = Some(handle);
+                self.membership_revision += 1;
             }
         }
     }

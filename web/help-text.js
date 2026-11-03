@@ -18,7 +18,9 @@ export const SETS={
 // The source reads `isMotorcycle` before `isBike`.
 export function helpLines(help,assists){
  const sets=help&HELP.MOTORCYCLE?SETS.motorcycle:help&HELP.BIKE?SETS.bike:SETS.car;
- return sets[help&HELP.FORCE_AUTO?2:assists&1?(assists&2?2:1):0];
+ if(help&HELP.FORCE_AUTO)return sets[2];
+ if(!(assists&1))return sets[0];
+ return sets[assists&2?2:1];
 }
 // Fills the template tokens. `names` are the bound key names by action (`boundNames`), `inputs` the settings store keys.
 export function fillHelp(template,word,names,mouseLook){

@@ -187,7 +187,7 @@ fn fragment(in:ImpostorOutput)->ImpostorFragment {
     let uv2=in.frame2.zw+(.5-depths.z)*in.frame2.xy;
     let albedo_sample=atlas_blend(1u,uv0,uv1,uv2,weights);
     if albedo_sample.a<impostor.surface.y {discard;}
-    // Source reads the Z row, not the length of the third column.
+    // The source reads the Z row, not the length of the third column.
     let z_scale=length(vec3(model[0].z,model[1].z,model[2].z));
     let displacement=(dot(depths,weights)-.5)*impostor.shape.w*z_scale;
     var position=in.view_position;

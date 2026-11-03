@@ -22,7 +22,7 @@ pub const MATERIAL_TEXTURE_BANKS: usize = 7;
 pub struct RenderingRecord {
     pub materials: Vec<MaterialRecord>,
 }
-/// JSON form: each unique texture storage once, materials name it by index.
+/// In the JSON form, each unique texture storage appears once, and materials name it by index.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RenderingWire {
@@ -340,9 +340,6 @@ pub struct TextureMip {
     pub height: u32,
 }
 
-fn source(id: &SourceId) -> bool {
-    !id.file.is_empty() && id.path_id != 0
-}
 pub(super) fn safe_path(path: &str) -> bool {
     path.starts_with("reference/")
         && !path.contains(['\\', ':', '?', '#', '\0'])
@@ -385,10 +382,10 @@ impl RenderingRecord {
                 bindings.insert((material.asset, material.gltf_material)),
                 &format!("{label}: duplicate binding"),
             )?;
-            require(source(&material.source) && finite(&material.color), &label)?;
+            require(material.source.is_set() && finite(&material.color), &label)?;
             if let Some(condition) = &material.condition {
                 require(
-                    source(&condition.source)
+                    condition.source.is_set()
                         && condition.state <= 4
                         && condition.quality.is_finite()
                         && (condition.quality - (1. - f32::from(condition.state) / 4.)).abs()
@@ -718,7 +715,7 @@ impl RenderingRecord {
                 require(
                     (texture.source_encoding != TextureEncoding::Rag
                         || material.shader_family == ShaderFamily::PlayerModel)
-                        && source(&texture.source)
+                        && texture.source.is_set()
                         && safe_path(texture.file())
                         && texture.uv_channel <= 1
                         && finite(&texture.scale)
@@ -860,7 +857,7 @@ pub struct LightingTextureChunk {
     pub width: u32,
     pub rows: u32,
 }
-/// Row chunk payload. BC rows keep the source blocks; a chunk starts on a block row.
+/// Row chunk payload. BC rows keep the source blocks. A chunk starts on a block row.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChunkFormat {

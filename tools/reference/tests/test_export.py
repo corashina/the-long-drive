@@ -1,12 +1,10 @@
 import math
-import struct
 import tempfile
 import unittest
 from pathlib import Path
 
 from tools.reference.export import validate_build
 from tools.reference.gltf import convert_point, convert_rotation, convert_triangles, transform_point
-from tools.reference.source import normalize_arrays
 from tools.reference.collision import bake_points
 
 class ReferenceExportTests(unittest.TestCase):

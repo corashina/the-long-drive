@@ -2,8 +2,8 @@
 @font-face {font-family:"Overpass";src:url("./fonts/Overpass-latin.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap;ascent-override:88%;descent-override:30%;line-gap-override:0%;unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
 @font-face {font-family:"Overpass";src:url("./fonts/Overpass-latin-ext.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap;ascent-override:88%;descent-override:30%;line-gap-override:0%;unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
 @font-face {font-family:"Overpass";src:url("./fonts/Overpass-cyrillic.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap;ascent-override:88%;descent-override:30%;line-gap-override:0%;unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;}
-/* Menu look: a desert highway. Warm asphalt panels, sun-bleached text, road paint yellow for the one accent.
-   Overpass descends from the Highway Gothic road sign letters. The dashed lane line marks each menu window. */
+/* The menu looks like a desert highway. Panels are warm asphalt, text is sun-bleached, and road paint yellow is the one accent.
+   The Overpass font comes from the Highway Gothic road sign letters. A dashed lane line marks each menu window. */
 :root {--asphalt:#272420;--asphalt-glass:#272420d9;--shoulder:#34302b;--seam:#4a443c;--seam-soft:#34302b;--dust:#a39783;--bleach:#efe6d2;--paint:#f2b230;--paint-hi:#ffc54f;--ink:#211a0d;
  --menu-font:"Overpass","Liberation Sans",Arial,sans-serif;--lane:repeating-linear-gradient(90deg,var(--paint) 0 34px,transparent 34px 58px);}
 :root {color-scheme:dark;font-family:Arial,sans-serif;color:var(--bleach);background:#000;}
@@ -31,13 +31,11 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #performance-values {margin:0;font:inherit;white-space:pre-wrap;}
 #performance p {margin:8px 0 0;color:#bbb;font:11px/1.4 Arial,sans-serif;}
 /* Pause menu: one column of buttons over the dimmed world. */
-.pause-menu {position:absolute;z-index:2;left:clamp(16px,6vw,96px);top:50%;display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:auto;transform:translateY(-50%);}
+.pause-menu {position:absolute;z-index:2;inset:0;display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100% - 32px));height:fit-content;max-height:calc(100dvh - 32px);margin:auto;overflow:auto;}
 .pause-menu button {position:static;height:46px;padding:0 18px;border-left-width:3px;border:1px solid var(--seam);border-radius:4px;background:var(--asphalt-glass);color:var(--bleach);font-size:18px;text-align:left;text-shadow:none;transition:background-color .15s,border-color .15s;}
 .pause-menu button:hover:enabled {border-color:var(--paint);background:var(--shoulder);filter:none;}
 .pause-menu #resume {border-color:var(--paint);background:var(--paint);color:var(--ink);font-weight:700;}
 .pause-menu #resume:hover:enabled {background:var(--paint-hi);}
-.pause-menu #pause-new-game {margin-top:8px;}
-.pause-menu #settings {margin-top:8px;}
 /* Start menu: the garage car turns on its stage (canvas) in the middle. The buttons sit centered under it. */
 #menu.showroom :is(#menu-art,#menu-frame) {display:none;}
 #menu.showroom::before {content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 70% 65% at 50% 42%,transparent 55%,#0009 100%),linear-gradient(transparent 62%,#000a);}

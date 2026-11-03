@@ -32,7 +32,7 @@ impl GarageRuntime {
             self.screens_sent = Some(self.screens_scratch.clone());
         }
     }
-    /// inputscript while usingComputer: the game reads no other input, and LMB ends typing.
+    /// inputscript while usingComputer. The game reads no other input, and LMB ends typing.
     pub(super) fn step_typing(&mut self, input: &mut FrameInput) {
         let blocked = self.needs_output().dead || self.sleeping();
         let computers = &mut self.stream.computers;

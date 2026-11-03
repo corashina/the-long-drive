@@ -120,7 +120,7 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
   get role(){return net.role;},
   // The game input pauses while the chat line is open.
   typing:()=>!line.hidden,
-  // Once per frame. `playing`: the game has the input (source `noInput()` is false).
+  // Runs once per frame. `playing`: the game has the input (source `noInput()` is false).
   frame(playing){
    if(net.role===ROLE.OFF)return;
    const blocked=!playing||!line.hidden;

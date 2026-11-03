@@ -2,6 +2,7 @@ pub mod binoculars;
 pub mod buried;
 pub mod carry;
 pub mod cigarettes;
+pub mod claims;
 pub mod cleaning;
 pub mod computer;
 pub mod consumption;
@@ -120,9 +121,9 @@ pub enum Knob {
     Dial,
     Volume,
     Tuning,
-    /// usablescript turned with use: radio BChangeAMFM, metal detector onOffButton.
+    /// A usablescript that turns with use, such as radio BChangeAMFM or metal detector onOffButton.
     Switch,
-    /// musicboxscript use: rotateAble, turned with the mouse.
+    /// A musicboxscript use. The mouse turns its rotateAble.
     Crank,
 }
 
@@ -712,12 +713,6 @@ impl InteractionState {
     pub fn held(&self) -> Option<ItemId> {
         self.carry.held()
     }
-    /// fpscontroller `noLMBUse` of a carried or equipped tool.
-    pub fn reserves_lmb(&self) -> bool {
-        let (equipped, carried) = (self.equipment.item(), self.held());
-        self.cleaning.reserves_lmb(equipped, carried)
-            || self.binoculars.reserves_lmb(equipped, carried)
-    }
     pub fn can_equip_carried(
         &self,
         player: &PlayerState,
@@ -829,12 +824,6 @@ impl InteractionState {
     }
     pub fn remove_ufo_control(&mut self, collider: ColliderHandle) {
         self.ufo_controls.remove(&collider);
-    }
-    pub fn ufo_control(
-        &self,
-        collider: ColliderHandle,
-    ) -> Option<crate::ground_ufo::UfoControlTarget> {
-        self.ufo_controls.get(&collider).copied()
     }
     pub fn item_seats(
         &self,
@@ -1230,7 +1219,7 @@ impl InteractionState {
         Ok(())
     }
 
-    /// Register a hose end opening. The segment owns the pose; it has no fluid.
+    /// Register a hose end opening. The segment owns the pose. It has no fluid.
     fn register_hose_end(
         &mut self,
         segment: ItemId,
@@ -1368,6 +1357,7 @@ impl InteractionState {
                 }
                 _ => None,
             },
+            // Source `GetCapString` reads `ls.l.g(nameText)`, not the serialized `nameString`.
             presentation: generated_presentation(
                 number(cap_record, "hasName")? != 0.0,
                 number(cap_record, "nameText")?,
@@ -1516,12 +1506,6 @@ impl InteractionState {
     pub fn opening_valves(&self) -> impl Iterator<Item = (OpeningId, f32)> + '_ {
         self.openings.iter().map(|o| (o.reference.id, o.valve))
     }
-    pub fn opening_valve(&self, id: OpeningId) -> f32 {
-        self.openings
-            .iter()
-            .find(|opening| opening.reference.id == id)
-            .map_or(0.0, |opening| opening.valve)
-    }
     pub fn tuning_opening(&self) -> Option<OpeningId> {
         self.tuning_opening
     }
@@ -1635,7 +1619,7 @@ impl InteractionState {
         fluid_scale: f32,
     ) -> InteractionOutcome {
         self.finish_cancelled_input(player, physics);
-        // The carry owns the wheel of a carried item: `route_frame_input` moves it to `carry`.
+        // The carry owns the wheel of a carried item. `route_frame_input` moves it to `carry`.
         let wheel =
             if input.wheel == 0. && input.carry.owner.is_some_and(|o| Some(o) == self.held()) {
                 input.carry.wheel
@@ -1650,14 +1634,12 @@ impl InteractionState {
             dt,
         );
         if binoculars.is_some() {
-            // fpscontroller: BcanTune. The wheel focuses and does not move the carried item.
+            // fpscontroller BcanTune. The wheel focuses and does not move the carried item.
             input.wheel = 0.;
             input.carry.wheel = 0.;
         }
-        if self.reserves_lmb() {
-            input.held &= !keys::PRIMARY;
-            input.pressed &= !keys::PRIMARY;
-            input.released &= !keys::PRIMARY;
+        if self.lmb_owner().is_some() {
+            input.drop_keys(keys::PRIMARY);
         }
         if !dt.is_finite() || dt <= 0.0 {
             return InteractionOutcome {
@@ -1942,7 +1924,7 @@ impl InteractionState {
                             action = Some(InteractionAction::Ufo(control, 0.));
                         }
                     } else {
-                        // Source: `tunedFloat` is the scroll, or `LOOKY` while use is held.
+                        // In the source, `tunedFloat` is the scroll, or `LOOKY` while use is held.
                         let value = if use_input.wheel.is_finite() && use_input.wheel != 0. {
                             use_input.wheel * self.scroll_sensitivity
                         } else {
@@ -2021,7 +2003,7 @@ impl InteractionState {
                         mechanism_input.pressed &= !keys::PRIMARY;
                     }
                     let camera = player.view(physics).camera_pose;
-                    // Source: a new use moves the hand. A held usable only refreshes it.
+                    // In the source, a new use moves the hand. A held usable only refreshes it.
                     if use_input.pressed & (keys::USE | keys::PRIMARY) != 0
                         || use_input.wheel != 0.0
                     {
@@ -2039,7 +2021,7 @@ impl InteractionState {
                     }
                     self.mechanisms
                         .step(target.item, mechanism_input, camera, dt);
-                    // A usable can slide and be a switch knob (bus door button): both react.
+                    // A usable can slide and be a switch knob (bus door button). Both react.
                     if !matches!(action, Some(InteractionAction::DialTune(..))) {
                         action = Some(InteractionAction::Mechanism(target.item));
                     }
@@ -2073,7 +2055,7 @@ impl InteractionState {
         }
         let push_target = aim.push_target.filter(|target| valid(*target));
         let pushing = if player.seated() {
-            // Source: the seat push runs without any use, pickup or fill target.
+            // In the source, the seat push runs without any use, pickup or fill target.
             if action.is_none()
                 && self.held().is_none()
                 && aim.use_target.is_none()
@@ -2149,41 +2131,38 @@ impl InteractionState {
         if input.held & keys::PRIMARY != 0
             && available.actions.0 & ActionMask::FILL != 0
             && let Some(target) = filling_target
-        {
-            if let Some(opening) = self
+            && let Some(opening) = self
                 .openings
                 .iter()
                 .find(|opening| opening.reference.cap == target.item)
-                && let Some((source_id, destination)) = self.fill_pair(opening, items)
+            && let Some((source_id, destination)) = self.fill_pair(opening, items)
+        {
+            let flow = opening.reference.flow_liters_per_second * opening.valve;
+            let destination_opening = opening.reference.id;
+            let destination_rules = self.tank_rules.get(&destination);
+            if let Some((source, destination_state)) = items.get_pair_mut(source_id, destination)
+                && let (Some(source), Some(destination_state)) =
+                    (source.fluid.as_mut(), destination_state.fluid.as_mut())
             {
-                let flow = opening.reference.flow_liters_per_second * opening.valve;
-                let destination_opening = opening.reference.id;
-                let destination_rules = self.tank_rules.get(&destination);
-                if let Some((source, destination_state)) =
-                    items.get_pair_mut(source_id, destination)
-                    && let (Some(source), Some(destination_state)) =
-                        (source.fluid.as_mut(), destination_state.fluid.as_mut())
+                let mut amount = flow * dt;
+                let source_total = source.total();
+                let destination_total = destination_state.total();
+                if destination_rules.is_some_and(|rules| rules.slow_oil)
+                    && source_total > 0.0
+                    && source.mixture().amount(1) / source_total > 0.25
+                    && destination_total > 0.05
+                    && destination_state.mixture().amount(1) / destination_total < 1.0
                 {
-                    let mut amount = flow * dt;
-                    let source_total = source.total();
-                    let destination_total = destination_state.total();
-                    if destination_rules.is_some_and(|rules| rules.slow_oil)
-                        && source_total > 0.0
-                        && source.mixture().amount(1) / source_total > 0.25
-                        && destination_total > 0.05
-                        && destination_state.mixture().amount(1) / destination_total < 1.0
-                    {
-                        amount = slow_oil_amount(amount, destination_total, self.slow_oil_modifier);
-                    }
-                    let liters = transfer(source, destination_state, amount * fluid_scale);
-                    if liters > 0.0 {
-                        filled_destination = Some(destination_opening);
-                        action = Some(InteractionAction::Fill {
-                            source: source_id,
-                            destination,
-                            liters,
-                        });
-                    }
+                    amount = slow_oil_amount(amount, destination_total, self.slow_oil_modifier);
+                }
+                let liters = transfer(source, destination_state, amount * fluid_scale);
+                if liters > 0.0 {
+                    filled_destination = Some(destination_opening);
+                    action = Some(InteractionAction::Fill {
+                        source: source_id,
+                        destination,
+                        liters,
+                    });
                 }
             }
         }
@@ -2348,7 +2327,6 @@ fn inverse_lerp(start: f32, end: f32, value: f32) -> f32 {
     }
 }
 
-/// Source `GetCapString` reads `ls.l.g(nameText)`, not the serialized `nameString`.
 /// Pose of the opening's pose owner and the state of its fluid owner.
 /// An inactive pose owner does not pour.
 fn pour_source<'a>(

@@ -15,7 +15,7 @@ pub const CAR_KIND: u32 = 0x100;
 pub const CAR_ROUTE: u32 = 0x6000_0000;
 /// Car instances start here. Engine part instances are their item ids.
 const CAR_INSTANCE: u32 = 0x80_0000;
-/// Signal capacity: the loops of many cars in range.
+/// Signal capacity for the loops of many cars in range.
 const CAPACITY: usize = 256;
 /// Sound stimulus keys of cars. Engine parts use their item ids.
 const CAR_STIMULUS: u64 = 1 << 32;
@@ -68,7 +68,7 @@ pub struct EngineSoundInput<'a> {
     pub kick_start: bool,
     /// Engine part pose relative to the physics origin.
     pub pose: Pose,
-    /// Mixer of the car that holds the engine. None: the template mixer.
+    /// Mixer of the car that holds the engine. None uses the template mixer.
     pub mixer: Option<u32>,
 }
 
@@ -79,7 +79,7 @@ pub struct CarSoundInput<'a> {
     pub pose: Pose,
     /// A sleeping chassis is quiet.
     pub active: bool,
-    /// The player holds the horn key: source `ihorn`.
+    /// The player holds the horn key. Source `ihorn`.
     pub horn: bool,
     /// Source `HornHit` gain. It replaces the held-key gain while the hit lasts.
     pub horn_hit: Option<f32>,

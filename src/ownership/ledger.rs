@@ -7,7 +7,7 @@ use crate::world::{
     WorldRequest,
 };
 
-/// Renderer side of the budget. Admission checks spend credit; charges always apply.
+/// Renderer side of the budget. Admission checks spend credit. Charges always apply.
 #[derive(Debug, Default)]
 pub struct PresentationLedger {
     credit: PresentationAllocation,

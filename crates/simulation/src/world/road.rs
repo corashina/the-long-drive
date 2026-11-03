@@ -115,7 +115,7 @@ pub struct RoadSegment {
     pub bounds: WorldBounds,
 }
 impl RoadSegment {
-    /// Absolute runtime origin; apply the source Z reflection once.
+    /// Absolute runtime origin. Apply the source Z reflection once.
     pub fn position(&self) -> [f64; 3] {
         runtime_point(std::array::from_fn(|a| {
             self.source_origin[a] + self.source_position[a]
@@ -382,7 +382,7 @@ impl RoadIndex {
                 block.bounds.max[a] = block.bounds.max[a].max(segment.bounds.max[a]);
             }
             let next = self.sequence.state.next_segment;
-            if next % ROAD_CHECKPOINT_INTERVAL == 0 || next == ROAD_SEGMENTS {
+            if next.is_multiple_of(ROAD_CHECKPOINT_INTERVAL) || next == ROAD_SEGMENTS {
                 self.checkpoints.push(self.sequence.checkpoint());
             }
         }
@@ -728,7 +728,7 @@ impl RoadIndex {
         let end = s.state.next_segment;
         let checkpoint_count = 1
             + (end / ROAD_CHECKPOINT_INTERVAL) as usize
-            + usize::from(end == ROAD_SEGMENTS && end % ROAD_CHECKPOINT_INTERVAL != 0);
+            + usize::from(end == ROAD_SEGMENTS && !end.is_multiple_of(ROAD_CHECKPOINT_INTERVAL));
         if !valid_state(s.state)
             || s.blocks.len() != end.div_ceil(ROAD_CHECKPOINT_INTERVAL) as usize
             || s.checkpoints.len() != checkpoint_count

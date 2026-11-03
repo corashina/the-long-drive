@@ -111,7 +111,7 @@ impl WorldStream {
             let asleep = item
                 .body
                 .and_then(|h| physics.rapier().bodies.get(h))
-                .is_none_or(|body| body.is_sleeping());
+                .is_none_or(rapier3d::dynamics::RigidBody::is_sleeping);
             if asleep && b.settled {
                 continue;
             }

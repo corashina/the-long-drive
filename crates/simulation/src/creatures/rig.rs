@@ -23,7 +23,7 @@ pub struct Rig {
     actions: [f32; 2],
 }
 
-/// Sampled frames. `local` is parent-local; `model` is under the prefab root.
+/// Sampled frames. `local` is parent-local. `model` is under the prefab root.
 pub struct RigPose {
     pub local: Vec<Frame>,
     pub model: Vec<Frame>,
@@ -64,7 +64,7 @@ impl Rig {
         })
     }
 
-    /// The asset nodes under `root` without clips: rest and ragdoll poses only.
+    /// The asset nodes under `root` without clips. They give only rest and ragdoll poses.
     pub fn rest(nodes: &[NodeRecord], root: NodeId) -> Result<Self, ReferenceError> {
         let asset = nodes
             .iter()
@@ -217,7 +217,7 @@ impl Rig {
                         f.rotation
                     };
                     out.position += f.position * w;
-                    out.rotation = out.rotation + r * w;
+                    out.rotation += r * w;
                     out.scale += f.scale * w;
                 }
             }
@@ -313,7 +313,7 @@ impl Rig {
     }
 }
 
-/// Unity 1D blend weights: the two thresholds around `value` share the weight.
+/// Unity 1D blend weights. The two thresholds around `value` share the weight.
 fn weights(thresholds: &[f32], value: f32, out: &mut [f32]) {
     out.fill(0.);
     let last = thresholds.len() - 1;

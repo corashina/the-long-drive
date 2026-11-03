@@ -1,10 +1,6 @@
 //! Source spricniscript trigger and ammoscript count.
 use crate::reference::{AcquisitionAmmo, SprayBottleReference};
-
-/// Mathf.Lerp clamps its factor.
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
-}
+use crate::simulation::dials::lerp;
 
 /// spricniscript currentAngle, lastAngle, triggered, and pressing.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -22,7 +18,7 @@ pub struct TriggerEvents {
     pub reset: bool,
 }
 impl SprayTrigger {
-    /// Pressing: the trigger eases toward its maximum angle.
+    /// Pressing. The trigger eases toward its maximum angle.
     pub fn press(&mut self, r: &SprayBottleReference, dt: f32) {
         self.pressing = true;
         self.angle = lerp(self.angle, r.trigger_max_angle, r.angle_speed * dt);
@@ -79,7 +75,7 @@ impl Ammo {
             && (self.float || count.fract() == 0.))
             .then_some(Self { count, ..self })
     }
-    /// Decrease: the int count drops by the truncated value.
+    /// Decrease. The int count drops by the truncated value.
     pub fn decrease(&mut self, value: f32) -> f32 {
         let value = value.clamp(0., self.count.max(0.));
         self.count -= if self.float { value } else { value.trunc() };
@@ -89,7 +85,7 @@ impl Ammo {
     pub fn can_reload(&self, from: &Ammo) -> bool {
         self.kind == from.kind && self.count < self.maximum && from.count > 0.
     }
-    /// Reload: take up to `value` from a source of the same type.
+    /// Reload. Takes up to `value` from a source of the same type.
     pub fn reload(&mut self, from: &mut Ammo, value: f32) {
         if from.kind != self.kind || from.count <= 0. || self.count >= self.maximum {
             return;

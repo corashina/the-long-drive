@@ -12,6 +12,11 @@ def key(reader):
     return reader.assets_file.source_container_path, reader.path_id
 
 
+def id_key(identity):
+    """The `key` of a `source_id` record."""
+    return identity['file'], identity['path_id']
+
+
 def discover_source(directory: Path):
     """Find serialized files by their header, including both Unity built-ins."""
     from UnityPy.enums import FileType

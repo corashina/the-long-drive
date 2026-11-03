@@ -1,10 +1,11 @@
 //! Car crash rule: source `carscript.DamageStuff`, `HornHit` and `partscript.WouldFallOff`.
 use crate::interaction::wheels::WheelSlotId;
 use crate::reference::{CarCrashReference, ColliderId, CrashReference, ItemId};
+use crate::simulation::dials::{inverse_lerp, lerp};
 use crate::world::UnityRandom;
 use rapier3d::prelude::ColliderHandle;
 
-/// A part that can fall off: source `carscript.currentParts` entry.
+/// A part that can fall off. It is a source `carscript.currentParts` entry.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Candidate {
     Part(ItemId),
@@ -41,7 +42,7 @@ impl HornHit {
     pub fn gain(&self) -> f32 {
         lerp(1., 0., inverse_lerp(0., self.time, self.elapsed))
     }
-    /// The hit after `dt`. None when the hit ends.
+    /// Returns the hit after `dt`, or None when the hit ends.
     pub fn advanced(self, dt: f32) -> Option<Self> {
         let elapsed = self.elapsed + dt;
         (elapsed < self.time).then_some(Self { elapsed, ..self })
@@ -75,7 +76,7 @@ impl Blood {
         self.on = false;
         self.shown = Some(false);
     }
-    /// Source `SetActive` on the trigger node: its enabled colliders follow it.
+    /// Source `SetActive` on the trigger node. Its enabled colliders follow it.
     pub fn set_colliders(&self, physics: &mut crate::vehicle::PhysicsWorld, enabled: bool) {
         for &(_, handle) in &self.colliders {
             physics.edit_collider(handle, |c| crate::vehicle::set_collider_enabled(c, enabled));
@@ -107,7 +108,7 @@ pub struct Flags {
 pub struct Outcome {
     /// Source `hornTime` from `HornHit`.
     pub horn: Option<f32>,
-    /// The blood test passed: `GotDirty` and the blood sound.
+    /// The blood test passed. The car gets `GotDirty` and the blood sound.
     pub blood: bool,
     /// Source `player.Death()`.
     pub kill: bool,
@@ -116,7 +117,7 @@ pub struct Outcome {
 }
 
 /// Source `minFalloffSpeed`, `maxFalloffSpeed`.
-pub fn fall_off_range(r: &CrashReference, car_condition: Option<u8>) -> [f32; 2] {
+fn fall_off_range(r: &CrashReference, car_condition: Option<u8>) -> [f32; 2] {
     let scale = car_condition.map_or(1.0, |state| {
         lerp(1.0, 0.2, inverse_lerp(0.0, 4.0, f32::from(state)))
     });
@@ -157,7 +158,7 @@ pub fn damage(
     let v = v * car.multiplier;
     let mut outcome = Outcome::default();
     if flags.driving {
-        // C# `&&`: the chance draw runs only when the speed test passes.
+        // C# `&&` short-circuits. The chance draw runs only when the speed test passes.
         if v * car.horn > random.range(r.horn[0], r.horn[1])
             && random.range(0.0, 1.0) < r.horn_chance
         {
@@ -178,18 +179,4 @@ pub fn damage(
         outcome.fall_off = Some((crash_lerp, count.max(0) as usize));
     }
     outcome
-}
-
-/// Source `Mathf.Lerp`: `t` clamps to 0..1.
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0.0, 1.0)
-}
-
-/// Source `Mathf.InverseLerp`: clamps to 0..1, 0 when `a == b`.
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.0
-    } else {
-        ((value - a) / (b - a)).clamp(0.0, 1.0)
-    }
 }

@@ -8,7 +8,7 @@ async function sha256(bytes,crypto){
  const hash=await crypto.subtle.digest('SHA-256',bytes);
  return Array.from(new Uint8Array(hash),byte=>byte.toString(16).padStart(2,'0')).join('');
 }
-// Mirror TrimSaveName: keep letters, digits, punctuation, separators and symbols; drop control characters.
+// Mirror TrimSaveName: keep letters, digits, punctuation, separators and symbols. Drop control characters.
 export function trimName(text){return String(text).replace(/\p{Cc}|[^\p{L}\p{N}\p{P}\p{Z}\p{S}]/gu,'');}
 export function defaultName(date){
  const two=value=>String(value).padStart(2,'0');

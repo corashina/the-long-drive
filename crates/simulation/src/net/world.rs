@@ -9,13 +9,13 @@ use super::objects::{NetKey, ObjectIndex};
 use crate::audio::{AudioAction, AudioKind, SurvivalAudioEvent};
 use crate::starting_area::GarageRuntime;
 
-/// Source `multiSyncTime` wait.
+/// The wait of source `multiSyncTime` between clock sends.
 pub const TIME_SYNC: f32 = 10.;
 
 #[derive(Default)]
 pub struct WorldSync {
     time_timer: f32,
-    /// A guest joined: the host sends the clock and the stations at once (source `SendStartStuff`).
+    /// A guest joined. The host sends the clock and the stations at once (source `SendStartStuff`).
     joined: bool,
 }
 
@@ -116,7 +116,7 @@ fn play(runtime: &mut GarageRuntime, slot: u8, sound: &SoundMessage) {
         k if k == AudioKind::ItemHit as u32 => AudioKind::ItemHit,
         _ => return,
     };
-    // The clip must be one of this sound's clips: the browser plays only known clips.
+    // The clip must be one of this sound's clips. The browser plays only known clips.
     let known = if kind == AudioKind::ItemHit {
         runtime
             .audio

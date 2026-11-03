@@ -1,5 +1,5 @@
 //! Source wheel ground effects: `talajnezo.FixedUpdate` per wheel.
-//! Settings `BSmoke` and `BGrass` are taken as on.
+//! The port takes settings `BSmoke` and `BGrass` as on.
 use crate::interaction::melee::look_rotation;
 use crate::particles::{ParticleOutput, ParticleState};
 use crate::reference::{EffectGains, SkidReference, WheelEffectsReference, WheelGains};
@@ -20,7 +20,7 @@ pub struct WheelInput {
     pub rpm: f32,
     /// Source `W.radius`.
     pub radius: f32,
-    /// Source `W.transform.forward`, world. Unity does not turn this node with steer.
+    /// Source `W.transform.forward`, in world space. Unity does not turn this node with steer.
     pub forward: Vector,
     /// Source `W.isGrounded`.
     pub grounded: bool,
@@ -158,7 +158,7 @@ impl WheelEffects {
                 e.ground = wheel.grounded;
                 e.road = false;
             }
-            let pose_rotation = input.rotation * quat(r.pose.rotation);
+            let pose_rotation = input.rotation * Rotation::from_array(r.pose.rotation);
             let position = root + input.rotation * Vector::from_array(r.pose.translation);
             let mask = r.ray_mask;
             // Same own-car rule as the wheel ray, plus the source layer mask.
@@ -313,10 +313,6 @@ fn advance_system(
     system.advance(dt, input.root_absolute, strength, physics);
 }
 
-fn quat(r: [f32; 4]) -> Rotation {
-    Rotation::from_xyzw(r[0], r[1], r[2], r[3])
-}
-
 /// Unity `Vector3.Angle` in degrees. A zero vector gives 0.
 fn vector_angle(a: Vector, b: Vector) -> f32 {
     let denominator = (a.length_squared() * b.length_squared()).sqrt();
@@ -331,7 +327,7 @@ pub fn ground_gain(speed: f32, road: bool, gain: f32) -> Option<f32> {
     (speed > 1.).then(|| inverse_lerp(0., 5., speed) * if road { 0.5 } else { 1. } * gain)
 }
 
-/// Source spring voice: new pitch and volume from the change of the hit distance.
+/// Source spring voice. Returns the new pitch and volume from the change of the hit distance.
 pub fn spring(delta: f32, gains: &WheelGains, dt: f32, pitch: f32, volume: f32) -> (f32, f32) {
     let target = (1. + delta * gains.spring_pitch).clamp(0.95, 1.05);
     let springv = delta.abs() * gains.spring * dt;

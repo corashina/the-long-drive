@@ -425,7 +425,7 @@ impl<const N: usize> LoadingPolicy<N> {
         self.mode != Mode::Cadenced
             || self.key != Some(key)
             || self.decision_frame != frame
-            || frame % 4 == 0
+            || frame.is_multiple_of(4)
     }
     fn invalidate(&mut self) {
         self.content = None;

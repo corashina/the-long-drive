@@ -33,7 +33,7 @@ struct HeldState {
 /// so a full filter collides with exactly the layers that collide with this layer.
 const PICKED_UP_LAYER: u32 = 20;
 
-/// Source `pickupable.Pickup` `ChangeLayer2(pickedUpLayer)`: the carried item stops touching the
+/// Source `pickupable.Pickup` `ChangeLayer2(pickedUpLayer)`. The carried item stops touching the
 /// player body. Returns the old groups.
 fn lift_layer(
     body: RigidBodyHandle,
@@ -129,6 +129,28 @@ fn anchor_pose(
                     .clamp_length(reference.carry_min_distance, reference.carry_max_distance),
         rotation_frame * held.rotation,
     )
+}
+
+/// Source `Recenter`: moves the held item back to its rule offset and rotation.
+fn recenter_held(
+    reference: &PlayerReference,
+    rule: &PickupReference,
+    held: &mut HeldState,
+    view: Rotation,
+    rotation_frame: Rotation,
+) {
+    held.offset = if rule.use_recenter_position {
+        Vector::from_array(rule.recenter_position)
+    } else {
+        Vector::from_array(reference.carry_anchor_offset) * rule.recenter_distance
+    };
+    held.rotation = rotation_frame.inverse()
+        * view
+        * if rule.use_recenter_rotation {
+            Rotation::from_array(rule.recenter_rotation)
+        } else {
+            Rotation::IDENTITY
+        };
 }
 
 impl CarryState {
@@ -353,7 +375,7 @@ impl CarryState {
             .copied()
             .unwrap_or_default()
     }
-    /// Generated items: `grips` are relative to the pickupable root.
+    /// For generated items, `grips` are relative to the pickupable root.
     pub(crate) fn register_grips(&mut self, rule: &PickupReference, grips: [Option<Pose>; 2]) {
         insert_grips(&mut self.grips, rule, grips);
     }
@@ -564,18 +586,7 @@ impl CarryState {
             view.rotation
         };
         held.grip = None;
-        held.offset = if rule.use_recenter_position {
-            Vector::from_array(rule.recenter_position)
-        } else {
-            Vector::from_array(self.reference.carry_anchor_offset) * rule.recenter_distance
-        };
-        held.rotation = rotation_frame.inverse()
-            * view.rotation
-            * if rule.use_recenter_rotation {
-                Rotation::from_array(rule.recenter_rotation)
-            } else {
-                Rotation::IDENTITY
-            };
+        recenter_held(&self.reference, rule, held, view.rotation, rotation_frame);
     }
     pub fn step(
         &mut self,
@@ -613,18 +624,7 @@ impl CarryState {
         let rotating = input.held & keys::ROTATE != 0;
         let moving = input.held & keys::TRANSLATE != 0;
         if (input.held | input.pressed) & keys::RECENTER != 0 {
-            held.offset = if rule.use_recenter_position {
-                Vector::from_array(rule.recenter_position)
-            } else {
-                Vector::from_array(self.reference.carry_anchor_offset) * rule.recenter_distance
-            };
-            held.rotation = rotation_frame.inverse()
-                * view.rotation
-                * if rule.use_recenter_rotation {
-                    Rotation::from_array(rule.recenter_rotation)
-                } else {
-                    Rotation::IDENTITY
-                };
+            recenter_held(&self.reference, rule, held, view.rotation, rotation_frame);
         } else {
             if input.wheel.is_finite()
                 && wheel_allowed(input, tuning_available, player.view_owns_look_input())

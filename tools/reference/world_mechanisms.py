@@ -1,5 +1,5 @@
 """Project existing rotation, slide and car switch rules for generated source instances."""
-from .source import key, source_id
+from .source import key
 from .world import _source_root
 from .mechanisms import recover_mechanisms
 

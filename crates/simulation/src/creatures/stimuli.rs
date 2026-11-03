@@ -39,7 +39,7 @@ pub struct Stimulus {
     pub body: Option<RigidBodyHandle>,
 }
 
-/// One `mainscript.Audio` copy: its stimulus lives for the clip length.
+/// One `mainscript.Audio` copy. Its stimulus lives for the clip length.
 #[derive(Clone, Copy, Debug)]
 struct Sound {
     position: [f64; 3],
@@ -80,7 +80,7 @@ impl Stimuli {
         });
     }
     /// Rebuilds the list. `head` is the player head stimulus and its body. `hum` is the
-    /// `humStimul.SetAudioValue` volume. `bound` holds the live bound stimuli: their values
+    /// `humStimul.SetAudioValue` volume. `bound` holds the live bound stimuli. Their values
     /// refresh each `CHECK_INTERVAL`, their positions each step. `bodies` are fixed stimuli.
     #[allow(clippy::too_many_arguments)]
     pub fn rebuild(

@@ -17,7 +17,7 @@ impl GarageRuntime {
         input: FrameInput,
         dt: f32,
         view: VehiclePose,
-    ) -> bool {
+    ) {
         self.bind_guns();
         let interaction = &mut self.area.interaction;
         let is_gun = |id: &ItemId| interaction.guns.runtime(*id).is_some();
@@ -45,6 +45,10 @@ impl GarageRuntime {
             guns.wheel(gun, input.wheel);
         }
         self.reload_guns(reference, input, tap);
+        if let Some(gun) = active {
+            let guns = &mut self.area.interaction.guns;
+            guns.prompt |= guns.open_prompt(gun);
+        }
         let interaction = &mut self.area.interaction;
         let held = hand_gun.and_then(|item| {
             let rule = interaction.carry.rule(item)?;
@@ -80,7 +84,7 @@ impl GarageRuntime {
                 .set_node_light(&parent, node, intensity.is_some(), intensity.unwrap_or(0.));
         }
         for sound in interaction.guns.take_sounds() {
-            // Source `SWeaponShot`: other players hear the shot.
+            // Source `SWeaponShot`. Other players hear the shot.
             if self.shared_sounds.len() < self.shared_sounds.capacity() {
                 self.shared_sounds.push(crate::net::message::SoundMessage {
                     position: sound.position,
@@ -141,7 +145,6 @@ impl GarageRuntime {
         self.settle_rabbits(reference);
         self.settle_humans(reference);
         self.store_decals(dt);
-        held.is_some()
     }
     /// Moves the shot bullet holes into the decal store and ages the store.
     fn store_decals(&mut self, dt: f32) {
@@ -279,13 +282,12 @@ impl GarageRuntime {
         {
             let fits = |a: &AmmoItem| a.ammo.kind == kind && a.ammo.count > 0.;
             let source = ammo(carried).filter(|(_, a)| fits(a)).or_else(|| {
-                // Magazines in the inventory need DropFromInv, which this port does not have.
                 self.area
                     .inventory
                     .slots
                     .into_iter()
                     .filter_map(ammo)
-                    .find(|(_, a)| fits(a) && !a.is_mag)
+                    .find(|(_, a)| fits(a))
             });
             if let Some((s, other)) = source
                 && guns.can_reload(g, &other)
@@ -308,8 +310,8 @@ impl GarageRuntime {
             .or_else(|| self.area.spawned.ammo(id))
     }
     /// `weaponscript.Reload(source, unload)`. A used magazine leaves the player and the world.
-    /// A magazine gun drops its old magazine at `magPos`.
-    pub(crate) fn reload_gun(
+    /// A magazine gun drops its old magazine at `magPos`. A stored magazine leaves the inventory.
+    fn reload_gun(
         &mut self,
         reference: &ReferenceManifest,
         gun: ItemId,
@@ -319,6 +321,10 @@ impl GarageRuntime {
         let Some(mut other) = self.ammo_item(source) else {
             return;
         };
+        // ReloadFromInventory: DropFromInv takes a stored magazine out before it goes in.
+        if other.is_mag && !unload {
+            self.area.drop_from_inventory(source, &mut self.physics);
+        }
         let interaction = &self.area.interaction;
         let held =
             interaction.held() == Some(source) || interaction.equipment.item() == Some(source);
@@ -352,7 +358,7 @@ impl GarageRuntime {
             self.stream.set_ammo_item(id, ammo, &mut self.area.items);
         }
     }
-    /// The magazine went into a gun: `Destroy`.
+    /// Source `Destroy` of a magazine that went into a gun.
     fn consume_magazine(&mut self, source: ItemId) {
         let area = &mut self.area;
         if area.interaction.held() == Some(source) {

@@ -31,7 +31,7 @@ fn tp_k5_s1_a_stored_save_starts_the_session_and_its_restore_finishes() {
     let mut loaded = load(&reference, &saved);
     seconds(&mut loaded, &reference, 1.);
     assert!(loaded.world_supported(), "the loaded world is ready");
-    // After a death: the pause menu Load opens the same stored save.
+    // After a death, the pause menu Load opens the same stored save.
     run.survival
         .damage_instant(&reference.survival, reference.survival.maximum.hp);
     frame(&mut run, &reference);
@@ -40,7 +40,7 @@ fn tp_k5_s1_a_stored_save_starts_the_session_and_its_restore_finishes() {
     assert!(!after.needs_output().dead && after.world_supported());
 }
 
-/// K3. Source `fpscontroller` use ray on a car door handle from outside: the aim takes the door
+/// K3. Source `fpscontroller` use ray on a car door handle from outside. The aim takes the door
 /// mechanism, the HUD shows the door action and E with the mouse opens the door.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -151,7 +151,7 @@ fn tp_k3_e_on_the_outside_door_handle_opens_the_door() {
             ..Default::default()
         },
     );
-    // Source `fpscontroller.UseUsable`: a held E drags the door with the mouse. The closed
+    // Source `fpscontroller.UseUsable`. A held E drags the door with the mouse. The closed
     // door turns one way only, so try both.
     for x in [6., -6.] {
         for _ in 0..30 {
@@ -210,7 +210,7 @@ fn tp_k6_an_open_hood_leaves_the_engine_caps_in_reach() {
             .resolve(&run.physics, view, &run.area.items);
         aim.use_target.map(|t| t.item)
     };
-    // The engine filler caps of the new car: the closed hood covers them from above.
+    // The engine filler caps of the new car. The closed hood covers them from above.
     let caps: Vec<_> = run.area.interaction.valves().map(|(cap, _)| cap).collect();
     let mut filler = None;
     for (handle, collider) in run.physics.rapier().colliders.iter() {
@@ -244,7 +244,7 @@ fn tp_k6_an_open_hood_leaves_the_engine_caps_in_reach() {
     );
 }
 
-/// K7. A seated player changes seat in the same car: the use ray from the driver head takes
+/// K7. A seated player changes seat in the same car. The use ray from the driver head takes
 /// another seat of the car, and the seat change keeps the player in the car.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -320,7 +320,7 @@ fn tp_k8_full_renderer_staging_does_not_stop_a_changing_held_item() {
     assert!(run.world_supported(), "the world stays ready");
 }
 
-/// K9. Source `fpscontroller` `Bbinoculars`: LMB with the binoculars in the hand looks through
+/// K9. Source `fpscontroller` `Bbinoculars`. LMB with the binoculars in the hand looks through
 /// them. The frame input route keeps LMB for the fixed step, and the frame state has the
 /// binocular camera.
 #[test]
@@ -389,6 +389,54 @@ fn tp_k9_lmb_looks_through_the_binoculars_in_the_hand() {
         run.area.interaction.binoculars.active().is_none(),
         "release ends the use"
     );
+}
+
+/// K11. A world car wheel comes off by hand. The use ray from beside a mounted wheel takes its
+/// hubcap or the wheel, not the push of the car body.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k11_the_hand_takes_a_mounted_wheel_or_its_hubcap() {
+    use crate::interaction::items::ItemLocation;
+    use rapier3d::math::{Rotation, Vector};
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    act(
+        &mut run,
+        &reference,
+        r#"{"action":"spawn","name":"Car04Full","forward":8.0}"#,
+    );
+    seconds(&mut run, &reference, 4.);
+    let sensors: Vec<_> = run.wheels.sensor_rims().collect();
+    let mut wheels = 0;
+    for (sensor, rim) in sensors {
+        let rim_state = run.area.items.get(rim).unwrap();
+        if !matches!(rim_state.location, ItemLocation::WheelSlot(_)) {
+            continue;
+        }
+        let chassis = run.physics.rapier().bodies[rim_state.body.unwrap()].position();
+        let at = run.physics.rapier().colliders[sensor]
+            .compute_aabb()
+            .center();
+        // From 1 m beside the wheel, on its side of the car.
+        let side = chassis.rotation * Vector::X;
+        let eye = at + side * (at - chassis.translation).dot(side).signum() + Vector::Y * 0.3;
+        let view = crate::vehicle::VehiclePose {
+            position: eye.to_array(),
+            rotation: Rotation::from_rotation_arc(-Vector::Z, (at - eye).normalize()).to_array(),
+        };
+        let aim = run
+            .area
+            .interaction
+            .resolve(&run.physics, view, &run.area.items);
+        let target = aim.grab_target.map(|t| t.item);
+        assert!(
+            target == Some(rim) || target.is_some_and(|t| run.area.interaction.parts.contains(t)),
+            "the hand takes rim {rim:?} or its hubcap, not {target:?} (push {:?})",
+            aim.push_target.map(|t| t.item)
+        );
+        wheels += 1;
+    }
+    assert!(wheels >= 4, "the car has {wheels} mounted wheels");
 }
 
 /// K10. In a seated world car (the van Car09full), the player looks at a cabin control and uses

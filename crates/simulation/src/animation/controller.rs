@@ -1,6 +1,6 @@
 //! Source Animator state machine for one checked layer: triggers, the `Speed` parameter,
 //! AnyState and state transitions, exit times, fixed-duration crossfades and clip sampling.
-//! Transitions have interruption source None: a crossfade runs to its end.
+//! Transitions have interruption source None, so a crossfade runs to its end.
 use super::clip::{LocalPart, sample_clip};
 use crate::reference::{MeleeMotion, MotionTransition};
 use crate::vehicle::VehiclePose;
@@ -46,7 +46,7 @@ impl MotionController {
             crossfade: None,
         }
     }
-    /// The Animator is off: it restarts in the default state.
+    /// The Animator is off. It restarts in the default state.
     pub fn reset(&mut self, m: &MeleeMotion) {
         *self = Self::new(m);
     }

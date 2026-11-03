@@ -1,6 +1,6 @@
-//! Display settings: one record from the browser settings store (`web/display-settings.js`).
+//! The display settings are one record from the browser settings store (`web/display-settings.js`).
 //! The browser sends the record at start and after each change with `window.gameDisplaySettings()`.
-//! Antialiasing and Grass apply at page load: their consumers read `loaded()`.
+//! Antialiasing and Grass apply at page load. Their consumers read `loaded()`.
 #[cfg(target_arch = "wasm32")]
 use bevy::{ecs as bevy_ecs, prelude::*};
 use simulation::render_scale::SceneScale;
@@ -46,7 +46,7 @@ pub struct DisplaySettings {
     /// Source `BDof`. Off disables the `DOF` volume. Binoculars keep their DoF.
     pub depth_of_field: bool,
     pub mirrors: bool,
-    /// Source `FMirrorDrawDistance`, meters.
+    /// Source `FMirrorDrawDistance`, in meters.
     pub mirror_distance: f32,
     /// Off skips the blur pass. The source has no such setting.
     pub motion_blur: bool,

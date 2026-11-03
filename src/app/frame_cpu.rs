@@ -1,4 +1,4 @@
-//! F3 main thread CPU time of one frame: the main world update and the render app.
+//! The F3 main thread CPU time of one frame. It covers the main world update and the render app.
 //! On WASM both run on the main thread, one after the other.
 //! Render covers extract, prepare, queue, command encode and submit.
 use bevy::prelude::*;

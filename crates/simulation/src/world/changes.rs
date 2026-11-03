@@ -36,21 +36,21 @@ pub struct ObjectSnapshot {
     pub fluids: Option<crate::fluids::FluidSnapshot>,
     pub valve: Option<f32>,
     pub lamp: Option<bool>,
-    /// Source `Lamp.broken` set by flashlightscript.Break. Bit i is `Lamps[i]`. None at spawn.
+    /// Source `Lamp.broken` set by flashlightscript.Break. Bit i is `Lamps[i]`. It is None at spawn.
     pub lamp_broken: Option<u64>,
     /// Tuned compass bearing or clock offset (meterscript szamlap value).
     pub dial: Option<f32>,
-    /// Spray bottle or loose ammo ammoscript count; None at its spawn count.
+    /// Spray bottle or loose ammo ammoscript count. It is None at its spawn count.
     pub ammo: Option<f32>,
-    /// Gun state; None at its spawn state.
+    /// Gun state. It is None at its spawn state.
     pub gun: Option<crate::interaction::guns::GunSnapshot>,
-    /// Genie lamp ginlampscript value; None at its startup value.
+    /// Genie lamp ginlampscript value. It is None at its startup value.
     pub glow: Option<f32>,
     /// save_radioscript controls of a portable radio.
     pub radio: Option<crate::save::RadioSnapshot>,
     /// Metal detector onOffButton turn state.
     pub detector: Option<bool>,
-    /// Loot tool state; None at its spawn state.
+    /// Loot tool state. It is None at its spawn state.
     pub tool: Option<crate::save::ToolStateSnapshot>,
     pub linear_velocity: [f32; 3],
     pub angular_velocity: [f32; 3],
@@ -94,7 +94,7 @@ pub struct ChangeRecords {
     region_bytes: usize,
     /// Car-side state of car objects. A car takes its state back when it spawns.
     #[serde(serialize_with = "pairs")]
-    vehicles: BTreeMap<ObjectKey, crate::starting_area::VehicleState>,
+    vehicles: BTreeMap<ObjectKey, crate::car::VehicleState>,
     /// The rim object of each wheel slot of car objects, in wheel order.
     #[serde(serialize_with = "pairs")]
     wheel_slots: BTreeMap<ObjectKey, Vec<Option<ObjectKey>>>,
@@ -144,7 +144,7 @@ impl<'de> Deserialize<'de> for ChangeRecords {
         #[serde(deny_unknown_fields)]
         struct Envelope {
             records: Vec<(ObjectKey, ObjectChange)>,
-            vehicles: Vec<(ObjectKey, crate::starting_area::VehicleState)>,
+            vehicles: Vec<(ObjectKey, crate::car::VehicleState)>,
             wheel_slots: Vec<(ObjectKey, Vec<Option<ObjectKey>>)>,
             engines: Vec<(ObjectKey, crate::save::EngineSnapshot)>,
             radiators: Vec<(ObjectKey, bool)>,
@@ -222,7 +222,7 @@ impl ChangeRecords {
         }
     }
     pub fn record(&mut self, key: ObjectKey, current: ObjectSnapshot, baseline: &ObjectSnapshot) {
-        // An attachment owner keeps its record: its dependents can unload with it.
+        // An attachment owner keeps its record. Its dependents can unload with it.
         if &current == baseline && !self.has_attachment_dependents(&key) {
             self.forget(&key);
             return;
@@ -300,17 +300,17 @@ impl ChangeRecords {
         placement: &Placement,
         instance: &super::GeneratedId,
     ) {
-        if let Some(index) = self.identities.get(key) {
-            if self.records[*index].1.replay.is_none() {
-                self.records[*index].1.replay = Some(placement.clone());
-                self.records[*index].1.instance = Some(instance.clone());
-                self.payload_bytes += super::contents::placement_heap(
-                    self.records[*index].1.replay.as_ref().unwrap(),
-                ) + super::contents::identity_heap(
-                    self.records[*index].1.instance.as_ref().unwrap(),
-                );
-                self.revision = self.revision.wrapping_add(1);
-            }
+        if let Some(index) = self.identities.get(key)
+            && self.records[*index].1.replay.is_none()
+        {
+            self.records[*index].1.replay = Some(placement.clone());
+            self.records[*index].1.instance = Some(instance.clone());
+            self.payload_bytes +=
+                super::contents::placement_heap(self.records[*index].1.replay.as_ref().unwrap())
+                    + super::contents::identity_heap(
+                        self.records[*index].1.instance.as_ref().unwrap(),
+                    );
+            self.revision = self.revision.wrapping_add(1);
         }
     }
     pub fn remove(&mut self, key: ObjectKey) {
@@ -470,18 +470,16 @@ impl ChangeRecords {
         }
     }
     /// Keeps the car-side state of car `key` until it spawns again.
-    pub fn keep_vehicle(&mut self, key: ObjectKey, state: crate::starting_area::VehicleState) {
+    pub fn keep_vehicle(&mut self, key: ObjectKey, state: crate::car::VehicleState) {
         self.vehicles.insert(key, state);
     }
-    pub fn take_vehicle(&mut self, key: &ObjectKey) -> Option<crate::starting_area::VehicleState> {
+    pub fn take_vehicle(&mut self, key: &ObjectKey) -> Option<crate::car::VehicleState> {
         self.vehicles.remove(key)
     }
-    pub fn vehicle(&self, key: &ObjectKey) -> Option<&crate::starting_area::VehicleState> {
+    pub fn vehicle(&self, key: &ObjectKey) -> Option<&crate::car::VehicleState> {
         self.vehicles.get(key)
     }
-    pub fn vehicles(
-        &self,
-    ) -> impl Iterator<Item = (&ObjectKey, &crate::starting_area::VehicleState)> {
+    pub fn vehicles(&self) -> impl Iterator<Item = (&ObjectKey, &crate::car::VehicleState)> {
         self.vehicles.iter()
     }
     /// Keeps the rim object of each wheel slot of car `key` until it spawns again.
@@ -695,8 +693,8 @@ pub fn locked_attachment(
     })
 }
 
-/// Source `Lock(_ignoreTime: true)`: locks a saved item at once into the bound volume of `owner`.
-/// No drop delay and no two-scan wait. The owner must be in place first.
+/// Source `Lock(_ignoreTime: true)`. Locks a saved item at once into the bound volume of `owner`.
+/// There is no drop delay and no two-scan wait. The owner must be in place first.
 pub fn restore_lock(
     id: crate::reference::ItemId,
     owner: crate::reference::ItemId,
@@ -735,30 +733,30 @@ pub fn restore_motion(
     items: &crate::interaction::items::ItemStore,
     physics: &mut crate::vehicle::PhysicsWorld,
 ) {
-    if let Some(item) = items.get(id) {
-        if let Some(handle) = item.body {
-            physics.try_edit_body(handle, |body| {
-                // Source tosaveitemscript.FInit: a buried item is kinematic.
-                if snapshot.buried {
-                    body.set_body_type(
-                        rapier3d::prelude::RigidBodyType::KinematicPositionBased,
-                        false,
-                    );
-                }
-                body.set_position(
-                    crate::vehicle::to_rapier(item.pose)
-                        * crate::vehicle::to_rapier(item.local_pose).inverse(),
+    if let Some(item) = items.get(id)
+        && let Some(handle) = item.body
+    {
+        physics.try_edit_body(handle, |body| {
+            // Source tosaveitemscript.FInit. A buried item is kinematic.
+            if snapshot.buried {
+                body.set_body_type(
+                    rapier3d::prelude::RigidBodyType::KinematicPositionBased,
                     false,
                 );
-                body.set_linvel(snapshot.linear_velocity.into(), false);
-                body.set_angvel(snapshot.angular_velocity.into(), false);
-                if snapshot.sleeping {
-                    body.sleep();
-                } else {
-                    body.wake_up(true);
-                }
-            });
-        }
+            }
+            body.set_position(
+                crate::vehicle::to_rapier(item.pose)
+                    * crate::vehicle::to_rapier(item.local_pose).inverse(),
+                false,
+            );
+            body.set_linvel(snapshot.linear_velocity.into(), false);
+            body.set_angvel(snapshot.angular_velocity.into(), false);
+            if snapshot.sleeping {
+                body.sleep();
+            } else {
+                body.wake_up(true);
+            }
+        });
     }
 }
 

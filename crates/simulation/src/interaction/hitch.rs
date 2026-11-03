@@ -157,8 +157,8 @@ impl Hitches {
             physics.edit_collider(s.handle, |c| c.set_density(0.));
         }
         physics.set_body_mass(spec.grip_body, mass);
-        // Source attachgripscript: the grip spawns at the grip point. Source grip Rigidbody:
-        // useGravity false.
+        // In source attachgripscript, the grip spawns at the grip point. The source grip
+        // Rigidbody has useGravity false.
         let pose = *physics.rapier().bodies[spec.body].position()
             * Pose::from_translation(spec.grip_position);
         physics.edit_body(spec.grip_body, |b| {
@@ -339,7 +339,7 @@ impl Hitches {
         Some((body, pose, local))
     }
 
-    /// Source `attachablescript.Attach`: the grip snaps to the target, the car pulls the
+    /// Source `attachablescript.Attach`. The grip snaps to the target, the car pulls the
     /// trailer at the grip point, and the trailer uses its hitched center of mass.
     /// The grip must lie in the world, not in the hand.
     pub fn attach(
@@ -402,7 +402,7 @@ impl Hitches {
         Ok(())
     }
 
-    /// Ends the hitch of trailer `index`: the grip leaves the target with the target speed.
+    /// Ends the hitch of trailer `index`. The grip leaves the target with the target speed.
     fn release(&mut self, index: usize, items: &mut ItemStore, physics: &mut PhysicsWorld) {
         let Link::Hitched { target, joint } = self.trailers[index].link else {
             return;

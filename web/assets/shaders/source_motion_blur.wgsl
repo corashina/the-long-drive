@@ -1,4 +1,4 @@
-// Installed MotionBlur shader15 passes0..5, fragment blobs3/5/7/9/11/13.
+// Installed MotionBlur shader15 passes 0 to 5, fragment blobs 3, 5, 7, 9, 11 and 13.
 // Velocity, tiles and reconstruction run at half resolution. `upsample` is not in the source.
 #import source_float_store::{half2, half4, source_max, source_min, source_sat}
 struct Params {

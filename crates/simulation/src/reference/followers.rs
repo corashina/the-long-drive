@@ -14,7 +14,7 @@ pub struct WorldFollowersReference {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum FollowerReference {
-    /// `followspringscript`: `node` moves on the line `from`-`to` by the distance `start`-`target`
+    /// `followspringscript`. `node` moves on the line `from`-`to` by the distance `start`-`target`
     /// over the spawn distance `start`-`end`.
     Spring {
         node: u32,

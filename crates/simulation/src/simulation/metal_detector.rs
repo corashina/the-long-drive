@@ -1,5 +1,5 @@
 //! Source metalDetectorScript: ray scan, smoothed value, beep pitch and volume.
-//! Electronics jam only comes from EMP (F21), so the value is not raised by it.
+//! Electronics jam only comes from EMP (F21), so it does not raise the value.
 use crate::reference::{ColliderTag, TorqueCurve};
 use crate::simulation::dials::{inverse_lerp, lerp};
 // An unweighted Hermite curve with clamped ends.
@@ -51,13 +51,13 @@ impl MetalDetector {
             scan_in: 0.,
         }
     }
-    /// usablescript Turn, then metalDetectorScript.Turn: the values restart at 0.
+    /// usablescript Turn, then metalDetectorScript.Turn. The values restart at 0.
     pub fn turn(&mut self) {
         self.on = !self.on;
         self.value = 0.;
         self.smooth = 0.;
     }
-    /// Update while on. `jam` is the `electronicsscript.jamValue`: a scan reads at least it.
+    /// Update while on. `jam` is the `electronicsscript.jamValue`. A scan reads at least that value.
     /// Returns the beep pitch and volume.
     #[allow(clippy::too_many_arguments)]
     pub fn advance(
@@ -98,9 +98,9 @@ impl MetalDetector {
     }
 }
 
-/// Scan: rays from a disc at the detector to a wider disc ahead of it. The first tagged
-/// hit of a ray adds the range curve value; other hits on the way shorten the ranges.
-/// The source hit order is unsorted; this reads the nearest hits first.
+/// Scans with rays from a disc at the detector to a wider disc ahead of it. The first tagged
+/// hit of a ray adds the range curve value. Other hits on the way shorten the ranges.
+/// The source hit order is unsorted. This scan reads the nearest hits first.
 fn scan(
     rules: &DetectorRules,
     transform: Pose,
@@ -111,7 +111,7 @@ fn scan(
 ) -> f32 {
     let right = transform.rotation * Vector::X;
     let up = transform.rotation * Vector::Y;
-    // Source +Z is converted -Z.
+    // Source +Z converts to -Z.
     let forward = transform.rotation * -Vector::Z;
     let mut filter = QueryFilter::default().exclude_sensors();
     if let Some(body) = body {
@@ -151,7 +151,7 @@ fn scan(
                 total += curve(&rules.range_curve, inverse_lerp(min, max, distance));
                 break;
             }
-            // Triggers are ignored, so no hit is a partslotscript sensor.
+            // The ray query ignores triggers, so no hit is a partslotscript sensor.
             max *= rules.wall_max;
             min *= rules.wall_min;
         }

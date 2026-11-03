@@ -1,4 +1,4 @@
-// Bullet-hole decals: oriented quads of one ShootDecals prefab, alpha blended, sun and ambient light.
+// Bullet-hole decals. They are oriented quads of one ShootDecals prefab, alpha blended, with sun and ambient light.
 #import bevy_pbr::mesh_view_bindings::view
 struct Decals {
     poses:array<vec4<f32>,256>,rotations:array<vec4<f32>,256>,
@@ -15,7 +15,7 @@ fn rotate(q:vec4<f32>,v:vec3<f32>)->vec3<f32> {let t=2.*cross(q.xyz,v);return v+
     let local=(decals.node*vec4(v.position.xy,0.,1.)).xyz*p.w;
     var center=view.view_from_world*vec4(p.xyz+rotate(q,local),1.);
     var o:Varyings;o.position=view.clip_from_view*center;o.uv=v.uv*decals.st.xy+decals.st.zw;
-    // LookRotation(normal) in converted space: the surface normal is local -Z.
+    // LookRotation(normal) in converted space. The surface normal is local -Z.
     let normal=rotate(q,vec3(0.,0.,-1.));
     o.light=select(decals.ambient.rgb+decals.sun_color.rgb*max(dot(normal,decals.sun.xyz),0.),vec3(1.),decals.settings.x==0.);
     let a=view.clip_from_view[2][2];let b=view.clip_from_view[3][2];let near=b/(a+1.);let far=b/a;

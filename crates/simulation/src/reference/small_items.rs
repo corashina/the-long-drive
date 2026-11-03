@@ -81,7 +81,7 @@ pub struct SprayBottleReference {
     pub prototype: SourceId,
     pub source: SourceId,
     pub ammo: AcquisitionAmmo,
-    /// ammoscript.canPour: refill repeats every `pour_time` while R is held.
+    /// ammoscript.canPour. Refill repeats every `pour_time` while R is held.
     pub can_pour: bool,
     pub pour_time: f32,
     pub cleaning_type: u8,
@@ -190,7 +190,7 @@ impl SmallItemsReference {
                 .get(source)
                 .is_some_and(|r| r.class_name == name && r.fields.len() > 1)
         };
-        // Each script lies on a selected catalog prototype; its nodes are prototype nodes.
+        // Each script lies on a selected catalog prototype. Its nodes are prototype nodes.
         let prototype = |item: u32, name: &str, source: &SourceId| {
             let entry = m.world.catalog.items.get(item as usize);
             let owner = entry

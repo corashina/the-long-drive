@@ -1,4 +1,4 @@
-//! Human monsters: buildings place them, `itemPlaceRemoveScript` unloads and places them, and
+//! Human monsters. Buildings place them, `itemPlaceRemoveScript` unloads and places them, and
 //! `Die` turns the body into ragdoll bone items.
 use super::GarageRuntime;
 use super::rabbits::{allocate, register};
@@ -115,7 +115,7 @@ impl GarageRuntime {
         )
     }
 
-    /// Source `itemPlaceRemoveScript` for humans: far ones unload, and saved or far ones near an
+    /// Source `itemPlaceRemoveScript` for humans. Far ones unload, and saved or far ones near an
     /// important object come back where the world is loaded.
     pub(super) fn place_remove_humans(
         &mut self,
@@ -153,7 +153,7 @@ impl GarageRuntime {
         }
     }
 
-    /// `save_newai.SetTosave`: a saved dead human calls `Die` with its saved bone poses.
+    /// `save_newai.SetTosave`. A saved dead human calls `Die` with its saved bone poses.
     fn restore_human(
         &mut self,
         reference: &ReferenceManifest,

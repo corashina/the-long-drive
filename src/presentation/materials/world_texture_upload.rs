@@ -38,7 +38,7 @@ pub(super) struct UploadQueue {
     pub ownership: BatchQueue,
     pub jobs: [Option<Upload>; SLOTS],
     pub next_request: u64,
-    /// Main frames by queue state. Startup audit only. See `COUNTER_NAMES`.
+    /// Main frames by queue state. Only the startup audit reads it. See `COUNTER_NAMES`.
     pub counters: [u64; COUNTER_NAMES.len()],
 }
 pub(super) const COUNTER_NAMES: [&str; 10] = [
@@ -110,15 +110,14 @@ impl UploadQueue {
             .position(|j| j.as_ref().is_some_and(|j| j.identity == identity))
             .unwrap();
         let job = self.jobs[index].take().unwrap();
-        if let Some(handle) = &job.handle {
-            if !self
+        if let Some(handle) = &job.handle
+            && !self
                 .jobs
                 .iter()
                 .flatten()
                 .any(|j| j.handle.as_ref().is_some_and(|h| h.id() == handle.id()))
-            {
-                batches.remove(handle.id());
-            }
+        {
+            batches.remove(handle.id());
         }
         Some(job)
     }
@@ -184,7 +183,7 @@ fn upload(
         shared.ownership.submit(owner.identity);
     }
 }
-/// Writes the rows of one ready batch. False while its image is not on the GPU.
+/// Writes the rows of one ready batch. Returns false while its image is not on the GPU.
 fn upload_job(
     shared: &UploadQueue,
     identity: BatchIdentity,

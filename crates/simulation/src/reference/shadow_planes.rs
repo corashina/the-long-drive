@@ -30,7 +30,7 @@ pub struct CullPlanes {
     pub camera: [Plane; 6],
     pub shadow: [Plane; 6],
 }
-/// Selected implicit-culling path; explicit capture views still force parallel near/far planes.
+/// Selected implicit-culling path. Explicit capture views still force parallel near/far planes.
 /// world_from_view is the source inverse view, before world handedness conversion.
 pub fn implicit_cull_planes(
     source_clip_from_world: [f32; 16],

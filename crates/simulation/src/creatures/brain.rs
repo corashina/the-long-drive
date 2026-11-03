@@ -1,6 +1,7 @@
 //! Source `aiscript.Update` and `ProcessStimul`: stimulus sum, flee, roam and steering.
 use super::senses::{Sensed, angle};
 use crate::reference::BrainReference;
+use crate::simulation::dials::inverse_lerp;
 use crate::weather::StormRandom;
 use rapier3d::math::Vector;
 
@@ -9,18 +10,19 @@ use rapier3d::math::Vector;
 pub struct Steer {
     /// `move.moveDir`, set only when the rabbit moves.
     pub move_dir: Option<Vector>,
-    /// `move.moveRot` in Unity degrees: positive turns right.
+    /// `move.moveRot` in Unity degrees. A positive value turns right.
     pub rot: Option<f32>,
     pub jump: bool,
     pub move_speed: f32,
-    /// `nyul.SeeTarget(angle, distance)`: set when the flight sum is positive and `attack` is on.
+    /// `nyul.SeeTarget(angle, distance)`. It is set when the flight sum is positive and
+    /// `attack` is on.
     pub see_target: Option<(f32, f32)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Brain {
     pub fleeing: bool,
-    /// The last `Update` had a positive flight sum: the rabbit goes to a stimulus.
+    /// The last `Update` had a positive flight sum, so the rabbit goes to a stimulus.
     pub targeting: bool,
     pub interest: Vector,
     pub sens_rot: f32,
@@ -48,18 +50,11 @@ pub struct BrainInput<'a> {
     pub ray_sum: f32,
     pub speed: f32,
     pub has_eyes: bool,
-    /// `JumpRay`, cast only when the other jump rules pass.
+    /// `JumpRay`. The brain casts it only when the other jump rules pass.
     pub jump_ray: &'a dyn Fn() -> bool,
 }
 
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        return 0.;
-    }
-    ((value - a) / (b - a)).clamp(0., 1.)
-}
-
-/// Unity `Vector3.SignedAngle(from, to, up)`: positive when `to` is right of `from`.
+/// Unity `Vector3.SignedAngle(from, to, up)`. It is positive when `to` is right of `from`.
 /// Converted right is `from x up`.
 pub fn signed_angle(from: Vector, to: Vector) -> f32 {
     let a = angle(from, to);
@@ -75,7 +70,7 @@ fn horizontal(v: Vector) -> Vector {
 }
 
 impl Brain {
-    /// Source `Start`: the interest is the spawn position.
+    /// Source `Start`. The interest is the spawn position.
     pub fn new(r: &BrainReference, position: Vector) -> Self {
         Self {
             fleeing: false,

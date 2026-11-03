@@ -8,7 +8,7 @@ use crate::vehicle::{PhysicsWorld, VehiclePose, to_rapier};
 use crate::world::WorldOrigin;
 use glam::{DQuat, DVec3};
 
-/// Source `UpdPos`: the figure starts to move 1 s after it shows.
+/// Source `UpdPos`. The figure starts to move 1 s after it shows.
 const READY_DELAY: f64 = 1.;
 
 #[derive(Clone, Copy, Default)]
@@ -179,14 +179,14 @@ impl Smoothing {
         car: impl FnOnce(u64, u32) -> Option<(DVec3, DQuat)>,
     ) -> Option<Sample> {
         let start = self.start?;
-        // Source waits `readyToMove` here also in a car. The port seats the figure at once,
+        // The source waits `readyToMove` here also in a car. The port seats the figure at once,
         // so a first pose relative to the car does not show at the world origin.
         if now - start <= READY_DELAY && self.car.is_none() {
             return Some(self.shown);
         }
         if self.seated {
             match self.car {
-                // Source: the figure sits at `TransformPoint(lastPos)` of the car. A car that is
+                // In the source, the figure sits at `TransformPoint(lastPos)` of the car. A car that is
                 // not here leaves the figure where it is.
                 Some((key, seat)) => {
                     if let Some((position, rotation)) = car(key, seat) {

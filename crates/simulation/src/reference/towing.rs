@@ -36,7 +36,7 @@ pub struct WorldTrailerReference {
     pub lights: Vec<WorldLightReference>,
 }
 
-/// Source `attachgripscript`: Start spawns `prototype` at `position` and joins it to the trailer.
+/// Source `attachgripscript`. Start spawns `prototype` at `position` and joins it to the trailer.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldGripReference {

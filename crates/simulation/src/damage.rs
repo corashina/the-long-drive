@@ -46,7 +46,7 @@ pub fn body_force(rules: &BreakableReference, speed: f32, mass: f32) -> f32 {
         speed * VELOCITY_TO_MASS * mass * rules.mass_modifier
     }
 }
-/// Source breakablescript.TryBreak(float). True breaks.
+/// Source breakablescript.TryBreak(float). Returns true when the target breaks.
 pub fn try_break(rules: &BreakableReference, health: &mut f32, force: f32) -> bool {
     if force >= *health {
         return true;
@@ -56,7 +56,7 @@ pub fn try_break(rules: &BreakableReference, health: &mut f32, force: f32) -> bo
     }
     false
 }
-/// Source breakablescript.TryBreakShoot. True breaks.
+/// Source breakablescript.TryBreakShoot. Returns true when the target breaks.
 pub fn try_break_shoot(rules: &BreakableReference, state: &mut BreakHealth, force: f32) -> bool {
     if rules.no_shoot {
         return false;
@@ -68,7 +68,7 @@ pub fn try_break_shoot(rules: &BreakableReference, state: &mut BreakHealth, forc
     }
     try_break(rules, &mut state.health, force)
 }
-/// Source breakablescript.TryBreakExplosion. True breaks.
+/// Source breakablescript.TryBreakExplosion. Returns true when the target breaks.
 pub fn try_break_explosion(
     rules: &BreakableReference,
     state: &mut BreakHealth,
@@ -102,9 +102,9 @@ pub struct BreakTarget {
     pub kind: BreakKind,
     pub record: usize,
     pub health: BreakHealth,
-    /// Source breakablescript.destroyed: a target breaks once.
+    /// Source breakablescript.destroyed. A target breaks once.
     pub destroyed: bool,
-    /// Source Break destroyed the lamp trigger: its colliders stay disabled.
+    /// Source Break destroyed the lamp trigger. Its colliders stay disabled.
     pub removed: bool,
 }
 
@@ -140,7 +140,7 @@ impl Breakables {
         if let Some((_, target)) = self.colliders.iter().find(|(c, _)| *c == collider) {
             return Some(*target);
         }
-        // Collider user data low 32 bits hold the item id plus one. Zero is no item.
+        // Collider user data low 32 bits hold the item id plus one. Zero means no item.
         let data = physics.rapier().colliders.get(collider)?.user_data;
         let item = ((data & u32::MAX as u128) as u32)
             .checked_sub(1)
@@ -292,7 +292,7 @@ impl Breakables {
     pub fn take_break(&mut self) -> Option<usize> {
         self.queue.pop_front()
     }
-    /// Source Break: `clips[Random.Range(0, clips.Length)]`. No draw without clips.
+    /// Source Break: `clips[Random.Range(0, clips.Length)]`. It draws nothing without clips.
     pub fn pick_clip<'a>(&mut self, record: &'a BreakableReference) -> Option<&'a SourceId> {
         if record.clips.is_empty() {
             return None;
@@ -304,7 +304,7 @@ impl Breakables {
     pub fn random(&mut self) -> &mut UnityRandom {
         &mut self.random
     }
-    /// Stores the binding scan. False when it did not change.
+    /// Stores the binding scan. Returns false when it did not change.
     pub fn rescan(&mut self, scan: [u64; 5]) -> bool {
         if self.scan == Some(scan) {
             return false;

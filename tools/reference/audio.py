@@ -673,12 +673,12 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
     survival_groups+=[('item_hit',11,main,unique(item_clips),prefab,[1.,1.],[1.,1.]),
         ('car_hit',12,main,unique(r for tier in tiers for r in tier),prefab,[1.,1.],list(audio['shared']['random_pitch'])),
         ('rock_heat',13,rocks[0],readers(rocks[0],source.read(rocks[0])['clipsReggel']),prefab,rock['gain'],rock['pitch'])]
-    # meleeweaponscript plays mainscript.meleeHitSounds; the runtime picks the group and its hitVolume gain.
+    # meleeweaponscript plays mainscript.meleeHitSounds. The runtime picks the group and its hitVolume gain.
     survival_groups.append(('melee_hit',17,main,unique(source.get(c['file'],c['path_id']) for group in manifest['melee']['hit_clips'] for c in group),prefab,[1.,1.],[1.,1.]))
     # breakablescript.Break plays one of its clips through mainscript.PlayClipAtPoint at AudioPriorities[6].
     break_clips=unique(source.get(c['file'],c['path_id']) for b in manifest['breakables'] for c in b['clips'])
     survival_groups.append(('break',22,main,break_clips,prefab,[1.,1.],[1.,1.]))
-    # metalDetectorScript.Source loops one beep; UpdSound sets its pitch and volume each frame.
+    # metalDetectorScript.Source loops one beep. UpdSound sets its pitch and volume each frame.
     detectors=[source.get(r['source']['file'],r['source']['path_id']) for r in manifest['world']['records'] if r['class_name']=='metalDetectorScript']
     beeps=[source.resolve(r,source.read(r)['Source']) for r in detectors]
     if not beeps:raise ValueError('Missing metal detector prefabs')
@@ -739,7 +739,7 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
         if role!='sled' and any(c.type.name=='Rigidbody' for c in source.components(transform)[1]):raise ValueError('Selected audio velocity needs a Rigidbody route')
         pose=world_pose(source,transform)
         player_pose=world_pose(source,source.transform_for(source.resolve(player,pd['m_GameObject'])))
-        offset=[pose['translation'][i]-player_pose['translation'][i] for i in range(3)] if role in ('burp','fart','shit','death','sleep','horror','hum') else [0.,0.,0.]
+        position=[pose['translation'][i]-player_pose['translation'][i] for i in range(3)] if role in ('burp','fart','shit','death','sleep','horror','hum') else [0.,0.,0.]
         settings={'priority':ONE_SHOT_PRIORITY.get(role,PRIORITIES[7]) if one_shot else d['Priority'],'loop':bool(d['Loop']) if role!='death' else False,
             'gain':d['m_Volume'],'pitch':d['m_Pitch'],'min_distance':d['MinDistance'],'max_distance':d['MaxDistance'],
             'rolloff_mode':d['rolloffMode'],'spatial_blend':1. if one_shot else d['panLevelCustomCurve']['m_Curve'][0]['value'],
@@ -749,7 +749,7 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
         cls,name={'eat':('mainscript','PlayClipAtPoint'),'eat_crunchy':('mainscript','PlayClipAtPoint'),'burp':('fpscontroller','Burp'),'fart':('fpscontroller','Fart'),'shit':('fpscontroller','Shit'),'death':('fpscontroller','Death2'),'sleep':('mainscript','Update'),'horror':('mainscript','RandomHorrorSound'),'hum':('fpscontroller','Update'),
             'item_hit':('pickupable','OnCollisionEnter'),'car_hit':('carscript','OnCollisionEnter'),'rock_heat':('soundplayscript','PlaySound'),'footstep':('stepSoundScript','Step'),'storm':('sandstormscript','Update'),'melee_hit':('meleeweaponscript','Update'),'metal_detector':('metalDetectorScript','UpdSound'),'ambience_zone':('ambienceZone','Upd'),'sled':('szankoScript','Update'),'radio_click':('radioscript','TurnRadio'),'break':('breakablescript','Break')}.get(role,('napszakvaltakozas','FixedUpdate'))
         audio['survival'].append({'role':role,'kind':kind,'one_shot':one_shot,'source':source_id(owner),'audio_source':source_id(reader),
-            'clips':[clip(r) for r in clip_readers], 'gain':gain,'pitch':pitch,'offset':offset,
+            'clips':[clip(r) for r in clip_readers], 'gain':gain,'pitch':pitch,'offset':position,
             'settings':settings,'mixer':mixer(route),'doppler':d['DopplerLevel'],'pan':d['Pan2D'],'method':method(cls,name)})
     # musicboxscript.PlayNote adds a default AudioSource for each note.
     boxes=[r['source'] for r in manifest['world']['records'] if r['class_name']=='musicboxscript']

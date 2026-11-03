@@ -19,7 +19,7 @@ pub struct MeleeReference {
     pub particles: [ParticleReference; 5],
     /// mainscript.meleeHitSounds in soundHitType order.
     pub hit_clips: [Vec<SourceId>; 6],
-    /// tosaveitemscript.IsRecentlyUnburied: an unburied item stays recent for this time.
+    /// tosaveitemscript.IsRecentlyUnburied. An unburied item stays recent for this time.
     pub recent_recovery_seconds: f32,
     /// One record per world prototype with a meleeweaponscript, sorted by prototype.
     pub weapons: Vec<MeleeWeaponReference>,

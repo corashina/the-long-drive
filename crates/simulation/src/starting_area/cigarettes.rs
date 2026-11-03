@@ -53,7 +53,7 @@ struct Ash {
 
 impl CigaretteRuntime {
     /// `mainscript.FoodParticle` of one cigarette `Eat` at `particlePos`. `hp` is the value before
-    /// the bite: `UpdParts` runs after the particle.
+    /// the bite, because `UpdParts` runs after the particle.
     fn ash(
         &self,
         item: VehiclePose,
@@ -213,12 +213,6 @@ impl CigaretteRuntime {
     }
 }
 
-fn strip(input: &mut FrameInput, bits: u32) {
-    input.held &= !bits;
-    input.pressed &= !bits;
-    input.released &= !bits;
-}
-
 impl GarageRuntime {
     /// Source `pickedUp`, or the right-hand item when one is held there.
     fn smoke_held(&self) -> Option<ItemId> {
@@ -315,7 +309,7 @@ impl GarageRuntime {
                 smoking = true;
             }
         }
-        // Source `isSmoking` when the hum reads it: only the worn cigarette has run.
+        // Source `isSmoking` when the hum reads it. Only the worn cigarette has run.
         let worn = smoking;
         if let Some(id) = held {
             // Held pack: E takes one.
@@ -326,7 +320,7 @@ impl GarageRuntime {
                 .is_some_and(PackState::can_take)
                 && input.pressed & keys::USE != 0
             {
-                strip(input, keys::USE);
+                input.drop_keys(keys::USE);
                 self.take_one(reference, id);
             }
             // Held cigarette: LMB.
@@ -353,7 +347,7 @@ impl GarageRuntime {
                         self.area.cigarettes.exhale.charge(&exhale, dt);
                     }
                 }
-                strip(input, keys::PRIMARY);
+                input.drop_keys(keys::PRIMARY);
             }
         }
         let blocked = smoking
@@ -440,7 +434,7 @@ impl GarageRuntime {
                 }
             };
             let out = state.ember.output(&rates.ember);
-            // UpdParts: the part lerps from end to start by hp.
+            // In UpdParts, the part lerps from end to start by hp.
             let hp = state.part_blend();
             let part = c.ember_end.translation.lerp(c.ember_start.translation, hp);
             let local = rapier3d::math::Vector::from_array(c.ember_particle.local_pose.translation);
@@ -458,7 +452,7 @@ impl GarageRuntime {
                 &self.physics,
             );
         }
-        // fpscontroller smokeParticle: the emission is off while `mouth_smoke` is None.
+        // fpscontroller smokeParticle. The emission is off while `mouth_smoke` is None.
         if let Some(pose) = self.area.pose.anchor(c.exhale_node) {
             let p = &mut c.exhale_particles;
             p.rotation = rapier3d::math::Rotation::from_array(pose.rotation);

@@ -210,9 +210,8 @@ fn terrain_renderer(
         .iter()
         .find(|r| r.source == reference.world.terrain.prefabs[tier])
         .ok_or_else(|| ReferenceError("Missing terrain transform".into()))?;
-    let owner = match transform.fields.get("m_GameObject") {
-        Some(WorldValue::Link(id)) => id,
-        _ => return Err(ReferenceError("Missing terrain owner".into())),
+    let Some(WorldValue::Link(owner)) = transform.fields.get("m_GameObject") else {
+        return Err(ReferenceError("Missing terrain owner".into()));
     };
     let object = records
         .iter()

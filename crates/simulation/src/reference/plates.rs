@@ -151,9 +151,7 @@ pub struct PlateShaderPassReference {
 }
 impl PlateRecord {
     pub fn validate(&self, manifest: &ReferenceManifest) -> Result<(), ReferenceError> {
-        let valid_source = |s: &SourceId| {
-            s.path_id != 0 && manifest.source_hashes.iter().any(|h| h.file == s.file)
-        };
+        let valid_source = |s: &SourceId| source_valid(s, &manifest.source_hashes);
         let resource = |r: &PlateResourceReference| {
             valid_source(&r.source)
                 && r.path.starts_with("reference/plate-")

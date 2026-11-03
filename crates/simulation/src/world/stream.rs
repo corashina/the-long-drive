@@ -103,7 +103,7 @@ struct PreparedSurface {
     road_claim: Option<(RoadJobId, u64)>,
     pending_bytes: usize,
     renderer_ready: bool,
-    /// The renderer may see the surface. Its render staging and memory are charged.
+    /// The renderer may see the surface. The stream charges its render staging and memory.
     offered: bool,
     renderer_reserved: bool,
     request: WorldRequest,
@@ -111,7 +111,7 @@ struct PreparedSurface {
 }
 struct SelectedRoad {
     segment: RoadSegment,
-    light: Option<super::WorldLight>,
+    light: super::WorldLight,
     /// Pole rope poses toward the next segment pole.
     cable: Vec<super::NodeAppearance>,
 }
@@ -146,7 +146,7 @@ const START_ITEMS: &str = "StartSpawnItems";
 pub struct WorldStream {
     required: super::required::RequiredSelection,
     static_controls: Vec<super::contents::ContentInstance>,
-    // Membership and order only, independent of live control state.
+    // It changes on membership and order only, not on live control state.
     static_control_revision: u64,
     binding_baseline: Option<usize>,
     binding_bytes: usize,
@@ -159,10 +159,10 @@ pub struct WorldStream {
     tools: content_tools::Tools,
     pub computers: content_computers::Computers,
     cobwebs: content_cobwebs::Cobwebs,
-    /// Changed world conditions of this frame and the looks of one condition. Reused buffers.
+    /// Changed world conditions of this frame and the looks of one condition. The stream reuses the buffers.
     condition_changes: Vec<crate::reference::ConditionId>,
     condition_looks: Vec<super::NodeAppearance>,
-    // Membership and order only, independent of button animation.
+    // It changes on membership and order only, not on button animation.
     lamp_binding_revision: u64,
     seed: i32,
     /// Session date as year, month, day. It decides date rules for the whole game.
@@ -329,14 +329,13 @@ impl WorldStream {
                 }
                 if let Some(owner) = owner {
                     changes.set_replay(&object, &owner.origin, &owner.content.placement.id);
-                } else if let Some(supply) = supply {
-                    if let Some(instance) = self
+                } else if let Some(supply) = supply
+                    && let Some(instance) = self
                         .structures
                         .iter()
                         .find(|s| s.placement.id == supply.key)
-                    {
-                        changes.set_replay(&object, &instance.placement, &supply.key);
-                    }
+                {
+                    changes.set_replay(&object, &instance.placement, &supply.key);
                 }
             }
         }
@@ -356,10 +355,9 @@ impl WorldStream {
         {
             if let Some(snapshot) =
                 super::changes::capture(item.id, items, interaction, physics, reference)
+                && let Some(owner) = snapshot.attachment.and_then(|a| a.owner)
             {
-                if let Some(owner) = snapshot.attachment.and_then(|a| a.owner) {
-                    dependencies.push(owner);
-                }
+                dependencies.push(owner);
             }
         }
         while let Some(key) = dependencies.pop() {
@@ -573,7 +571,7 @@ impl WorldStream {
         self.saved_locations_pending = !self.saved_item_protection.is_empty();
     }
     /// A generated copy of these planks and boards is a fixed body. A StartSpawnItems
-    /// copy is a live source Rigidbody: it settles onto what is under it, as in the source.
+    /// copy is a live source Rigidbody. It settles onto what is under it, as in the source.
     fn fixed_decoration(&self, placement: &Placement) -> bool {
         if placement.id.layer == super::WorldLayer::Startup
             || !super::instances::fixed_decoration_source(&placement.prototype)
@@ -858,7 +856,7 @@ impl WorldStream {
             saved_locations_pending: false,
             recipes: HashMap::new(),
             supplies: Vec::new(),
-            // Grows with use. Capacity is charged as retained CPU.
+            // It grows with use. The stream charges its capacity as retained CPU.
             wanted_structures: Default::default(),
             ready_structures: Vec::with_capacity(32),
             light_index: Default::default(),
@@ -902,8 +900,8 @@ impl WorldStream {
             + usize::from(self.road_work.is_some())
             + usize::from(self.contents.has_replay())
     }
-    /// Takes the renderer report before own work: given-back credit returns and use is
-    /// covered. Use above the credit must fit the limits, or the stream fails as before.
+    /// Takes the renderer report before own work. Given-back credit returns and the credit covers
+    /// the use. Use above the credit must fit the limits, or the stream fails as before.
     pub fn take_presentation_report(&mut self, report: PresentationReport) {
         // With no work that can publish, the renderer takes this frame's publication slot.
         // A prepared surface without its renderer receipt cannot publish, and a road can wait
@@ -1376,14 +1374,13 @@ impl WorldStream {
         }
     }
     fn rewind_road(&mut self, key: SurfaceKey) {
-        if key.layer == WorldLayer::Road {
-            if let Some(index) = self
+        if key.layer == WorldLayer::Road
+            && let Some(index) = self
                 .wanted_roads
                 .iter()
                 .position(|i| *i == key.unit[0] as u32)
-            {
-                self.next_geometry = self.next_geometry.min(index);
-            }
+        {
+            self.next_geometry = self.next_geometry.min(index);
         }
     }
     fn discard_unreserved_surface(&mut self) {
@@ -1409,16 +1406,15 @@ impl WorldStream {
         self.generation_revision += 1;
         // Frontier changes outside the selected source window do not invalidate readiness.
         let distance = f64::from(self.distances.road_gen_dist) + self.road_light.influence_margin();
-        if let Some(segment) = self.roads.latest_segment() {
-            if self
+        if let Some(segment) = self.roads.latest_segment()
+            && self
                 .road_focus
                 .into_iter()
                 .any(|point| intersects(segment.bounds, window(point, distance)))
-            {
-                self.planned_road_focus = [[f64::NAN; 3]; 2];
-                self.terrain_context_dirty = true;
-                self.revise_selection();
-            }
+        {
+            self.planned_road_focus = [[f64::NAN; 3]; 2];
+            self.terrain_context_dirty = true;
+            self.revise_selection();
         }
     }
     pub fn initial_generation_ready(&self) -> bool {
@@ -1433,7 +1429,7 @@ impl WorldStream {
         self.publication_available = !self.publication_lent;
         self.last_road_work = 0;
         // Request and source-input changes force structures. Captured item motion only
-        // revises replay selection; it must not restart the one-metre baseline.
+        // revises replay selection. It must not restart the one-metre baseline.
         let force_structures = self.plan_revision != self.request.revision
             || self.selection_inputs != self.contents.input_revision();
         use super::stream_profile::{Stage, Timer};
@@ -1647,7 +1643,7 @@ impl WorldStream {
 
     /// The startup entries with a prototype become fixed placements. StartSpawnItems copies always
     /// spawn. A start car group entry spawns only for the picked group: its car and spare wheel. The exported pose is the raw
-    /// scene pose; the startup root offsets of its Transform chain move it onto the terrain.
+    /// scene pose. The startup root offsets of its Transform chain move it onto the terrain.
     fn startup_placements(
         &self,
         startup: &StartupTerrain,
@@ -1940,7 +1936,7 @@ impl WorldStream {
         self.ready_structures
             .retain(|id| self.wanted_structures.contains(id));
     }
-    /// Source `buildingscript.FStart(0)`: a road building connects to the nearest road pole.
+    /// Source `buildingscript.FStart(0)`. A road building connects to the nearest road pole.
     /// Contents wait for the cable. The search replays at most 8 road segments per update.
     fn prepare_building_cables(&mut self) {
         self.building_cables.retain(|(id, _)| {
@@ -2017,7 +2013,7 @@ impl WorldStream {
         let metrics = self.metrics();
         let pending = 32usize.saturating_sub(metrics.pending_work);
         // The step paces new contents. One source evaluation (a building with its Halloween
-        // bats) can pass the pace: only the object budget caps it.
+        // bats) can pass the pace. Only the object budget caps it.
         let budget = self
             .limits
             .objects
@@ -2268,7 +2264,7 @@ impl WorldStream {
             for bounds in bounds {
                 // Selection only lists records. Each replay root waits for its own room
                 // below, so only a reservation that can never fit fails here. Staging
-                // room is transient: the spray bottle changes its count every frame.
+                // room is transient. The spray bottle changes its count every frame.
                 let (count, bytes) = self.changes.query_reservation(bounds);
                 if count > self.limits.objects
                     || bytes.saturating_mul(4) > self.ledger.staging_limit()
@@ -2488,24 +2484,24 @@ impl WorldStream {
                 .is_some_and(|key| self.wanted_tiles.contains(&key));
         self.terrain_execution
             .reconcile(self.request, retain_terrain);
-        if let Some(work) = &mut self.ready {
-            if !work.renderer_reserved {
-                let valid = if work.published.key.layer == WorldLayer::Road {
-                    work.published.road.is_some_and(|road| {
-                        self.selected_roads.iter().any(|r| r.segment == road)
-                            && self.road_focus.into_iter().any(|p| {
-                                source_distance_squared(p, road.position())
-                                    <= self.distances.road_gen_dist.powi(2)
-                            })
-                    })
-                } else {
-                    !self.terrain_context_dirty && self.wanted_tiles.contains(&work.published.key)
-                };
-                if valid {
-                    work.request = self.request;
-                } else {
-                    self.discard_unreserved_surface();
-                }
+        if let Some(work) = &mut self.ready
+            && !work.renderer_reserved
+        {
+            let valid = if work.published.key.layer == WorldLayer::Road {
+                work.published.road.is_some_and(|road| {
+                    self.selected_roads.iter().any(|r| r.segment == road)
+                        && self.road_focus.into_iter().any(|p| {
+                            source_distance_squared(p, road.position())
+                                <= self.distances.road_gen_dist.powi(2)
+                        })
+                })
+            } else {
+                !self.terrain_context_dirty && self.wanted_tiles.contains(&work.published.key)
+            };
+            if valid {
+                work.request = self.request;
+            } else {
+                self.discard_unreserved_surface();
             }
         }
         self.terrain_context_dirty = false;
@@ -2559,8 +2555,7 @@ impl WorldStream {
             .lights
             .iter()
             .find(|l| l.biome.is_some() && l.id.unit[0] == index as i64);
-        let possible_light = existing.map_or(true, |i| self.selected_roads[i].light.is_some());
-        let new_light = usize::from(possible_light && old_light.is_none());
+        let new_light = usize::from(old_light.is_none());
         let old_poles = self
             .lights
             .iter()
@@ -2682,12 +2677,10 @@ impl WorldStream {
             .iter()
             .find(|r| r.segment.index == index)
             .unwrap();
-        if let Some(light) = &retained.light {
-            if !self.lights.iter().any(|l| l.id == light.id) {
-                self.lights.push(light.clone());
-            }
-            self.wanted_lights.push(index);
+        if !self.lights.iter().any(|l| l.id == retained.light.id) {
+            self.lights.push(retained.light.clone());
         }
+        self.wanted_lights.push(index);
         self.refresh_poles();
         if self.metrics().generated_objects > self.limits.objects {
             self.failure = Some(format!(
@@ -2720,10 +2713,10 @@ impl WorldStream {
         match self.road_worker.poll() {
             Err(error) => self.road_failure(error),
             Ok(RoadPoll::Idle) => {
-                if let Some(work) = self.road_work.take() {
-                    if !work.canceled {
-                        self.road_failure(ReferenceError("Road worker lost its owned job".into()));
-                    }
+                if let Some(work) = self.road_work.take()
+                    && !work.canceled
+                {
+                    self.road_failure(ReferenceError("Road worker lost its owned job".into()));
                 }
             }
             Ok(RoadPoll::Ready(id)) => {
@@ -2966,7 +2959,6 @@ impl WorldStream {
         self.road_worker.packing_ended();
         if let Err(error) = self.road_worker.submit(identity, &input) {
             self.road_failure(error);
-            return;
         }
     }
     fn local_collision_pending(&self, key: SurfaceKey) -> bool {
@@ -3175,7 +3167,7 @@ impl WorldStream {
             .map(|work| (work.request, &work.published))
     }
     /// Applies the facts of the last renderer step in order.
-    /// Facts of an older session are dropped.
+    /// It drops the facts of an older session.
     pub fn apply_renderer_facts(
         &mut self,
         facts: &mut super::RendererFacts,
@@ -3189,21 +3181,21 @@ impl WorldStream {
                 }
                 BindPrototype(source) => self.bind_prototype(&source)?,
                 ConfigureStaging { reserve, .. } => {
-                    self.ledger.configure_dependency_staging(reserve)?
+                    self.ledger.configure_dependency_staging(reserve)?;
                 }
                 ReleasePrototype(source) => self.release_prototype(&source)?,
                 BindRecipe(source) => self.bind_structure_recipe(&source)?,
                 ReserveSurface(request, key) if request.session == session => {
-                    self.reserve_surface_renderer(request, key)?
+                    self.reserve_surface_renderer(request, key)?;
                 }
                 AcceptSurface(request, key) if request.session == session => {
-                    self.accept_surface_renderer(request, key)?
+                    self.accept_surface_renderer(request, key)?;
                 }
                 DiscardSurface(request, key) if request.session == session => {
-                    self.discard_surface_renderer(request, key)?
+                    self.discard_surface_renderer(request, key);
                 }
                 AcceptStructure(request, id) if request.session == session => {
-                    self.accept_structure_renderer(request, &id)?
+                    self.accept_structure_renderer(request, &id)?;
                 }
                 ReserveSurface(..) | AcceptSurface(..) | DiscardSurface(..)
                 | AcceptStructure(..) => {}
@@ -3278,28 +3270,23 @@ impl WorldStream {
     }
     /// The renderer dropped the prepared surface after its work drained.
     /// Work that the stream dropped before the reservation arrived is already rewound.
-    fn discard_surface_renderer(
-        &mut self,
-        request: WorldRequest,
-        key: SurfaceKey,
-    ) -> Result<(), ReferenceError> {
+    fn discard_surface_renderer(&mut self, request: WorldRequest, key: SurfaceKey) {
         if !self
             .ready
             .as_ref()
             .is_some_and(|w| same_request(w.request, request) && w.published.key == key)
         {
-            return Ok(());
+            return;
         }
         self.ready = None;
         if key.layer == WorldLayer::Road {
             self.road_worker.publication_ended(false);
         }
         self.rewind_road(key);
-        Ok(())
     }
     /// The renderer finished the prepared surface. Its work drained.
-    /// The renderer repeats the fact until its frame shows the publication, so a repeat
-    /// for work that this stream already published or rewound is dropped.
+    /// The renderer repeats the fact until its frame shows the publication, so the stream
+    /// drops a repeat for work that it already published or rewound.
     fn accept_surface_renderer(
         &mut self,
         request: WorldRequest,
@@ -3507,10 +3494,8 @@ impl WorldStream {
                 if !keep {
                     removed[tier] = true;
                 }
-                if !keep {
-                    if let Some(handle) = surface.collider {
-                        physics.remove_collider(handle);
-                    }
+                if !keep && let Some(handle) = surface.collider {
+                    physics.remove_collider(handle);
                 }
                 keep
             });
@@ -3556,7 +3541,7 @@ impl WorldStream {
                 .any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(index));
             return Some(SupportGap::Road { index, surface });
         }
-        // A sandbox spawn never gates the step: it may load late or not at all.
+        // A sandbox spawn never gates the step. It may load late or not at all.
         if let Some(placement) = self.wanted_structures.iter().find(|p| {
             !self.added_placement(p)
                 && [0, 2].into_iter().all(|axis| {
@@ -3655,7 +3640,7 @@ impl WorldStream {
         (height, super::forced_color(color, context.biome_override))
     }
     /// Source `roads[0].OneCoord(position)` with Y at `above` over the base terrain height
-    /// (`GetTerrainHeightWorld(pb1: true, pb2: false, pb3: false)`). Absolute coordinates.
+    /// (`GetTerrainHeightWorld(pb1: true, pb2: false, pb3: false)`). It uses absolute coordinates.
     pub fn road_point(&self, position: [f64; 3], above: f32) -> [f64; 3] {
         // OneCoord projects onto the identity world's forward axis. Source Z is the negated world Z.
         let z = -position[2] as f32;
@@ -3765,7 +3750,7 @@ impl WorldStream {
                     .surfaces
                     .iter()
                     .find(|s| s.key == *key)
-                    .map_or(true, |s| required(s.bounds, 1 << self.terrain_layer))
+                    .is_none_or(|s| required(s.bounds, 1 << self.terrain_layer))
         };
         changed |= super::required::select(
             &mut self.required.terrain,
@@ -3844,24 +3829,23 @@ impl WorldStream {
         if !self.initial_generation_ready || (prefer_supply && !self.placements.prepare(0)) {
             return Ok(None);
         }
-        if prefer_supply {
-            if let (super::QueryStatus::Complete, Some(supply)) = self
+        if prefer_supply
+            && let (super::QueryStatus::Complete, Some(supply)) = self
                 .placements
                 .nearest_supply_point(point, self.placements.coverage())?
-            {
-                let pose = supply.cap_pose;
-                let owner = (supply.building_index, supply.supply_index);
-                self.request_at(pose.position, pose.position);
-                self.recovery = Some(PendingRecovery {
-                    request: self.request,
-                    target: pose,
-                    supply: Some(owner),
-                    candidate: 0,
-                    best: None,
-                });
-                self.recovery_search = None;
-                return Ok(Some(pose));
-            }
+        {
+            let pose = supply.cap_pose;
+            let owner = (supply.building_index, supply.supply_index);
+            self.request_at(pose.position, pose.position);
+            self.recovery = Some(PendingRecovery {
+                request: self.request,
+                target: pose,
+                supply: Some(owner),
+                candidate: 0,
+                best: None,
+            });
+            self.recovery_search = None;
+            return Ok(Some(pose));
         }
         let mut nearest = None;
         for surface in &self.surfaces {
@@ -4040,14 +4024,14 @@ impl WorldStream {
             return Ok(());
         };
         let mut points = Vec::new();
-        if placement.id.layer == WorldLayer::Building && placement.id.children.is_empty() {
-            if self
+        if placement.id.layer == WorldLayer::Building
+            && placement.id.children.is_empty()
+            && self
                 .placements
                 .supplies_for_building(placement.id.unit[0] as u32, &mut points)?
                 != super::QueryStatus::Complete
-            {
-                return Err(ReferenceError("Building supply prefix is preparing".into()));
-            }
+        {
+            return Err(ReferenceError("Building supply prefix is preparing".into()));
         }
         if self.metrics().generated_objects + 1 + points.len() * 2 > self.limits.objects {
             return Err(ReferenceError(format!(
@@ -4141,7 +4125,7 @@ impl WorldStream {
                     prototype,
                     body.node as usize,
                     appearance,
-                ))
+                ));
             });
         }
         for (source, handle) in &instance.colliders {
@@ -4158,7 +4142,7 @@ impl WorldStream {
                             collider.node as usize,
                             appearance,
                         ),
-                )
+                );
             });
         }
         for point in points {
@@ -4193,10 +4177,7 @@ impl WorldStream {
         interaction: &mut crate::interaction::InteractionState,
         physics: &mut PhysicsWorld,
         wheels: &mut crate::interaction::wheels::WheelAssemblies,
-        vehicles: &mut std::collections::BTreeMap<
-            super::ObjectKey,
-            crate::starting_area::VehicleRuntime,
-        >,
+        vehicles: &mut std::collections::BTreeMap<super::ObjectKey, crate::car::VehicleRuntime>,
         powertrain: &mut crate::simulation::powertrain::PowertrainParts,
     ) -> Result<(), ReferenceError> {
         self.sync_static_controls(reference, items, interaction, physics, wheels)?;
@@ -4237,10 +4218,7 @@ impl WorldStream {
         interaction: &mut crate::interaction::InteractionState,
         physics: &mut PhysicsWorld,
         wheels: &mut crate::interaction::wheels::WheelAssemblies,
-        vehicles: &mut std::collections::BTreeMap<
-            super::ObjectKey,
-            crate::starting_area::VehicleRuntime,
-        >,
+        vehicles: &mut std::collections::BTreeMap<super::ObjectKey, crate::car::VehicleRuntime>,
         powertrain: &mut crate::simulation::powertrain::PowertrainParts,
     ) -> Result<(), ReferenceError> {
         let owned = owned_binding_bytes(items, interaction, wheels, physics);
@@ -4408,7 +4386,7 @@ impl WorldStream {
                                     &recipe.parts,
                                     food.bite,
                                 ),
-                        )
+                        );
                     });
                 }
             }
@@ -4425,10 +4403,7 @@ impl WorldStream {
         items: &mut crate::interaction::items::ItemStore,
         interaction: &mut crate::interaction::InteractionState,
         wheels: &mut crate::interaction::wheels::WheelAssemblies,
-        vehicles: &mut std::collections::BTreeMap<
-            super::ObjectKey,
-            crate::starting_area::VehicleRuntime,
-        >,
+        vehicles: &mut std::collections::BTreeMap<super::ObjectKey, crate::car::VehicleRuntime>,
         powertrain: &mut crate::simulation::powertrain::PowertrainParts,
     ) -> Result<(), ReferenceError> {
         if self.recovery.is_some()
@@ -4453,7 +4428,7 @@ impl WorldStream {
                 // selects it, also before its contents bind.
                 || ((!id.children.is_empty() || id.layer == WorldLayer::Startup)
                     && self.wanted_structures.contains(id))
-                // A wanted replay owner stays until its replay finishes. Else a far owner
+                // A wanted replay owner stays until its replay finishes. Otherwise a far owner
                 // publishes and retires each step, and its replayed items never publish.
                 || (self.structure_replay_required(id)
                     && self.wanted_structures.contains(id))
@@ -4497,7 +4472,7 @@ impl WorldStream {
                 if let Some(item) = content.item {
                     content_bindings::unbind_storage(
                         item,
-                        &self.contents.active(),
+                        self.contents.active(),
                         items,
                         interaction,
                         physics,
@@ -4928,8 +4903,7 @@ impl WorldStream {
                 + self
                     .selected_roads
                     .iter()
-                    .filter_map(|r| r.light.as_ref())
-                    .map(super::WorldLight::heap_bytes)
+                    .map(|r| r.light.heap_bytes())
                     .sum::<usize>()
                 + self
                     .selected_roads
@@ -5289,10 +5263,10 @@ pub(super) fn lamp_materials_of(
             let lamp = fields(lamp)?;
             roots.clear();
             for r in array(lamp, "R")? {
-                if let Some(root) = value_link(r).ok().and_then(|r| rules.root(world, r).ok()) {
-                    if !roots.contains(&root) {
-                        roots.push(root);
-                    }
+                if let Some(root) = value_link(r).ok().and_then(|r| rules.root(world, r).ok())
+                    && !roots.contains(&root)
+                {
+                    roots.push(root);
                 }
             }
             if roots.is_empty() {

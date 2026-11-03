@@ -553,7 +553,7 @@ def animation_model_document(model: AssetExport, output: Path, destination: Path
     import os
     path = output / next(f.file for f in model.files if f.file.endswith('/model.gltf'))
     document = gl.GLTF2.load(str(path))
-    # pygltflib's Node omits morph weights; preserve the existing extended node.
+    # pygltflib's Node omits morph weights. Preserve the existing extended node.
     import json
     document.nodes = [ModelNode.from_dict(node) for node in json.loads(path.read_text())['nodes']]
     root = output.resolve()

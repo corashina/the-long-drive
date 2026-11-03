@@ -70,7 +70,7 @@ impl AssetReader for SourceAssetReader {
             .file(path)
             .map_err(|e| invalid(e.to_string()))?;
         let json = serde_json::to_string(receipt).map_err(|e| invalid(e.to_string()))?;
-        // The asset owner keeps byte/job reservations through decode and upload.
+        // The asset owner keeps byte and job reservations through decode and upload.
         // This permit covers only the physical response, never dependent decoder work.
         let permit = self.requests.acquire().await;
         let bytes = read_asset(&self.base, &json)
@@ -81,7 +81,7 @@ impl AssetReader for SourceAssetReader {
         Ok(VecReader::new(bytes))
     }
     async fn read_meta<'a>(&'a self, path: &'a Path) -> Result<impl Reader + 'a, AssetReaderError> {
-        // The package has no Bevy .meta files; AssetPlugin disables metadata probing.
+        // The package has no Bevy .meta files. AssetPlugin disables metadata probing.
         Err::<VecReader, _>(AssetReaderError::NotFound(path.to_path_buf()))
     }
     async fn read_directory<'a>(

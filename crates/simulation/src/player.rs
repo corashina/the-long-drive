@@ -67,8 +67,8 @@ impl Default for PlayerStepContext {
 }
 /// fpscontroller `scrubLimitX` and `scrubLimitY` degrees.
 const SCRUB_LIMITS: [f32; 2] = [50., 35.];
-/// Source scrubbing: the mouse turns `ghostHead`. Returns the mouse that turns the view:
-/// all of it at a scrub limit, else none.
+/// Source scrubbing. The mouse turns `ghostHead`. Returns the mouse that turns the view,
+/// which is all of it at a scrub limit, else none.
 fn scrub_look(scrub: &mut [f32; 2], mouse: [f32; 2]) -> [f32; 2] {
     let mut limited = false;
     for ((angle, delta), limit) in scrub.iter_mut().zip(mouse).zip(SCRUB_LIMITS) {
@@ -117,7 +117,7 @@ impl ExitReference {
 pub enum SeatOwner {
     Vehicle(crate::world::ObjectKey),
     Item(crate::world::ObjectKey),
-    /// A ground UFO by its plane id. It is not saved.
+    /// A ground UFO by its plane id. Saves do not keep it.
     Ufo(u32),
 }
 
@@ -125,11 +125,11 @@ pub enum SeatOwner {
 #[derive(Clone, Copy, Debug)]
 pub struct SeatValues {
     pub yaw_limits_degrees: [f32; 2],
-    /// Source `limitLessRot`: no yaw clamp.
+    /// Source `limitLessRot`. The yaw has no clamp.
     pub yaw_unlimited: bool,
-    /// Source `lookInsteadOfLean`: lean input turns the camera, and recenter does nothing.
+    /// Source `lookInsteadOfLean`. Lean input turns the camera, and recenter does nothing.
     pub look_instead_of_lean: bool,
-    /// Source `rootOrigin`: the outside view pivots on the seat body.
+    /// Source `rootOrigin`. The outside view pivots on the seat body.
     pub root_origin: bool,
     pub pitch_limits_degrees: [f32; 2],
     pub default_pitch_degrees: f32,
@@ -174,12 +174,12 @@ impl SeatValues {
 }
 
 struct Occupancy {
-    /// The item that holds the seat. Its part cannot be taken while the player sits on it.
+    /// The item that holds the seat. The player cannot take its part while sitting on it.
     item: ItemId,
     /// Main seatscript of the seat.
     source: Option<crate::reference::SourceId>,
     owner: SeatOwner,
-    /// Owner body, resolved on enter and restore.
+    /// Owner body. Enter and restore resolve it.
     body: RigidBodyHandle,
     local_pose: Pose,
     /// Main seatscript node relative to the owner body.
@@ -211,9 +211,9 @@ pub struct PlayerState {
     pose: Pose,
     occupancy: Option<Occupancy>,
     collisions: Vec<CharacterCollision>,
-    /// World points that blocked the last move. Reused each step.
+    /// World points that blocked the last move. Each step reuses the list.
     step_contacts: Vec<Vector>,
-    /// Velocity of the last edge step placement. Source rolls over the edge in many steps.
+    /// Velocity of the last edge step placement. The source rolls over the edge in many steps.
     edge_step_velocity: Vector,
     yaw: f32,
     pitch: f32,
@@ -394,7 +394,7 @@ impl PlayerState {
             pose: crate::save::AbsolutePose { position, rotation },
             yaw: self.yaw,
             pitch: self.pitch,
-            // The source does not save the UFO, so its seat is not saved.
+            // The source does not save the UFO, so the port does not save its seat.
             seat: self
                 .occupancy
                 .as_ref()
@@ -738,7 +738,7 @@ impl PlayerState {
         });
     }
 
-    /// Source trigger stays. Run before `step_movement`. Seated, only hazards count.
+    /// Source trigger stays. Run before `step_movement`. While seated, only hazards count.
     pub fn scan_triggers(&mut self, physics: &PhysicsWorld, roles: &crate::world::TriggerRoles) {
         use crate::reference::TriggerRole;
         self.hazard_damage = 0.0;
@@ -1327,7 +1327,7 @@ impl PlayerState {
     /// Turns the head toward the physics-space point `target`, within the look limits.
     pub fn look_at(&mut self, target: [f32; 3], physics: &PhysicsWorld) {
         let camera = Vector::from_array(self.view(physics).camera_pose.position);
-        // Seated, yaw and pitch are in the seat frame. On foot, the body carries the yaw.
+        // While seated, yaw and pitch are in the seat frame. On foot, the body carries the yaw.
         let parent = match self.occupancy {
             Some(_) => Rotation::from_array(self.body_pose(physics).rotation),
             None => Rotation::IDENTITY,
@@ -1385,7 +1385,8 @@ impl PlayerState {
         };
         yaw * Rotation::from_rotation_x(-self.pitch.to_radians())
     }
-    /// Source THeadDir/TProneHeadPos midpoint. Seated THeadDir follows unsmoothed lean.
+    /// Source midpoint of THeadDir and TProneHeadPos. While seated, THeadDir follows the
+    /// unsmoothed lean.
     pub fn source_anchor_midpoint(&self, physics: &PhysicsWorld) -> Vector {
         let body = to_rapier(self.body_pose(physics));
         body.translation
@@ -1422,7 +1423,7 @@ impl PlayerState {
     pub fn take_look_applied(&mut self) -> [f32; 2] {
         std::mem::take(&mut self.look_applied)
     }
-    /// The camera rotation as `parent * yaw * pitch * camera`. The position is not set.
+    /// The camera rotation as `parent * yaw * pitch * camera`. It does not set the position.
     pub fn look(&self, physics: &PhysicsWorld) -> LookBlock {
         let (entry, camera) = self.view_state.look_rotations();
         let mut look = LookBlock {
@@ -1484,7 +1485,8 @@ impl PlayerState {
         });
         self.update_geometry(physics);
     }
-    /// `Death2`: colliders off. A seat ends with the world look kept, so the ragdoll can move the player.
+    /// `Death2` turns the colliders off. A seat ends and keeps the world look, so the ragdoll can
+    /// move the player.
     pub fn die(&mut self, physics: &mut PhysicsWorld) {
         if let Some(seat) = self.occupancy.take() {
             let pose = *physics.rapier().bodies[seat.body].position() * seat.local_pose;

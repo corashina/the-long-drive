@@ -43,7 +43,7 @@ pub(crate) struct SimFrameResource {
     poses: HashMap<PoseKey, (Handle, SpawnData)>,
     /// Pose key of each live handle, by handle index. A retire finds its key without a scan.
     keys: Vec<Option<PoseKey>>,
-    /// Items retired by the current changes. Retained storage.
+    /// Items retired by the current changes. It keeps its storage.
     retired: std::collections::HashSet<ItemId>,
     rig: Vec<NodeId>,
     spawned: Vec<SpawnedItem>,

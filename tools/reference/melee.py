@@ -1,5 +1,5 @@
 """Checked melee weapons and hit effects: meleeweaponscript records, controllers, mainscript hit particles, sounds and volumes."""
-from .source import key, source_id
+from .source import id_key, key, source_id
 from .survival import managed_evidence
 from .particles import particle
 from .acquisition_motion import recover_motion
@@ -9,7 +9,7 @@ MAIN=('level1',64919)
 HIT_PARTICLES=('spark','blood','plant','wood','sand')
 # mainscript.soundHitType order: metal, blood, plant, wood, sand, glass.
 HIT_VOLUMES=[0.3,0.6,0.4,0.4,0.5,0.4]
-# tosaveitemscript.IsRecentlyUnburied: an unburied item stays recent for 1 s.
+# In tosaveitemscript.IsRecentlyUnburied, an unburied item stays recent for 1 s.
 RECENT_RECOVERY_SECONDS=1.
 EVIDENCE=[
     'public static float[] hitVolume = new float[6] { 0.3f, 0.6f, 0.4f, 0.4f, 0.5f, 0.4f };',
@@ -19,10 +19,6 @@ EVIDENCE=[
     'mainscript.PlayClipAtPoint(mainscript.M.meleeHitSounds[(int)hitType].a[num], V, mainscript.hitVolume[(int)hitType], mainscript.AudioPriorities[7]);']
 WEAPON_FIELDS='prototype source pickup target trigger contact_mask speed shovel_speed attack_volume attack_clips controller right_hand_poses left_hand_poses contact'
 CONTACT_FIELDS={'force':'force','damage':'damage','damage_tank':'damageTank','hurt_food':'hurtFood','all_particles':'allparticle','spark':'spark','sand':'sand','blood':'blood','plant':'plant','wood':'wood'}
-
-
-def _order(identity):
-    return identity['file'],identity['path_id']
 
 
 def _weapon(source, prototype, c, pickup) -> dict:
@@ -42,7 +38,7 @@ def _weapon(source, prototype, c, pickup) -> dict:
         'left_hand_poses':[source_id(link(p,'Transform')) for p in d['LHs']],
         'contact':{k:d[v] for k,v in CONTACT_FIELDS.items()}}
     weapon['contact']['hurt_food']=bool(d['hurtFood'])
-    for clip in weapon['attack_clips']:source.item_clips.add(_order(clip))
+    for clip in weapon['attack_clips']:source.item_clips.add(id_key(clip))
     return weapon
 
 
@@ -54,7 +50,7 @@ def recover_melee(source, manifest, output) -> dict:
     for name,pointer in zip(HIT_PARTICLES,d['Particles']):
         system=source.resolve(main,pointer)
         if system is None or system.type.name!='ParticleSystem':raise ValueError(f'mainscript particle {name} is not ParticleSystem')
-        # Particle() moves the shared system and calls Emit(num); emission does not run.
+        # Particle() moves the shared system and calls Emit(num). Emission does not run.
         particles.append(particle(source,system,f'melee_{name}',0.,output))
     hit_clips=[]
     for group in d['meleeHitSounds']:
@@ -79,12 +75,12 @@ def recover_melee(source, manifest, output) -> dict:
             if key(c) not in pickups:continue
             try:weapons.append(_weapon(source,p['source'],c,pickups[key(c)]))
             except (ValueError,KeyError) as error:raise ValueError(f'Melee weapon {key(c)}: {error}') from error
-    weapons.sort(key=lambda w:(_order(w['prototype']),_order(w['source'])))
+    weapons.sort(key=lambda w:(id_key(w['prototype']),id_key(w['source'])))
     motions=[]
-    for identity in sorted({_order(w['controller']) for w in weapons}):
+    for identity in sorted({id_key(w['controller']) for w in weapons}):
         try:motions.append(recover_motion(source,manifest,source.get(*identity)))
         except (ValueError,KeyError) as error:
-            owners=[f"{w['source']['file']}:{w['source']['path_id']}" for w in weapons if _order(w['controller'])==identity]
+            owners=[f"{w['source']['file']}:{w['source']['path_id']}" for w in weapons if id_key(w['controller'])==identity]
             raise ValueError(f"Melee weapons {', '.join(owners)}: {error}") from error
     print(f"Exported melee weapons: {', '.join(str(w['source']['path_id']) for w in weapons)}; {len(motions)} controllers",flush=True)
     return {'source':source_id(main),'hit_volumes':HIT_VOLUMES,'particles':particles,'hit_clips':hit_clips,

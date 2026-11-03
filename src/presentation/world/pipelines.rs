@@ -135,15 +135,6 @@ impl WorldPipelines {
             }).collect::<Vec<_>>(),
         })
     }
-    pub fn reserve_cache(&mut self, ledger: &mut PresentationLedger) -> Result<(), ReferenceError> {
-        if !self.cache_reserved {
-            let mut allocation = ledger.allocation();
-            allocation.prototype_cpu += super::super::pipeline_ownership::CACHE_BYTES;
-            ledger.set_allocation(allocation)?;
-            self.cache_reserved = true;
-        }
-        Ok(())
-    }
     pub fn owns(&self, id: CachedRenderPipelineId) -> bool {
         self.jobs.as_ref().is_some_and(|bank| {
             bank.lock()
@@ -152,19 +143,6 @@ impl WorldPipelines {
                 .iter()
                 .any(|ticket| ticket.0.lock().unwrap().ids.contains(&id))
         })
-    }
-    pub fn settled(&self) -> Result<bool, ReferenceError> {
-        let Some(bank) = &self.jobs else {
-            return Ok(true);
-        };
-        for ticket in &bank.lock().unwrap().pairs {
-            match ticket.state() {
-                RenderingState::Loading => return Ok(false),
-                RenderingState::Failed(e) => return Err(ReferenceError(e)),
-                RenderingState::Ready => {}
-            }
-        }
-        Ok(true)
     }
 
     pub(crate) fn request_continuation<M: Material>(
@@ -191,7 +169,7 @@ impl WorldPipelines {
         if let Some(parent) = parent.as_ref() {
             parent.validate(stream)?;
         }
-        // This local Arc adds no allocation. It keeps the bank lock order bank -> pair.
+        // This local Arc adds no allocation. It keeps the bank lock order of bank, then pair.
         let mut shared = self.jobs.clone();
         let mut guard = shared.as_ref().map(|bank| bank.lock().unwrap());
         let append = guard.as_ref().and_then(|bank| {

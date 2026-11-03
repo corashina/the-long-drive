@@ -169,7 +169,7 @@ impl BatchQueue {
             o.state = BatchState::Failed;
         }
     }
-    /// The next owner to upload: the first owner that is not submitted yet.
+    /// The next owner to upload. It is the first owner that is not submitted yet.
     pub fn next_upload(&self) -> Option<BatchOwner> {
         self.slots
             .iter()
@@ -177,7 +177,7 @@ impl BatchQueue {
             .find(|o| !matches!(o.state, BatchState::Submitted | BatchState::Complete))
             .copied()
     }
-    /// Uploads keep owner order: only the next upload can submit.
+    /// Uploads keep owner order. Only the next upload can submit.
     pub fn submit(&mut self, identity: BatchIdentity) -> bool {
         if self
             .next_upload()

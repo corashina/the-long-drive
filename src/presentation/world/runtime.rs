@@ -63,12 +63,6 @@ impl SourcePresentationAllocation {
             ..default()
         }
     }
-    pub fn for_session(session: u64) -> Self {
-        Self {
-            session,
-            ..default()
-        }
-    }
 }
 /// World object roots. The drive camera is excluded, so systems can also read its Transform.
 pub type WorldRoots<'w, 's> =
@@ -128,7 +122,6 @@ impl WorldPresentation<'_, '_> {
             &mut self.pipelines,
         )
     }
-    /// Updates the renderer copy of `stream`.
     /// The stream origin of the renderer copy.
     pub fn origin(&self) -> Option<crate::world::WorldOrigin> {
         self.allocation.world.as_ref().map(|world| world.origin)
@@ -202,7 +195,6 @@ impl WorldPresentation<'_, '_> {
             &mut allocation.facts,
             &reference.file_catalog,
         )?;
-        let allocation = &mut *self.allocation;
         let mut failure = self
             .fixed
             .poll(
@@ -262,14 +254,14 @@ impl WorldPresentation<'_, '_> {
         self.prototypes
             .retire_unused(stream, reference, &self.instances);
         let lighting_cpu = self.lights.clone_bytes();
-        let mut controls = self.allocation.ledger.allocation();
-        controls.active_cpu = controls
-            .active_cpu
-            .checked_sub(self.allocation.lighting_cpu)
-            .and_then(|n| n.checked_add(lighting_cpu))
-            .ok_or_else(|| ReferenceError("Fixed lighting control accounting".into()))?;
-        self.allocation.ledger.set_allocation(controls)?;
-        self.allocation.lighting_cpu = lighting_cpu;
+        let allocation = &mut *self.allocation;
+        replace_active_cpu(
+            &mut allocation.ledger,
+            allocation.lighting_cpu,
+            lighting_cpu,
+            "Fixed lighting control accounting",
+        )?;
+        allocation.lighting_cpu = lighting_cpu;
         timer.next(crate::world::stream_profile::Stage::FixedInputs);
         let allocation = &mut *self.allocation;
         if let Err(error) = self.fixed.prepare_metadata(
@@ -373,13 +365,10 @@ impl WorldPresentation<'_, '_> {
                     &self.chains,
                     &self.server,
                 ))
-                || prototype.deferred_materials.iter().any(|m| {
-                    !self.materials.cache.world_textures.retirable(
-                        &m.source,
-                        &self.images,
-                        &self.server,
-                    )
-                })
+                || prototype
+                    .deferred_materials
+                    .iter()
+                    .any(|m| !self.materials.cache.world_textures.retirable(&m.source))
                 || prototype
                     .nodes
                     .iter()
@@ -425,11 +414,10 @@ impl WorldPresentation<'_, '_> {
                     .prototypes
                     .references_material(reference, &material.source)
                 {
-                    self.materials.cache.world_textures.release(
-                        &material.source,
-                        &mut self.images,
-                        &self.server,
-                    )?;
+                    self.materials
+                        .cache
+                        .world_textures
+                        .release(&material.source, &mut self.images)?;
                 }
             }
             self.allocation.retired_materials.swap_remove(index);
@@ -544,15 +532,15 @@ impl WorldPresentation<'_, '_> {
         self.allocation.lamps = lamps;
         timer.next(crate::world::stream_profile::Stage::InstanceSync);
         let instance_cache_cpu = self.instances.cache_bytes();
-        if self.allocation.instance_cache_cpu != instance_cache_cpu {
-            let mut allocation = self.allocation.ledger.allocation();
-            allocation.active_cpu = allocation
-                .active_cpu
-                .checked_sub(self.allocation.instance_cache_cpu)
-                .and_then(|bytes| bytes.checked_add(instance_cache_cpu))
-                .ok_or_else(|| ReferenceError("Generated presentation cache accounting".into()))?;
-            self.allocation.ledger.set_allocation(allocation)?;
-            self.allocation.instance_cache_cpu = instance_cache_cpu;
+        let allocation = &mut *self.allocation;
+        if allocation.instance_cache_cpu != instance_cache_cpu {
+            replace_active_cpu(
+                &mut allocation.ledger,
+                allocation.instance_cache_cpu,
+                instance_cache_cpu,
+                "Generated presentation cache accounting",
+            )?;
+            allocation.instance_cache_cpu = instance_cache_cpu;
         }
         timer.next(crate::world::stream_profile::Stage::LampSync);
         super::lamps::sync_source_lamps(
@@ -644,4 +632,19 @@ impl WorldPresentation<'_, '_> {
             .retire_unused(stream, reference, &self.instances);
         Ok(())
     }
+}
+/// Replaces `old` bytes of the active CPU allocation with `new` bytes.
+fn replace_active_cpu(
+    ledger: &mut crate::ownership::PresentationLedger,
+    old: usize,
+    new: usize,
+    error: &str,
+) -> Result<(), ReferenceError> {
+    let mut allocation = ledger.allocation();
+    allocation.active_cpu = allocation
+        .active_cpu
+        .checked_sub(old)
+        .and_then(|bytes| bytes.checked_add(new))
+        .ok_or_else(|| ReferenceError(error.into()))?;
+    ledger.set_allocation(allocation)
 }

@@ -16,7 +16,7 @@ MOUSE_AXES = ('Mouse X', 'Mouse Y', 'Mouse ScrollWheel')
 
 
 def key_code(name):
-    """Unity KeyCode name to the browser KeyboardEvent.code (mouse buttons stay Mouse0-2)."""
+    """Map a Unity KeyCode name to the browser KeyboardEvent.code. Mouse buttons stay Mouse0-2."""
     if re.fullmatch(r'[A-Z]',name):return 'Key'+name
     if match:=re.fullmatch(r'Alpha(\d)',name):return 'Digit'+match[1]
     if match:=re.fullmatch(r'Keypad(\d)',name):return 'Numpad'+match[1]
@@ -130,7 +130,7 @@ MOUSE_DRIVE_LINES = ['currentMouseSteer = Mathf.Clamp(currentMouseSteer + Input.
 
 
 def slider_range(source, settings_reader, settings, tab, index):
-    """slidersettingscript value range: clamp to minValue..maxValue, then GetValue multiplies."""
+    """Apply the slidersettingscript value range. Clamp to minValue..maxValue, then GetValue multiplies."""
     reader = source.resolve(settings_reader, settings[tab]['sliders'][index])
     if reader is None:raise ValueError(f'Unresolved {tab} slider: {index}')
     value = source.read(reader)
@@ -244,7 +244,7 @@ def wheel_graphics(source, nodes, road):
 
 
 def recover_driving(source):
-    """Resolve the shared driving controls; fail on missing records or links."""
+    """Resolve the shared driving controls. Fail on missing records or links."""
     bodies, methods, minimum, text = checked_methods(source)
     constants = lever_constants(text)
     drive = bodies['public void DriveStuff()']

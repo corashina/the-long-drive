@@ -1,4 +1,4 @@
-//! Installed StableFit caster split masks; separate from projection-bound membership.
+//! Installed StableFit caster split masks. They are separate from projection-bound membership.
 use super::shadow_candidates::{Bounds, DirectionalHull, Plane};
 
 pub struct SplitCull {
@@ -63,7 +63,7 @@ fn exit_plane(origin: [f32; 3], direction: [f32; 3], planes: &[Plane; 6]) -> Opt
     }
     index.map(|i| (i, best))
 }
-/// IsCapsuleInsideSphere3558f0: both endpoints must lie strictly within the shrunken sphere.
+/// IsCapsuleInsideSphere3558f0. Both endpoints must lie strictly within the shrunken sphere.
 fn capsule_inside(start: [f32; 3], end: [f32; 3], radius: f32, sphere: [f32; 4]) -> bool {
     if radius >= sphere[3] {
         return false;
@@ -83,7 +83,7 @@ fn split_hull_intersects(bounds: Bounds, hull: &DirectionalHull) -> bool {
     })
 }
 /// Inputs use source world coordinates and the recovered light basis rows.
-/// Enabled splits retain source order; their sphere radius is not squared.
+/// Enabled splits retain source order. Their sphere radius is not squared.
 pub fn visible_split_mask(
     bounds: Bounds,
     light_basis: [[f32; 3]; 3],

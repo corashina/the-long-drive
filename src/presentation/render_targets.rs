@@ -1,4 +1,4 @@
-//! Persistent source render targets. Allocation is restricted to startup or resize.
+//! Persistent source render targets. The renderer allocates them only at startup or resize.
 use super::lighting_scene::PROBE_COUNT;
 use super::surface_views::{MIRROR_EXTENT, MIRROR_START, VIEW_COUNT, WORLD_VIEWS};
 
@@ -193,7 +193,7 @@ impl SourceViewTargets {
             SHADOW_FORMAT,
             true,
         );
-        // D24S8 uses four logical bytes. Backend allocation overhead is excluded.
+        // D24S8 uses four logical bytes. The count excludes backend allocation overhead.
         let logical_bytes = u64::from(width)
             * u64::from(height)
             * (4 + if samples > 1 {
@@ -214,7 +214,7 @@ impl SourceViewTargets {
     }
 }
 
-/// The world view owns color storage; six capture views share single-sample scratch.
+/// The world view owns color storage. Six capture views share single-sample scratch.
 /// The mirror views share another scratch. Depth and shadow atlas storage never alias between views.
 pub struct SurfaceTargets {
     pub world: std::sync::Arc<SourceColorTargets>,
@@ -400,7 +400,7 @@ pub struct PublishedProbes {
     _capture: Texture,
     /// Source reflectionBounces=1 keeps candidate selection, but substitutes
     /// the builtin black cube for every registered cube probe during capture.
-    /// Its pixels have zero color and alpha; decode is (1,1,0,0).
+    /// Its pixels have zero color and alpha. Its decode is (1,1,0,0).
     pub capture_view: TextureView,
 }
 impl PublishedProbes {

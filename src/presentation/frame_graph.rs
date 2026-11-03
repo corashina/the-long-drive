@@ -170,6 +170,7 @@ impl Plugin for SourceFramePlugin {
         super::view_frame::install(app);
         super::mirrors::install(app);
         super::shadow_queue::install(app);
+        super::shadow_tiles::install(app);
         super::lamp_shadows::install(app);
         super::caster_material::install(app);
         super::shadow_atlas::install(app);
@@ -469,36 +470,36 @@ fn prepare_frame(
     else {
         return;
     };
-    if let Some(sky) = sky.as_mut() {
-        if sky_views.single().is_ok() {
-            sky.write_live(
-                0,
-                &scene,
-                Vec3::ZERO,
-                assets.record.cameras[0].far,
-                skybox_clip,
-                &device,
-                &queue,
-            );
-        }
+    if let Some(sky) = sky.as_mut()
+        && sky_views.single().is_ok()
+    {
+        sky.write_live(
+            0,
+            &scene,
+            Vec3::ZERO,
+            assets.record.cameras[0].far,
+            skybox_clip,
+            &device,
+            &queue,
+        );
     }
-    if let (Some(sky), Some(ProbeJob::Face(face))) = (sky.as_mut(), frame.probe_job) {
-        if let Some(snapshot) = frame.views[PROBE_START + usize::from(face)] {
-            let projection =
-                Mat4::from_cols_array_2d(&crate::reference::sky::source_sky_gpu_projection(
-                    snapshot.implicit_projection.to_cols_array_2d(),
-                    snapshot.near,
-                ));
-            sky.write_live(
-                1 + usize::from(face),
-                &scene,
-                scene.probe_position[frame.probe_index],
-                snapshot.far,
-                projection * snapshot.view_from_world,
-                &device,
-                &queue,
-            );
-        }
+    if let (Some(sky), Some(ProbeJob::Face(face))) = (sky.as_mut(), frame.probe_job)
+        && let Some(snapshot) = frame.views[PROBE_START + usize::from(face)]
+    {
+        let projection =
+            Mat4::from_cols_array_2d(&crate::reference::sky::source_sky_gpu_projection(
+                snapshot.implicit_projection.to_cols_array_2d(),
+                snapshot.near,
+            ));
+        sky.write_live(
+            1 + usize::from(face),
+            &scene,
+            scene.probe_position[frame.probe_index],
+            snapshot.far,
+            projection * snapshot.view_from_world,
+            &device,
+            &queue,
+        );
     }
     if let Some(sky) = sky.as_mut() {
         for index in MIRROR_START..VIEW_COUNT {
@@ -521,10 +522,10 @@ fn prepare_frame(
             );
         }
     }
-    if let Some(clouds) = clouds.as_mut() {
-        if sky_views.single().is_ok() {
-            clouds.write_live(Vec3::ZERO, sky_clip, &scene, &device, &queue);
-        }
+    if let Some(clouds) = clouds.as_mut()
+        && sky_views.single().is_ok()
+    {
+        clouds.write_live(Vec3::ZERO, sky_clip, &scene, &device, &queue);
     }
     let Some((_, target)) = views.iter().find(|(source, _)| source.index == 0) else {
         return;
@@ -955,7 +956,7 @@ fn finish_surface(
             .to_cols_array(),
     };
     if mirror_view(source.index) {
-        // The slot image is the source `rt`: R8G8B8A8_UNorm clamps the HDR color.
+        // The slot image is the source `rt`. Its R8G8B8A8_UNorm format clamps the HDR color.
         let (Some(mirrors), Some(image)) = (
             mirrors,
             mirror_frame
@@ -990,12 +991,12 @@ fn finish_surface(
             state.proof.fail(error.into());
             return;
         }
-        if face == 0 {
-            if let Some(request) = frame.readiness_request() {
-                state
-                    .proof
-                    .capture_started(request, frame.frame, frame.probe_index);
-            }
+        if face == 0
+            && let Some(request) = frame.readiness_request()
+        {
+            state
+                .proof
+                .capture_started(request, frame.frame, frame.probe_index);
         }
         probe.encoded_token = Some(frame.probe_token);
         return;
@@ -1165,7 +1166,7 @@ struct ViewAudit {
     shadow_attempts: [u32; super::lamp_shadows::TILES],
     shadow_issued: [u32; super::lamp_shadows::TILES],
     shadow_instances: [[u32; super::lamp_shadows::TILES]; 2],
-    /// GPU prop rows, camera-visible rows and issued indirect draws.
+    /// Counts of GPU prop rows, camera-visible rows and issued indirect draws.
     props: [u32; 3],
     collector_frame: u32,
     atlas_size: u32,

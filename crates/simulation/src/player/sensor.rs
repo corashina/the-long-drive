@@ -1,4 +1,4 @@
-//! Source `sens` trigger hold: a contact stays sensed for a number of fixed steps.
+//! Source `sens` trigger hold. A contact stays sensed for a number of fixed steps.
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct SensorContact {

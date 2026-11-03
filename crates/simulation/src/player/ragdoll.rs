@@ -41,7 +41,7 @@ pub struct Ragdoll {
     colliders: Vec<(usize, Collider)>,
     /// Own body index, connected body index, joint.
     joints: Vec<(usize, usize, GenericJoint)>,
-    /// Spawned bodies, in record order. Empty while alive.
+    /// Spawned bodies, in record order. It is empty while the player is alive.
     handles: Vec<RigidBodyHandle>,
     /// Spawned node frames: relative to the owner body, or world frames for nodes without one.
     frames: Vec<Frame>,
@@ -66,7 +66,7 @@ fn unscaled(f: &Frame) -> Frame {
 
 /// Twist about X, swing1 about Y, swing2 about Z. Body 1 is the connected body, so the
 /// measured angle is the own body relative to the connected body, as in Unity.
-/// `scale` is the lossy scale of the bodies: Unity anchors are in scaled body space.
+/// `scale` is the lossy scale of the bodies. Unity anchors are in scaled body space.
 pub(crate) fn joint(bodies: &[BodyRecord], j: &RagdollJoint, scale: f32) -> GenericJoint {
     let x = Vector::from_array(j.axis);
     let swing = Vector::from_array(j.swing_axis);
@@ -232,7 +232,7 @@ impl Ragdoll {
     pub fn active(&self) -> bool {
         !self.handles.is_empty()
     }
-    /// Spawned bodies in record order. Empty while alive.
+    /// Spawned bodies in record order. It is empty while the player is alive.
     pub fn bodies(&self) -> &[RigidBodyHandle] {
         &self.handles
     }
@@ -270,7 +270,7 @@ impl Ragdoll {
             scale: self.rest[0].scale,
         };
         self.fk();
-        // `ragdolPosScript.Upd`: each write moves the node and its children.
+        // `ragdolPosScript.Upd`. Each write moves the node and its children.
         for p in 0..self.pairs.len() {
             let (i, node) = self.pairs[p];
             let Some(pose) = live(node) else {
@@ -317,7 +317,7 @@ impl Ragdoll {
         physics.refresh_queries();
     }
 
-    /// `RagdolReset`: removes the bodies, their colliders, and the joints.
+    /// `RagdolReset`. It removes the bodies, their colliders, and the joints.
     pub fn remove(&mut self, physics: &mut PhysicsWorld) {
         for handle in self.handles.drain(..) {
             physics.remove_body(handle);
@@ -325,7 +325,7 @@ impl Ragdoll {
         physics.refresh_queries();
     }
 
-    /// World frame of a ragdoll node, with its lossy scale. None while alive.
+    /// World frame of a ragdoll node, with its lossy scale. It is None while the player is alive.
     pub fn node_pose(&self, physics: &PhysicsWorld, node: NodeId) -> Option<Frame> {
         let i = *self.index.get(&node)?;
         if !self.active() {
@@ -345,7 +345,7 @@ impl Ragdoll {
         })
     }
 
-    /// `ragdolHeadPos` world pose. None while alive.
+    /// `ragdolHeadPos` world pose. It is None while the player is alive.
     pub fn head_pose(&self, physics: &PhysicsWorld) -> Option<Pose> {
         let f = self.node_pose(physics, self.nodes[self.head])?;
         Some(Pose::from_parts(f.position, f.rotation))

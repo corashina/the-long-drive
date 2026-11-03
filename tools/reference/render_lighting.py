@@ -24,7 +24,7 @@ def f32(value):
 
 
 def gamma_to_linear(value):
-    """Scalar native Color.linear equation; round each source f32 operation."""
+    """The scalar native Color.linear equation. Round each source f32 operation."""
     value = f32(value)
     if not math.isfinite(value) or value < 0:
         raise ValueError('Invalid source light color')
@@ -43,7 +43,7 @@ def light_radiance(color, intensity):
 
 
 def flat_ambient_sh(value):
-    # AddAmbientLight writes coefficient0/9/18; packing adds no pi or other scale.
+    # AddAmbientLight writes coefficient0/9/18. Packing adds no pi or other scale.
     return [[0.,0.,0.,gamma_to_linear(value)] for _ in range(3)] + [[0.] * 4 for _ in range(4)]
 
 
@@ -53,7 +53,7 @@ def startup_light_enabled(light, hierarchy_active, switch_active):
 
 
 def startup_sample():
-    """Controller schedule: one awake Update, then25source fixed steps."""
+    """Controller schedule: one awake Update, then 25 source fixed steps."""
     dt, speed, phase = f32(.02), f32(.0003), f32(0.)
     for _ in range(25):
         phase = f32(phase + f32(dt * speed))
@@ -75,7 +75,7 @@ def startup_sample():
             'temperature': 20., 'heat_haze_weight': 0.}
 
 def recover_light_controls(source, nodes):
-    """Apply selected startup switches; reject unproved random or nonzero states."""
+    """Apply selected startup switches. Reject unproved random or nonzero states."""
     from .source import key, source_id
     enabled, active, evidence = {}, {}, []
     def material_assignment(owner, renderer_pointer, material_pointer):

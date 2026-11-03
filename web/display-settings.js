@@ -4,7 +4,7 @@
 // The input of row `name` has the id `display-` and the name with `-` for `_`.
 const LEVELS=[0,1,2];
 export const ROWS={
- // Scene resolution percent. 0 is Auto: Rust steps the scale on the F3 GPU time.
+ // Scene resolution percent. 0 is Auto. Then Rust steps the scale on the F3 GPU time.
  scene_scale:{values:[0,100,85,75,67,50],default:100},
  // 0 high, 1 medium, 2 low.
  shadows:{values:LEVELS,default:0},
@@ -45,9 +45,11 @@ export function mirrorPosition(value,{minimum,maximum,half}){
 export function displayFields(mirror){
  const fields={};
  for(const [name,row] of Object.entries(ROWS)){
-  fields[name]=row.range?{tab:'graphics',default:mirror.default,valid:v=>Number.isFinite(v)&&v>=mirror.minimum&&v<=mirror.maximum}
-   :row.values?{tab:'graphics',default:row.default,valid:v=>row.values.includes(v)}
-   :{tab:'graphics',default:row.default,valid:v=>typeof v==='boolean'};
+  let valid;
+  if(row.range)valid=v=>Number.isFinite(v)&&v>=mirror.minimum&&v<=mirror.maximum;
+  else if(row.values)valid=v=>row.values.includes(v);
+  else valid=v=>typeof v==='boolean';
+  fields[name]={tab:'graphics',default:row.range?mirror.default:row.default,valid};
  }
  return fields;
 }

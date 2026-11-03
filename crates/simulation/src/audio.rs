@@ -607,7 +607,7 @@ impl AudioState {
             let Some(p) = position(q.item) else {
                 continue;
             };
-            // The source destroys the source after the clip length.
+            // The source destroys the AudioSource after the clip length.
             let seconds = self
                 .reference
                 .clips
@@ -629,7 +629,7 @@ impl AudioState {
             }
         }
     }
-    /// `newAiScript.SourceVoice` of each human while its clip plays. `Play` starts a clip; the
+    /// `newAiScript.SourceVoice` of each human while its clip plays. `Play` starts a clip. The
     /// voice then follows the human. Runs after `sky`, which clears `voice_loops`.
     pub fn humans(
         &mut self,
@@ -919,7 +919,7 @@ impl AudioState {
         self.tool_loops.clear();
         self.squeaks.clear();
         self.sleep_radio_advanced = false;
-        // Controls belong to the committed session (fresh or restored); playlists restart.
+        // Controls belong to the committed session (fresh or restored). Playlists restart.
         self.broadcasts = crate::simulation::radio::RadioBroadcasts::new(
             &self.reference.radio,
             &self.reference.clips,
@@ -1038,12 +1038,11 @@ impl AudioState {
                 }
                 signal.playing &= self.mechanism_sounds[i].remaining > 0. && signal.gain > 0.;
             }
-            if turn != self.mechanism_sounds[i].turn {
-                if let Some(id) =
+            if turn != self.mechanism_sounds[i].turn
+                && let Some(id) =
                     self.reference.mechanisms[self.mechanism_sounds[i].index].turn_binding
-                {
-                    self.emit(id, 1., self.game_seconds);
-                }
+            {
+                self.emit(id, 1., self.game_seconds);
             }
             self.mechanism_sounds[i].previous = current;
             self.mechanism_sounds[i].turn = turn;
@@ -1081,27 +1080,27 @@ impl AudioState {
             if !latch.sensed {
                 self.route_nodes[index] = None;
             }
-            if let Some(handle) = *id {
-                if let Some(sensor) = physics.rapier().colliders.get(handle) {
-                    for (other_handle, other) in physics
-                        .queries(QueryFilter {
-                            exclude_collider: Some(handle),
-                            exclude_rigid_body: sensor.parent(),
-                            groups: Some(sensor.collision_groups()),
-                            ..QueryFilter::default()
-                        })
-                        .intersect_shape(*sensor.position(), sensor.shape())
-                    {
-                        let id = ColliderId((other.user_data >> 64) as u32);
-                        self.route_nodes[index] = self.collider_nodes.get(&id).copied();
-                        latch.hits.clear();
-                        latch.hits.push(
-                            self.world_interiors
-                                .entry(other_handle)
-                                .or_else(|| self.colliders.get(&id).copied()),
-                        );
-                        latch.hit();
-                    }
+            if let Some(handle) = *id
+                && let Some(sensor) = physics.rapier().colliders.get(handle)
+            {
+                for (other_handle, other) in physics
+                    .queries(QueryFilter {
+                        exclude_collider: Some(handle),
+                        exclude_rigid_body: sensor.parent(),
+                        groups: Some(sensor.collision_groups()),
+                        ..QueryFilter::default()
+                    })
+                    .intersect_shape(*sensor.position(), sensor.shape())
+                {
+                    let id = ColliderId((other.user_data >> 64) as u32);
+                    self.route_nodes[index] = self.collider_nodes.get(&id).copied();
+                    latch.hits.clear();
+                    latch.hits.push(
+                        self.world_interiors
+                            .entry(other_handle)
+                            .or_else(|| self.colliders.get(&id).copied()),
+                    );
+                    latch.hit();
                 }
             }
         }
@@ -1349,21 +1348,20 @@ impl AudioState {
         if let Some(parent) = interior
             .parent
             .and_then(|id| self.reference.interiors.iter().position(|i| i.id == id))
+            && Some(parent) != caller
         {
-            if Some(parent) != caller {
-                let value = if interior.removable_doors {
-                    interior
-                        .parent_slot
-                        .map_or(1., |slot| self.slot(slot, area))
-                } else {
-                    interior
-                        .parent_door
-                        .as_ref()
-                        .map_or(1., |door| self.control(door, area))
-                };
-                total += self.interior_value(parent, area, stream, Some(index), depth + 1)
-                    * (2. * value).clamp(0., 1.);
-            }
+            let value = if interior.removable_doors {
+                interior
+                    .parent_slot
+                    .map_or(1., |slot| self.slot(slot, area))
+            } else {
+                interior
+                    .parent_door
+                    .as_ref()
+                    .map_or(1., |door| self.control(door, area))
+            };
+            total += self.interior_value(parent, area, stream, Some(index), depth + 1)
+                * (2. * value).clamp(0., 1.);
         }
         interior_transmission(
             total,
@@ -1491,8 +1489,8 @@ impl AudioState {
     fn player_inside(&self, inside: impl Fn(usize) -> bool) -> bool {
         self.sensor.sensed && self.sensor.hits.iter().flatten().any(|&i| inside(i))
     }
-    /// Source `audioBasedOnInteriorsensscript` of a world car: the car mixer while the player
-    /// is in one of its interiors, else the outside mixer.
+    /// Source `audioBasedOnInteriorsensscript` of a world car. It uses the car mixer while the
+    /// player is in one of its interiors, else the outside mixer.
     pub fn world_car_mixer(
         &self,
         route: &crate::reference::CarRouteReference,
@@ -1685,7 +1683,7 @@ impl AudioState {
         self.survival_loops
             .retain(|v| v.kind != AudioKind::Storm || storms.iter().any(|s| s.id.0 == v.emitter));
     }
-    /// mainscript.RandomHorrorSound: the player horror source, or stopped.
+    /// mainscript.RandomHorrorSound. It plays or stops the player horror source.
     pub fn horror(&mut self, playing: bool, position: [f64; 3]) {
         if playing {
             self.source_loop(AudioKind::Horror, 0, 1., position);
@@ -1713,14 +1711,14 @@ impl AmbientState {
         }
     }
 
-    /// `empscript.affectAmbientSound`: the ambient falls toward the player electronics output.
+    /// `empscript.affectAmbientSound`. The ambient falls toward the player electronics output.
     pub fn jam(&mut self, output: f32, dt: f32) {
         if self.modifier > output {
             self.modifier = (self.modifier - dt * crate::electronics::JAM_INCREASE).max(output);
         }
     }
 
-    /// Source `ambienceZone`: a playing zone lowers the day and night ambient.
+    /// Source `ambienceZone`. A playing zone lowers the day and night ambient.
     pub fn duck(&mut self, lerp: f32) {
         self.only_modifier = self.only_modifier.min(1. - lerp);
     }

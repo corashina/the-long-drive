@@ -54,10 +54,10 @@ impl<K: Eq + Hash> WorldBoundsCache<K> {
         key: BoundsKey,
         calculate: impl FnOnce() -> Bounds,
     ) -> Option<Bounds> {
-        if let Some(row) = self.rows.get(&entity) {
-            if row.key == key {
-                return Some(row.bounds);
-            }
+        if let Some(row) = self.rows.get(&entity)
+            && row.key == key
+        {
+            return Some(row.bounds);
         }
         let bounds = calculate();
         if bounds

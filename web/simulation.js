@@ -1,4 +1,4 @@
-// The simulation runs in a Web Worker. One command is in flight; the renderer reads each frame once.
+// The simulation runs in a Web Worker. One command is in flight. The renderer reads each frame once.
 export function createSimulation(worker,onFailure){
  let frame=null,failed=false,starting=null,started=false,netStart=null,tickMs=0,ticks=0,wasmBytes=0,hooks={},netIn=[],onNet=null;
  const fail=message=>{if(failed)return;failed=true;frame=null;starting?.reject(Error(message));starting=null;onFailure(message);};
@@ -19,7 +19,7 @@ export function createSimulation(worker,onFailure){
  worker.addEventListener('error',event=>fail(event.message||'The simulation worker stopped.'));
  worker.addEventListener('messageerror',()=>fail('The simulation worker message could not be read.'));
  return {
-  // Hooks of the CPU profile: the worker reports input use with the frame.
+  // Hooks of the CPU profile. The worker reports input use with the frame.
   hooks(value){hooks=value;},
   profile(enabled){worker.postMessage({cpuProfile:Boolean(enabled)});},
   // `manifest` and `save` move to the worker. `save` is the save JSON, or empty for a new game.
@@ -37,7 +37,7 @@ export function createSimulation(worker,onFailure){
   // Multiplayer: `role` 0 off, 1 host, 2 guest. `handler` takes the outbound packets of each frame.
   netSession,
   netLeave(slot){if(started)worker.postMessage({netLeave:slot});},
-  // One inbound packet. It rides with the next command.
+  // One inbound packet. It goes with the next command.
   netPacket(packet){if(onNet)netIn.push(packet);},
   frameLength:()=>frame?frame.length:-1,
   read(out){out.set(frame);frame=null;},
@@ -52,11 +52,6 @@ export function joinPackets(packets){
  let at=0;
  for(const p of packets){out[at]=p.length&255;out[at+1]=p.length>>8;out.set(p,at+2);at+=2+p.length;}
  return out;
-}
-export function splitPackets(bytes){
- const packets=[];
- for(let at=0;at+2<=bytes.length;){const n=bytes[at]|bytes[at+1]<<8;packets.push(bytes.subarray(at+2,at+2+n));at+=2+n;}
- return packets;
 }
 
 export function installSimulationBridge(target,simulation){

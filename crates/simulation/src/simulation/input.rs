@@ -1,4 +1,5 @@
 use crate::reference::DrivingReference;
+use crate::simulation::dials::{inverse_lerp, lerp};
 use crate::simulation::{FIXED_DT, FrameInput, GamepadFrame, keys, player_keys};
 use rapier3d::prelude::RigidBodyHandle;
 use serde::{Deserialize, Serialize};
@@ -135,21 +136,7 @@ impl AxisSetting {
     }
 }
 
-/// Unity `Mathf.Lerp`.
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
-}
-
-/// Unity `Mathf.InverseLerp`.
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a != b {
-        ((value - a) / (b - a)).clamp(0., 1.)
-    } else {
-        0.
-    }
-}
-
-/// Source keyboard ramp: `MoveTowards` for 0 and ±1 targets; other targets apply directly.
+/// Source keyboard ramp. It uses `MoveTowards` for 0 and ±1 targets. Other targets apply directly.
 fn ramp(value: &mut f32, target: f32, step: f32) {
     *value = if target == 0. || target.abs() == 1. {
         *value + (target - *value).clamp(-step, step)

@@ -180,16 +180,11 @@ impl ProbeFilter {
             .all(|id| cache.get_render_pipeline(id).is_some())
     }
     pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        self.pipelines()
-            .into_iter()
-            .find_map(|id| match cache.get_render_pipeline_state(id) {
-                CachedPipelineState::Err(
-                    bevy::shader::ShaderCacheError::ShaderNotLoaded(_)
-                    | bevy::shader::ShaderCacheError::ShaderImportNotYetAvailable,
-                ) => None,
-                CachedPipelineState::Err(error) => Some(format!("Source probe pipeline: {error}")),
-                _ => None,
-            })
+        super::postprocessing::named_pipeline_failure(
+            cache,
+            &self.pipelines(),
+            "Source probe pipeline",
+        )
     }
     pub fn capture_face(
         &self,

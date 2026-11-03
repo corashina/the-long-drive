@@ -45,10 +45,30 @@ impl StartingArea {
                 physics,
             )
             .expect("validated equipment receipt");
-        // Source RightHandRelease: Drop leaves pickedUpPoint on TpickedUpParent.
+        // In source RightHandRelease, Drop leaves pickedUpPoint on TpickedUpParent.
         self.interaction.carry.grip_at_anchor();
         physics.refresh_queries();
         Ok(true)
+    }
+    /// Source `DropFromInv`: a stored item leaves its slot into the world at its stored pose.
+    pub fn drop_from_inventory(&mut self, id: ItemId, physics: &mut PhysicsWorld) {
+        let Some(slot) = self.inventory.slots.iter().position(|s| *s == Some(id)) else {
+            return;
+        };
+        let Some(item) = self.items.get_mut(id) else {
+            return;
+        };
+        if !matches!(item.location, ItemLocation::Stored(_)) {
+            return;
+        }
+        item.location = ItemLocation::World;
+        if let Some(body) = item.body {
+            physics.edit_body(body, |b| b.set_enabled(true));
+        }
+        self.inventory.slots[slot] = None;
+        self.inventory_offsets[slot] = None;
+        self.items.mark_dirty(id);
+        physics.refresh_queries();
     }
     pub fn sync_inventory(&mut self) {
         for slot in &mut self.inventory.slots {
@@ -331,9 +351,7 @@ impl InventoryFrame {
             pending.clear();
         } else {
             if self.primary_reserved {
-                pending.held &= !keys::PRIMARY;
-                pending.pressed &= !keys::PRIMARY;
-                pending.released &= !keys::PRIMARY;
+                pending.drop_keys(keys::PRIMARY);
             }
             if self.recentered.is_some() && pending.carry.owner == self.recentered {
                 pending.carry = crate::simulation::CarryDeltas::default();
@@ -442,7 +460,7 @@ impl GarageRuntime {
                 .expect("checked inventory bindings");
         }
         self.advance_melee(reference, input, dt);
-        let gun_held = self.advance_guns(reference, input, dt, view);
+        self.advance_guns(reference, input, dt, view);
         self.run_explosions(reference, dt);
         self.area.sync_equipment(reference, &mut self.physics);
         if let Some(id) = self.area.interaction.equipment.item() {
@@ -464,13 +482,12 @@ impl GarageRuntime {
             view: self.area.player.scrub_pose(view),
             origin: self.stream.origin.offset,
         };
-        // fpscontroller: a gun or a cleaning tool in the hand sets noLMBUse. The binoculars read LMB
-        // in the fixed step, so `InteractionState::step` removes it there.
-        let interaction = &self.area.interaction;
-        let mut primary_reserved = gun_held
-            || interaction
-                .cleaning
-                .reserves_lmb(interaction.equipment.item(), interaction.held());
+        // fpscontroller noLMBUse of the tools that read LMB in this frame.
+        let mut primary_reserved = self
+            .area
+            .interaction
+            .lmb_owner()
+            .is_some_and(crate::interaction::claims::LmbOwner::frame_owned);
         self.area
             .interaction
             .cleaning
@@ -555,10 +572,8 @@ impl GarageRuntime {
         self.area.interaction.cleaning.finish_frame(
             frame,
             reference,
-            &mut self.area.interaction.conditions,
             &self.area.items,
             &self.physics,
-            &self.area.interaction.parts,
         );
         for item in self.area.interaction.cleaning.take_changed() {
             self.area.items.mark_dirty(item);
@@ -606,12 +621,12 @@ impl GarageRuntime {
         );
         let mut look_input = input;
         if self.area.interaction.guns.reloading {
-            // fpscontroller.reloading: R with a gun moves the gun, not the view or the carry.
+            // fpscontroller.reloading. R with a gun moves the gun, not the view or the carry.
             look_input.mouse = [0.; 2];
             look_input.wheel = 0.;
         }
         if self.driving_input.mouse_owned() {
-            // Source `inputscript.mouseDrive`: mouse look axes read zero.
+            // Source `inputscript.mouseDrive`. The mouse look axes read zero.
             look_input.mouse = [0.; 2];
         }
         let mut fixed_input =
@@ -634,9 +649,7 @@ impl GarageRuntime {
             fixed_input.carry = crate::simulation::CarryDeltas::default();
         }
         if primary_reserved {
-            fixed_input.held &= !keys::PRIMARY;
-            fixed_input.pressed &= !keys::PRIMARY;
-            fixed_input.released &= !keys::PRIMARY;
+            fixed_input.drop_keys(keys::PRIMARY);
         }
         InventoryFrame {
             fixed_input,

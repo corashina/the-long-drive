@@ -24,7 +24,7 @@ pub struct WorldLight {
     pub node: Option<u32>,
 }
 impl WorldLight {
-    /// Structure lights append their component identity; road lights share the pole identity.
+    /// Structure lights append their component identity. Road lights share the pole identity.
     pub fn owned_by(&self, parent: &GeneratedId) -> bool {
         if self.biome.is_some() {
             return self.id == *parent;
@@ -362,15 +362,11 @@ impl SourceRoadLight {
                 })
                 .sum::<usize>()
     }
-    pub fn place(&self, reference: &WorldReference, segment: &RoadSegment) -> Option<WorldLight> {
+    pub fn place(&self, reference: &WorldReference, segment: &RoadSegment) -> WorldLight {
         let recipe = &self.recipes[segment.biome as usize];
-        let prototype = reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == reference.road.prototypes[segment.biome as usize])
-            .unwrap();
+        let prototype = road_prototype(reference, segment);
         let pole = recipe.pole.frame(prototype, segment, self.seed);
-        Some(WorldLight {
+        WorldLight {
             id: GeneratedId {
                 layer: WorldLayer::Lamp,
                 generator: recipe.reference.generator_source.clone(),
@@ -394,8 +390,20 @@ impl SourceRoadLight {
             enabled: true,
             intensity: recipe.light.startup_intensity,
             node: None,
-        })
+        }
     }
+}
+/// The road prototype of the segment biome.
+pub(super) fn road_prototype<'a>(
+    world: &'a WorldReference,
+    segment: &RoadSegment,
+) -> &'a WorldPrototypeReference {
+    let source = &world.road.prototypes[segment.biome as usize];
+    world
+        .prototypes
+        .iter()
+        .find(|p| &p.source == source)
+        .unwrap()
 }
 /// Select all influencing source lights. Visibility and pole mesh distance do not reject light influence.
 pub fn required_world_lights(

@@ -65,7 +65,7 @@ impl HearingState {
     pub fn ear_db(&self) -> f32 {
         crate::audio::source_gain_db(self.hearing)
     }
-    /// `EarRingSource.volume`; 0 stops it.
+    /// `EarRingSource.volume`. A value of 0 stops it.
     pub fn ring_gain(&self) -> f32 {
         self.ringing.clamp(0., 1.)
     }

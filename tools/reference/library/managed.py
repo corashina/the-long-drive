@@ -456,7 +456,7 @@ def write_analysis_report(catalog: Catalog, managed_files: tuple[FileRecord, ...
 
 
 def index_source_text(snapshot: Snapshot, output: Path) -> tuple[FileRecord, ...]:
-    """Copy authored text files; the UI category owns installed Languages files."""
+    """Copy authored text files. The UI category owns installed Languages files."""
     files, entries = [], []
     for item in snapshot.files:
         if not item.file.lower().endswith('.txt') or item.file.startswith(f'{DATA_DIRECTORY}/Languages/'):

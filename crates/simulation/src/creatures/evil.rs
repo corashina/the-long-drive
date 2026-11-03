@@ -38,7 +38,7 @@ pub struct Evil {
 }
 
 impl Evil {
-    /// `GetEvil`: once per rabbit. The caller skips it in peaceful mode.
+    /// `GetEvil` runs once per rabbit. The caller skips it in peaceful mode.
     pub(crate) fn get_evil(
         &mut self,
         r: &EvilReference,
@@ -72,7 +72,7 @@ impl Evil {
         }
     }
 
-    /// `Update`. `distance_sq` is the squared player distance; the source compares it with
+    /// `Update`. `distance_sq` is the squared player distance. The source compares it with
     /// `idleDistance` directly.
     pub(crate) fn update(
         &mut self,
@@ -135,7 +135,7 @@ impl Evil {
         events
     }
 
-    /// `Die`: the trigger turns off.
+    /// `Die`. The trigger turns off.
     pub fn die(&mut self) {
         self.trigger = false;
         self.idle_sound = false;

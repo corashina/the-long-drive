@@ -107,15 +107,6 @@ impl ContentIndex {
     pub fn lamp_slots(&self, id: &GeneratedId) -> &[usize] {
         self.lamps.get(id).map_or(&[], Vec::as_slice)
     }
-    #[cfg(test)]
-    fn content<'a>(
-        &self,
-        active: &'a [ContentInstance],
-        controls: &'a [ContentInstance],
-        id: &GeneratedId,
-    ) -> IndexedContent<'a> {
-        content_at(active, controls, self.slot(id))
-    }
 }
 fn content_at<'a>(
     active: &'a [ContentInstance],
@@ -139,7 +130,7 @@ impl WorldStream {
                 self.contents.active_revision(),
                 self.static_control_revision,
             ),
-            &self.contents.active(),
+            self.contents.active(),
             &self.static_controls,
         );
         index.update_lamps(
@@ -156,12 +147,8 @@ impl WorldStream {
             self.structure_revision,
         )
     }
-    #[cfg(test)]
-    pub fn indexed_content(&self, index: &ContentIndex, id: &GeneratedId) -> IndexedContent<'_> {
-        index.content(&self.contents.active(), &self.static_controls, id)
-    }
     pub fn content_at(&self, slot: Option<ContentSlot>) -> IndexedContent<'_> {
-        content_at(&self.contents.active(), &self.static_controls, slot)
+        content_at(self.contents.active(), &self.static_controls, slot)
     }
     pub fn indexed_appearance<'a>(
         &'a self,
@@ -210,11 +197,11 @@ impl InstanceSelection {
         self.indices.reserve(count);
     }
     pub fn push(&mut self, index: usize) {
-        if let Some(queued) = self.queued.get_mut(index) {
-            if !*queued {
-                *queued = true;
-                self.indices.push(index);
-            }
+        if let Some(queued) = self.queued.get_mut(index)
+            && !*queued
+        {
+            *queued = true;
+            self.indices.push(index);
         }
     }
     pub fn len(&self) -> usize {

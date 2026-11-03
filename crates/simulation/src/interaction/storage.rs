@@ -13,7 +13,7 @@ use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{ColliderHandle, QueryFilter, RigidBodyHandle, SharedShape};
 use std::collections::{HashMap, HashSet};
 
-/// Scan buffer capacity per volume. Distinct items seen in one volume.
+/// Scan buffer capacity per volume. It holds the distinct items that one volume sees.
 const SCAN_CAPACITY: usize = 64;
 /// Collider scratch capacity for one lock or unlock.
 const COLLIDER_CAPACITY: usize = 256;
@@ -53,7 +53,7 @@ struct Volume {
     shape: SharedShape,
     /// Gate slots are filled and gate usables are closed. Set before each scan.
     gates_closed: bool,
-    /// Frames left of the source `StartFreeze`. Zero: started.
+    /// Frames left of the source `StartFreeze`. Zero means it started.
     startup: u8,
     previous: Vec<ItemId>,
     current: Vec<ItemId>,
@@ -103,7 +103,7 @@ pub struct StorageLocks {
     /// Generated items that left the lock with their unbound owner. The stream unloads them.
     departing: Vec<ItemId>,
     dont_mount: HashSet<ItemId>,
-    /// Source `dontMountTillPickup`. A pick-up removes the item. Not saved.
+    /// Source `dontMountTillPickup`. A pick-up removes the item. The save does not keep it.
     till_pickup: HashSet<ItemId>,
     drop_times: HashMap<ItemId, f32>,
     colliders: Vec<ColliderHandle>,
@@ -272,9 +272,7 @@ impl StorageLocks {
                 .usables
                 .extend(record.usables.iter().filter_map(|node| usable_item(*node)));
             volume.slots.clear();
-            volume
-                .slots
-                .extend(record.slots.iter().filter_map(|source| slot(source)));
+            volume.slots.extend(record.slots.iter().filter_map(&slot));
             volume.frame = Frame::Owner {
                 local: root.inverse() * Pose::from_parts(center, record.rotation),
                 record: record_index as u16,
@@ -295,7 +293,7 @@ impl StorageLocks {
     }
     /// Unbinds the world volumes and flags of a generated item that streams out or rolls back.
     /// Items locked to it leave with it if `leaves` allows and the owner is not removed.
-    /// They keep their disabled body and are listed by `departing`. Other items unlock.
+    /// They keep their disabled body, and `departing` lists them. Other items unlock.
     /// Returns true if an item departs.
     pub fn unbind_owner(
         &mut self,
@@ -330,7 +328,7 @@ impl StorageLocks {
                     departs = true;
                 } else {
                     self.unlock(item, items, physics)?;
-                    // Source mountStuff.Unstore: contents of a buried owner stay buried.
+                    // Source mountStuff.Unstore. The contents of a buried owner stay buried.
                     if buried {
                         super::buried::bury(item, items, physics);
                     }
@@ -396,10 +394,6 @@ impl StorageLocks {
     pub fn picked_up(&mut self, item: ItemId) {
         self.till_pickup.remove(&item);
     }
-    /// The part slots that gate bound volume `volume`. Each must hold a closed part.
-    pub fn gate_slots(&self, volume: u16) -> &[PartSlotId] {
-        &self.volumes[volume as usize].slots
-    }
     fn gates_closed(volume: &Volume, parts: &PartAttachments, mechanisms: &MechanismState) -> bool {
         let open = |usable: ItemId| {
             mechanisms
@@ -435,15 +429,6 @@ impl StorageLocks {
         let owner = items.get(volume.owner)?;
         let body = physics.rapier().bodies.get(owner.body?)?;
         Some(*body.position() * to_rapier(owner.local_pose) * *local)
-    }
-    /// The world pose of the box of bound volume `volume`.
-    pub fn volume_pose(
-        &self,
-        volume: u16,
-        items: &ItemStore,
-        physics: &PhysicsWorld,
-    ) -> Option<Pose> {
-        Self::pose(self.volumes.get(volume as usize)?, items, physics)
     }
     /// Clears `current`, then fills it with the items that overlap the volume.
     fn scan_volume(
@@ -568,14 +553,7 @@ impl StorageLocks {
         } else {
             0
         };
-        self.colliders.clear();
-        for handle in physics.rapier().bodies[body].colliders() {
-            if collider_item(physics.rapier().colliders[*handle].user_data)
-                .is_some_and(|id| id == item || items.descends(id, item))
-            {
-                self.colliders.push(*handle);
-            }
-        }
+        item_colliders(&mut self.colliders, body, item, items, physics);
         for &handle in &self.colliders {
             let world = body_pose * local_pose(physics, handle);
             physics.set_collider_parent(handle, Some(carrier));
@@ -660,7 +638,7 @@ impl StorageLocks {
         self.release(item, true, items, physics)
     }
     /// Moves the item colliders back to its own body at the same world pose.
-    /// Without `enable`, the body stays disabled: the item unloads with its owner.
+    /// Without `enable`, the body stays disabled. The item unloads with its owner.
     fn release(
         &mut self,
         item: ItemId,
@@ -691,14 +669,7 @@ impl StorageLocks {
         let velocity = physics.rapier().bodies[carrier].velocity_at_point(body_pose.translation);
         let angular = physics.rapier().bodies[carrier].angvel();
         self.add_mass(owner, carrier, -entry.mass, items, physics);
-        self.colliders.clear();
-        for handle in physics.rapier().bodies[carrier].colliders() {
-            if collider_item(physics.rapier().colliders[*handle].user_data)
-                .is_some_and(|id| id == item || items.descends(id, item))
-            {
-                self.colliders.push(*handle);
-            }
-        }
+        item_colliders(&mut self.colliders, carrier, item, items, physics);
         for &handle in &self.colliders {
             let world = carrier_pose * local_pose(physics, handle);
             physics.set_collider_parent(handle, Some(entry.body));
@@ -895,13 +866,33 @@ impl StorageLocks {
     }
 }
 /// Collider world poses update in the next query refresh. The parent pose is current.
+/// Fills `out` with the colliders of `body` that belong to `item` or its descendants.
+fn item_colliders(
+    out: &mut Vec<ColliderHandle>,
+    body: RigidBodyHandle,
+    item: ItemId,
+    items: &ItemStore,
+    physics: &PhysicsWorld,
+) {
+    out.clear();
+    out.extend(
+        physics.rapier().bodies[body]
+            .colliders()
+            .iter()
+            .copied()
+            .filter(|handle| {
+                collider_item(physics.rapier().colliders[*handle].user_data)
+                    .is_some_and(|id| id == item || items.descends(id, item))
+            }),
+    );
+}
 fn local_pose(physics: &PhysicsWorld, handle: ColliderHandle) -> Pose {
     physics.rapier().colliders[handle]
         .position_wrt_parent()
         .copied()
         .unwrap_or(Pose::IDENTITY)
 }
-/// Collider user data low 32 bits hold the item id plus one. Zero is no item.
+/// The low 32 bits of collider user data hold the item id plus one. Zero means no item.
 fn collider_item(user_data: u128) -> Option<ItemId> {
     let value = (user_data & u32::MAX as u128) as u32;
     value.checked_sub(1).map(ItemId)

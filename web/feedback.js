@@ -3,7 +3,7 @@ import {boundNames} from './bindings.js';
 import {HELP,helpText} from './help-text.js';
 export function formatGear(gear){return gear<0?'R':gear===0?'N':String(gear);}
 /** Item prompt bits (Rust `ItemPrompt`). */
-export const PROMPT={ATTACH:1,COIL:2,DRAIN:4,RELOAD:8,UNLOAD:16,LOOK:32,FOCUS:64};
+export const PROMPT={ATTACH:1,COIL:2,DRAIN:4,RELOAD:8,UNLOAD:16,LOOK:32,FOCUS:64,BREAK_BARREL:128,OPEN_CYLINDER:256};
 /** Computer prompt bits (Rust `ComputerPrompt`). TYPING routes the keyboard to the computer. */
 export const COMPUTER={TURN_ON:1,TURN_OFF:2,USE:4,CONNECT:8,DISCONNECT:16,TYPING:32};
 export const ACTION={USE:1,DOOR:2,PICKUP:4,DROP:8,MOUNT:16,DISMOUNT:32,FILL:64,TUNE:128,ENTER:256,EXIT:512,SWITCH:1024,PUSH:2048,GRIP:4096,THROW:8192,ROTATE:32768,RELEASE_GRIP:65536,PRIMARY_SWITCH:131072,SCROLL:262144,CONSUME:524288,DRINK:1048576,HELD_SWITCH:2097152,WASH:4194304,SCRUB:8388608,EQUIP:16777216,RECENTER:33554432,RELEASE_EQUIPMENT:67108864,RELEASE_EQUIPMENT_SEATED:134217728,TAKE_ONE:268435456,SMOKE:536870912,PUT_ON:1073741824,CRANK:2147483648};
@@ -116,6 +116,8 @@ export function createFeedback(ui,manifest,settings,actions,language) {
   [0,'hoseAttach','{mountdismount}: <stickin>',PROMPT.ATTACH],
   [0,'coilUp','{reload}: <coilup>',PROMPT.COIL],
   [0,'drain','{lmb}: <drain>',PROMPT.DRAIN],
+  [0,'breakBarrel','{reload}+[<mouse>]: <breakbarrel>',PROMPT.BREAK_BARREL],
+  [0,'openCylinder','{reload}+[<mouse>]: <opencylinder>',PROMPT.OPEN_CYLINDER],
   [0,'reload','{reload}: <reload>',PROMPT.RELOAD],
   [0,'unload','{use}: <unload>',PROMPT.UNLOAD],
   [0,'binocularsUse','{lmb}: <use>',PROMPT.LOOK],
@@ -150,7 +152,7 @@ export function createFeedback(ui,manifest,settings,actions,language) {
  }
  // Prompt families stack in screen order. A family starts below the lines of the families above it, so no two rows share a line.
  const counts=new Uint8Array(4),familyTops=new Float32Array(4),familyLines=new Float32Array(4),starts=new Float32Array(4),order=[0,1,2,3];
- const destinations={use:'use',door:'use',pickup:'pickup',drop:'pickup',mount:'mount',dismount:'mount',fill:'fill',eat:'use',smoke:'use',takeOne:'use',putOn:'pickup',drink:'use',tune:'use',enter:'use',exit:'use',switch:'use',primary:'use',push:'pickup',grip:'pickup',release:'pickup',throw:'pickup',scroll:'use',heldSwitch:'use',wash:'use',scrub:'use',equip:'pickup',recenter:'pickup',releaseEquipment:'pickup',releaseEquipmentSeated:'pickup',crank:'use',hoseAttach:'mount',coilUp:'use',drain:'use',reload:'use',unload:'use',binocularsUse:'use',binocularsFocus:'use',computerTurnOn:'use',computerTurnOff:'use',computerUse:'use',computerConnect:'use',computerDisconnect:'use'};
+ const destinations={use:'use',door:'use',pickup:'pickup',drop:'pickup',mount:'mount',dismount:'mount',fill:'fill',eat:'use',smoke:'use',takeOne:'use',putOn:'pickup',drink:'use',tune:'use',enter:'use',exit:'use',switch:'use',primary:'use',push:'pickup',grip:'pickup',release:'pickup',throw:'pickup',scroll:'use',heldSwitch:'use',wash:'use',scrub:'use',equip:'pickup',recenter:'pickup',releaseEquipment:'pickup',releaseEquipmentSeated:'pickup',crank:'use',hoseAttach:'mount',coilUp:'use',drain:'use',breakBarrel:'use',openCylinder:'use',reload:'use',unload:'use',binocularsUse:'use',binocularsFocus:'use',computerTurnOn:'use',computerTurnOff:'use',computerUse:'use',computerConnect:'use',computerDisconnect:'use'};
  const families={use:0,pickup:1,mount:2,fill:3};
  function placeRows(){
   counts.fill(0);

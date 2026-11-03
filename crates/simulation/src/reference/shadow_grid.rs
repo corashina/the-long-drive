@@ -1,4 +1,4 @@
-//! Loose caster grid on source X and Z. Cell tests are conservative: a skipped cell
+//! Loose caster grid on source X and Z. Cell tests are conservative. A skipped cell
 //! holds only casters that the exact f32 source tests also reject.
 use super::shadow_candidates::{Bounds, Plane};
 use super::shadow_frame::CasterInput;

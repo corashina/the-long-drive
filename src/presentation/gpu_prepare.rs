@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 struct Progress {
     pending: usize,
     error: Option<String>,
-    promoted: bool,
     cancelled: bool,
     pipelines: usize,
 }
@@ -36,24 +35,13 @@ impl GpuPreparation {
             p.lock().unwrap().pipelines -= 1;
         }
     }
-    pub fn same_owner(&self, other: &Self) -> bool {
-        match (&self.0, &other.0) {
-            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-            _ => false,
-        }
-    }
     pub(crate) fn fail(&self, message: String) {
         if let Some(p) = &self.0 {
             p.lock().unwrap().error.get_or_insert(message);
         }
     }
     pub fn isolated(&self) -> bool {
-        self.0.as_ref().is_some_and(|s| !s.lock().unwrap().promoted)
-    }
-    pub fn promote(&self) {
-        if let Some(p) = &self.0 {
-            p.lock().unwrap().promoted = true;
-        }
+        self.0.is_some()
     }
     pub fn ready(&self) -> Result<bool, crate::reference::ReferenceError> {
         let Some(p) = &self.0 else { return Ok(true) };
@@ -71,10 +59,7 @@ impl GpuPreparation {
         })
     }
     pub fn scope(&self, device: &RenderDevice) -> Option<GpuScope> {
-        if !self.isolated() {
-            return None;
-        }
-        let progress = self.0.as_ref().unwrap().clone();
+        let progress = self.0.clone()?;
         progress.lock().unwrap().pending += 1;
         Some(GpuScope {
             progress,
@@ -91,10 +76,9 @@ impl GpuPreparation {
         })
     }
     pub fn submitted(&self, queue: &RenderQueue) {
-        if !self.isolated() {
+        let Some(progress) = self.0.clone() else {
             return;
-        }
-        let progress = self.0.as_ref().unwrap().clone();
+        };
         progress.lock().unwrap().pending += 1;
         queue.on_submitted_work_done(move || {
             progress.lock().unwrap().pending -= 1;

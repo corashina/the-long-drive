@@ -54,7 +54,7 @@ def containing(prototypes, node):
 
 def check_prototype_volume(name, fields, homes, usables, mechanisms):
     """Require a volume inside a prototype whose usables are mechanisms.
-    An onlyManual volume is kept: it skips the periodic Upd scan."""
+    The check keeps an onlyManual volume. It skips the periodic Upd scan."""
     if not homes:raise ValueError(f'{name} storage volume is outside the world prototypes')
     for prototype,_ in homes:
         for usable in usables:
@@ -104,7 +104,7 @@ def recover_prototype_storage(source, manifest, output):
         if any(source.class_name(slot)!='partslotscript' for slot in slots):
             raise ValueError(f'{name} gate slot is not a partslotscript')
         homes=containing(prototypes,source_id(node))
-        # Upd needs activeInHierarchy below each prototype root. The stored root is inactive; the spawn activates it.
+        # Upd needs activeInHierarchy below each prototype root. The stored root is inactive. The spawn activates it.
         # Scan reads only the collider box, so a disabled collider or inactive collider object still counts.
         roots=[source.get(p['file'],p['path_id']) for p,_ in homes]
         active=bool(f['m_Enabled']) and all(source.read(source.resolve(node,data['m_GameObject']))['m_IsActive']

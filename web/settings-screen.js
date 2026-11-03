@@ -15,7 +15,6 @@ const LABELS={BEnableFpsLimit:'fpslimit',FFPSLimit:'fpslimit',FMouseSensXY:'mous
  FSound:'msound',FFieldOfViewFoot:'fieldofviewonfoot',FFieldOfViewCar:'fieldofviewincar',FCrosshairScale:'crosshairscale',
  BWalkHeadBob:'walkheadbob',BDriveHeadBob:'driveheadbob',BHelp:'controlshelp',BCrosshair:'crosshair',BOldCrosshair:'oldcrosshair',
  BAlwaysShowHP:'alwaysshowhp',BAlwaysShowFood:'alwaysshowfood',BAlwaysShowWater:'alwaysshowwater',BAlwaysShowPiss:'alwaysshowpiss',BAlwaysShowShit:'alwaysshowshit'};
-export const TABS=['graphics','controls','steering','misc'];
 // A toggle input that follows the store. A child locks while a parent is off.
 export function bindToggle(input,settings,name){
  const parents=Object.entries(settings.reference.toggles).filter(([,t])=>t.children.includes(name)).map(([parent])=>parent);

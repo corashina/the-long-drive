@@ -24,7 +24,8 @@ The patch does not change the mesh allocator, shader language, renderer backend,
 The list holds only commands that a render bundle can hold. Other commands mark the capture as unsupported.
 Capture start and end reset the pass state tracking, as a render bundle does.
 `src/render_phase/mod.rs`: `BinnedRenderPhase::render_filtered` draws only the items whose entity passes a filter.
-A batch passes when its representative entity passes. `render` uses it with a filter that passes every item.
+A batch passes when its representative entity passes. A second closure maps the draw function of each item; `None` skips it.
+`render` uses it with a filter that passes every item and the item's own draw function.
 The product owns the bundles (`src/presentation/render_bundles.rs`).
 
 When upgrading Bevy, review this file against the new PipelineCache API and preserve these ownership rules.

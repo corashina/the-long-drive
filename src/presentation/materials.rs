@@ -155,6 +155,33 @@ struct SourceTexture {
     stalled: u32,
     label: String,
 }
+impl SourceTexture {
+    /// A texture that waits for its first load.
+    fn new(
+        record: TextureRecord,
+        input_staging: usize,
+        persistent: bool,
+        label: String,
+    ) -> Result<Self, source::ReferenceError> {
+        let payload_bytes = record.payload_bytes()?;
+        let cpu_reservation = source::fixed_reservation::png_cpu(payload_bytes, input_staging)?;
+        Ok(Self {
+            owner: Arc::new(()),
+            upload: default(),
+            failed: false,
+            persistent,
+            users: 0,
+            record: Arc::new(record),
+            chain: None,
+            input_staging,
+            payload_bytes,
+            cpu_reservation,
+            image: None,
+            stalled: 0,
+            label,
+        })
+    }
+}
 #[derive(Resource, Clone)]
 pub struct SourceMaterials {
     pub preparation: super::gpu_prepare::GpuPreparation,
@@ -235,13 +262,12 @@ impl MaterialLoading {
         let requests = (pending.requests.as_ptr() as usize, pending.requests.len());
         if state == 0 {
             pending.terminal_prewarm_audit = None;
-        } else if let Some((previous_requests, audit)) = pending.terminal_prewarm_audit {
-            if previous_requests == requests
-                && audit.state == state
-                && audit.sealed == pending.sealed
-            {
-                return audit;
-            }
+        } else if let Some((previous_requests, audit)) = pending.terminal_prewarm_audit
+            && previous_requests == requests
+            && audit.state == state
+            && audit.sealed == pending.sealed
+        {
+            return audit;
         }
         let meshes = world.get_resource::<RenderAssets<RenderMesh>>();
         let materials = world.get_resource::<ErasedRenderAssets<PreparedMaterial>>();
@@ -294,7 +320,7 @@ struct LoadingData {
     state: RenderingState,
     shadow_capacity: usize,
     transparent_pass_capacity: usize,
-    // A terminal prewarm boundary remains fixed until requests, seal, or state change.
+    // A terminal prewarm boundary stays fixed until the requests, the seal or the state change.
     terminal_prewarm_audit: Option<((usize, usize), MaterialPrewarmAudit)>,
 }
 #[derive(Resource, Default)]
@@ -500,27 +526,13 @@ pub fn load_materials(
                 continue;
             }
             let input_staging = primary::primary_staging(texture, &reference.file_catalog)?;
-            let payload_bytes = texture.payload_bytes()?;
-            let cpu_reservation = source::fixed_reservation::png_cpu(payload_bytes, input_staging)?;
+            let label = format!(
+                "material {}:{} {}",
+                record.source.file, record.source.path_id, texture.slot
+            );
+            let entry = SourceTexture::new(texture.clone(), input_staging, true, label)?;
             texture_indices.insert(texture.file().to_owned(), textures.len());
-            textures.push(SourceTexture {
-                owner: Arc::new(()),
-                upload: default(),
-                failed: false,
-                persistent: true,
-                users: 0,
-                record: Arc::new(texture.clone()),
-                chain: None,
-                input_staging,
-                payload_bytes,
-                cpu_reservation,
-                image: None,
-                stalled: 0,
-                label: format!(
-                    "material {}:{} {}",
-                    record.source.file, record.source.path_id, texture.slot
-                ),
-            });
+            textures.push(entry);
         }
     }
     for texture in &reference.plates.material.textures {
@@ -528,25 +540,10 @@ pub fn load_materials(
             continue;
         }
         let input_staging = primary::primary_staging(texture, &reference.file_catalog)?;
-        let payload_bytes = texture.payload_bytes()?;
-        let cpu_reservation = source::fixed_reservation::png_cpu(payload_bytes, input_staging)?;
-
+        let label = format!("source texture {}", texture.file());
+        let entry = SourceTexture::new(texture.clone(), input_staging, true, label)?;
         texture_indices.insert(texture.file().to_owned(), textures.len());
-        textures.push(SourceTexture {
-            owner: Arc::new(()),
-            upload: default(),
-            failed: false,
-            persistent: true,
-            users: 0,
-            record: Arc::new(texture.clone()),
-            chain: None,
-            input_staging,
-            payload_bytes,
-            cpu_reservation,
-            image: None,
-            stalled: 0,
-            label: format!("source texture {}", texture.file()),
-        });
+        textures.push(entry);
     }
     let mut source = SourceMaterials {
         preparation: default(),
@@ -732,7 +729,8 @@ pub(crate) fn bind_authored_materials(
                 .insert((bevy::render::batching::NoAutomaticBatching, sort));
         }
         let handle = if let Some(slot) = slot {
-            // `playermodeloutfitscript.Refresh`: one copy of the segment material with its own color.
+            // `playermodeloutfitscript.Refresh` makes one copy of the segment material
+            // with its own color.
             let (Some(segment), invisible) = (find(slot.material), slot.invisible.map(find)) else {
                 source.state = RenderingState::Failed(format!(
                     "Missing outfit material {}:{}",
@@ -863,7 +861,7 @@ pub struct OutfitSlot {
     pub segment: u8,
     /// glTF material index of the segment `default_material`.
     pub material: u32,
-    /// glTF material index of the invisible material. Only for a segment with `disable_able`.
+    /// glTF material index of the invisible material. Only a segment with `disable_able` has one.
     pub invisible: Option<u32>,
 }
 /// Materials of an outfit slot. The segment copy has a retained color.
@@ -922,7 +920,7 @@ fn make_material(
     if player {
         flags |= 1 << 9;
     }
-    // The ragdoll draws with `_Dist` 0 in every view: no head clip.
+    // The ragdoll draws with `_Dist` 0 in every view, so it has no head clip.
     if player && record.asset == source.ragdoll {
         flags |= 1 << 12;
     }
@@ -1370,7 +1368,7 @@ impl SourceMaterial {
         let bank = if data.flags.y & bit != 0 {
             data.banks[slot / 4][slot % 4]
         } else {
-            // Banks 4 and 5 are the normal and depth maps: their presence changes the pipeline.
+            // Banks 4 and 5 are the normal and depth maps. Their presence changes the pipeline.
             let used = |bank: u32| {
                 (0..9).any(|other| {
                     data.flags.y & (1 << other) != 0 && data.banks[other / 4][other % 4] == bank
@@ -1416,7 +1414,7 @@ const MAIN_SLOT: usize = 0;
 /// Index of `_EmissionMap` in `SLOTS`.
 const EMISSION_SLOT: usize = 4;
 /// Source `SetColor("_EmissionColor")` and, with `map`, `SetTexture("_EmissionMap")`.
-/// `None` keeps the current map. Only a changed value touches `assets`: an untouched
+/// `None` keeps the current map. Only a changed value touches `assets`. An untouched
 /// `assets` keeps its change tick, so the shadow scene does not walk every caster again.
 pub fn write_emission(
     assets: &mut ResMut<Assets<SourceMaterial>>,
@@ -1669,8 +1667,6 @@ impl MaterialExtension for SourceExtension {
         if state.gpu_props {
             descriptor.layout[2] = super::prop_draws::draw_layout();
         }
-        attributes.push(super::renderers::SOURCE_BOUNDS_CENTER.at_shader_location(8));
-        attributes.push(super::renderers::SOURCE_BOUNDS_EXTENTS.at_shader_location(9));
         descriptor.vertex.buffers = vec![layout.0.get_layout(&attributes)?];
         for (name, value) in [
             ("SOURCE_STANDARD", state.standard),
@@ -1721,6 +1717,8 @@ impl MaterialExtension for SourceExtension {
             });
         }
         if let Some(fragment) = &mut descriptor.fragment {
+            // source_surface.wgsl also has the `depth` prepass entry. WebGPU needs a named entry.
+            fragment.entry_point = Some("fragment".into());
             if state.src == 1 && state.dst == 0 {
                 fragment
                     .shader_defs
@@ -1805,9 +1803,7 @@ impl AsBindGroup for SourceReceiver {
     fn label() -> &'static str {
         "source lighting"
     }
-    fn bind_group_data(&self) -> Self::Data {
-        ()
-    }
+    fn bind_group_data(&self) -> Self::Data {}
     fn unprepared_bind_group(
         &self,
         _: &BindGroupLayout,
@@ -1975,7 +1971,7 @@ pub fn bind_materials(
         {
             continue;
         }
-        // Authored primitives wait for their renderer record: it holds the pass sort order.
+        // Authored primitives wait for their renderer record. It holds the pass sort order.
         if extras.is_some() && renderer.is_none() {
             continue;
         }
@@ -2447,44 +2443,5 @@ impl SourceMaterials {
                     .measurement_images()
                     .map(|id| (id, true)),
             )
-    }
-}
-
-impl SourceMaterials {
-    pub fn drain_ready(
-        &mut self,
-        server: &AssetServer,
-        chains: &Assets<SourcePrimaryImage>,
-        batches: &mut Assets<crate::presentation::texture_batches::SourceTextureBatch>,
-    ) -> bool {
-        self.world_textures.drain_ready(server, batches)
-            && self.textures.iter().all(|t| {
-                (t.image.is_some() && primary::pending_texture_cpu(t) == 0)
-                    || (t.image.is_none()
-                        && t.chain.iter().all(|h| {
-                            chains.contains(h.id())
-                                || matches!(server.load_state(h.id()), LoadState::Failed(_))
-                        }))
-            })
-    }
-    pub fn release_all(
-        &mut self,
-        server: &AssetServer,
-        images: &mut Assets<Image>,
-        chains: &mut Assets<SourcePrimaryImage>,
-        materials: &mut Assets<SourceMaterial>,
-    ) -> Result<(), source::ReferenceError> {
-        let assets: Vec<_> = self.world_primary.asset_ids().collect();
-        for asset in assets {
-            self.release_world_asset(asset, images, chains, materials, server)?;
-        }
-        self.world_textures.release_all(images);
-        Ok(())
-    }
-    pub fn settled(&self) -> bool {
-        self.textures
-            .iter()
-            .all(|t| !t.failed && t.image.is_some() && primary::pending_texture_cpu(t) == 0)
-            && self.world_textures.settled()
     }
 }

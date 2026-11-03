@@ -64,9 +64,6 @@ fn node(m: &ReferenceManifest, id: NodeId) -> Result<&NodeRecord, ReferenceError
         .find(|n| n.id == id)
         .ok_or_else(|| ReferenceError("missing player node".into()))
 }
-fn unit(q: &[f32; 4]) -> bool {
-    finite(q) && (q.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 0.002
-}
 pub(super) fn same_pose(a: &Transform, b: &Transform) -> bool {
     a.translation == b.translation && a.rotation == b.rotation && a.scale == b.scale && transform(a)
 }
@@ -206,7 +203,7 @@ impl PlayerPoseReference {
                         30051, 29368,
                     ])
                     .all(|(n, p)| matches(*n, p))
-                && unit(&self.right_hand_rotation),
+                && unit_quaternion(&self.right_hand_rotation),
             "player view and sit inputs",
         )?;
         require(self.ik_chains.len() == 5, "complete player IK chains")?;
@@ -231,7 +228,7 @@ impl PlayerPoseReference {
                     && c.use_pole
                     && c.force_end == (i == 2)
                     && c.stretch == (i >= 2)
-                    && unit(&c.offsets),
+                    && unit_quaternion(&c.offsets),
                 "player IK links and flags",
             )?;
             for (j, bone) in c.bones.iter().enumerate() {

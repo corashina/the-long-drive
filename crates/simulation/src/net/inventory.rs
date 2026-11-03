@@ -1,5 +1,5 @@
 //! Source `pickupable.SyncInventory` and `snItemsync.UpdInventory`: an item that another player
-//! carries, holds or stores. A stored item hides. A carried or held item rides on that player and
+//! carries, holds or stores. A stored item hides. A carried or held item follows that player and
 //! moves smoothly to each pose (`SmoothMove`).
 use super::items::Out;
 use super::message::{InventoryMessage, ItemPoseMessage, Message};
@@ -44,7 +44,7 @@ impl InventorySync {
         self.sent.clear();
     }
 
-    /// Source `SyncInventory`: sends each change of where this player keeps an item.
+    /// Source `SyncInventory`. It sends each change of where this player keeps an item.
     pub(super) fn send(&mut self, runtime: &GarageRuntime, index: &ObjectIndex, out: &mut Out) {
         let area = &runtime.area;
         let carried = area.interaction.carry.held();
@@ -127,7 +127,7 @@ impl InventorySync {
             return;
         };
         if flags & (InventoryMessage::PICKED | InventoryMessage::EQUIPPED) != 0 {
-            // Source: the other player takes it from this player's hands.
+            // In the source, the other player takes it from this player's hands.
             drop_local(runtime, item);
         }
         if flags == 0 {
@@ -143,7 +143,8 @@ impl InventorySync {
             target: None,
         });
         held.slot = slot;
-        // Source `UpdItemParent`: active unless stored and not in the right hand; no gravity.
+        // Source `UpdItemParent`. The body is active unless stored and not in the right hand.
+        // It has no gravity.
         let shown =
             flags & InventoryMessage::STORED == 0 || flags & InventoryMessage::EQUIPPED != 0;
         runtime.physics.edit_body(handle, |body| {
@@ -152,7 +153,7 @@ impl InventorySync {
         });
     }
 
-    /// Source `UpdInWorld` of an item that another player holds: it moves there smoothly.
+    /// Source `UpdInWorld` of an item that another player holds. It moves there smoothly.
     /// False if no other player holds `item`.
     pub fn target(
         &mut self,
@@ -232,7 +233,7 @@ impl InventorySync {
         );
     }
 
-    /// A player left: its items fall where they are.
+    /// A player left. Its items fall where they are.
     pub fn leave(&mut self, runtime: &mut GarageRuntime, slot: u8) {
         let items: Vec<ItemId> = self
             .held
@@ -267,7 +268,7 @@ fn figure(figures: &[(u8, Pose)], slot: u8) -> Pose {
         .map_or(Pose::IDENTITY, |(_, p)| *p)
 }
 
-/// Source `UpdItemParent` with nothing held: the body is loose again.
+/// Source `UpdItemParent` with nothing held. The body is loose again.
 fn restore(runtime: &mut GarageRuntime, item: ItemId, held: &Held) {
     let Some(handle) = runtime.area.items.get(item).and_then(|i| i.body) else {
         return;

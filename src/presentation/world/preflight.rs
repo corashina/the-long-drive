@@ -96,18 +96,6 @@ pub fn load_plan(
         .load(input.file.clone()))
 }
 
-/// Root completion follows the checked reader's physical completion.
-pub fn plan_terminal(
-    server: &AssetServer,
-    plans: &Assets<SourcePlan>,
-    handle: &Handle<SourcePlan>,
-) -> bool {
-    plans.contains(handle.id())
-        || matches!(
-            server.load_state(handle.id()),
-            bevy::asset::LoadState::Failed(_)
-        )
-}
 pub fn poll_plan(
     server: &AssetServer,
     plans: &Assets<SourcePlan>,

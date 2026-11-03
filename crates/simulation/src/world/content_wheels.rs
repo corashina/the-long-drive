@@ -111,6 +111,8 @@ pub(super) fn bind(
                 layers,
                 false,
             );
+            // The wheel slot sensor takes the removal ray on these layers.
+            interaction.register_generated_part_kind(item, layers);
             // Slots under the wheel take its pose.
             interaction
                 .mechanisms

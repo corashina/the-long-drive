@@ -55,7 +55,7 @@ pub struct BreakableReference {
     pub only_decrease_above: bool,
     pub decrease_above_health: f32,
     pub only_velocity: bool,
-    /// Never 0: breakablescript.Start changes 0 to 1.
+    /// The value is never 0. breakablescript.Start changes 0 to 1.
     pub mass_modifier: f32,
     pub child_modifier: f32,
     pub children: Vec<BreakableChild>,

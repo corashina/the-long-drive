@@ -1,5 +1,6 @@
-//! bubbleLevelScript: each spirit level bubble follows the vial tilt.
+//! bubbleLevelScript. Each spirit level bubble follows the vial tilt.
 use crate::reference::{BubbleReference, ReferenceError, Transform, WorldPrototypeReference};
+use crate::simulation::dials::{inverse_lerp, lerp};
 use crate::simulation::engine::torque;
 use rapier3d::math::{Matrix, Rotation, Vector};
 
@@ -82,18 +83,6 @@ impl Vial {
             to_local,
         })
     }
-}
-
-pub fn inverse_lerp(a: f32, b: f32, v: f32) -> f32 {
-    if a == b {
-        0.
-    } else {
-        ((v - a) / (b - a)).clamp(0., 1.)
-    }
-}
-
-pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
 }
 
 /// Unity `Vector3.normalized`.

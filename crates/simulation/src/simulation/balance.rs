@@ -13,7 +13,7 @@ pub struct BalanceState {
     pub last_error: f32,
 }
 
-/// Unity `Mathf.Sign`: 0 gives 1.
+/// Unity `Mathf.Sign`. An input of 0 gives 1.
 fn sign(v: f32) -> f32 {
     if v >= 0. { 1. } else { -1. }
 }
@@ -36,7 +36,7 @@ fn source(v: Vector) -> Vector {
 /// `speed`: source km/h, `|project(velocity, forward)| * 3.6`. `steer`: -1..1.
 /// `up` and `forward`: chassis axes in converted world space.
 /// Returns the torque in converted chassis-local axes. Source `AddRelativeTorque(-(0, 0, z))`
-/// keeps its z under handedness conversion (axial vector: z negates twice).
+/// keeps its z under handedness conversion (an axial vector, so z negates twice).
 pub fn step(
     r: &BalanceReference,
     s: &mut BalanceState,

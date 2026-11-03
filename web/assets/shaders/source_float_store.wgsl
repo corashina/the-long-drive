@@ -1,5 +1,5 @@
 #define_import_path source_float_store
-// D3D11.3 3.2.2: finite narrowing truncates and saturates overflow; existing Inf/NaN remain exceptional.
+// D3D11.3 section 3.2.2. Finite narrowing truncates and saturates overflow. Existing Inf and NaN stay exceptional.
 // This integer helper is the exact AO-depth revision2 helper tested through ANGLE.
 fn half_store_bits(bits: u32) -> u32 {
     let magnitude = bits & 0x7fffffffu;

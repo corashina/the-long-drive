@@ -1,6 +1,7 @@
 //! Source `sensoryscript`: vision rays, the vision cone and hearing.
 use super::stimuli::Stimulus;
 use crate::reference::{SensesReference, StimulusKind, VisionRay};
+use crate::simulation::dials::inverse_lerp;
 use crate::vehicle::PhysicsWorld;
 use crate::weather::StormRandom;
 use rapier3d::math::{Pose, Vector};
@@ -70,13 +71,6 @@ pub fn angle(a: Vector, b: Vector) -> f32 {
 
 fn project_on_plane(v: Vector, normal: Vector) -> Vector {
     v - normal * v.dot(normal)
-}
-
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        return 0.;
-    }
-    ((value - a) / (b - a)).clamp(0., 1.)
 }
 
 /// Source `sensoryscript.Start` squares these.
@@ -167,7 +161,7 @@ impl Senses {
         for s in input.stimuli.iter().filter(near) {
             let d = s.position.distance_squared(input.root);
             if d < hear && d > min_hear && s.sound && s.value > r.min_hear_value {
-                // The source falloff uses squared distances: far sounds count more.
+                // The source falloff uses squared distances, so far sounds count more.
                 self.sensed.push(Sensed {
                     position: s.position,
                     kind: s.kind,

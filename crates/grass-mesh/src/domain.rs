@@ -1,6 +1,6 @@
 //! Integer, equal-edge triangle tessellation selected by the checked Grass hull program.
 //! Concentric rings follow the D3D11 specification and Microsoft reference algorithm.
-//! Primitive order is canonical here; source GPU leading-vertex order is device dependent.
+//! Primitive order is canonical here. Source GPU leading-vertex order is device dependent.
 
 #[derive(Default)]
 pub struct GrassDomain {

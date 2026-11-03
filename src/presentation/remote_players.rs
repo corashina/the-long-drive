@@ -18,7 +18,7 @@ use bevy::world_serialization::WorldInstanceReady;
 use simulation::boundary::RemoteRow;
 use std::collections::HashMap;
 
-/// Port choice: the label stands this far above the Player Transform.
+/// Port choice. The label stands this far above the Player Transform.
 const LABEL_HEIGHT: f32 = 2.1;
 
 #[derive(Component)]

@@ -1,11 +1,14 @@
 //! Source `newAiScript.Update`, `AvoidWalls`, `Use`, `GetNewPatrolPos` and `NewPatrolTime`:
 //! sight, chase, patrol, move, wall avoidance, jump, duck, ladders and doors.
-//! Positions and directions use the converted space: forward is -Z.
+//! Positions and directions use the converted space, where forward is -Z.
+use super::brain::signed_angle;
+use super::senses::angle;
 use crate::reference::{HumanAiReference, ItemId};
+use crate::simulation::dials::{inverse_lerp, lerp};
 use crate::weather::StormRandom;
 use rapier3d::math::{Pose, Rotation, Vector};
 
-/// Source `sens.v`: a `sens` stays sensed for this many fixed steps after its last touch.
+/// Source `sens.v`. A `sens` stays sensed for this many fixed steps after its last touch.
 pub const SENS_HOLD: u8 = 3;
 /// `ladderscript.OnTriggerStay` sets `ladderV` to this.
 pub const LADDER_HOLD: u8 = 5;
@@ -34,7 +37,7 @@ pub enum Touch {
     Other,
 }
 
-/// Source `sens`: `OnTriggerStay` sets `T` and holds `sensed` for `SENS_HOLD` fixed steps.
+/// Source `sens`. `OnTriggerStay` sets `T` and holds `sensed` for `SENS_HOLD` fixed steps.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Sens {
     pub touch: Option<Touch>,
@@ -124,7 +127,7 @@ pub trait World {
     fn ray(&mut self, origin: Vector, direction: Vector, range: f32) -> Option<Hit>;
 }
 
-/// The `newAiScript` fields that X03e owns: saved or set in `Start`.
+/// The `newAiScript` fields that X03e owns. The save or `Start` sets them.
 pub struct Owned<'a> {
     pub sleeping: &'a mut bool,
     pub first: &'a mut bool,
@@ -143,13 +146,13 @@ pub struct Frame {
     /// Root pose and Rigidbody velocity.
     pub pose: Pose,
     pub velocity: Vector,
-    /// `head` pose. X03g animates it; until then the body pose with a fixed offset.
+    /// `head` pose. The Animator animates it.
     pub head: Pose,
     /// `mainscript.M.player`.
     pub player: Option<PlayerView>,
     /// `GSettings.peacefulEnemies == 2`.
     pub peaceful: bool,
-    /// `rizseshusi` with `player.currentTarget`: the target follows it.
+    /// `rizseshusi` with `player.currentTarget`. The target follows it.
     pub debug_target: Option<Vector>,
 }
 
@@ -160,7 +163,7 @@ pub struct Output {
     pub rotation: Rotation,
     /// `rb.useGravity`.
     pub gravity: bool,
-    /// `Use`: push this usable by `doorSpeed * dt` on each axis.
+    /// `Use` pushes this usable by `doorSpeed * dt` on each axis.
     pub door: Option<Usable>,
     /// `Attack`: `survival.DamageInstant(damage * dt, show: true)` on the player.
     pub damage: f32,
@@ -212,22 +215,11 @@ pub struct HumanAi {
     points: Vec<Vector>,
 }
 
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        return 0.;
-    }
-    ((value - a) / (b - a)).clamp(0., 1.)
-}
-
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
-}
-
 fn flat(v: Vector) -> Vector {
     Vector::new(v.x, 0., v.z)
 }
 
-/// Unity `normalized`: zero below 1e-5.
+/// Unity `normalized`. It is zero below 1e-5.
 fn normalized(v: Vector) -> Vector {
     let length = v.length();
     if length > 1e-5 {
@@ -244,17 +236,6 @@ fn forward(rotation: Rotation) -> Vector {
 /// Unity `Quaternion.Euler(0, degrees, 0)`.
 fn yaw(degrees: f32) -> Rotation {
     Rotation::from_rotation_y(-degrees.to_radians())
-}
-
-/// Unity `Vector3.Angle`.
-fn angle(a: Vector, b: Vector) -> f32 {
-    super::senses::angle(a, b)
-}
-
-/// Unity `Vector3.SignedAngle(from, to, Vector3.up)`: positive turns right.
-fn signed_angle(from: Vector, to: Vector) -> f32 {
-    let sign = if from.cross(to).y > 0. { -1. } else { 1. };
-    angle(from, to) * sign
 }
 
 /// Unity `Quaternion.LookRotation(direction, Vector3.up)` of a horizontal direction.
@@ -324,7 +305,7 @@ impl HumanAi {
         if self.ladder {
             self.ladder_v -= 1;
         }
-        // Source checks the chase end inside the voice code, which runs only awake.
+        // The source checks the chase end inside the voice code, which runs only while awake.
         if !*sleeping && self.is_chasing && self.chase_start + (self.chase_time as f64) < now {
             self.is_chasing = false;
         }
@@ -427,7 +408,7 @@ impl HumanAi {
             let current = current.or_else(|| self.sensors.down.usable());
             usable = current.or(ray_usable);
             if let Some(u) = usable {
-                // `Use`: the caller pushes the door. The hand holds the midpoint of the usable
+                // In `Use`, the caller pushes the door. The hand holds the midpoint of the usable
                 // and one meter ahead.
                 self.anim.hold[0] = Some((u.position + position + fwd) * 0.5);
             }
@@ -514,7 +495,7 @@ impl HumanAi {
         output
     }
 
-    /// Source `Attack`: the first hit that is not this AI must be the player.
+    /// Source `Attack`. The first hit that is not this AI must be the player.
     fn attack(
         &mut self,
         r: &HumanAiReference,
@@ -546,7 +527,7 @@ impl HumanAi {
         }
     }
 
-    /// Source `AvoidWalls`: sets `avoid_dir` and returns `rayUsable`.
+    /// Source `AvoidWalls`. It sets `avoid_dir` and returns `rayUsable`.
     fn avoid_walls(
         &mut self,
         r: &HumanAiReference,
@@ -606,8 +587,8 @@ impl HumanAi {
         ray_usable
     }
 
-    /// Source `GetNewPatrolPos`. Source sorts the points by their distance to the world origin;
-    /// the port sorts by the distance to the floating origin.
+    /// Source `GetNewPatrolPos`. The source sorts the points by their distance to the world
+    /// origin. The port sorts by the distance to the floating origin.
     fn new_patrol_pos(
         &mut self,
         r: &HumanAiReference,

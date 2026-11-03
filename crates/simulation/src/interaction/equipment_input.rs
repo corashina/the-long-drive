@@ -74,9 +74,7 @@ impl EquipmentInput {
         if input.released & keys::RECENTER != 0 {
             self.pressed_item = None;
         }
-        if context.carried.is_none() {
-            return None;
-        }
+        context.carried?;
         if context.carried_can_equip && !context.has_equipment && self.can_equip && short_release {
             Some(EquipAction::Equip)
         } else if input.held & keys::RECENTER != 0

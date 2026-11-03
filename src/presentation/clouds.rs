@@ -88,11 +88,11 @@ impl CloudPass {
             vertex: VertexState {
                 shader: shader.clone(),
                 entry_point: Some("vertex".into()),
-                buffers: vec![vertex_layout.clone()],
+                buffers: vec![vertex_layout],
                 ..default()
             },
             fragment: Some(FragmentState {
-                shader: shader.clone(),
+                shader,
                 entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: HDR_FORMAT,
@@ -263,16 +263,12 @@ pub(crate) fn prepare_clouds(
     antialiasing: Res<super::antialiasing::Antialiasing>,
 ) {
     if let Some(pass) = existing {
-        use bevy::shader::ShaderCacheError;
-        match cache.get_render_pipeline_state(pass.pipeline) {
-            CachedPipelineState::Err(
-                ShaderCacheError::ShaderNotLoaded(_)
-                | ShaderCacheError::ShaderImportNotYetAvailable,
-            ) => {}
-            CachedPipelineState::Err(error) => {
-                status.fail(format!("Source cloud pipeline: {error}"));
-            }
-            _ => {}
+        if let Some(error) = super::postprocessing::named_pipeline_failure(
+            &cache,
+            &[pass.pipeline],
+            "Source cloud pipeline",
+        ) {
+            status.fail(error);
         }
         return;
     }

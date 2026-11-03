@@ -2,7 +2,7 @@
 use super::rendering::*;
 use super::{
     AssetId, AssetUsage, ColliderId, LightControlId, LightId, NodeId, ReferenceError,
-    ReferenceManifest, SourceId, Transform, finite, hash, ids, require, transform,
+    ReferenceManifest, SourceId, Transform, finite, hash, ids, require, source_valid, transform,
 };
 use serde::{Deserialize, Serialize};
 
@@ -271,13 +271,10 @@ pub struct LightingRecord {
 
 impl LightingRecord {
     pub fn validate(&self, manifest: &ReferenceManifest) -> Result<(), ReferenceError> {
-        let check = |ok: bool, source: &SourceId, field: &str| {
-            require(ok, &format!("{}:{} {field}", source.file, source.path_id))
-        };
+        let check =
+            |ok: bool, source: &SourceId, field: &str| require(ok, &super::field(source, field));
         let node = |id: NodeId| manifest.nodes.iter().find(|n| n.id == id);
-        let valid_source = |s: &SourceId| {
-            s.path_id != 0 && manifest.source_hashes.iter().any(|h| h.file == s.file)
-        };
+        let valid_source = |s: &SourceId| source_valid(s, &manifest.source_hashes);
         let valid_resource = |s: &SourceId, path: &str, digest: &str| {
             valid_source(s)
                 && path.starts_with("reference/")

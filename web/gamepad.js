@@ -1,4 +1,4 @@
-// Raw pad state for Rust `GamepadFrame`: 4 pads, 8 axes and 32 button bits per pad. No mapping here.
+// Raw pad state for Rust `GamepadFrame`: 4 pads, 8 axes and 32 button bits per pad. This file does no mapping.
 export const PADS=4,AXES=8,BUTTONS=32;
 // `getGamepads` gives the `navigator.getGamepads()` list. Missing pads read as zero.
 export function createGamepad(getGamepads){

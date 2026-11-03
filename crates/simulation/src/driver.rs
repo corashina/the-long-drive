@@ -8,7 +8,7 @@ use crate::vehicle::VehiclePose;
 use glam::{Quat, Vec3};
 
 /// World step milliseconds of a loading frame. The loading panel covers the screen.
-pub const LOADING_BUDGET_MS: f64 = 12.;
+const LOADING_BUDGET_MS: f64 = 12.;
 
 pub struct SimDriver {
     pub runtime: GarageRuntime,
@@ -287,17 +287,16 @@ impl SimDriver {
             }
             self.consumed_seq = self.input_seq;
             let new_origin = self.runtime.stream.origin.offset;
+            let shift: [f32; 3] = std::array::from_fn(|i| (new_origin[i] - old_origin[i]) as f32);
             let mut previous = self.look.position[1];
             for i in 0..3 {
-                previous[i] -= (new_origin[i] - old_origin[i]) as f32;
+                previous[i] -= shift[i];
             }
             let parent = self.look.parent[1];
             self.capture_look();
             self.look.position[0] = previous;
             self.look.parent[0] = parent;
-            let shift = Vec3::from_array(std::array::from_fn(|i| {
-                (new_origin[i] - old_origin[i]) as f32
-            }));
+            let shift = Vec3::from_array(shift);
             let mut seat = self.camera_seat[1];
             if let Some(seat) = &mut seat {
                 seat.shift(shift);
@@ -453,7 +452,7 @@ impl SimDriver {
         self.look.position[1] = player.view(&self.runtime.physics).camera_pose.position;
     }
 
-    /// Both steps of the look at the player view.
+    /// Puts both steps of the look at the player view.
     fn reset_look(&mut self) {
         self.capture_look();
         self.look.position[0] = self.look.position[1];

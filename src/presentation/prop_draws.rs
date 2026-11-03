@@ -1,5 +1,5 @@
 //! GPU prop rows in the render world: upload, cull per view, and indirect draws.
-//! Pass 0 is the camera. Passes 1-4 are the shadow cascades, 5-8 the lamp shadow slots.
+//! Pass 0 is the camera. Passes 1-4 are the shadow cascades, and passes 5-8 are the lamp shadow slots.
 use super::{
     caster::CasterPasses,
     lighting_assets::LightingRenderAssets,
@@ -48,9 +48,11 @@ const PASSES: usize = 9;
 const ALIGN: u64 = 256;
 const ROW_BYTES: u64 = ROW_WORDS as u64 * 4;
 const ARGS_BYTES: u64 = 20;
-/// Planes, counts and view index of `CullView` in source_props_cull.wgsl.
-const CULL_WORDS: usize = 32;
-/// Visible rows per pass. Sixteen words per view.
+/// Planes, counts, view index and probes of `CullView` in source_props_cull.wgsl.
+const CULL_WORDS: usize = 64;
+/// One packed lamp mask and probe pair per camera-visible entry. See object_lighting.rs.
+const LIGHT_BYTES: u64 = 16;
+/// Visible rows per pass. Each view has sixteen words.
 const TOTAL_WORDS: usize = 16;
 /// More dirty ranges than this upload all rows. Fading rows give one range per few rows.
 const UPLOAD_RANGES: usize = 256;
@@ -106,6 +108,10 @@ pub fn draw_layout() -> BindGroupLayoutDescriptor {
                 (50, storage_buffer_read_only_sized(false, None)),
                 (51, storage_buffer_read_only_sized(true, None)),
                 (52, uniform_buffer_sized(true, NonZeroU64::new(16))),
+                (
+                    53,
+                    storage_buffer_read_only_sized(true, None).visibility(ShaderStages::VERTEX),
+                ),
             ),
         ),
     )
@@ -123,6 +129,8 @@ fn cull_layout() -> BindGroupLayoutDescriptor {
                 storage_buffer_sized(false, None),
                 uniform_buffer_sized(true, NonZeroU64::new(CULL_WORDS as u64 * 4)),
                 storage_buffer_read_only_sized(true, None),
+                uniform_buffer::<super::lighting::LightingUniform>(false),
+                storage_buffer_sized(true, None),
             ),
         ),
     )
@@ -133,6 +141,8 @@ fn cull_layout() -> BindGroupLayoutDescriptor {
 struct BatchPipelines {
     base: Option<CachedRenderPipelineId>,
     partner: Option<CachedRenderPipelineId>,
+    /// Depth prepass and Equal pipelines.
+    prepass: Option<[CachedRenderPipelineId; 2]>,
     caster: Option<CachedRenderPipelineId>,
 }
 struct Specialization {
@@ -156,8 +166,9 @@ struct ViewState {
     mask_slots: Vec<u32>,
     /// Draw attempts and issued draws in this frame.
     draws: [AtomicU32; 2],
-    /// Draws of the camera, then of each caster slot. Batches change rarely, so the same bundle runs each frame.
-    bundles: [Mutex<DrawBundle>; 1 + super::lamp_shadows::TILES],
+    /// Draws of the camera, the camera depth prepass, then each caster slot.
+    /// Batches change rarely, so the same bundle runs each frame.
+    bundles: [Mutex<DrawBundle>; 2 + super::lamp_shadows::TILES],
 }
 /// Batch draw data from the mesh allocator.
 #[derive(Clone, Copy, PartialEq)]
@@ -175,7 +186,7 @@ struct Buffers {
     totals: Buffer,
     row_capacity: u32,
     batch_capacity: u32,
-    /// Entries of one visible list. A multiple of 64, so each list starts on 256 bytes.
+    /// Entries of one visible list. It is a multiple of 64, so each list starts on 256 bytes.
     stride: u32,
     args_region: u64,
     visible_region: u64,
@@ -190,6 +201,7 @@ impl Buffers {
         rows: u32,
         batches: u32,
         stride: u32,
+        lamps: &Buffer,
     ) -> Self {
         let buffer = |label: &'static str, size: u64, usage: BufferUsages| {
             device.create_buffer(&BufferDescriptor {
@@ -244,6 +256,12 @@ impl Buffers {
             views * TOTAL_WORDS as u64 * 4,
             BufferUsages::STORAGE | BufferUsages::COPY_SRC,
         );
+        // Camera list values, one region of `stride` entries per view. The bind groups own it.
+        let lights = buffer(
+            "source_prop_lights",
+            views * u64::from(stride) * LIGHT_BYTES,
+            BufferUsages::STORAGE,
+        );
         let cull = device.create_bind_group(
             "source_prop_cull",
             &cache.get_bind_group_layout(&cull_layout()),
@@ -255,6 +273,8 @@ impl Buffers {
                 totals.as_entire_binding(),
                 sized(&cull_views, CULL_WORDS as u64 * 4),
                 sized(&masks, mask_region),
+                lamps.as_entire_binding(),
+                sized(&lights, u64::from(stride) * LIGHT_BYTES),
             )),
         );
         let draw = device.create_bind_group(
@@ -264,6 +284,7 @@ impl Buffers {
                 (50, rows_buffer.as_entire_binding()),
                 (51, sized(&visible, u64::from(stride) * 4)),
                 (52, sized(&batch_offsets, 16)),
+                (53, sized(&lights, u64::from(stride) * LIGHT_BYTES)),
             )),
         );
         Self {
@@ -286,6 +307,9 @@ impl Buffers {
     }
     fn list_offset(&self, view: usize, pass: usize) -> u32 {
         (view as u64 * self.visible_region + pass as u64 * u64::from(self.stride) * 4) as u32
+    }
+    fn lights_offset(&self, view: usize) -> u32 {
+        (view as u64 * u64::from(self.stride) * LIGHT_BYTES) as u32
     }
     fn args_offset(&self, view: usize, pass: usize, batch: usize, batches: usize) -> u64 {
         view as u64 * self.args_region + ((pass * batches + batch) as u64) * ARGS_BYTES
@@ -438,7 +462,9 @@ impl PropDraws {
         if world.resource::<ShadowScene>().frame != frame {
             return Ok(());
         }
-        self.prepare_buffers(world);
+        if !self.prepare_buffers(world) {
+            return Ok(());
+        }
         let mut views = [None; VIEW_COUNT];
         for (view, extracted) in self.query.iter(world) {
             if world.resource::<SourceViewFrame>().views[view.index].is_none() {
@@ -535,7 +561,8 @@ impl PropDraws {
         self.batch_upload |= changed;
         true
     }
-    fn prepare_buffers(&mut self, world: &World) {
+    /// Returns false while the lamp uniform has no buffer.
+    fn prepare_buffers(&mut self, world: &World) -> bool {
         let device = world.resource::<RenderDevice>();
         let queue = world.resource::<RenderQueue>();
         let rows = self.rows();
@@ -553,12 +580,20 @@ impl PropDraws {
                 .max(old.map_or(16, |b| b.batch_capacity))
                 .next_power_of_two();
             let stride = stride.max(old.map_or(64, |b| b.stride)).next_power_of_two();
+            let Some(lamps) = world
+                .resource::<super::lighting::LightingGpu>()
+                .uniform
+                .buffer()
+            else {
+                return false;
+            };
             self.buffers = Some(Buffers::new(
                 device,
                 world.resource::<PipelineCache>(),
                 rows,
                 batches,
                 stride,
+                lamps,
             ));
             self.full = true;
             self.batch_upload = true;
@@ -598,6 +633,7 @@ impl PropDraws {
             }
             self.batch_upload = false;
         }
+        true
     }
     fn prepare_view(
         &mut self,
@@ -637,6 +673,7 @@ impl PropDraws {
             view.pipelines[batch] = BatchPipelines {
                 base: Some(base),
                 partner: surface.partner(base),
+                prepass: surface.prepass(base),
                 caster: casters.pipeline(base),
             };
         }
@@ -715,6 +752,17 @@ impl PropDraws {
             buffers.stride,
             index as u32,
         ]);
+        if let Some(scene) = world
+            .resource::<super::lighting_scene::SourceSceneLighting>()
+            .0
+        {
+            let probes = scene.probe_center.iter().chain(&scene.probe_extents);
+            for (words, probe) in cull[32..].chunks_mut(4).zip(probes) {
+                for (word, value) in words.iter_mut().zip(probe.to_array()) {
+                    *word = value.to_bits();
+                }
+            }
+        }
         queue.write_buffer(
             &buffers.cull_views,
             index as u64 * ALIGN,
@@ -820,6 +868,7 @@ pub(crate) fn cull(
         (index as u64 * buffers.visible_region) as u32,
         (index as u64 * ALIGN) as u32,
         (index as u64 * buffers.mask_region) as u32,
+        buffers.lights_offset(index),
     ];
     let encoder = context.command_encoder();
     {
@@ -884,6 +933,7 @@ fn bind_batch<'w>(
     world: &'w World,
     pass: &mut TrackedRenderPass<'w>,
     buffers: &'w Buffers,
+    view: usize,
     list: u32,
     batch: usize,
     mesh: AssetId<Mesh>,
@@ -898,7 +948,15 @@ fn bind_batch<'w>(
     };
     pass.set_vertex_buffer(0, vertices.buffer.slice(..));
     pass.set_index_buffer(indices.buffer.slice(..), format);
-    pass.set_bind_group(2, &buffers.draw, &[list, (batch as u64 * ALIGN) as u32]);
+    pass.set_bind_group(
+        2,
+        &buffers.draw,
+        &[
+            list,
+            (batch as u64 * ALIGN) as u32,
+            buffers.lights_offset(view),
+        ],
+    );
     true
 }
 fn material_group(world: &World, id: bevy::asset::UntypedAssetId) -> Option<&BindGroup> {
@@ -934,7 +992,9 @@ pub(crate) fn draw_camera<'w>(
     entity: Entity,
     index: usize,
     samples: u32,
+    draw: super::surface_graph::OpaqueDraw,
 ) -> (u32, u32) {
+    use super::surface_graph::OpaqueDraw;
     let draws = world.resource::<PropDraws>();
     let Some(buffers) = &draws.buffers else {
         return (0, 0);
@@ -947,11 +1007,12 @@ pub(crate) fn draw_camera<'w>(
     let offset = world.get::<ViewUniformOffset>(entity);
     let lighting = world.get::<super::source_lighting::SourceViewLighting>(entity);
     let target = BundleTarget {
-        color: Some(HDR_FORMAT),
+        color: (draw != OpaqueDraw::Depth).then_some(HDR_FORMAT),
         depth: DEPTH_FORMAT,
         samples,
     };
-    let counts = state.bundles[0].lock().unwrap().draw(
+    let bundle = usize::from(draw == OpaqueDraw::Depth);
+    let counts = state.bundles[bundle].lock().unwrap().draw(
         world.resource::<RenderDevice>(),
         target,
         pass,
@@ -963,7 +1024,15 @@ pub(crate) fn draw_camera<'w>(
                 }
                 let pipelines = state.pipelines.get(batch).copied().unwrap_or_default();
                 let template = draws.templates.get(batch).copied().flatten();
-                let ids = std::iter::once(pipelines.base).chain(pipelines.partner.map(Some));
+                let first = match (draw, pipelines.prepass) {
+                    (OpaqueDraw::Single, _) | (OpaqueDraw::Equal, None) => pipelines.base,
+                    (OpaqueDraw::Equal, Some([_, equal])) => Some(equal),
+                    (OpaqueDraw::Depth, Some([depth, _])) => Some(depth),
+                    // The opaque pass draws this batch with its own depth test.
+                    (OpaqueDraw::Depth, None) => continue,
+                };
+                let partner = (draw != OpaqueDraw::Depth).then_some(pipelines.partner);
+                let ids = std::iter::once(first).chain(partner.flatten().map(Some));
                 for id in ids {
                     counts.0 += 1;
                     let pipeline = id.and_then(|id| cache.get_render_pipeline(id));
@@ -993,6 +1062,7 @@ pub(crate) fn draw_camera<'w>(
                         world,
                         pass,
                         buffers,
+                        index,
                         buffers.list_offset(index, 0),
                         batch,
                         entry.key.mesh,
@@ -1010,6 +1080,13 @@ pub(crate) fn draw_camera<'w>(
             counts
         },
     );
+    if draw == OpaqueDraw::Depth {
+        // F3 counts the shaded draws only.
+        return counts.unwrap_or_else(|error| {
+            world.resource::<RendererStateHandle>().fail(error);
+            (0, 0)
+        });
+    }
     bundle_counts(world, state, counts)
 }
 /// Caster draws of each batch with rows in this caster mask bit, after the caster phase.
@@ -1039,7 +1116,7 @@ pub(crate) fn draw_cascade<'w>(
         depth: SHADOW_FORMAT,
         samples: 1,
     };
-    let counts = state.bundles[1 + tile].lock().unwrap().draw(
+    let counts = state.bundles[2 + tile].lock().unwrap().draw(
         world.resource::<RenderDevice>(),
         target,
         pass,
@@ -1085,6 +1162,7 @@ pub(crate) fn draw_cascade<'w>(
                     world,
                     pass,
                     buffers,
+                    index,
                     buffers.list_offset(index, 1 + cascade),
                     batch,
                     entry.key.mesh,

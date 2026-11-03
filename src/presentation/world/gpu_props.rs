@@ -12,7 +12,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Words of one row in the GPU row buffer. Same layout as `PropRow` in source_props.wgsl.
-pub const ROW_WORDS: usize = 28;
+pub const ROW_WORDS: usize = 36;
 /// Row word with the batch and the flags.
 pub const KEY_WORD: usize = 19;
 /// The row slot is free.
@@ -41,7 +41,7 @@ pub struct PropRow {
     pub layer: u8,
     /// Source shadow casting mode. 3 is shadows only.
     pub cast_shadows: u8,
-    /// Source `makeinvisible`: the camera does not draw the row. Its shadow stays.
+    /// Source `makeinvisible`. The camera does not draw the row. Its shadow stays.
     pub camera_hidden: bool,
     /// Root, node and LOD visibility together, as an entity inherits them.
     pub hidden: bool,
@@ -51,7 +51,27 @@ pub struct PropRow {
     pub color: Vec4,
     /// Frozen source position for procedural inputs, as the entity impostor uniform.
     pub source_position: Vec3,
+    /// Renderer bounds in the mesh frame, probe usage and flags, for the cull pass object value.
+    pub renderer: RowRenderer,
     pub batch: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RowRenderer {
+    pub center: [f32; 3],
+    pub extents: [f32; 3],
+    pub probe_usage: bool,
+    /// `RendererRecord::shader_flags`.
+    pub flags: u32,
+}
+impl RowRenderer {
+    pub fn new(record: &crate::reference::render_lighting::RendererRecord) -> Self {
+        Self {
+            center: record.bounds_center,
+            extents: record.bounds_extents,
+            probe_usage: record.reflection_probe_usage != 0,
+            flags: record.shader_flags(),
+        }
+    }
 }
 impl PropRow {
     pub fn words(&self) -> [u32; ROW_WORDS] {
@@ -66,6 +86,7 @@ impl PropRow {
         }
         let f = f32::to_bits;
         let [c, e] = [self.bounds.center, self.bounds.extents];
+        let r = &self.renderer;
         [
             f(rows[0].x),
             f(rows[0].y),
@@ -94,6 +115,14 @@ impl PropRow {
             f(self.source_position.x),
             f(self.source_position.y),
             f(self.source_position.z),
+            r.flags,
+            f(r.center[0]),
+            f(r.center[1]),
+            f(r.center[2]),
+            f(f32::from(u8::from(r.probe_usage))),
+            f(r.extents[0]),
+            f(r.extents[1]),
+            f(r.extents[2]),
             0,
         ]
     }

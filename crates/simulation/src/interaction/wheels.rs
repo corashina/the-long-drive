@@ -33,7 +33,7 @@ struct Part {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WheelSlotId(pub u16);
 
-/// Slot sensor user data: bits 96 to 111 hold the wheel slot id.
+/// In slot sensor user data, bits 96 to 111 hold the wheel slot id.
 pub const SLOT_ID_SHIFT: u32 = 96;
 
 /// The wheel slot id in collider user data.
@@ -422,10 +422,10 @@ impl WheelAssemblies {
         }
         for (i, part) in self.parts.iter_mut().enumerate() {
             self.indices.insert(part.item, i);
-            if let Some(tire) = &mut part.tire {
-                if *tire > index {
-                    *tire -= 1;
-                }
+            if let Some(tire) = &mut part.tire
+                && *tire > index
+            {
+                *tire -= 1;
             }
         }
     }
@@ -836,7 +836,7 @@ impl WheelAssemblies {
         Ok(())
     }
     // This module owns complete loose-wheel mass, including general part descendants.
-    // The source member list is cached at construction; transactions move their body ownership.
+    // Construction caches the source member list. Transactions move their body ownership.
     fn update_body_mass(
         &mut self,
         rim: usize,
@@ -951,7 +951,7 @@ impl WheelAssemblies {
     }
 
     /// Removes the slots and sensors of world car `key`. Returns the rim object of each wheel,
-    /// and the slot ids with their old sensors. The mounted parts stay registered: the car
+    /// and the slot ids with their old sensors. The mounted parts stay registered. The car
     /// content removes them.
     #[allow(clippy::type_complexity)]
     pub fn retire_vehicle(

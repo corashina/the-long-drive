@@ -1,4 +1,5 @@
 //! Source `fpscontroller` pointing (`input.point`, 18258-18288): `pointingValue` and `pointAt`.
+use crate::simulation::dials::lerp;
 use rapier3d::math::{Matrix, Pose, Rotation, Vector};
 
 #[derive(Clone, Copy, Debug)]
@@ -21,11 +22,7 @@ impl Default for PointState {
     }
 }
 
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
-}
-
-/// Unity `Quaternion.LookRotation(forward, up)`: -Z looks along `forward`.
+/// Unity `Quaternion.LookRotation(forward, up)`. Its -Z axis looks along `forward`.
 fn look_rotation(forward: Vector, up: Vector) -> Option<Rotation> {
     let forward = forward.normalize_or_zero();
     let right = forward.cross(up).normalize_or_zero();

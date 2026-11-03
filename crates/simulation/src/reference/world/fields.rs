@@ -1,6 +1,6 @@
 //! Immutable sorted source fields. Links live only in their source value.
 //!
-//! JSON form: empty is `null`. Bool, integer, number and text are plain JSON values.
+//! In the JSON form, empty is `null`. Bool, integer, number and text are plain JSON values.
 //! A number always has a fraction or exponent (`1.0`), so it differs from an integer.
 //! An array is a JSON array. A record is a JSON object with sorted keys.
 //! A link is `{"$":[file,path_id]}`. Unity field names cannot hold `$`.

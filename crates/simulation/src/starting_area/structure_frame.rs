@@ -1,6 +1,7 @@
 //! Presentation views of the world structures. A view goes out when its state changes.
-use super::{GarageRuntime, VehicleRuntime};
+use super::GarageRuntime;
 use crate::boundary::{Change, MaterialRow, NodeColorRow, NodePoseRow, SimFrame, StructureRow};
+use crate::car::VehicleRuntime;
 use crate::interaction::items::{ItemLocation, ItemState, ItemStore};
 use crate::reference::{
     ItemId, ReferenceError, ReferenceManifest, SourceId, Transform, WorldPrototypeReference,
@@ -54,17 +55,6 @@ pub struct StructureViews {
 }
 
 impl GarageRuntime {
-    /// The next frame names every pose, structure, condition, screen, plate and followed car again.
-    /// A new frame stream calls it: the old stream consumed the sent state.
-    pub fn reset_frame_outputs(&mut self) {
-        self.structure_views = StructureViews::default();
-        self.frame_poses = Default::default();
-        self.conditions_sent = false;
-        self.home_cable_session = None;
-        self.screens_sent = None;
-        self.plates_sent.clear();
-        self.last_feedback = None;
-    }
     /// Writes the views of changed structures. Clears the stream and body presentation queues.
     pub(super) fn fill_structures(
         &mut self,
@@ -208,7 +198,7 @@ impl StructureViews {
         for lamp in stream.presentation_lamps() {
             owners(self.lamp_slots.get(&lamp), &mut self.selection);
         }
-        // Cobweb changes are rare: a cleaned or start-disabled trigger.
+        // Cobweb changes are rare. They come from a cleaned or start-disabled trigger.
         for id in stream.cobweb_changes() {
             if let Some(&slot) = self.slots.get(id) {
                 self.selection.push(slot as usize);
@@ -422,7 +412,7 @@ impl StructureViews {
         if let Some(item) = food {
             check_food(reference, prototype, item)?;
         }
-        // Source `wearedRenderer.make = !otherView()`: other views show worn items.
+        // Source `wearedRenderer.make = !otherView()`. Other views show worn items.
         if !inputs.other_view
             && entry
                 .food
@@ -431,7 +421,7 @@ impl StructureViews {
         {
             row.flags |= StructureRow::WORN;
         }
-        // Source `makeinvisible` of the used binoculars: the camera does not draw the item.
+        // Source `makeinvisible` of the used binoculars. The camera does not draw the item.
         if entry.food.is_some() && entry.food == inputs.binoculars {
             row.flags |= StructureRow::CAMERA_HIDDEN;
         }
@@ -644,7 +634,7 @@ impl StructureViews {
             });
         }
         let tool = stream.tool_look(id);
-        // drotkefescript: the brush model slides on the contact.
+        // In drotkefescript, the brush model slides on the contact.
         if let Some((node, pose)) = tool.and_then(|t| t.model) {
             poses.push(NodePoseRow {
                 node: node as u32,
@@ -670,7 +660,7 @@ impl StructureViews {
             row.flags |= StructureRow::LAMP;
             row.lamp = color;
         }
-        // displayscript.Upd: on shows defMaterial with the computer output as _EmissionMap.
+        // displayscript.Upd. A display that is on shows defMaterial with the computer output as _EmissionMap.
         if let Some((on, map)) = stream.display_screen(id) {
             row.flags |= StructureRow::DISPLAY;
             if on {
@@ -769,7 +759,7 @@ impl StructureViews {
                 });
             }
         }
-        // sprayscript.UpdColor: the renderer shows the paint color.
+        // For sprayscript.UpdColor, the renderer shows the paint color.
         if let Some((node, color)) = tool.and_then(|t| t.color) {
             frame.node_colors.push(NodeColorRow {
                 node: node as u32,
