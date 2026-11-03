@@ -32,14 +32,14 @@ pub fn collect_mesh_bytes(
     for event in events.read() {
         match *event {
             AssetEvent::Added { id } | AssetEvent::Modified { id } => {
-                if let Some(mesh) = meshes.get(id) {
-                    if mesh.try_attributes().is_ok() {
-                        measurements.bytes.insert(
-                            id,
-                            mesh.get_vertex_buffer_size()
-                                + mesh.get_index_buffer_bytes().map_or(0, <[u8]>::len),
-                        );
-                    }
+                if let Some(mesh) = meshes.get(id)
+                    && mesh.try_attributes().is_ok()
+                {
+                    measurements.bytes.insert(
+                        id,
+                        mesh.get_vertex_buffer_size()
+                            + mesh.get_index_buffer_bytes().map_or(0, <[u8]>::len),
+                    );
                 }
             }
             AssetEvent::Removed { id } => {

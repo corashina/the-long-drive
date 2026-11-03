@@ -235,13 +235,12 @@ impl MaterialLoading {
         let requests = (pending.requests.as_ptr() as usize, pending.requests.len());
         if state == 0 {
             pending.terminal_prewarm_audit = None;
-        } else if let Some((previous_requests, audit)) = pending.terminal_prewarm_audit {
-            if previous_requests == requests
-                && audit.state == state
-                && audit.sealed == pending.sealed
-            {
-                return audit;
-            }
+        } else if let Some((previous_requests, audit)) = pending.terminal_prewarm_audit
+            && previous_requests == requests
+            && audit.state == state
+            && audit.sealed == pending.sealed
+        {
+            return audit;
         }
         let meshes = world.get_resource::<RenderAssets<RenderMesh>>();
         let materials = world.get_resource::<ErasedRenderAssets<PreparedMaterial>>();

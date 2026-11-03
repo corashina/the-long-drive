@@ -178,19 +178,17 @@ impl GrassJobs {
     }
     pub fn set_fade(&self, entity: Entity, fade: f32, materials: &mut Assets<GrassMaterial>) {
         if let Some(instance) = self.get(entity) {
-            if let Some(accepted) = &instance.accepted {
-                if let Some(mut material) = materials.get_mut(&accepted.material) {
-                    if material.uniform.lod.x != fade {
-                        material.uniform.lod.x = fade;
-                    }
-                }
+            if let Some(accepted) = &instance.accepted
+                && let Some(mut material) = materials.get_mut(&accepted.material)
+                && material.uniform.lod.x != fade
+            {
+                material.uniform.lod.x = fade;
             }
-            if let Some(Pending::Upload { material, .. }) = &instance.pending {
-                if let Some(mut material) = materials.get_mut(material) {
-                    if material.uniform.lod.x != fade {
-                        material.uniform.lod.x = fade;
-                    }
-                }
+            if let Some(Pending::Upload { material, .. }) = &instance.pending
+                && let Some(mut material) = materials.get_mut(material)
+                && material.uniform.lod.x != fade
+            {
+                material.uniform.lod.x = fade;
             }
         }
     }
@@ -556,44 +554,45 @@ impl GrassJobs {
                         instance.pending_gpu = 0;
                         instance.pending = Some(Pending::Queued);
                     }
-                } else if let GrassPoll::Planned(owner, plan) = poll {
-                    if owner == *id && !*approved {
-                        if plan.scratch_bytes != *scratch {
-                            return Err(ReferenceError("Grass scratch plan mismatch".into()));
-                        }
-                        let cpu = plan
-                            .output_bytes
-                            .checked_mul(2)
-                            .ok_or_else(|| ReferenceError("Grass output overflow".into()))?;
-                        // Output that does not fit the credit keeps its plan. The worker
-                        // reports the plan again, so the next frame asks for the credit again.
-                        let output = PresentationAllocation {
-                            active_cpu: cpu,
-                            active_gpu: plan.gpu_bytes,
-                            staging_bytes: cpu,
-                            ..Default::default()
-                        };
-                        if !ledger.request(output) {
-                            continue;
-                        }
-                        if Self::reserve_capacity(
-                            &self.worker,
-                            &mut self.actor_cpu,
-                            ledger,
-                            worker_staging,
-                            cpu,
-                        )
-                        .is_err()
-                            || pending_allocation(ledger, cpu, plan.gpu_bytes, 0).is_err()
-                        {
-                            self.worker.discard();
-                            *canceled = true;
-                        } else {
-                            instance.pending_cpu += cpu;
-                            instance.pending_gpu += plan.gpu_bytes;
-                            self.worker.approve(*id, plan.output_bytes)?;
-                            *approved = true;
-                        }
+                } else if let GrassPoll::Planned(owner, plan) = poll
+                    && owner == *id
+                    && !*approved
+                {
+                    if plan.scratch_bytes != *scratch {
+                        return Err(ReferenceError("Grass scratch plan mismatch".into()));
+                    }
+                    let cpu = plan
+                        .output_bytes
+                        .checked_mul(2)
+                        .ok_or_else(|| ReferenceError("Grass output overflow".into()))?;
+                    // Output that does not fit the credit keeps its plan. The worker
+                    // reports the plan again, so the next frame asks for the credit again.
+                    let output = PresentationAllocation {
+                        active_cpu: cpu,
+                        active_gpu: plan.gpu_bytes,
+                        staging_bytes: cpu,
+                        ..Default::default()
+                    };
+                    if !ledger.request(output) {
+                        continue;
+                    }
+                    if Self::reserve_capacity(
+                        &self.worker,
+                        &mut self.actor_cpu,
+                        ledger,
+                        worker_staging,
+                        cpu,
+                    )
+                    .is_err()
+                        || pending_allocation(ledger, cpu, plan.gpu_bytes, 0).is_err()
+                    {
+                        self.worker.discard();
+                        *canceled = true;
+                    } else {
+                        instance.pending_cpu += cpu;
+                        instance.pending_gpu += plan.gpu_bytes;
+                        self.worker.approve(*id, plan.output_bytes)?;
+                        *approved = true;
                     }
                 }
             }

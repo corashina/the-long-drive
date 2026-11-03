@@ -1003,7 +1003,7 @@ pub(crate) fn lighting_readiness(
 fn init_gpu(mut commands: Commands, device: Res<RenderDevice>, queue: Res<RenderQueue>) {
     let limits = device.limits();
     let bytes = LightingUniform::min_size().get();
-    let supported = u64::from(limits.max_uniform_buffer_binding_size) >= bytes;
+    let supported = limits.max_uniform_buffer_binding_size >= bytes;
     let state = if supported {
         RenderingState::Loading
     } else {

@@ -208,14 +208,14 @@ fn extract_one(
         pass.active = false;
         return;
     }
-    if !gpu.0.contains_key(&input.session) {
-        let created = GrassGpuData::new(&device);
+    if let std::collections::hash_map::Entry::Vacant(entry) = gpu.0.entry(input.session) {
+        let created = GrassGpuData::new(device);
         pass.frame_group = Some(device.create_bind_group(
             "Grass displacement camera",
             &pass.frame_layout,
             &BindGroupEntries::single(created.uniform.as_entire_binding()),
         ));
-        gpu.0.insert(input.session, created);
+        entry.insert(created);
     }
     let gpu = gpu.0.get(&input.session).expect("admitted Grass target");
     pass.status = Arc::clone(&input.status);
@@ -233,7 +233,7 @@ fn extract_one(
     }
     pass.active = input.frame.is_some();
     if let Some(frame) = input.frame {
-        gpu.update(&queue, frame);
+        gpu.update(queue, frame);
     }
     pass.writers
         .retain(|entity, _| input.writers.iter().any(|writer| writer.entity == *entity));

@@ -587,14 +587,14 @@ impl SourcePrototypes {
                 State::Loading { asset, .. } => Some(asset),
                 _ => None,
             };
-            if let Some(handle) = asset {
-                if let Some(asset) = assets.remove(handle.id()) {
-                    for mesh in asset.meshes {
-                        meshes.remove(mesh.id());
-                    }
-                    for skin in asset.inverse_bindposes {
-                        skins.remove(skin.id());
-                    }
+            if let Some(handle) = asset
+                && let Some(asset) = assets.remove(handle.id())
+            {
+                for mesh in asset.meshes {
+                    meshes.remove(mesh.id());
+                }
+                for skin in asset.inverse_bindposes {
+                    skins.remove(skin.id());
                 }
             }
         }

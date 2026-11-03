@@ -261,7 +261,7 @@ pub fn install(app: &mut App) {
 /// Target atlas placement. The collector uses the same rectangle for its atlas transform.
 /// Coordinates use wgpu's top-left viewport convention; source projection conversion is separate.
 pub fn tile_rect(atlas_size: u32, cascade: usize) -> [u32; 4] {
-    assert!(atlas_size >= 2 && atlas_size % 2 == 0 && cascade < 4);
+    assert!(atlas_size >= 2 && atlas_size.is_multiple_of(2) && cascade < 4);
     let side = atlas_size / 2;
     [
         (cascade as u32 & 1) * side,

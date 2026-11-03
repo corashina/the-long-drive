@@ -344,7 +344,7 @@ impl InstanceMaterials<'_> {
                     binding,
                     RendererMaterial {
                         visible: shared.visible,
-                        sort: binding.sort.clone(),
+                        sort: binding.sort,
                         shared: Some(key.clone()),
                     },
                 );
@@ -541,10 +541,10 @@ impl InstanceMaterials<'_> {
         }
     }
     pub fn release(&mut self, binding: RendererMaterial) {
-        if let Some(key) = &binding.shared {
-            if !self.cache.generated.release(key) {
-                return;
-            }
+        if let Some(key) = &binding.shared
+            && !self.cache.generated.release(key)
+        {
+            return;
         }
         match binding.visible {
             InstanceMaterial::Primary(h) => {
