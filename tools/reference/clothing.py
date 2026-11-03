@@ -97,8 +97,6 @@ def recover_clothing(source,manifest,output):
     result['ragdoll']=recover_ragdoll(source,manifest,output)
     from .appearance_preview import recover_preview
     result['preview']=recover_preview(source)
-    from .menu_figure import recover_menu_figure
-    result['menu_figure']=recover_menu_figure(source)
     return result
 
 

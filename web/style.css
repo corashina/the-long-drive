@@ -12,9 +12,8 @@ main {position:relative;width:100vw;height:100dvh;overflow:hidden;}
 #menu.covered {background-color:#0d0c0b;transition:none;}
 #menu-art,#menu-frame {background-size:100% 100%;pointer-events:none;}
 #menu-art {z-index:0;}#menu-frame {z-index:1;}
-#menu h1 {position:absolute;left:24px;top:20px;margin:0;color:#fff;font-size:clamp(24px,3.2vw,60px);font-weight:400;text-shadow:2px 2px 2px #000;}
-#status,#capture-error {position:absolute;left:24px;right:24px;top:100px;font-size:clamp(16px,2vw,30px);color:#fff;text-shadow:2px 2px 2px #000;overflow-wrap:anywhere;}
-#capture-error {top:150px;max-width:900px;}
+#status,#capture-error {position:absolute;left:24px;right:24px;top:24px;font-size:clamp(16px,2vw,30px);color:#fff;text-shadow:2px 2px 2px #000;overflow-wrap:anywhere;}
+#capture-error {top:74px;max-width:900px;}
 button {font:inherit;position:absolute;padding:0;border:0;color:#fff;cursor:pointer;background-color:transparent;text-shadow:2px 2px 2px #000;}
 button:hover:enabled {filter:brightness(1.18);}
 button:active:enabled {filter:brightness(.85);}
@@ -25,10 +24,28 @@ button:focus-visible {outline:2px solid #fff;outline-offset:3px;}
 #performance-values {margin:0;font:inherit;white-space:pre-wrap;}
 #performance p {margin:8px 0 0;color:#bbb;font:11px/1.4 Arial,sans-serif;}
 .menu-actions {position:absolute;inset:0;}
+/* Start menu: the garage car turns on its stage (canvas) in the middle. The buttons sit centered under it. */
+#menu.showroom :is(#menu-art,#menu-frame) {display:none;}
+#menu.showroom::before {content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 70% 65% at 50% 42%,transparent 55%,#0009 100%),linear-gradient(transparent 62%,#000a);}
+#menu.showroom :is(#status,#capture-error) {left:50%;right:auto;width:min(900px,calc(100% - 32px));transform:translateX(-50%);text-align:center;}
+.start-menu {position:absolute;z-index:2;left:50%;bottom:clamp(24px,7vh,72px);display:grid;justify-items:center;gap:20px;width:min(760px,calc(100% - 32px));transform:translateX(-50%);animation:start-in .7s ease-out .15s backwards;}
+@keyframes start-in {from {opacity:0;transform:translate(-50%,18px);}}
+.start-menu button {position:static;text-shadow:none;transition:background-color .15s,border-color .15s,color .15s;}
+.start-menu button:hover:enabled {filter:none;}
+.start-primary {display:flex;flex-wrap:wrap;justify-content:center;gap:12px;width:100%;}
+.start-primary button {flex:1 1 0;min-width:160px;max-width:230px;height:54px;padding:0 20px;border:1px solid #ffffff30;border-radius:4px;background:#14121099;color:#ece7e0;font-size:18px;letter-spacing:.08em;text-transform:uppercase;}
+.start-primary button:hover:enabled {border-color:#b48046;background:#241f1acc;}
+.start-primary #new-game {border-color:#cf9a5c;background:#b48046;color:#16110b;}
+.start-primary #new-game:hover:enabled {background:#c7935a;}
+.start-secondary {display:flex;flex-wrap:wrap;justify-content:center;gap:4px 32px;}
+.start-secondary button {padding:6px 2px;border-bottom:1px solid transparent;color:#bdb5aa;font-size:15px;letter-spacing:.06em;text-transform:uppercase;}
+.start-secondary button:hover:enabled {border-bottom-color:#b48046;color:#fff;}
+@media (max-width:640px) {.start-primary {flex-direction:column;align-items:stretch;}.start-primary button {max-width:none;flex:0 0 48px;height:48px;}.start-secondary {gap:4px 20px;}}
+@media (prefers-reduced-motion:reduce) {.start-menu {animation:none;}}
 #session-distance {position:absolute;right:24px;bottom:16px;margin:0;font-size:clamp(16px,1.5vw,24px);text-shadow:2px 2px 2px #000;}
 #game-mode-screen,#save-screen,#multiplayer-screen {position:absolute;inset:0;}
 #game-mode-title,#save-title,#multiplayer-title {position:absolute;left:24px;top:20px;margin:0;font-size:clamp(24px,3.2vw,60px);font-weight:400;}
-#menu:has(#settings-screen:not([hidden]),#game-mode-screen:not([hidden]),#multiplayer-screen:not([hidden])) h1,#menu:has(#settings-screen:not([hidden]),#game-mode-screen:not([hidden]),#multiplayer-screen:not([hidden])) #status {visibility:hidden;}
+#menu:has(#settings-screen:not([hidden]),#game-mode-screen:not([hidden]),#multiplayer-screen:not([hidden])) #status {visibility:hidden;}
 /* Settings screen: a solid window in the middle of a dimmed screen. */
 #settings-screen {position:absolute;inset:0;display:grid;place-items:center;padding:16px;background:#000b;}
 .settings-panel {display:flex;flex-direction:column;width:min(880px,100%);height:min(760px,calc(100dvh - 32px));background:#1b1b1b;border:1px solid #3a3a3a;box-shadow:0 20px 60px #000c;font:16px Arial,sans-serif;color:#d2d2d2;}
@@ -74,9 +91,8 @@ button:focus-visible {outline:2px solid #fff;outline-offset:3px;}
 #draw-distance-value {min-width:5.5em;}
 #biome {min-height:44px;padding:8px 16px;background:#b4804640;border:1px solid #b48046;font:inherit;color:#fff;}
 #game-mode-back {position:static;left:auto!important;top:auto!important;width:150px!important;height:44px!important;font-size:18px!important;}
-#menu:has(#save-screen:not([hidden])) h1 {visibility:hidden;}
 #appearance-screen {position:absolute;inset:0;z-index:2;}
-#menu:has(#appearance-screen:not([hidden])) :is(#menu-art,#menu-frame,h1,#status) {display:none;}
+#menu:has(#appearance-screen:not([hidden])) :is(#menu-art,#menu-frame,#status) {display:none;}
 .appearance-panel {position:absolute;left:0;top:0;bottom:0;width:min(440px,45vw);display:flex;flex-direction:column;gap:12px;padding:20px 24px;overflow:auto;background:#000c;font:18px Arial,sans-serif;}
 #appearance-title {margin:0;font-size:clamp(24px,3.2vw,48px);font-weight:400;}
 .appearance-panel label {display:flex;align-items:center;justify-content:space-between;gap:12px;}
@@ -172,10 +188,10 @@ button:focus-visible {outline:2px solid #fff;outline-offset:3px;}
  .key-row {grid-template-columns:repeat(3,minmax(0,1fr));}
  .key-row span {grid-column:1/-1;}
  .settings-columns {grid-template-columns:1fr;}
- #menu.narrow #status {top:70px;font-size:18px;}
+ #menu.narrow #status {font-size:18px;}
  .save-body {inset:190px 16px 76px;grid-template-columns:1fr;}
  #save-tiles {grid-template-columns:repeat(2,minmax(0,1fr));}
- #capture-error {font-size:16px;top:110px;max-height:70px;overflow:auto;}
+ #capture-error {font-size:16px;top:60px;max-height:70px;overflow:auto;}
 }
 
 #throw-charge {position:absolute;margin:0;transform:translateX(-50%);white-space:nowrap;text-align:center;text-shadow:2px 2px 2px #000;}
