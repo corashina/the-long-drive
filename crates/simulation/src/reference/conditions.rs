@@ -386,8 +386,7 @@ impl ConditionRecord {
                         r.assets
                             .iter()
                             .any(|a| a.id == b.asset && b.gltf_mesh < a.mesh_count)
-                            && !b.source.file.is_empty()
-                            && b.source.path_id != 0,
+                            && b.source.is_set(),
                         "renderers.meshes",
                     )?;
                 }
@@ -499,11 +498,7 @@ impl ConditionRecord {
         };
         let spray = |t: &SprayTool, fixed: bool| -> Result<(), ReferenceError> {
             check(&t.source, t.ammo.is_set(), "ammo")?;
-            check(
-                &t.source,
-                !t.color_source.file.is_empty() && t.color_source.path_id != 0,
-                "color_source",
-            )?;
+            check(&t.source, t.color_source.is_set(), "color_source")?;
             check(&t.source, t.renderer.is_set(), "renderer")?;
             check(
                 &t.source,
@@ -665,9 +660,7 @@ impl ConditionRecord {
                 } => {
                     check(
                         &t.source,
-                        [1, 2].contains(&t.cleaning_type)
-                            && !own_condition.file.is_empty()
-                            && own_condition.path_id != 0,
+                        [1, 2].contains(&t.cleaning_type) && own_condition.is_set(),
                         "cleaning_type/own_condition",
                     )?;
                     tool(t, false)?;
@@ -799,8 +792,7 @@ pub(super) fn validate_particle(
 ) -> Result<(), ReferenceError> {
     check(
         owner,
-        !p.source.file.is_empty()
-            && p.source.path_id != 0
+        p.source.is_set()
             && p.capacity > 0
             && p.duration.is_finite()
             && p.duration > 0.

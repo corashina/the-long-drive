@@ -334,10 +334,7 @@ impl PostprocessingRecord {
         textures: &std::collections::HashSet<super::SourceId>,
     ) -> Result<(), super::ReferenceError> {
         use super::{finite, require};
-        require(
-            !self.main_layer.file.is_empty() && self.main_layer.path_id != 0,
-            "postprocessing main layer",
-        )?;
+        require(self.main_layer.is_set(), "postprocessing main layer")?;
         require(self.taa.validate(), "postprocessing temporal antialiasing")?;
         require(self.motion_blur.validate(), "postprocessing motion blur")?;
         require(self.exposure.validate(), "postprocessing exposure")?;

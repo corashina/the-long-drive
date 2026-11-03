@@ -11,7 +11,7 @@ use super::{
     GaugePartReference, LibraryProvenance, NodeId, PrototypeBounds, RadiatorPartReference,
     ReferenceError, ReferenceManifest, SourceHash, SourceId, Transform, WorldFollowersReference,
     WorldHitchReference, WorldTrailerReference, WorldVehicleReference, finite, hash, require,
-    transform,
+    source_valid, transform,
 };
 pub use grass::*;
 pub use initial_materials::*;
@@ -859,9 +859,6 @@ impl WorldReference {
         }
         Ok(())
     }
-}
-fn source_valid(source: &SourceId, hashes: &[SourceHash]) -> bool {
-    source.path_id != 0 && hashes.iter().any(|h| h.file == source.file)
 }
 fn field(source: &SourceId, name: &str) -> String {
     format!("{}:{} {name}", source.file, source.path_id)
