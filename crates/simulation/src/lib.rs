@@ -4,6 +4,7 @@
 pub mod animation;
 pub mod audio;
 pub mod boundary;
+pub mod car;
 pub mod car_camera;
 pub mod conditions;
 pub mod coolant_steam;

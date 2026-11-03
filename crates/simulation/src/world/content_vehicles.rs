@@ -1,6 +1,7 @@
 //! Car prototypes and engine parts of spawned world contents.
 //! A car copy is a vehicle body, a car runtime, its wheel slots and the engine and radiator
 //! parts on it.
+use crate::car::VehicleRuntime;
 use crate::crash::Blood;
 use crate::electronics::{Electronics, NodeElectronics};
 use crate::interaction::InteractionState;
@@ -13,7 +14,6 @@ use crate::reference::{
 };
 use crate::simulation::car_lights::CarLightLinks;
 use crate::simulation::powertrain::{EnginePart, GaugePart, PowertrainParts, RadiatorPart};
-use crate::starting_area::VehicleRuntime;
 use crate::vehicle::PhysicsWorld;
 use crate::world::changes::ChangeRecords;
 use crate::world::contents::ContentInstance;
@@ -565,7 +565,7 @@ pub fn spawn(
         copy.prototype,
         record,
         skid,
-        crate::starting_area::WorldCarParts {
+        crate::car::WorldCarParts {
             seed: key.seed(),
             fuel_tank: copy.fuel_tank,
             recovery_bounds: chassis_bounds(physics, copy.colliders),

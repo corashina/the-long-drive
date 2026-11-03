@@ -491,7 +491,7 @@ impl WorldStream {
         interaction: &mut InteractionState,
         physics: &mut PhysicsWorld,
         wheels: &mut crate::interaction::wheels::WheelAssemblies,
-        vehicles: &mut std::collections::BTreeMap<ObjectKey, crate::starting_area::VehicleRuntime>,
+        vehicles: &mut std::collections::BTreeMap<ObjectKey, crate::car::VehicleRuntime>,
         powertrain: &mut crate::simulation::powertrain::PowertrainParts,
     ) -> Result<(), ReferenceError> {
         // A structure that becomes a content binds again as that content.
@@ -1099,7 +1099,7 @@ impl WorldStream {
         items: &mut ItemStore,
         interaction: &mut InteractionState,
         wheels: &mut crate::interaction::wheels::WheelAssemblies,
-        vehicles: &mut std::collections::BTreeMap<ObjectKey, crate::starting_area::VehicleRuntime>,
+        vehicles: &mut std::collections::BTreeMap<ObjectKey, crate::car::VehicleRuntime>,
         powertrain: &mut crate::simulation::powertrain::PowertrainParts,
     ) -> Result<(), ReferenceError> {
         let remove = self.distances.item_remove_dist;

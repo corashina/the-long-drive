@@ -1,5 +1,6 @@
 //! Car crash step: source `carscript.Update` calls `DamageStuff(|speed - lspeed|)`.
-use super::{GarageRuntime, VehicleRuntime};
+use super::GarageRuntime;
+use crate::car::VehicleRuntime;
 use crate::crash::{Blood, Candidate, Flags, HornHit};
 use crate::interaction::cleaning::WashOwner;
 use crate::interaction::items::{ItemLocation, ItemStore};
