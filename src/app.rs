@@ -239,6 +239,7 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
             world: Default::default(),
         })
         .insert_resource(ClearColor(Color::BLACK))
+        .add_plugins(crate::display_settings::install)
         .init_resource::<crate::render_scale::SceneScaleSetting>()
         .init_resource::<FrameBudget>()
         .add_systems(Startup, frame_limit::keep_proxy)
@@ -246,8 +247,6 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
             PreUpdate,
             (frame_limit::update, crate::render_scale::update).chain(),
         )
-        .init_resource::<presentation::shadow_quality::ShadowQuality>()
-        .add_systems(PreUpdate, presentation::shadow_quality::poll)
         .add_plugins(presentation::source_io::SourceIoPlugin::new(
             reference.content_base.clone(),
             Arc::clone(&reference.file_catalog),
@@ -575,7 +574,7 @@ fn read_input(
     sim: Res<SimFrameResource>,
     mut drive: ResMut<Drive>,
     mut requests: ResMut<save::SaveRequests>,
-    screen: Res<presentation::screen_effects::ScreenEffects>,
+    display: Res<crate::display_settings::DisplaySettings>,
 ) {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Input);
     let hud = &sim.frame.hud;
@@ -667,7 +666,7 @@ fn read_input(
         settings,
         options,
         player_settings,
-        old_heat_haze: screen.old_heat_haze,
+        old_heat_haze: display.old_heat_haze,
         calendar: local_calendar(),
         measure: game_measure_requested(),
         world: std::mem::take(&mut drive.world),

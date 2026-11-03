@@ -14,6 +14,8 @@ pub mod app;
 #[cfg(target_arch = "wasm32")]
 pub mod browser;
 
+pub mod display_settings;
+
 #[cfg(target_arch = "wasm32")]
 mod render_scale;
 

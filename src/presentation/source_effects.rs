@@ -36,7 +36,9 @@ pub(crate) struct EffectInput {
     glasses: Option<u32>,
     binoculars: bool,
     ambient_occlusion: bool,
-    screen: super::screen_effects::ScreenEffects,
+    lut: crate::display_settings::Lut,
+    grayscale: bool,
+    heat_haze: bool,
     cycle: (simulation::lighting::CyclePhase, f32),
     temperature: f32,
     time: f32,
@@ -50,11 +52,7 @@ fn snapshot_input(
     frame: Res<SourceViewFrame>,
     assets: Option<Res<LightingAssets>>,
     sim: Res<super::sim_frame::SimFrameResource>,
-    effects: Res<super::sunglasses::SunglassesEffects>,
-    occlusion: Res<super::ambient_occlusion::AmbientOcclusion>,
-    screen: Res<super::screen_effects::ScreenEffects>,
-    blur: Res<super::motion_blur::MotionBlur>,
-    depth_of_field: Res<super::depth_of_field::DepthOfField>,
+    display: Res<crate::display_settings::DisplaySettings>,
     mut input: ResMut<EffectInput>,
 ) {
     if input.scene != frame.scene {
@@ -63,8 +61,8 @@ fn snapshot_input(
             ..default()
         };
     }
-    input.ambient_occlusion = occlusion.0;
-    input.motion_blur = blur.0;
+    input.ambient_occlusion = display.ambient_occlusion;
+    input.motion_blur = display.motion_blur;
     input.frame = 0;
     let Some(assets) = assets else { return };
     if !assets.loaded || frame.views[0].is_none() {
@@ -81,14 +79,16 @@ fn snapshot_input(
     input.dead_weight = sim.frame.state.dead_weight;
     // Source `PPVSunGlasses.enabled = !otherView()`.
     let other_view = sim.frame.state.flags & simulation::boundary::StateBlock::OTHER_VIEW != 0;
-    input.glasses = (effects.0 && !other_view)
+    input.glasses = (display.sunglasses && !other_view)
         .then(|| sim.frame.state.glasses())
         .flatten()
         .map(|g| g.profile);
     // The binocular `PP` volume holds the camera while the player uses binoculars.
     input.binoculars = sim.frame.state.flags & simulation::boundary::StateBlock::BINOCULARS != 0;
     let cycle = &sim.frame.lighting.cycle;
-    input.screen = *screen;
+    input.lut = display.lut;
+    input.grayscale = display.grayscale;
+    input.heat_haze = display.heat_haze;
     input.cycle = (cycle.phase, cycle.progress);
     input.temperature = cycle.ambient_temperature;
     input.time = cycle.shader_time_seconds as f32;
@@ -96,7 +96,9 @@ fn snapshot_input(
     input.focus = if input.binoculars {
         Some(sim.frame.state.binocular_focus)
     } else {
-        depth_of_field.0.then_some(sim.frame.state.focus_distance)
+        display
+            .depth_of_field
+            .then_some(sim.frame.state.focus_distance)
     };
     input.frame = frame.frame;
 }
@@ -162,22 +164,7 @@ impl SourceEffects {
 }
 pub fn install(app: &mut App) {
     app.init_resource::<EffectInput>()
-        .init_resource::<super::sunglasses::SunglassesEffects>()
-        .init_resource::<super::ambient_occlusion::AmbientOcclusion>()
-        .init_resource::<super::screen_effects::ScreenEffects>()
-        .init_resource::<super::motion_blur::MotionBlur>()
-        .init_resource::<super::depth_of_field::DepthOfField>()
         .add_plugins(ExtractResourcePlugin::<EffectInput>::default())
-        .add_systems(
-            Update,
-            (
-                super::sunglasses::poll,
-                super::ambient_occlusion::poll,
-                super::screen_effects::poll,
-                super::motion_blur::poll,
-                super::depth_of_field::poll,
-            ),
-        )
         .add_systems(
             PostUpdate,
             snapshot_input.after(super::view_frame::snapshot),
@@ -496,9 +483,9 @@ fn encode_post(
             glasses: input.glasses,
             binoculars: input.binoculars,
             cycle: input.cycle,
-            lut: input.screen.lut,
-            grayscale: input.screen.grayscale,
-            heat_haze: input.screen.heat_haze.then_some(input.temperature),
+            lut: input.lut,
+            grayscale: input.grayscale,
+            heat_haze: input.heat_haze.then_some(input.temperature),
             time: input.time,
             motion: frame.main_motion.map(|motion| FrameMotion {
                 jitter: motion.jitter,
