@@ -87,7 +87,9 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
   document.querySelector('#recover').disabled ||= model.dead;
   document.querySelector('#resume').disabled ||= model.deathComplete;
   // Source guests have no save: the host world is the one world.
-  for(const id of ['#save','#load','#pause-new-game'])document.querySelector(id).hidden=guest();
+  for(const id of ['#save','#load'])document.querySelector(id).hidden=guest();
+  // The player already started: the pause menu offers New game only after death.
+  document.querySelector('#pause-new-game').hidden=guest()||!model.dead;
   startLast.hidden=!canLast;
   if(state==='saves')screen.paint(!model.readyFlag||model.pending);
   error.hidden=!model.error;if(lastError!==model.error){error.textContent=model.error;lastError=model.error;}
