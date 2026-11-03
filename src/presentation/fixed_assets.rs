@@ -719,22 +719,20 @@ impl SourceFixedAssets {
                     self.failure.get_or_insert(format!("Fixed shader: {error}"));
                     shader.done = true;
                     shader.cpu = 0;
-                } else if server.is_loaded_with_dependencies(handle.id()) {
-                    if let Some(asset) = shaders.get(handle) {
-                        let retained = shader_owned_bytes(asset)?
-                            .checked_mul(2)
-                            .and_then(|n| n.checked_add(4096))
-                            .ok_or_else(|| {
-                                ReferenceError("Fixed shader retained overflow".into())
-                            })?;
-                        if retained > shader.cpu {
-                            return Err(ReferenceError(
-                                "Fixed shader exceeds construction bound".into(),
-                            ));
-                        }
-                        shader.cpu = retained;
-                        shader.done = true;
+                } else if server.is_loaded_with_dependencies(handle.id())
+                    && let Some(asset) = shaders.get(handle)
+                {
+                    let retained = shader_owned_bytes(asset)?
+                        .checked_mul(2)
+                        .and_then(|n| n.checked_add(4096))
+                        .ok_or_else(|| ReferenceError("Fixed shader retained overflow".into()))?;
+                    if retained > shader.cpu {
+                        return Err(ReferenceError(
+                            "Fixed shader exceeds construction bound".into(),
+                        ));
                     }
+                    shader.cpu = retained;
+                    shader.done = true;
                 }
             }
         }
@@ -777,38 +775,38 @@ impl SourceFixedAssets {
                 self.dither_failed = true;
                 self.failure.get_or_insert(format!("Fixed dither: {error}"));
             }
-            if render_lighting.caster_dither.is_none() {
-                if let Some(data) = dither.remove(handle.id()) {
-                    let mut image = Image::new(
-                        Extent3d {
-                            width: 4,
-                            height: 4,
-                            depth_or_array_layers: 16,
-                        },
-                        TextureDimension::D3,
-                        data.0,
-                        TextureFormat::R8Unorm,
-                        RenderAssetUsages::RENDER_WORLD,
-                    );
-                    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-                        address_mode_u: ImageAddressMode::Repeat,
-                        address_mode_v: ImageAddressMode::Repeat,
-                        address_mode_w: ImageAddressMode::Repeat,
-                        mag_filter: ImageFilterMode::Nearest,
-                        min_filter: ImageFilterMode::Nearest,
-                        mipmap_filter: ImageFilterMode::Nearest,
-                        lod_max_clamp: 0.,
-                        ..default()
-                    });
-                    let handle = images.add(image);
-                    self.uploads
-                        .lock()
-                        .unwrap()
-                        .images
-                        .push((handle.clone(), self.dither_receipt.clone()));
-                    render_lighting.caster_dither = Some(handle);
-                    self.dither_converted = true;
-                }
+            if render_lighting.caster_dither.is_none()
+                && let Some(data) = dither.remove(handle.id())
+            {
+                let mut image = Image::new(
+                    Extent3d {
+                        width: 4,
+                        height: 4,
+                        depth_or_array_layers: 16,
+                    },
+                    TextureDimension::D3,
+                    data.0,
+                    TextureFormat::R8Unorm,
+                    RenderAssetUsages::RENDER_WORLD,
+                );
+                image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                    address_mode_u: ImageAddressMode::Repeat,
+                    address_mode_v: ImageAddressMode::Repeat,
+                    address_mode_w: ImageAddressMode::Repeat,
+                    mag_filter: ImageFilterMode::Nearest,
+                    min_filter: ImageFilterMode::Nearest,
+                    mipmap_filter: ImageFilterMode::Nearest,
+                    lod_max_clamp: 0.,
+                    ..default()
+                });
+                let handle = images.add(image);
+                self.uploads
+                    .lock()
+                    .unwrap()
+                    .images
+                    .push((handle.clone(), self.dither_receipt.clone()));
+                render_lighting.caster_dither = Some(handle);
+                self.dither_converted = true;
             }
             self.dither_done = self.dither_receipt.completed();
         }
@@ -1129,17 +1127,17 @@ fn extract_uploads(
     mut extracted: ResMut<ExtractedFixedUploads>,
     mut shaders: ResMut<AdmittedShaders>,
 ) {
-    if shaders.0.is_none() {
-        if let Some(source) = source.as_ref().filter(|s| s.shaders_bound) {
-            shaders.0 = Some(std::array::from_fn(|i| {
-                source.shaders[i].handle.as_ref().unwrap().clone()
-            }));
-        }
+    if shaders.0.is_none()
+        && let Some(source) = source.as_ref().filter(|s| s.shaders_bound)
+    {
+        shaders.0 = Some(std::array::from_fn(|i| {
+            source.shaders[i].handle.as_ref().unwrap().clone()
+        }));
     }
-    if extracted.0.is_none() {
-        if let Some(source) = source.as_ref() {
-            extracted.0 = Some(Arc::clone(&source.uploads));
-        }
+    if extracted.0.is_none()
+        && let Some(source) = source.as_ref()
+    {
+        extracted.0 = Some(Arc::clone(&source.uploads));
     }
 }
 fn complete_uploads(

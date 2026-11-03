@@ -88,11 +88,11 @@ impl CloudPass {
             vertex: VertexState {
                 shader: shader.clone(),
                 entry_point: Some("vertex".into()),
-                buffers: vec![vertex_layout.clone()],
+                buffers: vec![vertex_layout],
                 ..default()
             },
             fragment: Some(FragmentState {
-                shader: shader.clone(),
+                shader,
                 entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: HDR_FORMAT,

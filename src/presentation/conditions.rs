@@ -442,34 +442,6 @@ fn apply_owner(owner: &Owner, state: &ConditionState, bank: usize, world: &mut W
     bind_owner(owner, state, bank, world);
 }
 impl ConditionVisuals {
-    pub fn validate_assets(&self, world: &World) -> Result<(), SaveError> {
-        if !self.prepared {
-            return Err(fail("Condition bindings are not ready"));
-        }
-        for receiver in self
-            .owners
-            .iter()
-            .flat_map(|o| &o.receivers)
-            .chain(self.sprays.iter().flat_map(|(_, r)| r))
-        {
-            for mesh in &receiver.meshes {
-                if !world.resource::<Assets<Mesh>>().contains(mesh.id()) {
-                    return Err(fail("Condition mesh variant"));
-                }
-            }
-            for bank in &receiver.banks {
-                for choice in bank {
-                    if !world
-                        .resource::<Assets<SourceMaterial>>()
-                        .contains(choice.material.id())
-                    {
-                        return Err(fail("Condition material variant"));
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
     fn apply_visibility(&self, world: &mut World) {
         // Retained identities are hidden; source destruction never removes a binding.
         for (index, (_, objects)) in self.washes.iter().enumerate() {
@@ -487,14 +459,14 @@ impl ConditionVisuals {
         for (id, model, disabled) in &self.tools {
             let worn = world.resource::<SimFrameResource>().condition(*id).state == 5;
             for (entity, show) in [(model, true), (disabled, !worn)] {
-                if let Some(entity) = entity {
-                    if let Some(mut v) = world.get_mut::<Visibility>(*entity) {
-                        v.set_if_neq(if show {
-                            Visibility::Inherited
-                        } else {
-                            Visibility::Hidden
-                        });
-                    }
+                if let Some(entity) = entity
+                    && let Some(mut v) = world.get_mut::<Visibility>(*entity)
+                {
+                    v.set_if_neq(if show {
+                        Visibility::Inherited
+                    } else {
+                        Visibility::Hidden
+                    });
                 }
             }
         }
