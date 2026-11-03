@@ -914,6 +914,24 @@ impl PlayerState {
         let occupancy = self.item_occupancy(seat, seat.pose);
         self.occupy(occupancy, physics)
     }
+    /// True when `seat` is another seat of the occupied owner.
+    pub fn can_switch_to(&self, seat: &crate::world::stream::content_seats::ItemSeat) -> bool {
+        self.occupancy.as_ref().is_some_and(|occupied| {
+            occupied.owner == seat.owner && occupied.source.as_ref() != Some(&seat.seat.source)
+        })
+    }
+    /// Move to another seat of the occupied owner without getting out.
+    pub fn switch_item_seat(
+        &mut self,
+        seat: &crate::world::stream::content_seats::ItemSeat,
+        physics: &mut PhysicsWorld,
+    ) -> bool {
+        if !self.can_switch_to(seat) {
+            return false;
+        }
+        let occupancy = self.item_occupancy(seat, seat.pose);
+        self.occupy(occupancy, physics)
+    }
     /// Finish a saved item seat after the world item binds. View and posture keep their saved values.
     pub fn restore_item_seat(
         &mut self,

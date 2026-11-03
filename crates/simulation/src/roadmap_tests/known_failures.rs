@@ -243,3 +243,57 @@ fn tp_k6_an_open_hood_leaves_the_engine_caps_in_reach() {
         "the use ray takes the cap from {reach} of 4 sides"
     );
 }
+
+/// K7. A seated player changes seat in the same car: the use ray from the driver head takes
+/// another seat of the car, and the seat change keeps the player in the car.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k7_a_seated_player_changes_seat_in_the_same_car() {
+    use rapier3d::math::{Rotation, Vector};
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    act(&mut run, &reference, r#"{"action":"seat","seat":"driver"}"#);
+    seconds(&mut run, &reference, 0.5);
+    let car = run.area.player.seat_vehicle().cloned();
+    assert!(
+        car.is_some() && run.area.player.driving(),
+        "the player drives"
+    );
+    let eye = Vector::from_array(run.area.player.view(&run.physics).camera_pose.position);
+    let interaction = &run.area.interaction;
+    let switchable = |handle| {
+        interaction
+            .item_seat(handle)
+            .is_some_and(|seat| run.area.player.can_switch_to(&seat))
+    };
+    let reach = run
+        .physics
+        .rapier()
+        .colliders
+        .iter()
+        .filter(|(handle, _)| switchable(*handle))
+        .filter(|(_, collider)| {
+            let at = collider.compute_aabb().center();
+            let view = crate::vehicle::VehiclePose {
+                position: eye.to_array(),
+                rotation: Rotation::from_rotation_arc(-Vector::Z, (at - eye).normalize())
+                    .to_array(),
+            };
+            let aim = interaction.resolve(&run.physics, view, &run.area.items);
+            aim.use_target.is_some_and(|t| switchable(t.collider))
+        })
+        .count();
+    assert!(reach >= 1, "the use ray takes another seat of the car");
+    act(
+        &mut run,
+        &reference,
+        r#"{"action":"seat","seat":"passenger"}"#,
+    );
+    seconds(&mut run, &reference, 0.5);
+    let player = &run.area.player;
+    assert!(
+        player.seated() && !player.driving(),
+        "the player sits as a passenger"
+    );
+    assert_eq!(player.seat_vehicle().cloned(), car, "in the same car");
+}

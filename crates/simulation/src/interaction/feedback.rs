@@ -260,12 +260,9 @@ impl InteractionState {
                     a.tune_icon = o.reference.tune_icon;
                 }
             }
-            if self
-                .item_seats
-                .get(&t.collider)
-                .is_some_and(|seat| seat.can_sit(physics))
-                && !player.seated()
-            {
+            if self.item_seats.get(&t.collider).is_some_and(|seat| {
+                seat.can_sit(physics) && (!player.seated() || player.can_switch_to(seat))
+            }) {
                 a.actions.0 |= ActionMask::ENTER;
                 a.context = FeedbackContext::Seat;
             }
@@ -453,7 +450,11 @@ impl InteractionState {
         }
         if player.seated()
             && a.actions.0
-                & (ActionMask::USE | ActionMask::DOOR | ActionMask::TUNE | ActionMask::SWITCH)
+                & (ActionMask::USE
+                    | ActionMask::DOOR
+                    | ActionMask::TUNE
+                    | ActionMask::SWITCH
+                    | ActionMask::ENTER)
                 == 0
             && player.can_exit(physics)
         {
