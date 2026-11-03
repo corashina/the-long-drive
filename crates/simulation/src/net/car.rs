@@ -5,8 +5,9 @@ use super::message::{
     CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage, CarLampsMessage,
     Message, PoseMessage,
 };
+use crate::car::VehicleRuntime;
 use crate::reference::ReferenceManifest;
-use crate::starting_area::{GarageRuntime, VehicleRuntime};
+use crate::starting_area::GarageRuntime;
 use crate::vehicle::VehiclePose;
 use crate::world::ObjectKey;
 use glam::{DQuat, DVec3, Quat, Vec3};

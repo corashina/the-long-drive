@@ -3,7 +3,7 @@
 use wasm_heap as _;
 
 pub use ::simulation::{
-    animation, audio, conditions, damage, exhaust, fluids, flyers, interaction, inventory,
+    animation, audio, car, conditions, damage, exhaust, fluids, flyers, interaction, inventory,
     light_dither, lighting, particles, plates, player, reference, render_readiness, save,
     simulation, sky_traffic, sleep, starting_area, survival, vehicle, weather, wheel_effects,
     world,

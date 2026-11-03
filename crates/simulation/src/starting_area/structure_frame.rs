@@ -1,6 +1,7 @@
 //! Presentation views of the world structures. A view goes out when its state changes.
-use super::{GarageRuntime, VehicleRuntime};
+use super::GarageRuntime;
 use crate::boundary::{Change, MaterialRow, NodeColorRow, NodePoseRow, SimFrame, StructureRow};
+use crate::car::VehicleRuntime;
 use crate::interaction::items::{ItemLocation, ItemState, ItemStore};
 use crate::reference::{
     ItemId, ReferenceError, ReferenceManifest, SourceId, Transform, WorldPrototypeReference,

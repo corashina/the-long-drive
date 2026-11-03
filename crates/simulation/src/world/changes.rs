@@ -94,7 +94,7 @@ pub struct ChangeRecords {
     region_bytes: usize,
     /// Car-side state of car objects. A car takes its state back when it spawns.
     #[serde(serialize_with = "pairs")]
-    vehicles: BTreeMap<ObjectKey, crate::starting_area::VehicleState>,
+    vehicles: BTreeMap<ObjectKey, crate::car::VehicleState>,
     /// The rim object of each wheel slot of car objects, in wheel order.
     #[serde(serialize_with = "pairs")]
     wheel_slots: BTreeMap<ObjectKey, Vec<Option<ObjectKey>>>,
@@ -144,7 +144,7 @@ impl<'de> Deserialize<'de> for ChangeRecords {
         #[serde(deny_unknown_fields)]
         struct Envelope {
             records: Vec<(ObjectKey, ObjectChange)>,
-            vehicles: Vec<(ObjectKey, crate::starting_area::VehicleState)>,
+            vehicles: Vec<(ObjectKey, crate::car::VehicleState)>,
             wheel_slots: Vec<(ObjectKey, Vec<Option<ObjectKey>>)>,
             engines: Vec<(ObjectKey, crate::save::EngineSnapshot)>,
             radiators: Vec<(ObjectKey, bool)>,
@@ -470,18 +470,16 @@ impl ChangeRecords {
         }
     }
     /// Keeps the car-side state of car `key` until it spawns again.
-    pub fn keep_vehicle(&mut self, key: ObjectKey, state: crate::starting_area::VehicleState) {
+    pub fn keep_vehicle(&mut self, key: ObjectKey, state: crate::car::VehicleState) {
         self.vehicles.insert(key, state);
     }
-    pub fn take_vehicle(&mut self, key: &ObjectKey) -> Option<crate::starting_area::VehicleState> {
+    pub fn take_vehicle(&mut self, key: &ObjectKey) -> Option<crate::car::VehicleState> {
         self.vehicles.remove(key)
     }
-    pub fn vehicle(&self, key: &ObjectKey) -> Option<&crate::starting_area::VehicleState> {
+    pub fn vehicle(&self, key: &ObjectKey) -> Option<&crate::car::VehicleState> {
         self.vehicles.get(key)
     }
-    pub fn vehicles(
-        &self,
-    ) -> impl Iterator<Item = (&ObjectKey, &crate::starting_area::VehicleState)> {
+    pub fn vehicles(&self) -> impl Iterator<Item = (&ObjectKey, &crate::car::VehicleState)> {
         self.vehicles.iter()
     }
     /// Keeps the rim object of each wheel slot of car `key` until it spawns again.
