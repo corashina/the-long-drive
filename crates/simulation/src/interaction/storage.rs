@@ -394,10 +394,6 @@ impl StorageLocks {
     pub fn picked_up(&mut self, item: ItemId) {
         self.till_pickup.remove(&item);
     }
-    /// The part slots that gate bound volume `volume`. Each must hold a closed part.
-    pub fn gate_slots(&self, volume: u16) -> &[PartSlotId] {
-        &self.volumes[volume as usize].slots
-    }
     fn gates_closed(volume: &Volume, parts: &PartAttachments, mechanisms: &MechanismState) -> bool {
         let open = |usable: ItemId| {
             mechanisms
@@ -433,15 +429,6 @@ impl StorageLocks {
         let owner = items.get(volume.owner)?;
         let body = physics.rapier().bodies.get(owner.body?)?;
         Some(*body.position() * to_rapier(owner.local_pose) * *local)
-    }
-    /// The world pose of the box of bound volume `volume`.
-    pub fn volume_pose(
-        &self,
-        volume: u16,
-        items: &ItemStore,
-        physics: &PhysicsWorld,
-    ) -> Option<Pose> {
-        Self::pose(self.volumes.get(volume as usize)?, items, physics)
     }
     /// Clears `current`, then fills it with the items that overlap the volume.
     fn scan_volume(

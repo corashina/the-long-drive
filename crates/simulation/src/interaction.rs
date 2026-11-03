@@ -825,12 +825,6 @@ impl InteractionState {
     pub fn remove_ufo_control(&mut self, collider: ColliderHandle) {
         self.ufo_controls.remove(&collider);
     }
-    pub fn ufo_control(
-        &self,
-        collider: ColliderHandle,
-    ) -> Option<crate::ground_ufo::UfoControlTarget> {
-        self.ufo_controls.get(&collider).copied()
-    }
     pub fn item_seats(
         &self,
     ) -> impl Iterator<Item = &std::sync::Arc<crate::world::stream::content_seats::ItemSeat>> {
@@ -1510,12 +1504,6 @@ impl InteractionState {
     }
     pub fn opening_valves(&self) -> impl Iterator<Item = (OpeningId, f32)> + '_ {
         self.openings.iter().map(|o| (o.reference.id, o.valve))
-    }
-    pub fn opening_valve(&self, id: OpeningId) -> f32 {
-        self.openings
-            .iter()
-            .find(|opening| opening.reference.id == id)
-            .map_or(0.0, |opening| opening.valve)
     }
     pub fn tuning_opening(&self) -> Option<OpeningId> {
         self.tuning_opening
