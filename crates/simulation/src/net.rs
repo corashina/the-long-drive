@@ -347,6 +347,7 @@ impl Net {
                 message::PART_SLOT => self.mounts.receive(runtime, index, packet),
                 message::CAR_FLOATS
                 | message::CAR_HANDBRAKE
+                | message::CAR_LAMPS
                 | message::CAR_GEAR
                 | message::CAR_IGNITION => {
                     self.cars.receive(reference, runtime, self.clock, packet)

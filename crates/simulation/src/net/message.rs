@@ -10,6 +10,8 @@ pub const BODY: u8 = 13;
 pub const CAR_FLOATS: u8 = 25;
 /// Source `msgType.carhandbrake`.
 pub const CAR_HANDBRAKE: u8 = 26;
+/// Source `msgType.carlamps`.
+pub const CAR_LAMPS: u8 = 27;
 /// Source `msgType.cargears`.
 pub const CAR_GEAR: u8 = 28;
 /// Source `msgType.carignition`.
@@ -115,6 +117,16 @@ pub struct CarFloatsMessage {
 pub struct CarHandbrakeMessage {
     pub car: u64,
     pub handbrake: f32,
+    pub pad: u32,
+}
+
+/// Source `carlamps` layout: the car and `lampak`. Port addition: the source sends it nowhere and
+/// `CarUpdateLamps` does nothing, so peers saw other headlight modes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct CarLampsMessage {
+    pub car: u64,
+    pub headlights: u32,
     pub pad: u32,
 }
 
@@ -509,6 +521,10 @@ impl Message for CarFloatsMessage {
 }
 impl Message for CarHandbrakeMessage {
     const TYPE: u8 = CAR_HANDBRAKE;
+    const RELIABLE: bool = true;
+}
+impl Message for CarLampsMessage {
+    const TYPE: u8 = CAR_LAMPS;
     const RELIABLE: bool = true;
 }
 impl Message for CarGearMessage {
