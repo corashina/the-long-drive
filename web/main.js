@@ -91,7 +91,8 @@ performance.setResourceTimingBufferSize?.(16000);
 let startupFailureDetails=null,startupDone=false,startupReady=false;
 function fetched(record){
  const entry=performance.getEntriesByName?.(new URL(record.path,location.href).href)?.at(-1);
- startup.fetched({...record,cache:entry?entry.transferSize===0?'hit':'miss':'unknown',downloadMs:entry?entry.responseEnd-entry.requestStart:null});
+ if(!entry){startup.fetched({...record,cache:'unknown',downloadMs:null});return;}
+ startup.fetched({...record,cache:entry.transferSize===0?'hit':'miss',downloadMs:entry.responseEnd-entry.requestStart});
 }
 window.gameStartupTrace=()=>startup.snapshot();
 window.gameStartupDone=()=>startupDone;

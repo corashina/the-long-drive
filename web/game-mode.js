@@ -14,7 +14,8 @@ export const optionBits=options=>Number(options.peaceful)|Number(options.surviva
 // `mainmenuscript.chSeed`: C# int.Parse, else the int limit of the sign, else 0 for an empty field.
 export function parseSeed(text){
  if(/^\s*[+-]?\d+\s*$/.test(text)){const v=Number(text);if(v>=INT_MIN&&v<=INT_MAX)return v;}
- return text.length>0?(text[0]==='-'?INT_MIN:INT_MAX):0;
+ if(text.length===0)return 0;
+ return text[0]==='-'?INT_MIN:INT_MAX;
 }
 // `chnewSeed`: Random.Range(int.MinValue, int.MaxValue).
 export const randomSeed=(random=Math.random)=>Math.floor(INT_MIN+random()*(INT_MAX-INT_MIN));
