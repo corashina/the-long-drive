@@ -552,15 +552,29 @@ pub struct WorldStartupReference {
     pub prototype: Option<SourceId>,
     /// A start car candidate. `group` is its source start car field. Only the picked one spawns.
     pub start_car: bool,
-    /// Scene random start fields of prefab conditions. Start cars start worn; their prefabs start new.
+    /// Scene start fields of prefab conditions. Start cars start worn; their prefabs start new.
     pub conditions: Vec<WorldStartCondition>,
+    /// Scene fluids of prefab tanks that differ from the prefab.
+    pub tanks: Vec<WorldStartTank>,
+    /// Scene `tosaveitemscript.buried`.
+    pub buried: bool,
 }
 
-/// The scene values of the partconditionscript random start fields of one prefab condition.
+/// The scene fluids of one prefab `tankscript`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorldStartTank {
+    pub source: SourceId,
+    pub fluids: Vec<crate::fluids::FluidEntry>,
+}
+
+/// The scene values of the partconditionscript start fields of one prefab condition.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldStartCondition {
     pub source: SourceId,
+    /// Scene `state`.
+    pub state: i32,
     pub random_start: bool,
     pub random_min: i32,
     pub random_max: i32,
@@ -822,6 +836,12 @@ pub struct WorldBuildingSide {
     pub min_y_angle: f32,
 }
 impl WorldReference {
+    /// The startup row of a fixed startup placement root. Sandbox placements have none.
+    pub fn startup_row(&self, id: &crate::world::GeneratedId) -> Option<&WorldStartupReference> {
+        (id.layer == crate::world::WorldLayer::Startup && id.children.is_empty())
+            .then(|| self.startup.get(id.ordinal as usize))
+            .flatten()
+    }
     /// Every set material binds as a world prototype material. Desert materials are unique.
     fn validate_biome_material_sets(
         &self,
@@ -1528,12 +1548,21 @@ impl WorldReference {
             )?;
             for c in &frame.conditions {
                 require(
-                    frame.start_car
+                    frame.prototype.is_some()
                         && checked_record(&record_map, &c.source, &["partconditionscript"]).is_ok()
+                        && (0..=4).contains(&c.state)
                         && (0..=c.random_max).contains(&c.random_min)
                         && c.override_min.is_none_or(|v| (0..=4).contains(&v))
                         && c.override_max.is_none_or(|v| (0..=4).contains(&v)),
-                    &field(&c.source, "start car condition"),
+                    &field(&c.source, "start condition"),
+                )?;
+            }
+            for t in &frame.tanks {
+                require(
+                    frame.prototype.is_some()
+                        && checked_record(&record_map, &t.source, &["tankscript"]).is_ok()
+                        && crate::fluids::validate_fluid_entries(&t.fluids),
+                    &field(&t.source, "start tank"),
                 )?;
             }
             let mut node = checked_record(&record_map, &frame.source, &["Transform"])?;
