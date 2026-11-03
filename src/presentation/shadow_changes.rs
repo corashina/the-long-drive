@@ -65,66 +65,58 @@ impl ShadowMaterials<'_> {
     /// Caster state of a GPU prop row material, as `has_caster` gives it for an entity.
     pub fn row_caster(&self, id: bevy::asset::UntypedAssetId) -> Result<bool, &'static str> {
         use std::any::TypeId;
-        let available = match id.type_id() {
-            t if t == TypeId::of::<SourceMaterial>() => {
-                return self
-                    .source
-                    .get(id.typed::<SourceMaterial>())
-                    .map(|material| material.extension.has_caster())
-                    .ok_or("Missing source shadow material");
-            }
-            t if t == TypeId::of::<SpecularMaterial>() => (
+        match id.type_id() {
+            t if t == TypeId::of::<SourceMaterial>() => self
+                .source
+                .get(id.typed::<SourceMaterial>())
+                .map(|material| material.extension.has_caster())
+                .ok_or("Missing source shadow material"),
+            t if t == TypeId::of::<SpecularMaterial>() => present(
                 self.specular.contains(id.typed::<SpecularMaterial>()),
                 "Missing source specular material",
             ),
-            t if t == TypeId::of::<ImpostorMaterial>() => (
+            t if t == TypeId::of::<ImpostorMaterial>() => present(
                 self.impostors.contains(id.typed::<ImpostorMaterial>()),
                 "Missing source impostor material",
             ),
-            _ => return Err("Unsupported GPU prop material"),
-        };
-        match available {
-            (true, _) => Ok(true),
-            (false, error) => Err(error),
+            _ => Err("Unsupported GPU prop material"),
         }
     }
     pub fn has_caster(&self, mesh: &ShadowMeshItem<'_, '_>) -> Result<Option<bool>, &'static str> {
-        if let Some(handle) = mesh.material {
-            return self
-                .source
+        let caster = if let Some(handle) = mesh.material {
+            self.source
                 .get(handle.0.id())
-                .map(|material| Some(material.extension.has_caster()))
-                .ok_or("Missing source shadow material");
-        }
-        let available = if let Some(handle) = mesh.specular {
-            Some((
+                .map(|material| material.extension.has_caster())
+                .ok_or("Missing source shadow material")
+        } else if let Some(handle) = mesh.specular {
+            present(
                 self.specular.contains(handle.0.id()),
                 "Missing source specular material",
-            ))
+            )
         } else if let Some(handle) = mesh.terrain {
-            Some((
+            present(
                 self.terrain.contains(handle.0.id()),
                 "Missing source terrain material",
-            ))
+            )
         } else if let Some(handle) = mesh.grass {
-            Some((
+            present(
                 self.grass.contains(handle.0.id()),
                 "Missing source grass material",
-            ))
+            )
+        } else if let Some(handle) = mesh.impostor {
+            present(
+                self.impostors.contains(handle.0.id()),
+                "Missing source impostor material",
+            )
         } else {
-            mesh.impostor.map(|handle| {
-                (
-                    self.impostors.contains(handle.0.id()),
-                    "Missing source impostor material",
-                )
-            })
+            return Ok(None);
         };
-        match available {
-            Some((true, _)) => Ok(Some(true)),
-            Some((false, error)) => Err(error),
-            None => Ok(None),
-        }
+        caster.map(Some)
     }
+}
+/// Materials other than `SourceMaterial` always cast. Only a missing asset fails.
+fn present(found: bool, error: &'static str) -> Result<bool, &'static str> {
+    if found { Ok(true) } else { Err(error) }
 }
 
 #[derive(SystemParam)]

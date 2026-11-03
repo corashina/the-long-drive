@@ -242,7 +242,7 @@ impl Plugin for SourceLightingPlugin {
             .add_systems(Render, check_pipelines.in_set(RenderSystems::Cleanup));
     }
 }
-pub fn load_lighting(commands: &mut Commands, _server: &AssetServer, lighting: &LightingRecord) {
+pub fn load_lighting(commands: &mut Commands, lighting: &LightingRecord) {
     let textures = Vec::with_capacity(lighting.textures.len());
     commands.insert_resource(SourceLighting {
         sky: super::sky::SkyState::new(lighting),
@@ -644,9 +644,7 @@ pub(crate) fn bind_lighting(
         source.uniform.lights[index].mask = UVec4::new(
             light.culling_mask,
             if light.kind == LightKind::Spot {
-                let a = light.full_cone_degrees * 0.5 / 360.;
-                let half = (a + a) * std::f32::consts::PI;
-                (half.cos() / half.sin()).to_bits()
+                spot_cotangent_bits(light.full_cone_degrees)
             } else {
                 0
             },
@@ -656,77 +654,70 @@ pub(crate) fn bind_lighting(
     }
     // One reserved slot for the lit cigarette ember light (emberScript.feny).
     if let Some(record) = ember_light(&reference.0) {
-        let index = source.lights.len();
-        if index == MAX_LIGHTS {
+        let cookie = cookie_rect(&reference.0, &cookie_ids, record).unwrap_or(Vec4::ZERO);
+        if !reserve_light(&mut source, &mut commands, record, cookie) {
             source.state = RenderingState::Failed("Cigarette ember exceeds light capacity".into());
             return;
         }
-        let entity = commands.spawn((SourceLight, Transform::default())).id();
-        source.lights.push(BoundLight {
-            world: Some(WorldBoundLight {
-                record: record.clone(),
-                output: crate::lighting::LightOutput {
-                    id: record.id,
-                    enabled: false,
-                    intensity: record.startup_intensity,
-                },
-            }),
-            index,
-            road: false,
-            item: None,
-            body: None,
-            id: record.id,
-            source_index: 0,
-            entity,
-            node: None,
-            pose: Transform::default(),
-        });
-        source.uniform.lights[index].cookie_rect =
-            cookie_rect(&reference.0, &cookie_ids, record).unwrap_or(Vec4::ZERO);
-        source.uniform.lights[index].cookie_size = record.cookie_size;
-        source.uniform.lights[index].mask = UVec4::new(record.culling_mask, 0, 0, 0);
     }
     // One reserved slot for the pumpkin light (lightdither).
-    if let Some(record) = dither_light(&reference.0) {
-        let record = &record.light;
-        let index = source.lights.len();
-        if index == MAX_LIGHTS {
-            source.state = RenderingState::Failed("Pumpkin light exceeds light capacity".into());
-            return;
-        }
-        let entity = commands.spawn((SourceLight, Transform::default())).id();
-        source.lights.push(BoundLight {
-            world: Some(WorldBoundLight {
-                record: record.clone(),
-                output: crate::lighting::LightOutput {
-                    id: record.id,
-                    enabled: false,
-                    intensity: record.startup_intensity,
-                },
-            }),
-            index,
-            road: false,
-            item: None,
-            body: None,
-            id: record.id,
-            source_index: 0,
-            entity,
-            node: None,
-            pose: Transform::default(),
-        });
-        source.uniform.lights[index].cookie_rect = Vec4::ZERO;
-        source.uniform.lights[index].cookie_size = record.cookie_size;
-        source.uniform.lights[index].mask = UVec4::new(record.culling_mask, 0, 0, 0);
+    if let Some(record) = dither_light(&reference.0)
+        && !reserve_light(&mut source, &mut commands, &record.light, Vec4::ZERO)
+    {
+        source.state = RenderingState::Failed("Pumpkin light exceeds light capacity".into());
+        return;
     }
     source.uniform.counts.x = source.lights.len() as u32;
     source.road_lamps.fixed_lights = source.lights.len();
-    source.road_lamps.capacity = MAX_LIGHTS - source.lights.len();
     if r.road_lamp.lights.len() != 1 {
         source.state =
             RenderingState::Failed("Source road lamp window exceeds renderer capacity".into());
         return;
     }
     source.bound = true;
+}
+/// Cotangent bits of the spot half angle, as the shader reads them.
+fn spot_cotangent_bits(full_cone_degrees: f32) -> u32 {
+    let a = full_cone_degrees * 0.5 / 360.;
+    let half = (a + a) * std::f32::consts::PI;
+    (half.cos() / half.sin()).to_bits()
+}
+/// Binds a game-driven light in the next fixed slot. It starts off. False when no slot is free.
+fn reserve_light(
+    source: &mut SourceLighting,
+    commands: &mut Commands,
+    record: &crate::reference::LightReference,
+    cookie_rect: Vec4,
+) -> bool {
+    let index = source.lights.len();
+    if index == MAX_LIGHTS {
+        return false;
+    }
+    let entity = commands.spawn((SourceLight, Transform::default())).id();
+    source.lights.push(BoundLight {
+        world: Some(WorldBoundLight {
+            record: record.clone(),
+            output: crate::lighting::LightOutput {
+                id: record.id,
+                enabled: false,
+                intensity: record.startup_intensity,
+            },
+        }),
+        index,
+        road: false,
+        item: None,
+        body: None,
+        id: record.id,
+        source_index: 0,
+        entity,
+        node: None,
+        pose: Transform::default(),
+    });
+    let gpu = &mut source.uniform.lights[index];
+    gpu.cookie_rect = cookie_rect;
+    gpu.cookie_size = record.cookie_size;
+    gpu.mask = UVec4::new(record.culling_mask, 0, 0, 0);
+    true
 }
 /// The point light of the cigarette ember record.
 pub(crate) fn ember_light(
@@ -841,10 +832,10 @@ pub(crate) fn sync_lighting(
         if record.kind == LightKind::Directional {
             let [x, y, z] = cycle.directional_euler_degrees.map(f32::to_radians);
             next_pose.rotation = Quat::from_euler(EulerRot::YXZ, -y, -x, z);
-        } else if let Some(node) = bound.node {
-            if let Ok(global) = globals.get(node) {
-                next_pose = global.compute_transform();
-            }
+        } else if let Some(node) = bound.node
+            && let Ok(global) = globals.get(node)
+        {
+            next_pose = global.compute_transform();
         }
         pose.set_if_neq(next_pose);
         global.set_if_neq(GlobalTransform::from(next_pose));
@@ -1117,14 +1108,14 @@ fn upload_lighting(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
 ) {
-    if let Some(status) = &extracted.status {
-        if !Arc::ptr_eq(status, &gpu.status) {
-            if let RenderingState::Failed(error) = &*gpu.status.lock().unwrap() {
-                *status.lock().unwrap() = RenderingState::Failed(error.clone());
-            }
-            gpu.status = status.clone();
-            capture_gpu_errors(&device, status.clone());
+    if let Some(status) = &extracted.status
+        && !Arc::ptr_eq(status, &gpu.status)
+    {
+        if let RenderingState::Failed(error) = &*gpu.status.lock().unwrap() {
+            *status.lock().unwrap() = RenderingState::Failed(error.clone());
         }
+        gpu.status = status.clone();
+        capture_gpu_errors(&device, status.clone());
     }
     if matches!(*gpu.status.lock().unwrap(), RenderingState::Failed(_)) {
         return;
@@ -1136,15 +1127,14 @@ fn upload_lighting(
         gpu.uniform.set(extracted.uniform);
         gpu.uniform.write_buffer(&device, &queue);
     }
-    if gpu.cookies.is_none() {
-        if let Some(ids) = extracted.cookies {
-            if ids.iter().all(|id| images.get(*id).is_some()) {
-                gpu.cookies = Some(ids.map(|id| {
-                    let image = images.get(id).unwrap();
-                    (image.texture_view.clone(), image.sampler.clone())
-                }));
-            }
-        }
+    if gpu.cookies.is_none()
+        && let Some(ids) = extracted.cookies
+        && ids.iter().all(|id| images.get(*id).is_some())
+    {
+        gpu.cookies = Some(ids.map(|id| {
+            let image = images.get(id).unwrap();
+            (image.texture_view.clone(), image.sampler.clone())
+        }));
     }
 }
 fn check_pipelines(
@@ -1272,13 +1262,11 @@ pub(crate) fn register_road_light(
         node: Some(node),
         pose: Transform::default(),
     });
-    let a = light.full_cone_degrees * 0.5 / 360.;
-    let half = (a + a) * std::f32::consts::PI;
     source.uniform.lights[index] = GpuLight {
         cookie_rect: Vec4::new(2., 0., 0., 0.),
         mask: UVec4::new(
             light.culling_mask,
-            (half.cos() / half.sin()).to_bits(),
+            spot_cotangent_bits(light.full_cone_degrees),
             0,
             0,
         ),

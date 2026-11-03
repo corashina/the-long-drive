@@ -38,8 +38,7 @@ pub enum CasterKey {
 pub struct ShadowScene {
     pub frame: u32,
     pub origin: [f64; 3],
-    pub imported_capacity: usize,
-    pub generated_capacity: usize,
+    capacity: usize,
     pub caster_data: CasterData<CasterKey>,
     pub masks: [Vec<u8>; VIEW_COUNT],
     /// Rows that can have a nonzero mask in each view, in row order. Other masks are zero.
@@ -104,12 +103,10 @@ impl ShadowScene {
         self.mask_revisions[index]
     }
     pub fn capacity(&self) -> usize {
-        self.imported_capacity + self.generated_capacity
+        self.capacity
     }
-    fn reserve(&mut self, imported: usize, generated: usize) {
-        self.imported_capacity = imported;
-        self.generated_capacity = generated;
-        let count = self.capacity();
+    fn reserve(&mut self, count: usize) {
+        self.capacity = count;
         self.caster_data.reserve(count);
         self.poses
             .reserve_exact(count.saturating_sub(self.poses.len()));
@@ -200,8 +197,8 @@ pub(super) fn prepare_scene(
     }
     if rebuild {
         let imported = meshes.iter().count() + props.live() as usize;
-        if imported > scene.imported_capacity {
-            scene.reserve(imported, 0);
+        if imported > scene.capacity {
+            scene.reserve(imported);
             scene.bounds.reserve(imported);
             scene.index.reserve(imported);
         }
@@ -247,13 +244,7 @@ pub(super) fn prepare_scene(
     if scene.sun.angle_between(live.sun_rotation) > SUN_STEP {
         scene.sun = live.sun_rotation;
     }
-    let rotation = scene.sun;
-    let h = |v: Vec3| [v.x, v.y, -v.z];
-    let light_basis = [
-        h(rotation * Vec3::X),
-        h(rotation * Vec3::Y),
-        h(rotation * -Vec3::Z),
-    ];
+    let light_basis = super::shadow_queue::light_basis(scene.sun).map(|v| v.to_array());
     for index in 0..VIEW_COUNT {
         let Some(v) = frame.views[index] else {
             scene.masks[index].clear();
@@ -584,7 +575,7 @@ pub fn extract_scene(
         return;
     }
     if output.capacity() < input.capacity() {
-        output.reserve(input.imported_capacity, input.generated_capacity);
+        output.reserve(input.capacity);
     }
     assert_eq!(
         output.capacity(),

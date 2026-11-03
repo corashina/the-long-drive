@@ -135,15 +135,6 @@ impl WorldPipelines {
             }).collect::<Vec<_>>(),
         })
     }
-    pub fn reserve_cache(&mut self, ledger: &mut PresentationLedger) -> Result<(), ReferenceError> {
-        if !self.cache_reserved {
-            let mut allocation = ledger.allocation();
-            allocation.prototype_cpu += super::super::pipeline_ownership::CACHE_BYTES;
-            ledger.set_allocation(allocation)?;
-            self.cache_reserved = true;
-        }
-        Ok(())
-    }
     pub fn owns(&self, id: CachedRenderPipelineId) -> bool {
         self.jobs.as_ref().is_some_and(|bank| {
             bank.lock()

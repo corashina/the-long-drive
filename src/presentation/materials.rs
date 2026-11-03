@@ -1803,9 +1803,7 @@ impl AsBindGroup for SourceReceiver {
     fn label() -> &'static str {
         "source lighting"
     }
-    fn bind_group_data(&self) -> Self::Data {
-        ()
-    }
+    fn bind_group_data(&self) -> Self::Data {}
     fn unprepared_bind_group(
         &self,
         _: &BindGroupLayout,

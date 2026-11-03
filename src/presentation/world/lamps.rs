@@ -26,7 +26,6 @@ pub(crate) struct RoadLamps {
     required: Vec<crate::world::GeneratedId>,
     allocation: [Option<usize>; crate::presentation::lighting::MAX_LIGHTS],
     preflight_ready: bool,
-    pub capacity: usize,
     pub fixed_lights: usize,
     pub recipe: Option<RoadLampRecipe>,
     prototype: Option<Entity>,
@@ -35,7 +34,6 @@ pub(crate) struct RoadLamps {
     prototype_nodes: Vec<(crate::reference::NodeId, Entity)>,
     prototype_light: Option<Entity>,
     origin: [f64; 3],
-    overlap: usize,
 }
 impl RoadLamps {
     pub fn clone_bytes(&self) -> usize {
@@ -68,13 +66,12 @@ impl RoadLamps {
         self.origin = [f64::INFINITY; 3];
     }
     pub fn new() -> Self {
-        let capacity = crate::presentation::lighting::MAX_LIGHTS;
+        use crate::presentation::lighting::MAX_LIGHTS;
         Self {
-            source_proxies: Vec::with_capacity(crate::presentation::lighting::MAX_LIGHTS),
-            required: Vec::with_capacity(crate::presentation::lighting::MAX_LIGHTS),
-            allocation: [None; crate::presentation::lighting::MAX_LIGHTS],
+            source_proxies: Vec::with_capacity(MAX_LIGHTS),
+            required: Vec::with_capacity(MAX_LIGHTS),
+            allocation: [None; MAX_LIGHTS],
             preflight_ready: false,
-            capacity,
             fixed_lights: 0,
             recipe: None,
             prototype: None,
@@ -83,7 +80,6 @@ impl RoadLamps {
             prototype_nodes: Vec::new(),
             prototype_light: None,
             origin: [f64::INFINITY; 3],
-            overlap: 0,
         }
     }
 }
@@ -461,12 +457,9 @@ pub(crate) fn source_lamp_admission(
 ) -> Result<(usize, usize, usize), crate::reference::ReferenceError> {
     source.road_lamps.preflight_ready = false;
     source.road_lamps.allocation.fill(None);
-    if source.warming {
+    if source.warming || source.road_lamps.recipe.is_none() {
         return Ok((0, 0, 0));
     }
-    let Some(_recipe) = &source.road_lamps.recipe else {
-        return Ok((0, 0, 0));
-    };
     let mut count = 0;
     for light in frame.lights.iter().filter(|light| {
         selected.contains(&light.id)
@@ -485,7 +478,7 @@ pub(crate) fn source_lamp_admission(
     source.road_lamps.required.truncate(count);
     let required = source.road_lamps.required.len();
     let light_capacity = crate::presentation::lighting::MAX_LIGHTS - source.road_lamps.fixed_lights;
-    if required + source.road_lamps.overlap > light_capacity {
+    if required > light_capacity {
         #[cfg(target_arch = "wasm32")]
         {
             let entries: Vec<_> = source.road_lamps.required.iter().filter_map(|id| {
@@ -507,16 +500,17 @@ pub(crate) fn source_lamp_admission(
                     "controllerOutput": {"enabled": output.enabled, "intensity": output.intensity},
                 })
             }).collect();
-            crate::browser::game_startup_failure_details(&serde_json::json!({
-                "kind": "sourceLightAdmission",
-                "requiredLightEntries": required,
-                "availableLightEntries": light_capacity,
-                "availableNewLightEntries": light_capacity.saturating_sub(source.road_lamps.overlap),
-                "fixedLightEntries": source.road_lamps.fixed_lights,
-                "fixedEntries": fixed_entries,
-                "retainedOverlap": {"lightEntries": source.road_lamps.overlap},
-                "entries": entries,
-            }).to_string());
+            crate::browser::game_startup_failure_details(
+                &serde_json::json!({
+                    "kind": "sourceLightAdmission",
+                    "requiredLightEntries": required,
+                    "availableLightEntries": light_capacity,
+                    "fixedLightEntries": source.road_lamps.fixed_lights,
+                    "fixedEntries": fixed_entries,
+                    "entries": entries,
+                })
+                .to_string(),
+            );
         }
         return Err(crate::reference::ReferenceError(format!(
             "Required source lights exceed renderer capacity: {required}"

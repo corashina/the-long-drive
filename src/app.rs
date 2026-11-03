@@ -396,7 +396,7 @@ fn setup(
     commands.insert_resource(presentation::sky_traffic::SkyTrafficVisuals::default());
     commands.insert_resource(presentation::creatures::CreatureVisuals::default());
     commands.insert_resource(presentation::humans::HumanVisuals::default());
-    presentation::lighting::load_lighting(&mut commands, &server, &reference.0.lighting);
+    presentation::lighting::load_lighting(&mut commands, &reference.0.lighting);
     presentation::lighting_assets::load_lighting(&mut commands, &server, Arc::clone(&reference.0));
     presentation::lighting::load_lamp_materials(&mut commands, &gltf_extensions, &reference.0);
     presentation::reference::load(&mut commands, &server, &reference.0);
