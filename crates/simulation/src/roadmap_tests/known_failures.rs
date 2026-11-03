@@ -297,3 +297,25 @@ fn tp_k7_a_seated_player_changes_seat_in_the_same_car() {
     );
     assert_eq!(player.seat_vehicle().cloned(), car, "in the same car");
 }
+
+/// K8. Renderer loads can hold all staging while a held item changes every frame, as the spray
+/// bottle count does. The changed destination selection waits for staging room and the game
+/// does not stop with "Changed destination selection exceeds staging admission".
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k8_full_renderer_staging_does_not_stop_a_changing_held_item() {
+    use crate::world::stream::STAGING;
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let item = find(&run, "OilCan");
+    hold_renderer_staging(&mut run.stream, STAGING);
+    pick_up(&mut run, &reference, item);
+    // `frame` fails the test on a stream failure.
+    for step in 0..60 {
+        look(&mut run, (step % 20) as f32 * 3., 0.);
+        frame(&mut run, &reference);
+    }
+    hold_renderer_staging(&mut run.stream, 0);
+    seconds(&mut run, &reference, 1.);
+    assert!(run.world_supported(), "the world stays ready");
+}

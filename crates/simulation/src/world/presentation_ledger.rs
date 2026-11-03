@@ -404,6 +404,11 @@ impl PresentationLedger {
     pub fn add_claim(&mut self) {
         self.credit.pending += 1;
     }
+    /// Sets the renderer staging credit, as renderer loads in flight hold it.
+    #[cfg(test)]
+    pub fn hold_staging(&mut self, bytes: usize) {
+        self.credit.staging_bytes = bytes;
+    }
 }
 
 #[cfg(test)]
