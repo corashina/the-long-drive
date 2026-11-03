@@ -251,7 +251,7 @@ pub mod tests {
                 "crash": {"multiplier": 1.0, "blood": 1.0, "horn": 1.0, "fall_off": 1.0}, "blood": null, "blood_clip": null, "condition": null,
                 "drive_frames": {"left_hand": null, "right_hand": null, "left_leg": null, "right_leg": null}, "reach": crate::reference::reach_fixture(),
                 "wheel_effects": effects, "effect_gains": {"ground": 1.0, "spring": 1.0, "spring_pitch": 1.0, "slide_angle": 20.0, "max_slide_volume_speed": 10.0},
-                "lever": null, "key_steer_multiplier": 0.0, "oil_led_two_stroke": false,
+                "lever": null, "control_pedals": [], "key_steer_multiplier": 0.0, "oil_led_two_stroke": false,
                 "lights": [], "light_switch": null, "instruments": null, "high_beams": [], "plates": [], "mirrors": [],
                 "gauge_limits": crate::reference::gauge_limits_fixture(), "kmh_meters": []
             }

@@ -134,6 +134,21 @@ REACH_FLAGS=(('leg_shift','VLegShift'),('hand_gas','VHandGas'),('hand_brake','VH
     ('dont_hold_ignition_when_start','VDontHoldIgnitionWhenStart'))
 
 
+PEDAL_INPUTS=(('gas','PedalsGas'),('brake','PedalsBrake'),('clutch','PedalsClutch'),('handbrake','PedalsHandBrake'))
+
+
+def control_pedals(proto, car_reader, car) -> list:
+    """carscript.Pedal nodes. UpdPedal uses the first set axis of X, Y and Z."""
+    pedals=[]
+    for name,field in PEDAL_INPUTS:
+        for p in car[field]:
+            node=proto.link(car_reader,p['T'])
+            axis=next((i for i,a in enumerate('XYZ') if p[a]),None)
+            if node is None or axis is None:raise ValueError(f'Invalid {field} pedal: {source_id(car_reader)}')
+            pedals.append({'input':name,'node':node,'axis':axis,'amount':p['Angle'],'lerp':bool(p['lerp']),'push':bool(p['push'])})
+    return pedals
+
+
 def reach_record(proto, car_reader, car) -> dict:
     """carscript control targets (null when unset) and limb flags after the Start Vinv inversion."""
     flags={name:bool(car[field])!=(bool(car['Vinv']) and i<5) for i,(name,field) in enumerate(REACH_FLAGS)}
@@ -409,6 +424,7 @@ def vehicle_record(source, hierarchy, bodies, colliders, asset, material_indices
         'wheel_effects':recover_wheel_effects(source,car_reader,car,hierarchy[0]['reader'],[source.get(*identity) for identity in sorted(road)],car_reader.path_id,output),
         'effect_gains':effect_gains(car),
         'lever':recover_lever(source,car_reader,car,hierarchy[0]['reader'],proto.nodes),
+        'control_pedals':control_pedals(proto,car_reader,car),
         # inputscript.DriveStuff uses the multiplier only when it is not zero.
         'key_steer_multiplier':car['keySteerSensMultiplier'],
         # carscript.GetPlayerInput replaces the multiplier from the car speed each step.

@@ -460,11 +460,17 @@ impl GarageRuntime {
             lmb: input.held & keys::PRIMARY != 0,
             active: true,
             dt,
-            view,
+            // Source `drotkefe.Use(ghostHead)`.
+            view: self.area.player.scrub_pose(view),
             origin: self.stream.origin.offset,
         };
-        // fpscontroller: a gun in the hand sets noLMBUse.
-        let mut primary_reserved = gun_held || self.area.interaction.reserves_lmb();
+        // fpscontroller: a gun or a cleaning tool in the hand sets noLMBUse. The binoculars read LMB
+        // in the fixed step, so `InteractionState::step` removes it there.
+        let interaction = &self.area.interaction;
+        let mut primary_reserved = gun_held
+            || interaction
+                .cleaning
+                .reserves_lmb(interaction.equipment.item(), interaction.held());
         self.area
             .interaction
             .cleaning

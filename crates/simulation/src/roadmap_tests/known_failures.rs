@@ -319,3 +319,74 @@ fn tp_k8_full_renderer_staging_does_not_stop_a_changing_held_item() {
     seconds(&mut run, &reference, 1.);
     assert!(run.world_supported(), "the world stays ready");
 }
+
+/// K9. Source `fpscontroller` `Bbinoculars`: LMB with the binoculars in the hand looks through
+/// them. The frame input route keeps LMB for the fixed step, and the frame state has the
+/// binocular camera.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k9_lmb_looks_through_the_binoculars_in_the_hand() {
+    use crate::boundary::StateBlock;
+    use crate::simulation::{FIXED_DT, FrameInput, keys};
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let hand = r#"{"action":"hand","name":"binoculars"}"#;
+    for _ in 0..30 {
+        if act(&mut run, &reference, hand)["pending"] != true {
+            break;
+        }
+        seconds(&mut run, &reference, 1.);
+    }
+    let held = |run: &GarageRuntime| {
+        run.area
+            .interaction
+            .equipment
+            .item()
+            .or(run.area.interaction.held())
+    };
+    assert!(held(&run).is_some(), "the binoculars are in the hand");
+    let press = |run: &mut GarageRuntime, input: FrameInput| {
+        let view = run.area.player.view(&run.physics).head_pose;
+        let fixed = run
+            .advance_inventory_frame(&reference, input, FIXED_DT, view)
+            .fixed_input;
+        frame_with(run, &reference, fixed);
+    };
+    let lmb = FrameInput {
+        held: keys::PRIMARY,
+        pressed: keys::PRIMARY,
+        ..Default::default()
+    };
+    press(&mut run, lmb);
+    press(
+        &mut run,
+        FrameInput {
+            held: keys::PRIMARY,
+            ..Default::default()
+        },
+    );
+    let used = run.area.interaction.binoculars.active();
+    assert_eq!(
+        used.map(|b| Some(b.item)),
+        Some(held(&run)),
+        "LMB uses the binoculars"
+    );
+    let mut frame = crate::boundary::SimFrame::default();
+    run.fill_frame(&reference, 1., &mut frame);
+    let flags = frame.state.flags;
+    assert!(
+        flags & StateBlock::BINOCULARS != 0,
+        "the view is the binocular camera"
+    );
+    press(
+        &mut run,
+        FrameInput {
+            released: keys::PRIMARY,
+            ..Default::default()
+        },
+    );
+    assert!(
+        run.area.interaction.binoculars.active().is_none(),
+        "release ends the use"
+    );
+}

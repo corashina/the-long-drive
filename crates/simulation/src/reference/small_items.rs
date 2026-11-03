@@ -104,10 +104,9 @@ pub struct SprayBottleReference {
     pub wash_mask: u32,
     pub spray: ParticleReference,
     pub splash: ParticleReference,
-    pub startup: Vec<SmallItemStartReference>,
 }
 
-/// A StartSpawnItems copy. Its pose comes from the world startup records.
+/// A StartSpawnItems cigarette pack. Its pose comes from the world startup records.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SmallItemStartReference {
@@ -150,16 +149,6 @@ pub struct BinocularsReference {
     pub max_focus: f32,
     pub min_fov: f32,
     pub max_fov: f32,
-    pub startup: Vec<BinocularsStartReference>,
-}
-
-/// A StartSpawnItems binoculars copy.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct BinocularsStartReference {
-    pub source: SourceId,
-    pub transform: SourceId,
-    pub item_id: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -177,7 +166,6 @@ const SPRAY_BOTTLE_ITEM: u32 = 121;
 const GENIE_LAMP_ITEM: u32 = 211;
 const BINOCULARS_ITEM: u32 = 85;
 const PACK_ITEM: u32 = 74;
-const START_BOTTLES: usize = 2;
 const START_PACKS: usize = 3;
 const COBWEBS: usize = 529;
 
@@ -295,8 +283,7 @@ impl SmallItemsReference {
                 && s.distance > 0.
                 && s.wash_radius > 0.
                 && s.pour_time.is_finite()
-                && s.pour_time >= 0.
-                && s.startup.len() == START_BOTTLES,
+                && s.pour_time >= 0.,
             "spray bottle",
         )?;
         conditions::validate_particle(&s.source, &s.spray, m)?;
@@ -310,12 +297,6 @@ impl SmallItemsReference {
                 && v.item_id == item
                 && ammo(&v.ammo)
         };
-        for v in &s.startup {
-            checked(
-                start(v, "spricniscript", SPRAY_BOTTLE_ITEM) && v.ammo.r#type == s.ammo.r#type,
-                "start spray bottle",
-            )?;
-        }
 
         let g = &self.genie_lamp;
         let p = prototype(GENIE_LAMP_ITEM, "ginlamp", &g.prototype)?;
@@ -361,16 +342,7 @@ impl SmallItemsReference {
                 && b.focus_sensitivity > 0.
                 && b.min_focus < b.max_focus
                 && 0. < b.min_fov
-                && b.min_fov < b.max_fov
-                && b.startup.len() == 1
-                && b.startup.iter().all(|v| {
-                    v.source.file == "level1"
-                        && class(&v.source, "tavcsoscript")
-                        && records
-                            .get(&v.transform)
-                            .is_some_and(|r| r.class_name == "Transform")
-                        && v.item_id == BINOCULARS_ITEM
-                }),
+                && b.min_fov < b.max_fov,
             "binoculars",
         )?;
 
@@ -382,11 +354,7 @@ impl SmallItemsReference {
             )?;
         }
         ids(
-            s.startup
-                .iter()
-                .chain(&self.start_packs)
-                .map(|v| &v.transform)
-                .chain(b.startup.iter().map(|v| &v.transform)),
+            self.start_packs.iter().map(|v| &v.transform),
             "duplicate small item start",
         )?;
 

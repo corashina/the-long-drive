@@ -49,8 +49,11 @@ RULE_CLASSES = {'roadscript', 'buildingscript', 'newRandomStuffSpawnScript', 'st
     'explosivescript',
     # Binoculars (S2).
     'tavcsoscript'}
-# Catalog items that only StartSpawnItems holds. No spawner reaches them.
-START_ONLY_ITEMS = {85}
+# StartSpawnItems (level1 Transform 21481): loose scene items that terrainGenerator.Start enables.
+START_ITEMS = 21481
+# StartSpawnItems copies (level1 GameObject) that own export paths spawn: fuel cans, oil can and barrel
+# (export.py scene roots), flashlights, cleaning tools, cigarette packs, sausage, Halloween pumpkin.
+START_OWNED = {13023,13027,13019,18878,15637,12118,12119,10838,10840,10841,10842,10846,10849,14073,14075,301,3542,82}
 # ediblescript components of the selected food prototypes (survival.FOOD_FIELDS and GTurd).
 EDIBLE_COMPONENTS = {('sharedassets1.assets',path_id) for path_id in (134641,134643,134644,134645,134646,134647,149631)}
 def selected_actions(source, scripts, actions):
@@ -71,8 +74,8 @@ CAR_ITEMS = ('car01','car01full','car02','car02k','car02kfull','car04','car04ful
 START_CARS = {'StartCar01':'car01full','StartCar02':None,'StartCar02k':'car02kfull','StartCar03':'car03full','StartCar03k':'car03kfull',
     'StartCar04':'car04full','StartCar05':'car05full','StartCar06':'car06full','StartCar08':'car08full','StartCar08c':'car08cfull',
     'StartCar09':'car09full','StartCar09S':'car09fullS','StartCar09P':'car09Pfull','StartCar10':'car10full','StartCar10k':'car10kfull'}
-# partconditionscript fields that a scene start car sets on its prefab copy.
-START_CONDITION_FIELDS = ('randomStart','randomMin','randomMax','enableOverrideMin','overRideMin','enableOverrideMax','overRideMax')
+# partconditionscript fields that a scene start copy sets on its prefab copy.
+START_CONDITION_FIELDS = ('state','randomStart','randomMin','randomMax','enableOverrideMin','overRideMin','enableOverrideMax','overRideMax')
 # Known scene car roots (level1 GameObject) of start car fields: the Lada and Car09full_slide.
 START_ROOTS = {'StartCar02':17687,'StartCar09S':12382}
 def vehicle_exclusion(root, classes, cars):
@@ -139,14 +142,14 @@ def start_placements(source, settings_owner, settings, catalog, cars):
             prototype=_source_root(source,source.get(row['source']['file'],row['source']['path_id']))
         if key(prototype) not in cars:raise ValueError('{}:{} {}: start car prefab is not an allowed car'.format(*key(prototype),field))
         rows.append({'group':field,'source':source_id(car['reader']),'pose':world_pose(source,car['reader']),
-            'prototype':source_id(prototype),'start_car':True,'conditions':start_conditions(source,car['reader'],prototype)})
+            'prototype':source_id(prototype),'start_car':True,**start_state(source,car['reader'],prototype),'buried':False})
         # Each group holds the spare rim and tire of its car. Source DestroyOthers keeps the picked group only.
         top=source.transform_for(group)
         spares=[n for n in source.hierarchy(top) if n['parent'] is not None and key(n['parent'])==key(top) and 'wheelscript' in script_classes(source,[n])]
         if len(spares)!=1:raise ValueError('{}:{} {}: {} spare wheels in the start car group'.format(*key(group),field,len(spares)))
         spare=spares[0]['reader'];prefab=spare_prefab(source,catalog,spares[0])
         rows.append({'group':field,'source':source_id(spare),'pose':world_pose(source,spare),
-            'prototype':source_id(prefab),'start_car':False,'conditions':start_conditions(source,spare,prefab)})
+            'prototype':source_id(prefab),'start_car':False,**start_state(source,spare,prefab),'buried':False})
     return rows
 
 def spare_prefab(source, catalog, node):
@@ -161,26 +164,51 @@ def spare_prefab(source, catalog, node):
     if len(matches)!=1:raise ValueError('{}:{} spare wheel: {} rimtire prefab matches'.format(*key(node['reader']),len(matches)))
     return matches[0]
 
-def start_conditions(source, car, prototype):
-    """Scene values of the partconditionscript random start fields that differ from the prefab.
+def start_items(source, catalog):
+    """One startup row per active StartSpawnItems copy outside START_OWNED. The copy keeps its scene pose
+    and scene state; the row prototype is its catalog prefab. recover_world sets the prototype after selection."""
+    group=source.get('level1',START_ITEMS)
+    rows=[];indices=[]
+    for child in source.read(group)['m_Children']:
+        root=source.resolve(group,child);go,components=source.components(root)
+        if not source.read(go)['m_IsActive'] or key(go)[1] in START_OWNED:continue
+        save=[c for c in components if c.type.name=='MonoBehaviour' and source.class_name(c)=='tosaveitemscript']
+        if not save:continue
+        # Hanging copies (air fresheners, a sausage) have a scene ConfigurableJoint to a holder body. Not supported yet.
+        if any(c.type.name=='ConfigurableJoint' for c in components):continue
+        data=source.read(save[0]);index=data['id']
+        if not 0<=index<len(catalog['items']):raise ValueError('{}:{} start item has no catalog item'.format(*key(save[0])))
+        item=catalog['items'][index]
+        prefab=_source_root(source,source.get(item['source']['file'],item['source']['path_id']))
+        rows.append({'group':'StartSpawnItems','source':source_id(root),'pose':world_pose(source,root),'prototype':None,
+            'start_car':False,**start_state(source,root,prefab),'buried':bool(data['buried'])})
+        indices.append(index)
+    return rows,indices
+
+def start_state(source, copy, prototype):
+    """Scene state of a start copy that differs from its prefab: partconditionscript start fields and tank fluids.
     The scene start cars start worn (randomStart, ranges 1-3); their prefabs start new."""
-    scene=source.hierarchy(car);prefab=source.hierarchy(prototype)
-    if len(scene)!=len(prefab):raise ValueError('{}:{} start car hierarchy differs from its prefab'.format(*key(car)))
-    def conditions(node):
-        return [c for c in node['components'] if c.type.name=='MonoBehaviour' and source.class_name(c)=='partconditionscript']
-    rows=[]
+    scene=source.hierarchy(copy);prefab=source.hierarchy(prototype)
+    if len(scene)!=len(prefab):raise ValueError('{}:{} start copy hierarchy differs from its prefab'.format(*key(copy)))
+    def scripts(node,name):
+        return [c for c in node['components'] if c.type.name=='MonoBehaviour' and source.class_name(c)==name]
+    conditions=[];tanks=[]
     for s,p in zip(scene,prefab):
         if s['path'].partition('/')[2]!=p['path'].partition('/')[2]:
-            raise ValueError('{}:{} start car node differs from its prefab'.format(*key(s['reader'])))
-        sc,pc=conditions(s),conditions(p)
-        if len(sc)!=len(pc):raise ValueError('{}:{} start car conditions differ from its prefab'.format(*key(s['reader'])))
-        for a,b in zip(sc,pc):
+            raise ValueError('{}:{} start copy node differs from its prefab'.format(*key(s['reader'])))
+        for name in ('partconditionscript','tankscript'):
+            if len(scripts(s,name))!=len(scripts(p,name)):raise ValueError('{}:{} start copy {} differs from its prefab'.format(*key(s['reader']),name))
+        for a,b in zip(scripts(s,'partconditionscript'),scripts(p,'partconditionscript')):
             d,e=source.read(a),source.read(b)
             if all(d[f]==e[f] for f in START_CONDITION_FIELDS):continue
-            rows.append({'source':source_id(b),'random_start':bool(d['randomStart']),'random_min':d['randomMin'],'random_max':d['randomMax'],
+            conditions.append({'source':source_id(b),'state':d['state'],'random_start':bool(d['randomStart']),'random_min':d['randomMin'],'random_max':d['randomMax'],
                 'override_min':d['overRideMin'] if d['enableOverrideMin'] else None,
                 'override_max':d['overRideMax'] if d['enableOverrideMax'] else None})
-    return rows
+        for a,b in zip(scripts(s,'tankscript'),scripts(p,'tankscript')):
+            d,e=source.read(a)['F'],source.read(b)['F']
+            if d['fluids']==e['fluids']:continue
+            tanks.append({'source':source_id(b),'fluids':[{'fluid_type':v['type'],'amount':v['amount']} for v in d['fluids']]})
+    return {'conditions':conditions,'tanks':tanks}
 
 IDENTITY = {'translation':[0.,0.,0.], 'rotation':[0.,0.,0.,1.], 'scale':[1.,1.,1.]}
 
@@ -401,12 +429,15 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
     for field in ('StartObjs','StartObjsFix','StartObjsDonTMoveOnLoad'):
         for pointer in settings[field]:
             root=source.resolve(settings_owner,pointer)
-            startup.append({'group':field,'source':source_id(root),'pose':world_pose(source,root),'prototype':None,'start_car':False,'conditions':[]})
+            startup.append({'group':field,'source':source_id(root),'pose':world_pose(source,root),'prototype':None,'start_car':False,'conditions':[],'tanks':[],'buried':False})
             selected.transform_chain(root)
     # Start car candidates. Startup frames ignore these groups; the vehicle binder spawns the picked one.
     starts=start_placements(source,settings_owner,settings,catalog,cars)
     for row in starts:selected.transform_chain(source.get(row['source']['file'],row['source']['path_id']))
     startup.extend(starts)
+    items,item_indices=start_items(source,catalog)
+    for row in items:selected.transform_chain(source.get(row['source']['file'],row['source']['path_id']))
+    startup.extend(items)
     start_roots={(r['source']['file'],r['source']['path_id']) for r in starts}
     for pid in (79970,68463,72657,77620):
         component=source.get('level1',pid)
@@ -425,7 +456,7 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
     # Include direct supported nested prefab links. Keep every rule even for excluded draws.
     excluded=[]
     required_categories=set()
-    required_items=set(START_ONLY_ITEMS)
+    required_items=set(item_indices)
     def catalog_items(name,is_item):
         if is_item:
             matches=[i['index'] for i in catalog['items'] if i['name']==name]
@@ -482,7 +513,7 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
     for row in starts:
         if not row['start_car']:add(source.get(row['prototype']['file'],row['prototype']['path_id']),'nested')
     scanned=set()
-    startup_pending=[source.get(r['source']['file'],r['source']['path_id']) for r in startup if r['prototype'] is None and r['source']['path_id'] not in (21819,39843)]
+    startup_pending=[source.get(r['source']['file'],r['source']['path_id']) for r in startup if r['prototype'] is None and r['group']!='StartSpawnItems' and r['source']['path_id'] not in (21819,39843)]
     while startup_pending or set(roots)-scanned:
         startup_root=bool(startup_pending)
         root=startup_pending.pop(0) if startup_root else roots[next(k for k in roots if k not in scanned)]
@@ -528,6 +559,11 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
             if not reason:item['prototype']=add(target,'nested')
     for item in catalog['items']:
         if item['index'] not in required_items:item['exclusion']='outside_selected_pools'
+    for row,index in zip(items,item_indices):
+        item=catalog['items'][index]
+        if item['exclusion'] or item['prototype'] is None:
+            raise ValueError('{}:{} start item {}: {}'.format(row['source']['file'],row['source']['path_id'],item['name'],item['exclusion'] or 'no prototype'))
+        row['prototype']=item['prototype']
     print(f'Selected {len(roots)} prototypes and {len(selected.records)} caller records',flush=True)
     source.world_prototype_roots=set(roots)
     from .world_biome_materials import scene_component, recover_sets, SETS_CLASS
@@ -541,8 +577,7 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
     selected.record(physics)
     collision_rows=source.read(physics)['m_LayerCollisionMatrix']
     if len(collision_rows)!=32:raise ValueError('Physics layer matrix must have 32 masks')
-    collision_rules={'source':source_id(physics),'record_sha256':selected.receipts[key(physics)]['sha256'],
-        'layers':collision_rows}
+    collision_rules={'source':source_id(physics),'layers':collision_rows}
     startup_holes=[]
     for component_id,filter_id in ((68463,46406),(77620,49294)):
         component=source.get('level1',component_id);mesh_filter=source.get('level1',filter_id)
@@ -555,7 +590,7 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
         points=GltfExporter.rows(None,doc,directory,doc.meshes[mesh_index].primitives[0].attributes.POSITION)
         if len(points)<4:raise ValueError(f'{key(mesh)} startup hole needs four vertices')
         startup_holes.append({'component':source_id(component),'filter':source_id(mesh_filter),
-            'mesh':source_id(mesh),'mesh_sha256':selected.receipts[key(mesh)]['sha256'],
+            'mesh':source_id(mesh),
             'vertices':[[x,y,-z] for x,y,z in points[:4]]})
     grass_displacement=recover_grass_displacement(source,selected,prototypes)
     lod=recover_lod(source,selected)
