@@ -1,8 +1,9 @@
 // Installed MotionBlur shader15 passes0..5, fragment blobs3/5/7/9/11/13.
+// Velocity, tiles and reconstruction run at half resolution. `upsample` is not in the source.
 #import source_float_store::{half2, half4, source_max, source_min, source_sat}
 struct Params {
     output_size: vec2<f32>,
-    screen_size: vec2<f32>,
+    screen_size: vec2<f32>, // half resolution
     settings: vec4<f32>, // radius, reciprocal radius, velocity scale, loop count
     depth: vec4<f32>, // reversed-Z Linear01 x/y, tile offset, unused
     control: vec4<u32>, // tile loop
@@ -27,10 +28,9 @@ fn main_point(uv: vec2<f32>) -> vec2<f32> { return textureSampleLevel(main_tex,p
 @fragment
 fn velocity(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let uv=uv_at(position);
-    let size=vec2<f32>(textureDimensions(camera_motion));
-    var v=((params.settings.z*0.5)*size)*textureSampleLevel(camera_motion,linear_clamp,uv,0.0).rg;
+    var v=((params.settings.z*0.5)*params.screen_size)*textureSampleLevel(camera_motion,linear_clamp,uv,0.0).rg;
     v=v/source_max(length(v)*params.settings.y,1.0);
-    let raw=textureLoad(camera_depth,vec2<i32>(position.xy),0);
+    let raw=textureLoad(camera_depth,vec2<i32>(position.xy)*2,0);
     let z=raw*params.depth.x;
     let d=1.0/(z+params.depth.y);
     let packed=fma(v,vec2(params.settings.y),vec2(1.0))*0.5;
@@ -118,7 +118,7 @@ fn reconstruct(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32>
         let direction=select(vmax,alt,alternate);
         let ts=fma(offset,dt,select(t,-t,negative));
         let displacement=direction*ts;
-        let color_uv=fma(displacement,1.0/vec2<f32>(textureDimensions(main_tex)),uv);
+        let color_uv=fma(displacement,1.0/params.output_size,uv);
         let velocity_uv=fma(displacement,1.0/vec2<f32>(textureDimensions(velocity_tex)),uv);
         let color=textureSampleLevel(main_tex,linear_clamp,color_uv,0.0).rgb;
         let vd=velocity_at(velocity_uv);
@@ -137,4 +137,39 @@ fn reconstruct(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32>
 @fragment
 fn reset_copy(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     return half4(textureSampleLevel(main_tex,linear_clamp,uv_at(position),0.0));
+}
+// Full-resolution output: four half-resolution taps weighted by bilinear position and depth match.
+// Pixels with little own motion keep the sharp source.
+fn linear_depth(pixel: vec2<i32>) -> f32 {
+    return 1.0/fma(textureLoad(camera_depth,pixel,0),params.depth.x,params.depth.y);
+}
+@fragment
+fn upsample(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let uv=uv_at(position);
+    let cp=textureSampleLevel(main_tex,point_clamp,uv,0.0);
+    let vmax=textureSampleLevel(neighbor_tex,point_clamp,uv,0.0).rg;
+    if length(vmax)<2.0 { return half4(cp); }
+    let screen=vec2<f32>(textureDimensions(camera_motion));
+    let speed=length(((params.settings.z*0.5)*screen)*textureSampleLevel(camera_motion,point_clamp,uv,0.0).rg);
+    let amount=source_sat((speed-1.0)*0.5);
+    if amount<=0.0 { return half4(cp); }
+    let pixel=vec2<i32>(position.xy);
+    let d=linear_depth(pixel);
+    let half_size=vec2<i32>(textureDimensions(velocity_tex));
+    let p=position.xy*0.5-vec2(0.5);
+    let base=vec2<i32>(floor(p));
+    let f=p-floor(p);
+    let offsets=array<vec2<i32>,4>(vec2(0,0),vec2(1,0),vec2(0,1),vec2(1,1));
+    let bilinear=vec4((1.0-f.x)*(1.0-f.y),f.x*(1.0-f.y),(1.0-f.x)*f.y,f.x*f.y);
+    var acc=vec4(0.0);
+    var total=0.0;
+    for(var i=0u;i<4u;i++) {
+        let tap=clamp(base+offsets[i],vec2(0),half_size-vec2(1));
+        let difference=abs(linear_depth(tap*2)-d)/d;
+        let weight=bilinear[i]/(difference+0.01);
+        acc=fma(textureLoad(velocity_tex,tap,0),vec4(weight),acc);
+        total=total+weight;
+    }
+    let blurred=acc/total;
+    return half4(vec4(mix(cp.rgb,blurred.rgb,amount),cp.a));
 }

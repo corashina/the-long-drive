@@ -1,4 +1,5 @@
 //! Source PPv2 motion blur: velocity, tile max, neighbor max, reconstruction. After TAA, before histogram.
+//! Velocity, tiles and reconstruction run at half resolution. A depth-aware upsample writes the full-resolution output.
 //! Targets and bindings are allocated only at startup, physical resize, or a setting change.
 use crate::reference::postprocessing::MotionBlurSettings;
 use bevy::prelude::*;
@@ -9,14 +10,17 @@ use bevy::render::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MotionLayout {
-    /// Velocity, three halvings, tile max, neighbor max.
+    /// Full-resolution output.
+    pub screen: [u32; 2],
+    /// Half-resolution velocity, three halvings, tile max, neighbor max.
     pub extents: [[u32; 2]; 6],
     pub radius: u32,
     pub tile_loop: u32,
 }
 impl MotionLayout {
-    pub fn new(extent: [u32; 2]) -> Result<Self, String> {
-        // Source `maxBlurPixels = (int)(5f * height / 100f)`.
+    pub fn new(screen: [u32; 2]) -> Result<Self, String> {
+        let extent = screen.map(|n| n / 2);
+        // Source `maxBlurPixels = (int)(5f * height / 100f)`, in half-resolution pixels.
         let radius = ((5.0_f32 * extent[1] as f32) / 100.0) as u32;
         // Source integer division truncates towards zero.
         let tile_size = (((radius as i32 - 1) / 8 + 1) * 8) as u32;
@@ -32,6 +36,7 @@ impl MotionLayout {
             return Err("Source motion blur extent is too small".into());
         }
         Ok(Self {
+            screen,
             extents,
             radius,
             tile_loop: tile_size / 8,
@@ -39,7 +44,8 @@ impl MotionLayout {
     }
     pub fn logical_bytes(&self) -> u64 {
         let pixels = |e: [u32; 2]| u64::from(e[0]) * u64::from(e[1]);
-        self.extents.iter().map(|&e| pixels(e) * 4).sum::<u64>() + pixels(self.extents[0]) * 8
+        self.extents.iter().map(|&e| pixels(e) * 4).sum::<u64>()
+            + (pixels(self.extents[0]) + pixels(self.screen)) * 8
     }
 }
 #[derive(Clone, Copy, ShaderType)]
@@ -77,7 +83,7 @@ impl Target {
         }
     }
 }
-const ENTRIES: [&str; 7] = [
+const ENTRIES: [&str; 8] = [
     "velocity",
     "tile_decode",
     "tile_reduce",
@@ -85,6 +91,7 @@ const ENTRIES: [&str; 7] = [
     "neighbor",
     "reconstruct",
     "reset_copy",
+    "upsample",
 ];
 fn format(pipeline: usize) -> TextureFormat {
     match pipeline {
@@ -96,10 +103,12 @@ fn format(pipeline: usize) -> TextureFormat {
 pub struct MotionBlurPass {
     pub layout: MotionLayout,
     targets: [Target; 6],
+    /// Half-resolution reconstruction.
+    blurred: Target,
     output: Target,
-    uniforms: [UniformBuffer<MotionParams>; 7],
-    bindings: [BindGroup; 8],
-    pipelines: [CachedRenderPipelineId; 7],
+    uniforms: [UniformBuffer<MotionParams>; 8],
+    bindings: [BindGroup; 9],
+    pipelines: [CachedRenderPipelineId; 8],
 }
 impl MotionBlurPass {
     pub fn new(
@@ -117,6 +126,7 @@ impl MotionBlurPass {
         let layout = MotionLayout::new(extent)?;
         let targets =
             std::array::from_fn(|i| Target::new(device, layout.extents[i], format(i.min(4))));
+        let blurred = Target::new(device, layout.extents[0], format(5));
         let output = Target::new(device, extent, format(5));
         let descriptor = BindGroupLayoutDescriptor::new(
             "source_motion_blur",
@@ -163,12 +173,18 @@ impl MotionBlurPass {
         );
         // Source `_LoopCount = Mathf.Clamp(sampleCount / 2, 1, 64)`.
         let loop_count = (settings.samples / 2).clamp(1, 64) as f32;
-        // Draw i writes extent i. Draw 6, the reconstruction and the reset copy write the output.
+        // Draw i writes extent i. Draw 6, the reconstruction, writes the half extent.
+        // Draw 7, the upsample, and the reset copy write the output.
+        let half = layout.extents[0];
         let uniforms = std::array::from_fn(|i| {
-            let out = if i < 6 { layout.extents[i] } else { extent };
+            let out = match i {
+                0..6 => layout.extents[i],
+                6 => half,
+                _ => extent,
+            };
             let mut buffer = UniformBuffer::from(MotionParams {
                 output_size: Vec2::new(out[0] as f32, out[1] as f32),
-                screen_size: Vec2::new(extent[0] as f32, extent[1] as f32),
+                screen_size: Vec2::new(half[0] as f32, half[1] as f32),
                 settings: Vec4::new(
                     layout.radius as f32,
                     1.0 / layout.radius as f32,
@@ -191,21 +207,28 @@ impl MotionBlurPass {
             mag_filter: FilterMode::Linear,
             ..default()
         });
-        // Bindings 0-6 are the draws. Binding 7 is the reset copy.
+        // Bindings 0-7 are the draws. Binding 8 is the reset copy.
         let bindings = std::array::from_fn(|i| {
-            let draw = i.min(6);
             device.create_bind_group(
                 "source_motion_blur",
                 &cache.get_bind_group_layout(&descriptor),
                 &BindGroupEntries::sequential((
-                    uniforms[draw].binding().unwrap(),
+                    uniforms[i.min(7)].binding().unwrap(),
                     if (1..6).contains(&i) {
                         &targets[i - 1].view
                     } else {
                         source
                     },
-                    if i == 6 { &targets[0].view } else { source },
-                    if i == 6 { &targets[5].view } else { source },
+                    match i {
+                        6 => &targets[0].view,
+                        7 => &blurred.view,
+                        _ => source,
+                    },
+                    if (6..8).contains(&i) {
+                        &targets[5].view
+                    } else {
+                        source
+                    },
                     depth,
                     motion,
                     &point,
@@ -216,6 +239,7 @@ impl MotionBlurPass {
         Ok(Self {
             layout,
             targets,
+            blurred,
             output,
             uniforms,
             bindings,
@@ -250,7 +274,7 @@ impl MotionBlurPass {
             draw(
                 encoder,
                 cache.get_render_pipeline(self.pipelines[6]).unwrap(),
-                &self.bindings[7],
+                &self.bindings[8],
                 &self.output.view,
             );
             return;
@@ -261,12 +285,17 @@ impl MotionBlurPass {
             value.depth.x = far / near - 1.0;
             uniform.write_buffer(device, queue);
         }
-        for (i, pipeline) in [0, 1, 2, 2, 3, 4, 5].into_iter().enumerate() {
+        for (i, pipeline) in [0, 1, 2, 2, 3, 4, 5, 7].into_iter().enumerate() {
+            let target = match i {
+                0..6 => &self.targets[i].view,
+                6 => &self.blurred.view,
+                _ => &self.output.view,
+            };
             draw(
                 encoder,
                 cache.get_render_pipeline(self.pipelines[pipeline]).unwrap(),
                 &self.bindings[i],
-                self.targets.get(i).map_or(&self.output.view, |t| &t.view),
+                target,
             );
         }
     }
