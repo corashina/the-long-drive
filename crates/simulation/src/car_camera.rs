@@ -2,6 +2,7 @@
 //! The rig runs once per frame with the frame time, as the source `Update`.
 use crate::boundary::{PoseRow, StateBlock};
 use crate::reference::CarCameraReference;
+use crate::simulation::dials::{inverse_lerp, lerp, lerp_angle};
 use crate::simulation::{FrameInput, keys, player_keys};
 use crate::vehicle::VehiclePose;
 use glam::{Mat3, Quat, Vec3};
@@ -475,26 +476,4 @@ fn look_rotation(forward: Vec3, up: Vec3) -> Option<Quat> {
         back.cross(right),
         back,
     )))
-}
-
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
-}
-
-/// Source `Mathf.InverseLerp`.
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.
-    } else {
-        ((value - a) / (b - a)).clamp(0., 1.)
-    }
-}
-
-/// Source `Mathf.LerpAngle`.
-fn lerp_angle(a: f32, b: f32, t: f32) -> f32 {
-    let mut delta = (b - a).rem_euclid(360.);
-    if delta > 180. {
-        delta -= 360.;
-    }
-    a + delta * t.clamp(0., 1.)
 }

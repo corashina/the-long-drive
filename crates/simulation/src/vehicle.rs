@@ -78,7 +78,7 @@ pub fn step_surface_bits(surface: Option<crate::reference::StepSurface>) -> u128
 }
 /// Collider user data bits 35 to 38 hold the source tag code. 0 is none.
 pub const TAG_SHIFT: u32 = 35;
-pub const TAG_MASK: u128 = 0b1111 << TAG_SHIFT;
+const TAG_MASK: u128 = 0b1111 << TAG_SHIFT;
 pub fn tag_bits(tag: Option<crate::reference::ColliderTag>) -> u128 {
     tag.map_or(0, |t| (t as u128 + 1) << TAG_SHIFT)
 }
@@ -120,7 +120,7 @@ impl HitCollector {
         std::mem::swap(out, &mut *hits);
     }
     /// Moves the recorded sensor intersections into `out` without allocation.
-    pub fn take_enters(&self, out: &mut Vec<[ColliderHandle; 2]>) {
+    fn take_enters(&self, out: &mut Vec<[ColliderHandle; 2]>) {
         let mut enters = self.enters.lock().unwrap();
         out.clear();
         std::mem::swap(out, &mut *enters);
@@ -206,17 +206,6 @@ pub struct VehicleSnapshot {
     pub angular_velocity: [f32; 3],
 }
 
-impl VehicleSnapshot {
-    pub fn absolute_speed_kmh(&self) -> f32 {
-        self.linear_velocity
-            .iter()
-            .map(|v| v * v)
-            .sum::<f32>()
-            .sqrt()
-            * 3.6
-    }
-}
-
 pub struct PhysicsWorld {
     body_mass_override: Option<mass::BodyMassOverride>,
     /// Locked item mass on non-vehicle bodies. `set_body_mass` adds it.
@@ -291,15 +280,11 @@ impl PhysicsWorld {
                 rapier3d::prelude::RigidBodyActivation::default_normalized_linear_threshold(),
         }
     }
-    pub fn vehicle_count(&self) -> usize {
-        self.vehicles.len()
-    }
     /// Vehicle keys in no fixed order.
     pub fn vehicle_keys(&self) -> impl Iterator<Item = &ObjectKey> {
         self.vehicles.keys()
     }
 
-    /// Returns the vehicle whose chassis is `body`.
     /// Maximum steer angle of the vehicle on chassis `body`, in radians.
     pub fn max_steer(&self, body: RigidBodyHandle) -> Option<f32> {
         self.vehicles
@@ -307,6 +292,7 @@ impl PhysicsWorld {
             .find(|vehicle| vehicle.chassis == body)
             .map(|vehicle| vehicle.max_steer)
     }
+    /// Returns the vehicle whose chassis is `body`.
     pub fn vehicle_of(&self, body: RigidBodyHandle) -> Option<&ObjectKey> {
         if !self.chassis.contains(&body) {
             return None;
@@ -537,12 +523,8 @@ impl PhysicsWorld {
             index,
             wheel::resolve_profile(&vehicle.rules[index], &vehicle.slip, assembly),
         );
-        self.query_bounds.mark_body(vehicle.chassis);
-        let body = &mut self.physics.bodies[vehicle.chassis];
-        let before = BodyPresentationState::capture(body);
-        body.wake_up(true);
-        self.presentation_bodies
-            .mark_if_changed(vehicle.chassis, before, body);
+        let chassis = vehicle.chassis;
+        self.edit_body(chassis, |body| body.wake_up(true));
     }
 
     pub fn rapier(&self) -> &rapier3d::prelude::PhysicsWorld {
@@ -651,24 +633,6 @@ impl PhysicsWorld {
             body.reset_torques(true);
         });
         self.refresh_queries();
-    }
-
-    pub fn insert_mesh_at(
-        &mut self,
-        vertices: &[[f32; 3]],
-        indices: &[[u32; 3]],
-        position: [f32; 3],
-    ) -> ColliderHandle {
-        let mesh = ColliderBuilder::trimesh(
-            vertices.iter().copied().map(Vector::from_array).collect(),
-            indices.to_vec(),
-        )
-        .expect("Static mesh must contain valid triangles")
-        .friction(0.8)
-        .translation(Vector::from_array(position));
-        let handle = self.insert_collider(mesh);
-        self.refresh_queries();
-        handle
     }
 
     /// Fallible source mesh publication leaves existing collision untouched on failure.

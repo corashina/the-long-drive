@@ -213,9 +213,6 @@ impl PhysicsWorld {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::reference::ItemId;
-
-    use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
     use serde_json::json;
 
     /// A 820 kg box car prototype with four wheels. The front wheels steer, the rear wheels drive.
@@ -257,30 +254,5 @@ pub mod tests {
             }
         }))
         .unwrap()
-    }
-
-    /// Two copies of [`car`] on a ground box, at x = -5 and x = 5. Returns their keys and chassis.
-    pub fn two_cars(
-        prototype: &WorldPrototypeReference,
-    ) -> (PhysicsWorld, [ObjectKey; 2], [RigidBodyHandle; 2]) {
-        let mut physics = PhysicsWorld::empty(2, 2);
-        physics.insert_box([0.0, -0.5, 0.0], [500.0, 0.5, 500.0]);
-        let keys = [ItemId(1), ItemId(2)].map(ObjectKey::Imported);
-        let chassis = [-5.0, 5.0].map(|x| {
-            // A world instance root body: zero-density colliders and authored mass.
-            physics.insert(
-                RigidBodyBuilder::dynamic()
-                    .translation(Vector::new(x, 0.5, 0.0))
-                    .additional_mass(900.0),
-                ColliderBuilder::cuboid(0.8, 0.25, 2.0).density(0.0),
-            )
-        });
-        for (key, (body, collider)) in keys.iter().zip(chassis) {
-            physics
-                .add_vehicle(key.clone(), body, &[collider], prototype)
-                .unwrap();
-        }
-        physics.refresh_queries();
-        (physics, keys, chassis.map(|(body, _)| body))
     }
 }

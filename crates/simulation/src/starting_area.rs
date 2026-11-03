@@ -264,18 +264,7 @@ impl StartingArea {
                 if tanks.is_empty() {
                     return None;
                 }
-                let volume: f32 = tanks
-                    .iter()
-                    .map(|id| {
-                        items
-                            .get(*id)
-                            .unwrap()
-                            .fluid
-                            .as_ref()
-                            .unwrap()
-                            .finite_total()
-                    })
-                    .sum();
+                let volume = tank_volume(&items, &tanks);
                 Some((bodies[&body.id], body.mass_kg - volume, tanks, body.mass_kg))
             })
             .collect();
@@ -311,13 +300,7 @@ impl StartingArea {
         self.interaction.rebase(shift);
         self.items.rebase(shift);
         self.gibs.rebase(shift);
-        for (_, previous, current) in &mut self.render_poses {
-            for i in 0..3 {
-                previous.position[i] -= shift[i];
-                current.position[i] -= shift[i];
-            }
-        }
-        for (_, previous, current) in &mut self.item_render_poses {
+        for (previous, current) in self.render_pose_pairs() {
             for i in 0..3 {
                 previous.position[i] -= shift[i];
                 current.position[i] -= shift[i];
@@ -327,32 +310,22 @@ impl StartingArea {
     }
 
     pub fn begin_step(&mut self) {
-        for (_, previous, current) in &mut self.render_poses {
+        for (previous, current) in self.render_pose_pairs() {
             *previous = *current;
         }
-        for (_, previous, current) in &mut self.item_render_poses {
-            *previous = *current;
-        }
+    }
+    /// The previous and current render poses of every body and item.
+    fn render_pose_pairs(&mut self) -> impl Iterator<Item = (&mut VehiclePose, &mut VehiclePose)> {
+        let bodies = self.render_poses.iter_mut().map(|(_, p, c)| (p, c));
+        let items = self.item_render_poses.iter_mut().map(|(_, p, c)| (p, c));
+        bodies.chain(items)
     }
     pub fn sync_portable_mass(&mut self, physics: &mut PhysicsWorld) {
         for (handle, dry, tanks, current) in &mut self.portable_mass {
             if !physics.body_active(*handle) {
                 continue;
             }
-            let mass = (*dry
-                + tanks
-                    .iter()
-                    .map(|id| {
-                        self.items
-                            .get(*id)
-                            .expect("portable tank")
-                            .fluid
-                            .as_ref()
-                            .expect("portable fluid")
-                            .finite_total()
-                    })
-                    .sum::<f32>())
-            .max(0.001);
+            let mass = (*dry + tank_volume(&self.items, tanks)).max(0.001);
             if (mass - *current).abs() > 0.0001 {
                 physics.set_body_mass(*handle, mass);
                 *current = mass;
@@ -416,6 +389,22 @@ impl StartingArea {
             });
         }
     }
+}
+
+/// Total fluid of portable tanks `tanks`.
+fn tank_volume(items: &ItemStore, tanks: &[ItemId]) -> f32 {
+    tanks
+        .iter()
+        .map(|id| {
+            items
+                .get(*id)
+                .expect("portable tank")
+                .fluid
+                .as_ref()
+                .expect("portable fluid")
+                .finite_total()
+        })
+        .sum()
 }
 
 pub fn collider_item(reference: &ReferenceManifest, mut node: NodeId) -> Option<ItemId> {
@@ -915,14 +904,15 @@ impl GarageRuntime {
         availability: crate::interaction::feedback::ActionAvailability,
         reference: &ReferenceManifest,
     ) -> PlayerStepContext {
+        use crate::interaction::feedback::ActionMask;
         let picked_up = self.area.interaction.held().is_some();
+        let tune = availability.actions.0 & ActionMask::TUNE != 0;
         let mouse_consumed = (input.held & (keys::USE | keys::PRIMARY) != 0
             && self.area.interaction.dragging_mechanism().is_some())
-            || (input.held & keys::USE != 0
-                && availability.actions.0 & crate::interaction::feedback::ActionMask::TUNE != 0)
+            || (input.held & keys::USE != 0 && tune)
             || ((input.held & keys::USE != 0
                 || (input.held & keys::PRIMARY != 0 && availability.lmb_use))
-                && availability.actions.0 & crate::interaction::feedback::ActionMask::CRANK != 0)
+                && availability.actions.0 & ActionMask::CRANK != 0)
             || (input.held & (keys::ROTATE | keys::TRANSLATE) != 0 && picked_up)
             || (input.held & keys::USE != 0
                 && availability
@@ -942,12 +932,7 @@ impl GarageRuntime {
         let binoculars = self.area.interaction.binoculars.active().is_some();
         // Source `CanDuck` is false while the player hums.
         let duck_allowed = !self.hum.humming()
-            && PlayerStepContext::can_duck(
-                input,
-                availability.actions.0 & crate::interaction::feedback::ActionMask::TUNE != 0
-                    || binoculars,
-                picked_up,
-            );
+            && PlayerStepContext::can_duck(input, tune || binoculars, picked_up);
         // fpscontroller `scrubbing`: `drotkefe.Use` in the hand, or pointing.
         let scrubbing = self.area.interaction.scrubbing(&input)
             || input.player_held & crate::simulation::player_keys::POINT != 0;
@@ -1809,12 +1794,7 @@ impl GarageRuntime {
         )
     }
     /// Advances the gauges of every car by render time `dt`. `initialize` jumps to the targets.
-    pub fn advance_instruments(
-        &mut self,
-        reference: &ReferenceManifest,
-        dt: f32,
-        initialize: bool,
-    ) {
+    fn advance_instruments(&mut self, reference: &ReferenceManifest, dt: f32, initialize: bool) {
         let Self {
             vehicles,
             area,
@@ -1873,7 +1853,7 @@ impl GarageRuntime {
         }
     }
     /// Source `carscript.Update`: eases each car gear lever and control pedal by render time `dt`.
-    pub fn advance_levers(&mut self, reference: &ReferenceManifest, dt: f32) {
+    fn advance_levers(&mut self, reference: &ReferenceManifest, dt: f32) {
         for vehicle in self.vehicles.values_mut() {
             vehicle.advance_controls(reference, dt);
         }
@@ -2217,7 +2197,7 @@ impl GarageRuntime {
         }
     }
     /// The engine part mounted on car `key` at the last step.
-    pub fn mounted_engine(
+    fn mounted_engine(
         &self,
         key: &ObjectKey,
     ) -> Option<&crate::simulation::powertrain::EnginePart> {
@@ -2327,20 +2307,16 @@ impl GarageRuntime {
             let old_origin = self.area.origin;
             self.area.sync_origin(self.stream.origin.offset);
             self.weather.set_origin(self.stream.origin.offset);
-            let shift = rapier3d::math::Vector::from_array(std::array::from_fn(|i| {
-                (self.area.origin[i] - old_origin[i]) as f32
-            }));
-            self.urine.rebase(shift);
-            self.flyers.rebase(shift);
-            self.creatures.rebase(shift);
+            let shift: [f32; 3] =
+                std::array::from_fn(|i| (self.area.origin[i] - old_origin[i]) as f32);
+            let shift_vector = rapier3d::math::Vector::from_array(shift);
+            self.urine.rebase(shift_vector);
+            self.flyers.rebase(shift_vector);
+            self.creatures.rebase(shift_vector);
             if let Some(audio) = &mut self.audio {
-                audio.rebase(std::array::from_fn(|i| {
-                    (self.area.origin[i] - old_origin[i]) as f32
-                }));
+                audio.rebase(shift);
             }
-            self.aim.rebase(std::array::from_fn(|i| {
-                (self.area.origin[i] - old_origin[i]) as f32
-            }));
+            self.aim.rebase(shift);
             self.rebases += 1;
         }
     }
@@ -2475,10 +2451,9 @@ fn holiday_pumpkin(start: [u32; 2], end: [u32; 2], calendar: [u8; 2]) -> bool {
     crate::simulation::radio::in_holiday(calendar, [sm, sd, em, ed])
 }
 
-/// Gauge inputs of car `key` with gauges `r`. `headlights` is its requested headlight state.
 /// Source `carscript.InteractSwitchLights` of the world car whose switch usable is `switch`.
 /// Returns the car.
-pub fn use_light_switch(
+fn use_light_switch(
     vehicles: &mut BTreeMap<ObjectKey, VehicleRuntime>,
     switch: ItemId,
 ) -> Option<(ObjectKey, usize)> {

@@ -199,7 +199,7 @@ pub struct DrinkResult {
 }
 
 impl GarageRuntime {
-    pub fn apply_toilet_output(
+    fn apply_toilet_output(
         &mut self,
         reference: &ReferenceManifest,
         output: crate::survival::ToiletOutput,
@@ -211,7 +211,7 @@ impl GarageRuntime {
         }
     }
 
-    pub fn spawn_turd(&mut self, reference: &ReferenceManifest) -> Result<ItemId, ReferenceError> {
+    fn spawn_turd(&mut self, reference: &ReferenceManifest) -> Result<ItemId, ReferenceError> {
         let prototype_index = reference
             .survival
             .foods

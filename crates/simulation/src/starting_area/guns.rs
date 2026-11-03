@@ -308,7 +308,7 @@ impl GarageRuntime {
     }
     /// `weaponscript.Reload(source, unload)`. A used magazine leaves the player and the world.
     /// A magazine gun drops its old magazine at `magPos`.
-    pub(crate) fn reload_gun(
+    fn reload_gun(
         &mut self,
         reference: &ReferenceManifest,
         gun: ItemId,

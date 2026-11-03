@@ -2,14 +2,14 @@
 pub mod layout;
 use crate::reference::ReferenceError;
 /// One `rendszamscript` label at startup. `same_as` is the index of the linked label.
-pub struct StartupLabel<'a> {
-    pub text: &'a str,
-    pub same: bool,
-    pub same_as: Option<usize>,
+struct StartupLabel<'a> {
+    text: &'a str,
+    same: bool,
+    same_as: Option<usize>,
 }
 /// Source `rendszamscript` startup in label order. A label that is not `same` draws "AAA-000"
 /// and sets it on itself and on its `same_as` chain. Returns each label's text and `same`.
-pub fn startup_texts(
+fn startup_texts(
     labels: &[StartupLabel],
     draw: &mut dyn FnMut(i32, i32) -> i32,
 ) -> Result<Vec<(String, bool)>, ReferenceError> {
@@ -84,15 +84,15 @@ pub fn copy_texts(
 /// Separates the plate draw from other random streams seeded by the object key.
 const COPY_DRAW: u64 = 0x706c_6174_6573;
 /// Startup range adapter. This does not reproduce Unity global random state.
-pub struct StartupDraw {
+struct StartupDraw {
     seed: u64,
     counter: u64,
 }
 impl StartupDraw {
-    pub fn new(seed: u64) -> Self {
+    fn new(seed: u64) -> Self {
         Self { seed, counter: 0 }
     }
-    pub fn draw(&mut self, min: i32, max: i32) -> i32 {
+    fn draw(&mut self, min: i32, max: i32) -> i32 {
         assert!(min < max);
         let width = (i64::from(max) - i64::from(min)) as u64;
         let threshold = width.wrapping_neg() % width;
