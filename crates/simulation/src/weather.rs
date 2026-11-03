@@ -40,7 +40,7 @@ pub struct Storm {
     pub life: f32,
     pub direction: [f32; 2],
     pub speed: f32,
-    /// Source currentDistance, read by Move before this step computes it again.
+    /// Source currentDistance. Move reads it before this step computes it again.
     pub previous_distance: f32,
     /// Source llerp, sampled before Move changes life.
     pub life_strength: f32,
@@ -126,7 +126,7 @@ impl WeatherState {
         }
     }
 
-    /// Source load: storms start with saved values and do not draw new ones.
+    /// Source load. Storms start with saved values and do not draw new ones.
     /// Wind targets, gust force and particles start empty and rebuild.
     pub fn restore(&mut self, reference: &WeatherReference, now: f64, saved: &WeatherSnapshot) {
         self.last_spawn_time = now - saved.since_spawn as f64;
@@ -177,7 +177,7 @@ impl WeatherState {
         )
     }
 
-    /// Source Start with started set: the storm keeps the given values.
+    /// Source Start with started set. The storm keeps the given values.
     fn push_storm(&mut self, reference: &WeatherReference, saved: &StormSnapshot) -> StormId {
         let r = &reference.storm;
         let &StormSnapshot {
@@ -313,7 +313,7 @@ impl WeatherState {
     }
 
     /// Source dust after `advance`. `night` is the SetColorLerp weight: 0 day, 1 night.
-    /// `interior` selects interior colliders. Particles that touch them are removed.
+    /// `interior` selects interior colliders. The step removes particles that touch them.
     pub fn advance_particles(
         &mut self,
         reference: &WeatherReference,
@@ -465,7 +465,7 @@ fn small_emitter(player: [f64; 3], last: [f64; 3], dt: f32, yoffset: f32) -> [f6
     })
 }
 
-/// A separate deterministic stream. Unity's native random sequence is unrecovered.
+/// A separate deterministic stream. The port does not recover Unity's native random sequence.
 #[derive(Debug)]
 pub(crate) struct StormRandom(pub(crate) u64);
 impl StormRandom {

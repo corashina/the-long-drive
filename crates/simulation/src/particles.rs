@@ -90,8 +90,9 @@ struct Inherit {
     mode: f32,
     curve: ParticleCurve,
 }
-/// Source `NoiseModule` position noise. The noise field is an approximation: Unity's native
-/// noise is not ported. Strength, frequency, octaves, scroll and damping follow the source fields.
+/// Source `NoiseModule` position noise. The noise field is an approximation. The port does
+/// not copy Unity's native noise. Strength, frequency, octaves, scroll and damping follow the
+/// source fields.
 #[derive(Debug)]
 struct Noise {
     strength: [ParticleCurve; 3],
@@ -101,7 +102,7 @@ struct Noise {
     octaves: u32,
     octave_multiplier: f32,
     octave_scale: f32,
-    /// Source `damping`: the strength is divided by the frequency.
+    /// Source `damping`. It divides the strength by the frequency.
     damping: f32,
 }
 /// Per-axis offsets into the 2D noise field, so that the axes do not move together.
@@ -149,7 +150,7 @@ impl Modules {
                 curve(&format!("{module}.z")),
             ]
         };
-        // A disabled shape emits from one point along +Z: a cone with zero angle and radius.
+        // A disabled shape emits from one point along +Z, as a cone with zero angle and radius.
         let shape = on("ShapeModule");
         let shape_scalar = |field: &str, off: f32| if shape { r.scalars[field] } else { off };
         let shape_vector = |field: &str, off: [f32; 3]| if shape { r.vectors[field] } else { off };
@@ -289,14 +290,14 @@ impl ParticleState {
             burst_started: false,
         }
     }
-    /// A system that only runs `Emit`: no authored burst starts it.
+    /// A system that only runs `Emit`. No authored burst starts it.
     pub fn emit_only(reference: &ParticleReference, seed: u64) -> Self {
         Self {
             burst_started: true,
             ..Self::new(reference, seed)
         }
     }
-    /// `mainscript.Particle`: the system moves to the point and runs `Emit(count)`.
+    /// `mainscript.Particle`. The system moves to the point and runs `Emit(count)`.
     pub fn emit(&mut self, count: usize, emitter_absolute: [f64; 3], rotation: Rotation) {
         let m = &self.modules;
         if m.emission.is_none() || count == 0 {
@@ -333,7 +334,7 @@ impl ParticleState {
             e.shape_rotation = shape_rotation(degrees);
         }
     }
-    /// Source trigger module with the Kill inside action: removes particles that touch an
+    /// Source trigger module with the Kill inside action. It removes particles that touch an
     /// interior collider. `interior` selects those colliders. Call after `advance`.
     pub fn remove_inside(
         &mut self,
@@ -357,7 +358,7 @@ impl ParticleState {
                 .is_none()
         });
     }
-    /// A new Instantiate of the system: its burst and duration start again.
+    /// A new Instantiate of the system. Its burst and duration start again.
     pub fn restart(&mut self) {
         self.burst_started = false;
         self.elapsed = 0.;
@@ -398,7 +399,7 @@ impl ParticleState {
                 Shape::Cone => e.cos_angle + (1. - e.cos_angle) * random.unit(),
             };
             let radial = (1. - z * z).sqrt();
-            // Source +Z is converted to -Z.
+            // The port converts source +Z to -Z.
             let direction = Vector::new(a.cos() * radial, a.sin() * radial, -z);
             let inner = (1. - e.radius_thickness).powi(3);
             let shape_radius = e.shape_radius * self.radius_scale;
@@ -720,7 +721,7 @@ pub fn particle_color(c: &ParticleColor, t: f32, draw: f32) -> [f32; 4] {
     }
 }
 
-/// A separate deterministic stream. Unity's native random sequence is unrecovered.
+/// A separate deterministic stream. The port does not recover Unity's native random sequence.
 #[derive(Debug)]
 struct ParticleRandom(u64);
 impl ParticleRandom {

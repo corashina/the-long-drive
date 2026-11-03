@@ -68,7 +68,7 @@ pub struct ConditionStore {
     first_world: u32,
     live: Vec<bool>,
     free: Vec<usize>,
-    /// World slots from `records.len()`. None when no item saves the entry.
+    /// World slots from `records.len()`. An entry is None when no item saves it.
     saves: Vec<Option<WorldSave>>,
     items: HashMap<ItemId, ConditionId>,
     tables: Vec<[[bool; 7]; 5]>,

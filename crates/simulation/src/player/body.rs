@@ -58,7 +58,7 @@ pub struct BodyInputs {
     /// `duckValue`: 0 ducked, 1 standing.
     pub duck: f32,
     pub sleeping: bool,
-    /// `currentAdd`: the head bob step. 0 when the bob does not advance.
+    /// `currentAdd`: the head bob step. It is 0 when the bob does not advance.
     pub walk_add: f32,
     pub forward: bool,
     pub backward: bool,
@@ -154,7 +154,7 @@ impl Rig {
             None => self.world[i],
         };
     }
-    /// Unity `parent` setter with world pose kept.
+    /// Unity `parent` setter that keeps the world pose.
     fn reparent(&mut self, i: usize, parent: Option<usize>) {
         self.parent[i] = parent;
         self.local[i] = match parent {
@@ -439,19 +439,20 @@ impl BodyState {
         })
     }
 
-    /// `MovedUsingHandObj`: `target` is the hit point with the camera rotation, in the usable frame.
+    /// `MovedUsingHandObj`. `target` is the hit point with the camera rotation, in the usable
+    /// frame.
     pub fn move_using_hand(&mut self, target: ReachTarget, rule: HandRule) {
         self.reach.move_using_hand(target, rule);
     }
-    /// `MovedUsingHandObj()`: a held usable keeps the hand on its target.
+    /// `MovedUsingHandObj()`. A held usable keeps the hand on its target.
     pub fn refresh_using_hand(&mut self) {
         self.reach.refresh_using_hand();
     }
-    /// `MoveNearestHand`. `delay` None is `handSnapDelay`.
+    /// `MoveNearestHand`. A `delay` of None means `handSnapDelay`.
     pub fn move_nearest_hand(&mut self, target: ReachTarget, delay: Option<f32>) {
         self.reach.move_nearest_hand(target, delay);
     }
-    /// `MoveNearestLeg`. `delay` None is `handSnapDelay`.
+    /// `MoveNearestLeg`. A `delay` of None means `handSnapDelay`.
     pub fn move_nearest_leg(&mut self, target: ReachTarget, delay: Option<f32>) {
         self.reach.move_nearest_leg(target, delay);
     }
@@ -509,7 +510,8 @@ impl BodyState {
         self.send_interval
     }
 
-    /// A remote body: takes the duck value and the `sent_targets` of a peer and runs the IK chains.
+    /// A remote body. It takes the duck value and the `sent_targets` of a peer and runs the IK
+    /// chains.
     pub fn pose_remote(&mut self, duck: f32, targets: &[[f32; 7]; 6]) {
         let mut nodes = [self.head_target, 0, 0, 0, 0, self.pelvis];
         nodes[1..5].copy_from_slice(&self.targets);
@@ -517,7 +519,7 @@ impl BodyState {
             let rotation = Rotation::from_xyzw(t[3], t[4], t[5], t[6]).normalize();
             rig.set(i, Vector::new(t[0], t[1], t[2]), rotation);
         };
-        // `UpdHandPos` duck, then `Pelvis`: the limb targets read their parents after `fk`.
+        // `UpdHandPos` duck, then `Pelvis`. The limb targets read their parents after `fk`.
         let duck = duck.clamp(0., 1.);
         let root = self.rig.world[self.character_root].rotation;
         let position = self.rig.world[self.root_duck]
@@ -619,7 +621,7 @@ impl BodyState {
             hands[limb].0 = p;
             hands[frame].1 = HandFrame::Using;
         } else {
-            // Source quirk: with no using hand, VCurrentRHT is always defRHPos.
+            // This is a source quirk. With no using hand, VCurrentRHT is always defRHPos.
             hands[1].1 = HandFrame::Node(self.def_hands[1]);
         }
         // `vR` (`MovedRightHandObj`) has no source caller.

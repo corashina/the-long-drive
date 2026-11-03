@@ -82,7 +82,7 @@ impl Hum {
         }
     }
 
-    /// Source `humming`: look and duck do not run.
+    /// Source `humming`. Look and duck do not run.
     pub fn humming(&self) -> bool {
         self.humming
     }

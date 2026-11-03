@@ -18,7 +18,7 @@ pub fn surface(
     sand_layers: &[u32],
     biome: impl FnOnce() -> u8,
 ) -> usize {
-    // otherStepSoundScript, then sand layer or tag, then tag Wood, then road.
+    // The test order is otherStepSoundScript, the sand layer or tag, tag Wood, then road.
     // Codes 1 to 5 are the surfaces in source order.
     if (1..=5).contains(&code) {
         return code as usize - 1;
@@ -64,7 +64,8 @@ pub struct FootstepState {
 }
 
 impl FootstepState {
-    /// True when the source plays a step: a walk bob beat or a grounded change, not seated.
+    /// True when the source plays a step. A walk bob beat or a grounded change plays one, but
+    /// not while seated.
     fn step(&mut self, seated: bool, grounded: bool, beat: bool) -> bool {
         let changed = grounded != self.last_grounded;
         self.last_grounded = grounded;

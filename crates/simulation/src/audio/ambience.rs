@@ -203,7 +203,7 @@ impl ZoneAmbience {
             }
         }
     }
-    /// Source order: a stopped zone starts on this step and sets its gain on the next step.
+    /// In source order, a stopped zone starts on this step and sets its gain on the next step.
     fn step(
         &mut self,
         slot: usize,

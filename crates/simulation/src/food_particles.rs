@@ -1,4 +1,4 @@
-//! Source `mainscript.FoodParticle`: a bite emits from the shared system of its food type.
+//! Source `mainscript.FoodParticle`. A bite emits from the shared system of its food type.
 use crate::particles::{ParticleOutput, ParticleState};
 use crate::reference::ParticleReference;
 use crate::vehicle::PhysicsWorld;

@@ -17,7 +17,7 @@ struct Weed {
     next_wind_time: f64,
     wind_live_time: f32,
     wind: Vector,
-    /// The force of the last `gust` step. Zero when the weed did not push.
+    /// The force of the last `gust` step. It is zero when the weed did not push.
     force: Vector,
 }
 
@@ -101,7 +101,7 @@ impl Tumbleweeds {
         (!walls(r, spot, cast)).then_some(spot)
     }
 
-    /// Source Spawn after Instantiate: the weed joins the list with bwind set.
+    /// Source Spawn after Instantiate. The weed joins the list with bwind set.
     pub fn add(&mut self, item: ItemId) {
         self.weeds.push(Weed {
             item,
@@ -158,7 +158,7 @@ impl Tumbleweeds {
     }
 }
 
-/// Source CheckWalls: `ray_count_to_stay` or more ring rays hit.
+/// Source CheckWalls. True when `ray_count_to_stay` or more ring rays hit.
 fn walls(
     r: &TumbleweedReference,
     at: Vector,

@@ -255,7 +255,8 @@ mod tests {
     use rapier3d::prelude::{ColliderBuilder, QueryFilter};
 
     /// The garage door jamb next to the light switch touched the feet sphere at its side.
-    /// The step lifted the player 0.29 m in one step: 14 m/s, over the 13.5 m/s death change.
+    /// The step lifted the player 0.29 m in one step. That is 14 m/s, over the 13.5 m/s death
+    /// change.
     #[test]
     fn wall_corner_is_no_step() {
         let clearance = (1..=10)

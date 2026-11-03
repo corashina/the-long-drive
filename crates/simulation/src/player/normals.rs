@@ -117,7 +117,7 @@ impl QueryDispatcher for CharacterQueryDispatcher {
         let at_impact = Pose::from_translation(-vel12 * hit.time_of_impact) * *pos12;
         MANIFOLD.with_borrow_mut(|manifold| {
             manifold.clear();
-            // Composites are split above, so the remaining pairs are convex.
+            // The code above splits composites, so the remaining pairs are convex.
             if DefaultQueryDispatcher
                 .contact_manifold_convex_convex(
                     &at_impact,

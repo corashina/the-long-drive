@@ -125,7 +125,7 @@ impl Reach {
         self.hands_from = Some(DistFrom::Slot(USING));
     }
 
-    /// `MovedUsingHandObj()`: a held usable keeps its target.
+    /// `MovedUsingHandObj()`. A held usable keeps its target.
     pub(super) fn refresh_using_hand(&mut self) {
         self.slots[USING].timer = self.snap_delay;
     }
@@ -184,7 +184,7 @@ impl Reach {
                         Rotation::from_array(p.rotation),
                     )
                 }
-                // The frame is gone: the source Transform would be destroyed.
+                // The frame is gone. The source would destroy its Transform.
                 None => slot.timer = 0.,
             }
         }
@@ -203,7 +203,8 @@ impl Reach {
         self.later = [false; 2];
     }
 
-    /// Counts the slot timer down. Some while it was running, as source `if (v > 0) { v -= dt; ... }`.
+    /// Counts the slot timer down. Returns Some while it was running, as source
+    /// `if (v > 0) { v -= dt; ... }`.
     pub(super) fn tick(&mut self, slot: usize, dt: f32) -> Option<(Vector, Rotation)> {
         let s = &mut self.slots[slot];
         (s.timer > 0.).then(|| {
@@ -217,7 +218,7 @@ impl Reach {
     }
 
     /// UpdHandPos using hand: the hand that takes the pose (0 left, 1 right),
-    /// and the hand whose `VCurrent*T` becomes the using hand. Source quirks kept.
+    /// and the hand whose `VCurrent*T` becomes the using hand. The port keeps the source quirks.
     pub(super) fn using_hands(&self, hands_free: bool) -> (usize, usize) {
         let near_left = self.dist[0] < self.dist[1];
         match self.rule {

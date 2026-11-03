@@ -1,4 +1,4 @@
-//! Source randomFlyer: bats that fly around their start point. Not saved.
+//! Source randomFlyer: bats that fly around their start point. Saves do not keep them.
 use crate::interaction::items::{ItemLocation, ItemStore};
 use crate::reference::{FlyerReference, ItemId};
 use crate::vehicle::PhysicsWorld;
@@ -72,7 +72,7 @@ impl Flyers {
             return;
         }
         self.revision = Some(key);
-        // A new body of the same item is a new source object: it starts again.
+        // A new body of the same item is a new source object. It starts again.
         self.flyers
             .retain(|f| items.get(f.item).is_some_and(|i| i.body == Some(f.body)));
         for structure in structures
@@ -203,7 +203,7 @@ fn next_sound(f: &mut Flyer, r: &FlyerReference, random: &mut StormRandom, now: 
     f.next_sound_time = now + f64::from(random.range(r.sound_time_range[0], r.sound_time_range[1]));
 }
 
-/// Unity Vector3.Lerp: `t` clamps to [0, 1].
+/// Unity Vector3.Lerp. It clamps `t` to [0, 1].
 fn steer(velocity: Vector, dir: Vector, t: f32) -> Vector {
     velocity.lerp(dir, t.clamp(0., 1.))
 }

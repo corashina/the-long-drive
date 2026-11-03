@@ -22,7 +22,7 @@ impl Default for PointState {
     }
 }
 
-/// Unity `Quaternion.LookRotation(forward, up)`: -Z looks along `forward`.
+/// Unity `Quaternion.LookRotation(forward, up)`. Its -Z axis looks along `forward`.
 fn look_rotation(forward: Vector, up: Vector) -> Option<Rotation> {
     let forward = forward.normalize_or_zero();
     let right = forward.cross(up).normalize_or_zero();

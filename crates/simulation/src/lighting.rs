@@ -18,7 +18,7 @@ pub struct CloudOutput {
     pub speed: f32,
 }
 
-/// Clear-weather source signals. Angles use Unity Euler degrees; colors retain source channels.
+/// Clear-weather source signals. Angles use Unity Euler degrees. Colors retain source channels.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CycleOutput {
     pub phase: CyclePhase,
@@ -135,7 +135,7 @@ impl CycleState {
         {
             return;
         }
-        // Source rotates stars before replacing tekerve for this fixed update.
+        // The source rotates stars before replacing tekerve for this fixed update.
         self.star_rotation = (self.star_rotation + star_step) % 360.;
         self.previous_cycle_extra = advance.cycle_extra;
         self.cloud_coordinate += cloud_step;
@@ -163,7 +163,8 @@ impl CycleState {
         };
     }
 
-    /// Sandbox and multiplayer guest (source `RTime`): jumps to `seconds` of the source cycle.
+    /// Jumps to `seconds` of the source cycle for the sandbox and a multiplayer guest (source
+    /// `RTime`).
     /// The next advance evaluates it.
     pub fn set_cycle_seconds(&mut self, seconds: f64) {
         self.cycle_seconds = seconds;
@@ -704,7 +705,7 @@ impl HeadlightState {
             state_count: reference.states.len(),
         }
     }
-    /// Source `headlightscript` with its part removed: dark, and lit again from state 0.
+    /// Source `headlightscript` with its part removed. It is dark, and lights again from state 0.
     pub fn unmount(&mut self) {
         self.current_state = 0;
         self.refreshed_state = 0;

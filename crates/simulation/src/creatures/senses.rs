@@ -161,7 +161,7 @@ impl Senses {
         for s in input.stimuli.iter().filter(near) {
             let d = s.position.distance_squared(input.root);
             if d < hear && d > min_hear && s.sound && s.value > r.min_hear_value {
-                // The source falloff uses squared distances: far sounds count more.
+                // The source falloff uses squared distances, so far sounds count more.
                 self.sensed.push(Sensed {
                     position: s.position,
                     kind: s.kind,

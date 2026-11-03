@@ -1,8 +1,8 @@
 //! Source `movecreaturescript`: `Move`, `Rot`, `Jump` and `CheckGround`.
 use rapier3d::math::{Rotation, Vector};
 
-/// Source `Move`: the horizontal velocity lerps to `move_dir * speed` times `modifier`. The
-/// vertical part stays. The source lerp starts from `(v.x, 0, v.y)`: Unity z takes the vertical
+/// Source `Move`. The horizontal velocity lerps to `move_dir * speed` times `modifier`. The
+/// vertical part stays. The source lerp starts from `(v.x, 0, v.y)`. Unity z takes the vertical
 /// speed.
 pub fn velocity(
     v: Vector,
