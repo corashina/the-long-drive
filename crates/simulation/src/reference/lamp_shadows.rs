@@ -226,17 +226,16 @@ pub struct FaceScan {
     pub animated: [bool; LAMP_FACES],
 }
 /// `poses` holds a hash of the identity and pose of each caster row. `animated` is in row order.
-/// The content is a sum, so it does not depend on row order. `epoch` changes all faces.
+/// The content is a sum, so it does not depend on row order.
 pub fn scan_faces(
     masks: &LampMasks,
     casters: &[CasterInput],
     poses: &[u64],
     animated: &[u32],
     faces: &[[Option<[Plane; 5]>; 6]; LAMP_SLOTS],
-    epoch: u64,
 ) -> FaceScan {
     let mut scan = FaceScan {
-        contents: [mix(epoch); LAMP_FACES],
+        contents: [0; LAMP_FACES],
         animated: [false; LAMP_FACES],
     };
     for &(row, bits) in masks.entries() {
@@ -376,7 +375,7 @@ mod tests {
         let mut frame = |casters: &[CasterInput], poses: &[u64], history: &mut LampHistory| {
             grid.rebuild(casters);
             lamp_masks.write(casters, &grid, &slots, &mut masks);
-            let scan = scan_faces(&lamp_masks, casters, poses, &animated, &faces, 0);
+            let scan = scan_faces(&lamp_masks, casters, poses, &animated, &faces);
             let current = std::array::from_fn(|tile| {
                 (tile < 6).then(|| LampFace {
                     clip_from_world: clips[tile],
