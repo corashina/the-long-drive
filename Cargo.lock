@@ -2532,8 +2532,8 @@ name = "grass-worker"
 version = "0.1.0"
 dependencies = [
  "grass-mesh",
- "talc",
  "wasm-bindgen",
+ "wasm-heap",
 ]
 
 [[package]]
@@ -4043,8 +4043,8 @@ name = "road-worker"
 version = "0.1.0"
 dependencies = [
  "road-mesh",
- "talc",
  "wasm-bindgen",
+ "wasm-heap",
 ]
 
 [[package]]
@@ -4278,8 +4278,8 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "simulation",
- "talc",
  "wasm-bindgen",
+ "wasm-heap",
 ]
 
 [[package]]
@@ -4485,9 +4485,9 @@ dependencies = [
 name = "terrain-worker"
 version = "0.1.0"
 dependencies = [
- "talc",
  "terrain",
  "wasm-bindgen",
+ "wasm-heap",
 ]
 
 [[package]]
@@ -4508,10 +4508,10 @@ dependencies = [
  "serde",
  "serde_json",
  "simulation",
- "talc",
  "terrain",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-heap",
  "wgpu",
  "winit",
 ]
@@ -4852,6 +4852,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23f0c9c52aa7cd7d77769a4cfe2a9adb1b331f489a41d912ce14513d5ab995c6"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "wasm-heap"
+version = "0.1.0"
+dependencies = [
+ "talc",
 ]
 
 [[package]]

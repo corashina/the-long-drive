@@ -694,7 +694,8 @@ pub fn apply_sky_snapshot(
 }
 
 /// Shared source projection and culling math for live and private candidate views.
-/// The world camera snapshot from the live camera. It is `None` until the camera has an extent.
+/// The world camera snapshot from the live camera. It is `None` until the camera has an extent
+/// and the first simulation frame gives a field of view and a far plane.
 pub(crate) fn world_view_snapshot(
     camera: &Camera,
     pose: &GlobalTransform,
@@ -706,6 +707,9 @@ pub(crate) fn world_view_snapshot(
         .physical_viewport_size()
         .filter(|extent| camera.is_active && extent.x > 0 && extent.y > 0)?;
     let world = super::camera::world_camera_settings(fov_degrees, far_plane);
+    if !(world.fov_degrees > 0. && world.far > world.near && pose.to_matrix().is_finite()) {
+        return None;
+    }
     Some(camera_snapshot(
         extent,
         pose.to_matrix().inverse(),
