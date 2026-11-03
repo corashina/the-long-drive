@@ -127,10 +127,13 @@ struct StartupShell<'a> {
     start_car: bool,
 }
 
+fn js_error(error: impl std::fmt::Display) -> JsValue {
+    JsValue::from_str(&error.to_string())
+}
+
 #[wasm_bindgen]
 pub fn manifest_shell(reference_json: &[u8]) -> Result<String, JsValue> {
-    let mut shell: ManifestShell =
-        serde_json::from_slice(reference_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let mut shell: ManifestShell = serde_json::from_slice(reference_json).map_err(js_error)?;
     // Car09 has two start fields. The second one with a name shows "(2)".
     for startup in shell.world.startup.iter().filter(|s| s.start_car) {
         let name = vehicle_name(startup.group).unwrap_or(startup.group);
@@ -141,7 +144,7 @@ pub fn manifest_shell(reference_json: &[u8]) -> Result<String, JsValue> {
         };
         shell.world.start_cars.push(name);
     }
-    serde_json::to_string(&shell).map_err(|e| JsValue::from_str(&e.to_string()))
+    serde_json::to_string(&shell).map_err(js_error)
 }
 
 /// The Game mode from the browser. Biome values above 3 read as Mixed.
@@ -170,18 +173,15 @@ thread_local! {
 pub fn prepare(reference_json: &[u8]) -> Result<(), JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
     console_error_panic_hook::set_once();
-    let reference = Arc::new(
-        ReferenceManifest::from_checked_runtime_json(reference_json)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?,
-    );
+    let reference =
+        Arc::new(ReferenceManifest::from_checked_runtime_json(reference_json).map_err(js_error)?);
     if let Err(error) = reference.audio.playback() {
         game_audio_error(&error.to_string());
     }
     // The simulation worker checks the reference. Systems need these resources.
-    let materials = presentation::materials::load_materials(&reference)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let fixed_assets = presentation::fixed_assets::SourceFixedAssets::new(&reference)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let materials = presentation::materials::load_materials(&reference).map_err(js_error)?;
+    let fixed_assets =
+        presentation::fixed_assets::SourceFixedAssets::new(&reference).map_err(js_error)?;
     PREPARED.set(Some(Prepared {
         reference,
         materials,
@@ -209,7 +209,7 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
         presentation::readiness::control_bytes(),
         presentation::readiness::RendererStateHandle::default,
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    .map_err(js_error)?;
     let allocation = presentation::world::runtime::SourcePresentationAllocation::bootstrap(
         startup.session,
         fixed,
@@ -399,7 +399,7 @@ fn setup(
     presentation::lighting::load_lighting(&mut commands, &reference.0.lighting);
     presentation::lighting_assets::load_lighting(&mut commands, &server, Arc::clone(&reference.0));
     presentation::lighting::load_lamp_materials(&mut commands, &gltf_extensions, &reference.0);
-    presentation::reference::load(&mut commands, &server, &reference.0);
+    presentation::reference::load(&mut commands, &reference.0);
     presentation::frame_graph::spawn_cameras(
         &mut commands,
         &mut images,
@@ -762,9 +762,14 @@ fn select_world_views(
         Ok(())
     })();
     if let Err(error) = result {
-        game_failure(&error.to_string());
-        drive.world.failure.get_or_insert(error.to_string());
+        world_failure(drive, error);
     }
+}
+/// Shows a renderer world failure and sends it to the simulation with the next world step.
+fn world_failure(drive: &mut Drive, error: impl std::fmt::Display) {
+    let error = error.to_string();
+    game_failure(&error);
+    drive.world.failure.get_or_insert(error);
 }
 /// One renderer step on the world copy after the world step of the frame.
 fn prepare_world(
@@ -788,7 +793,7 @@ fn prepare_world(
     };
     let started = game_now();
     let snapshot = world_snapshot(&views, &epoch, sim.frame.state.session);
-    let camera_world = snapshot.map_or_else(
+    let mut camera_world = snapshot.map_or_else(
         || camera_transform.to_matrix(),
         |view| view.view_from_world.inverse(),
     );
@@ -809,7 +814,6 @@ fn prepare_world(
             .map(|v| v as f32),
     );
     let source_from_runtime = Mat4::from_scale(Vec3::new(1., 1., -1.));
-    let mut camera_world = camera_world;
     camera_world.w_axis = position.extend(1.);
     let clip = clip_from_view * camera_world.inverse() * source_from_runtime;
     let rows = clip.transpose();
@@ -848,8 +852,7 @@ fn prepare_world(
         &frame.lights,
         &mut drive.world,
     ) {
-        game_failure(&error.to_string());
-        drive.world.failure.get_or_insert(error.to_string());
+        world_failure(drive, error);
     }
     drive.world_ms += game_now() - started;
 }
@@ -898,8 +901,7 @@ fn sync_instances(
     mut presentation: presentation::world::runtime::WorldPresentation,
 ) {
     if let Err(error) = presentation.sync_instances(&reference.0, &mut sim) {
-        game_failure(&error.to_string());
-        drive.world.failure.get_or_insert(error.to_string());
+        world_failure(&mut drive, error);
     }
 }
 /// Takes the new simulation frame. Without one, the last state stays and its events go.

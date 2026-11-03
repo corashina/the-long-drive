@@ -398,16 +398,18 @@ fn upload(
         gpu.buffers[i].write_buffer(&device, &queue);
     }
 }
-fn mesh() -> Mesh {
-    let mut positions = Vec::with_capacity(BATCH * 4);
-    let mut uv = Vec::with_capacity(BATCH * 4);
-    let mut indices = Vec::with_capacity(BATCH * 6);
-    for i in 0..BATCH {
+/// `count` unit quads. Vertex z is the instance index.
+pub(super) fn quad_batch(count: usize) -> Mesh {
+    let mut positions = Vec::with_capacity(count * 4);
+    let mut uv = Vec::with_capacity(count * 4);
+    let mut indices = Vec::with_capacity(count * 6);
+    for i in 0..count {
+        let z = i as f32;
         positions.extend([
-            [-0.5, -0.5, i as f32],
-            [0.5, -0.5, i as f32],
-            [0.5, 0.5, i as f32],
-            [-0.5, 0.5, i as f32],
+            [-0.5, -0.5, z],
+            [0.5, -0.5, z],
+            [0.5, 0.5, z],
+            [-0.5, 0.5, z],
         ]);
         uv.extend([[0., 1.], [1., 1.], [1., 0.], [0., 0.]]);
         let k = i as u32 * 4;
@@ -578,7 +580,7 @@ fn sync_particles(
     }
     let references = &reference.0.particles;
     if state.mesh.is_none() {
-        state.mesh = Some(meshes.add(mesh()));
+        state.mesh = Some(meshes.add(quad_batch(BATCH)));
         for (i, p) in references.iter().enumerate() {
             let owner = if p.role.starts_with("urine") {
                 Owner::Urine

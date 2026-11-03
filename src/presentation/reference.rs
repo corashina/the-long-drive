@@ -58,24 +58,11 @@ pub(crate) fn source_gltf_settings(settings: &mut GltfLoaderSettings) {
     });
 }
 
-pub fn load(commands: &mut Commands, _server: &AssetServer, reference: &ReferenceManifest) {
+pub fn load(commands: &mut Commands, reference: &ReferenceManifest) {
     let count = reference
         .assets
         .iter()
-        .filter(|a| {
-            matches!(
-                a.usage,
-                AssetUsage::UniqueScene
-                    | AssetUsage::RoadLampPrototype
-                    | AssetUsage::SkyPrototype
-                    | AssetUsage::FoodPrototype
-                    | AssetUsage::ItemPrototype
-                    | AssetUsage::PlayerPrototype
-                    | AssetUsage::RagdollPrototype
-                    | AssetUsage::SkyTraffic
-                    | AssetUsage::CreaturePrototype
-            )
-        })
+        .filter(|a| super::fixed_assets::scene_root(a.usage))
         .count();
     commands.insert_resource(ReferenceVisuals {
         expected_instances: reference.expected_instances(),

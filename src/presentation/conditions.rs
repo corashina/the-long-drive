@@ -98,12 +98,46 @@ fn prepare_conditions(world: &mut World) {
         }
     }
 }
+/// Children of `node` that draw a source material.
+fn material_children(world: &mut World, node: Entity) -> Vec<Entity> {
+    world
+        .query::<(Entity, &ChildOf)>()
+        .iter(world)
+        .filter(|(_, parent)| parent.parent() == node)
+        .map(|(e, _)| e)
+        .filter(|e| world.get::<MeshMaterial3d<SourceMaterial>>(*e).is_some())
+        .collect()
+}
+/// Spawns a far, unculled draw that warms the pipeline of `material` on `mesh`.
+fn spawn_warmup(
+    world: &mut World,
+    mesh: &Handle<Mesh>,
+    material: &Handle<SourceMaterial>,
+    sort: Option<SourceSortData>,
+) {
+    let mut warm = world.spawn((
+        Mesh3d(mesh.clone()),
+        MeshMaterial3d(material.clone()),
+        SourceMaterialWarmup,
+        Transform::from_translation(Vec3::splat(1_000_000.)),
+        Visibility::Visible,
+        bevy::light::NotShadowCaster,
+        bevy::camera::visibility::NoFrustumCulling,
+    ));
+    if let Some(sort) = sort {
+        warm.insert((sort, bevy::render::batching::NoAutomaticBatching));
+    }
+    let id = warm.id();
+    world
+        .resource_mut::<super::lighting::SourceLighting>()
+        .warmups
+        .push(id);
+}
 fn prepare(
     reference: &ReferenceManifest,
     world: &mut World,
 ) -> Result<ConditionVisuals, SaveError> {
     let mut result = ConditionVisuals::default();
-    let far = Transform::from_translation(Vec3::splat(1_000_000.));
     for surface in &reference.conditions.surfaces {
         let mut owner = Owner {
             id: surface.id,
@@ -116,13 +150,7 @@ fn prepare(
         };
         for renderer in &surface.renderers {
             let node = world.resource::<ReferenceVisuals>().nodes[&renderer.node];
-            let entities: Vec<_> = world
-                .query::<(Entity, &ChildOf)>()
-                .iter(world)
-                .filter(|(_, parent)| parent.parent() == node)
-                .map(|(e, _)| e)
-                .filter(|e| world.get::<MeshMaterial3d<SourceMaterial>>(*e).is_some())
-                .collect();
+            let entities = material_children(world, node);
             if entities.is_empty() {
                 return Err(fail(format!(
                     "Condition {} renderer {} has no receivers",
@@ -220,11 +248,12 @@ fn prepare(
                         let mut material =
                             materials::authored_material(key, inverted, mask, source);
                         let dynamic_color = color_rule(surface, state_index);
-                        if let Some(color) = if dynamic_color {
+                        let color = if dynamic_color {
                             Some(surface.startup.color)
                         } else {
                             state.color
-                        } {
+                        };
+                        if let Some(color) = color {
                             materials::set_source_color(&mut material, color);
                         }
                         let sort = source
@@ -239,23 +268,7 @@ fn prepare(
                                 material.id().untyped(),
                                 format!("condition {}", surface.id.0),
                             );
-                            let mut warm = world.spawn((
-                                Mesh3d(mesh.clone()),
-                                MeshMaterial3d(material.clone()),
-                                SourceMaterialWarmup,
-                                far,
-                                Visibility::Visible,
-                                bevy::light::NotShadowCaster,
-                                bevy::camera::visibility::NoFrustumCulling,
-                            ));
-                            if let Some(sort) = sort {
-                                warm.insert((sort, bevy::render::batching::NoAutomaticBatching));
-                            }
-                            let id = warm.id();
-                            world
-                                .resource_mut::<super::lighting::SourceLighting>()
-                                .warmups
-                                .push(id);
+                            spawn_warmup(world, mesh, &material, sort);
                         }
                         bank.push(Choice {
                             material,
@@ -295,13 +308,7 @@ fn prepare(
     }
     for tool in &reference.conditions.sprays {
         let node = world.resource::<ReferenceVisuals>().nodes[&tool.renderer_node];
-        let entities: Vec<_> = world
-            .query::<(Entity, &ChildOf)>()
-            .iter(world)
-            .filter(|(_, parent)| parent.parent() == node)
-            .map(|(e, _)| e)
-            .filter(|e| world.get::<MeshMaterial3d<SourceMaterial>>(*e).is_some())
-            .collect();
+        let entities = material_children(world, node);
         if entities.is_empty() {
             return Err(fail("Spray color renderer"));
         }
@@ -335,23 +342,7 @@ fn prepare(
                     material.id().untyped(),
                     "source spray label".into(),
                 );
-                let mut warm = world.spawn((
-                    Mesh3d(mesh.clone()),
-                    MeshMaterial3d(material.clone()),
-                    SourceMaterialWarmup,
-                    far,
-                    Visibility::Visible,
-                    bevy::light::NotShadowCaster,
-                    bevy::camera::visibility::NoFrustumCulling,
-                ));
-                if let Some(sort) = sort {
-                    warm.insert((sort, bevy::render::batching::NoAutomaticBatching));
-                }
-                let id = warm.id();
-                world
-                    .resource_mut::<super::lighting::SourceLighting>()
-                    .warmups
-                    .push(id);
+                spawn_warmup(world, &mesh, &material, sort);
                 bank.push(Choice {
                     material,
                     sort,

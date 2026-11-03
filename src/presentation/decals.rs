@@ -5,7 +5,7 @@ use super::sim_frame::SimFrameResource;
 use crate::app::RuntimeReference;
 use crate::lighting::source_linear;
 use crate::reference::{GUN_DECALS, GunDecal};
-use bevy::mesh::{Indices, MeshVertexBufferLayoutRef};
+use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::render::{
     Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
@@ -16,7 +16,7 @@ use bevy::render::{
 };
 use bevy::shader::ShaderRef;
 use bevy::{
-    asset::{self as bevy_asset, RenderAssetUsages},
+    asset as bevy_asset,
     ecs::{
         self as bevy_ecs,
         system::{SystemParamItem, lifetimeless::SRes},
@@ -221,32 +221,6 @@ fn upload(
     }
 }
 
-/// `DECAL_CAP` unit quads. Vertex z is the instance index.
-fn mesh() -> Mesh {
-    let mut positions = Vec::with_capacity(DECAL_CAP * 4);
-    let mut uv = Vec::with_capacity(DECAL_CAP * 4);
-    let mut indices = Vec::with_capacity(DECAL_CAP * 6);
-    for i in 0..DECAL_CAP {
-        let z = i as f32;
-        positions.extend([
-            [-0.5, -0.5, z],
-            [0.5, -0.5, z],
-            [0.5, 0.5, z],
-            [-0.5, 0.5, z],
-        ]);
-        uv.extend([[0., 1.], [1., 1.], [1., 0.], [0., 0.]]);
-        let k = i as u32 * 4;
-        indices.extend([k, k + 1, k + 2, k, k + 2, k + 3]);
-    }
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::RENDER_WORLD,
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
-    .with_inserted_indices(Indices::U32(indices))
-}
-
 /// The unit quad in the plane of the two widest mesh bounds axes, under the prefab root.
 fn node_matrix(d: &GunDecal) -> Mat4 {
     let e = Vec3::from_array(d.mesh.bounds_extents) * 2.;
@@ -288,7 +262,7 @@ fn setup(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<DecalMaterial>,
 ) {
-    let mesh = meshes.add(mesh());
+    let mesh = meshes.add(super::particles::quad_batch(DECAL_CAP));
     state.uniforms = vec![DecalUniform::default(); GUN_DECALS];
     for (kind, d) in decals.iter().enumerate() {
         let m = &d.material;

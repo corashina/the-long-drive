@@ -103,6 +103,21 @@ pub struct SourceFixedAssets {
     shaders_bound: bool,
     failure: Option<String>,
 }
+/// Assets that load as fixed glTF scene roots at startup.
+pub(crate) fn scene_root(usage: AssetUsage) -> bool {
+    matches!(
+        usage,
+        AssetUsage::UniqueScene
+            | AssetUsage::RoadLampPrototype
+            | AssetUsage::SkyPrototype
+            | AssetUsage::FoodPrototype
+            | AssetUsage::ItemPrototype
+            | AssetUsage::PlayerPrototype
+            | AssetUsage::RagdollPrototype
+            | AssetUsage::SkyTraffic
+            | AssetUsage::CreaturePrototype
+    )
+}
 impl SourceFixedAssets {
     pub(crate) fn watch_meshes(
         &self,
@@ -127,20 +142,7 @@ impl SourceFixedAssets {
         let roots = reference
             .assets
             .iter()
-            .filter(|a| {
-                matches!(
-                    a.usage,
-                    AssetUsage::UniqueScene
-                        | AssetUsage::RoadLampPrototype
-                        | AssetUsage::SkyPrototype
-                        | AssetUsage::FoodPrototype
-                        | AssetUsage::ItemPrototype
-                        | AssetUsage::PlayerPrototype
-                        | AssetUsage::RagdollPrototype
-                        | AssetUsage::SkyTraffic
-                        | AssetUsage::CreaturePrototype
-                )
-            })
+            .filter(|a| scene_root(a.usage))
             .map(|a| Root {
                 asset: a.id,
                 state: RootState::Queued,
