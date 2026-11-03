@@ -169,7 +169,9 @@ export function createFeedback(ui,manifest,settings,actions,language) {
   for(const child of pickupChildren){child.style.width=layers[2].style.width;child.style.height=layers[2].style.height;}
   old.forEach((n,i)=>{const [,,width,height]=ui.layouts[i?'old-crosshair-carry':'old-crosshair'].rect;n.style.width=width*scale+'px';n.style.height=height*scale+'px';});
   const fluidBox=applyLayout(fluid,ui.layouts.fluid);fluid.style.top=(fluidBox.y+fluidBox.height/2)+'px';fluid.style.height='auto';fluid.style.width='max-content';fluid.style.left='50%';
-  const helpBox=applyLayout(helpNode,ui.layouts.help);helpNode.style.height='auto';helpNode.style.top=helpBox.y+'px';
+  // Source ThelpText2: lower right alignment with overflow, so the lines grow up and left from the lower right corner.
+  const helpBox=applyLayout(helpNode,ui.layouts.help),hs=helpNode.style;hs.left=hs.top='auto';hs.width=hs.height='auto';hs.textAlign='right';
+  hs.right=(innerWidth-helpBox.x-helpBox.width)+'px';hs.bottom=(innerHeight-helpBox.y-helpBox.height)+'px';
   const carryBox=applyLayout(carry,ui.layouts.carry);carry.style.left='auto';carry.style.right='8px';carry.style.width='max-content';carry.style.height='auto';carry.style.top='auto';carry.style.bottom=(innerHeight-carryBox.y-carryBox.height)+'px';
   notice.style.fontSize=ui.layouts.use.font_size*scale+'px';
   charge.style.fontSize=ui.layouts.use.font_size*scale+'px';charge.style.left='50%';charge.style.top=(innerHeight/2+120*scale)+'px';
