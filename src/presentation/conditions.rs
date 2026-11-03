@@ -98,12 +98,46 @@ fn prepare_conditions(world: &mut World) {
         }
     }
 }
+/// Children of `node` that draw a source material.
+fn material_children(world: &mut World, node: Entity) -> Vec<Entity> {
+    world
+        .query::<(Entity, &ChildOf)>()
+        .iter(world)
+        .filter(|(_, parent)| parent.parent() == node)
+        .map(|(e, _)| e)
+        .filter(|e| world.get::<MeshMaterial3d<SourceMaterial>>(*e).is_some())
+        .collect()
+}
+/// Spawns a far, unculled draw that warms the pipeline of `material` on `mesh`.
+fn spawn_warmup(
+    world: &mut World,
+    mesh: &Handle<Mesh>,
+    material: &Handle<SourceMaterial>,
+    sort: Option<SourceSortData>,
+) {
+    let mut warm = world.spawn((
+        Mesh3d(mesh.clone()),
+        MeshMaterial3d(material.clone()),
+        SourceMaterialWarmup,
+        Transform::from_translation(Vec3::splat(1_000_000.)),
+        Visibility::Visible,
+        bevy::light::NotShadowCaster,
+        bevy::camera::visibility::NoFrustumCulling,
+    ));
+    if let Some(sort) = sort {
+        warm.insert((sort, bevy::render::batching::NoAutomaticBatching));
+    }
+    let id = warm.id();
+    world
+        .resource_mut::<super::lighting::SourceLighting>()
+        .warmups
+        .push(id);
+}
 fn prepare(
     reference: &ReferenceManifest,
     world: &mut World,
 ) -> Result<ConditionVisuals, SaveError> {
     let mut result = ConditionVisuals::default();
-    let far = Transform::from_translation(Vec3::splat(1_000_000.));
     for surface in &reference.conditions.surfaces {
         let mut owner = Owner {
             id: surface.id,
@@ -116,13 +150,7 @@ fn prepare(
         };
         for renderer in &surface.renderers {
             let node = world.resource::<ReferenceVisuals>().nodes[&renderer.node];
-            let entities: Vec<_> = world
-                .query::<(Entity, &ChildOf)>()
-                .iter(world)
-                .filter(|(_, parent)| parent.parent() == node)
-                .map(|(e, _)| e)
-                .filter(|e| world.get::<MeshMaterial3d<SourceMaterial>>(*e).is_some())
-                .collect();
+            let entities = material_children(world, node);
             if entities.is_empty() {
                 return Err(fail(format!(
                     "Condition {} renderer {} has no receivers",
@@ -220,11 +248,12 @@ fn prepare(
                         let mut material =
                             materials::authored_material(key, inverted, mask, source);
                         let dynamic_color = color_rule(surface, state_index);
-                        if let Some(color) = if dynamic_color {
+                        let color = if dynamic_color {
                             Some(surface.startup.color)
                         } else {
                             state.color
-                        } {
+                        };
+                        if let Some(color) = color {
                             materials::set_source_color(&mut material, color);
                         }
                         let sort = source
@@ -239,23 +268,7 @@ fn prepare(
                                 material.id().untyped(),
                                 format!("condition {}", surface.id.0),
                             );
-                            let mut warm = world.spawn((
-                                Mesh3d(mesh.clone()),
-                                MeshMaterial3d(material.clone()),
-                                SourceMaterialWarmup,
-                                far,
-                                Visibility::Visible,
-                                bevy::light::NotShadowCaster,
-                                bevy::camera::visibility::NoFrustumCulling,
-                            ));
-                            if let Some(sort) = sort {
-                                warm.insert((sort, bevy::render::batching::NoAutomaticBatching));
-                            }
-                            let id = warm.id();
-                            world
-                                .resource_mut::<super::lighting::SourceLighting>()
-                                .warmups
-                                .push(id);
+                            spawn_warmup(world, mesh, &material, sort);
                         }
                         bank.push(Choice {
                             material,
@@ -295,13 +308,7 @@ fn prepare(
     }
     for tool in &reference.conditions.sprays {
         let node = world.resource::<ReferenceVisuals>().nodes[&tool.renderer_node];
-        let entities: Vec<_> = world
-            .query::<(Entity, &ChildOf)>()
-            .iter(world)
-            .filter(|(_, parent)| parent.parent() == node)
-            .map(|(e, _)| e)
-            .filter(|e| world.get::<MeshMaterial3d<SourceMaterial>>(*e).is_some())
-            .collect();
+        let entities = material_children(world, node);
         if entities.is_empty() {
             return Err(fail("Spray color renderer"));
         }
@@ -335,23 +342,7 @@ fn prepare(
                     material.id().untyped(),
                     "source spray label".into(),
                 );
-                let mut warm = world.spawn((
-                    Mesh3d(mesh.clone()),
-                    MeshMaterial3d(material.clone()),
-                    SourceMaterialWarmup,
-                    far,
-                    Visibility::Visible,
-                    bevy::light::NotShadowCaster,
-                    bevy::camera::visibility::NoFrustumCulling,
-                ));
-                if let Some(sort) = sort {
-                    warm.insert((sort, bevy::render::batching::NoAutomaticBatching));
-                }
-                let id = warm.id();
-                world
-                    .resource_mut::<super::lighting::SourceLighting>()
-                    .warmups
-                    .push(id);
+                spawn_warmup(world, &mesh, &material, sort);
                 bank.push(Choice {
                     material,
                     sort,
@@ -442,34 +433,6 @@ fn apply_owner(owner: &Owner, state: &ConditionState, bank: usize, world: &mut W
     bind_owner(owner, state, bank, world);
 }
 impl ConditionVisuals {
-    pub fn validate_assets(&self, world: &World) -> Result<(), SaveError> {
-        if !self.prepared {
-            return Err(fail("Condition bindings are not ready"));
-        }
-        for receiver in self
-            .owners
-            .iter()
-            .flat_map(|o| &o.receivers)
-            .chain(self.sprays.iter().flat_map(|(_, r)| r))
-        {
-            for mesh in &receiver.meshes {
-                if !world.resource::<Assets<Mesh>>().contains(mesh.id()) {
-                    return Err(fail("Condition mesh variant"));
-                }
-            }
-            for bank in &receiver.banks {
-                for choice in bank {
-                    if !world
-                        .resource::<Assets<SourceMaterial>>()
-                        .contains(choice.material.id())
-                    {
-                        return Err(fail("Condition material variant"));
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
     fn apply_visibility(&self, world: &mut World) {
         // Retained identities are hidden; source destruction never removes a binding.
         for (index, (_, objects)) in self.washes.iter().enumerate() {
@@ -487,14 +450,14 @@ impl ConditionVisuals {
         for (id, model, disabled) in &self.tools {
             let worn = world.resource::<SimFrameResource>().condition(*id).state == 5;
             for (entity, show) in [(model, true), (disabled, !worn)] {
-                if let Some(entity) = entity {
-                    if let Some(mut v) = world.get_mut::<Visibility>(*entity) {
-                        v.set_if_neq(if show {
-                            Visibility::Inherited
-                        } else {
-                            Visibility::Hidden
-                        });
-                    }
+                if let Some(entity) = entity
+                    && let Some(mut v) = world.get_mut::<Visibility>(*entity)
+                {
+                    v.set_if_neq(if show {
+                        Visibility::Inherited
+                    } else {
+                        Visibility::Hidden
+                    });
                 }
             }
         }

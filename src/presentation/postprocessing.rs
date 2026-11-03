@@ -304,13 +304,22 @@ pub(super) fn pipeline_failure(
     cache: &PipelineCache,
     ids: &[CachedRenderPipelineId],
 ) -> Option<String> {
+    named_pipeline_failure(cache, ids, "Source effect pipeline")
+}
+
+/// The first compile error of `ids`, as "`name`: error". A shader that still loads is no error.
+pub(super) fn named_pipeline_failure(
+    cache: &PipelineCache,
+    ids: &[CachedRenderPipelineId],
+    name: &str,
+) -> Option<String> {
     ids.iter()
         .find_map(|id| match cache.get_render_pipeline_state(*id) {
             CachedPipelineState::Err(
                 bevy::shader::ShaderCacheError::ShaderNotLoaded(_)
                 | bevy::shader::ShaderCacheError::ShaderImportNotYetAvailable,
             ) => None,
-            CachedPipelineState::Err(error) => Some(format!("Source effect pipeline: {error}")),
+            CachedPipelineState::Err(error) => Some(format!("{name}: {error}")),
             _ => None,
         })
 }

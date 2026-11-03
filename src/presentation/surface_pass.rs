@@ -133,7 +133,7 @@ impl SurfacePasses {
 fn flag(definitions: &[ShaderDefVal], name: &str) -> bool {
     definitions
         .iter()
-        .any(|value| matches!(value,ShaderDefVal::Bool(key,true) if key==name))
+        .any(|value| matches!(value, ShaderDefVal::Bool(key, true) if key == name))
 }
 /// The same inspection after the pipeline queue. A separate system: one system type
 /// cannot sit in both the Prepare and Render sets.
@@ -237,7 +237,7 @@ fn additive(base: &RenderPipelineDescriptor) -> RenderPipelineDescriptor {
     ]);
     let fragment = add.fragment.as_mut().unwrap();
     fragment.shader_defs.retain(
-        |value| !matches!(value,ShaderDefVal::Bool(name,_) if name == "SOURCE_REPLACEMENT"),
+        |value| !matches!(value, ShaderDefVal::Bool(name, _) if name == "SOURCE_REPLACEMENT"),
     );
     fragment.shader_defs.extend([
         ShaderDefVal::Bool("SOURCE_FORWARD_ADD".into(), true),

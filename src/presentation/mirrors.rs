@@ -6,6 +6,7 @@ use super::world::{instance_materials::InstanceMaterials, instances::SourceInsta
 use bevy::camera::visibility::RenderLayers;
 use bevy::render::extract_resource::ExtractResource;
 use bevy::{ecs as bevy_ecs, prelude::*, render as bevy_render};
+use simulation::simulation::dials::inverse_lerp;
 
 /// One mirror camera of this frame.
 #[derive(Clone, Copy)]
@@ -74,15 +75,6 @@ pub(crate) fn slot_images(images: &mut Assets<Image>) -> Vec<Handle<Image>> {
             images.add(image)
         })
         .collect()
-}
-
-/// Source `Mathf.InverseLerp`.
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.
-    } else {
-        ((value - a) / (b - a)).clamp(0., 1.)
-    }
 }
 
 /// Source `MirrorsUpdate`. Runs after transform propagation, before the view snapshot.

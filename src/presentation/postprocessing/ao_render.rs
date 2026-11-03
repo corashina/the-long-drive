@@ -150,14 +150,7 @@ impl AoRenderPass {
         cache.get_render_pipeline(self.pipeline).is_some()
     }
     pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        match cache.get_render_pipeline_state(self.pipeline) {
-            CachedPipelineState::Err(
-                bevy::shader::ShaderCacheError::ShaderNotLoaded(_)
-                | bevy::shader::ShaderCacheError::ShaderImportNotYetAvailable,
-            ) => None,
-            CachedPipelineState::Err(e) => Some(format!("Source AO interleaved pipeline: {e}")),
-            _ => None,
-        }
+        super::named_pipeline_failure(cache, &[self.pipeline], "Source AO interleaved pipeline")
     }
     pub fn encode(
         &mut self,

@@ -264,16 +264,7 @@ impl BloomPass {
             .all(|&p| cache.get_render_pipeline(p).is_some())
     }
     pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        self.pipelines
-            .iter()
-            .find_map(|&p| match cache.get_render_pipeline_state(p) {
-                CachedPipelineState::Err(
-                    bevy::shader::ShaderCacheError::ShaderNotLoaded(_)
-                    | bevy::shader::ShaderCacheError::ShaderImportNotYetAvailable,
-                ) => None,
-                CachedPipelineState::Err(e) => Some(format!("Source bloom pipeline: {e}")),
-                _ => None,
-            })
+        super::named_pipeline_failure(cache, &self.pipelines, "Source bloom pipeline")
     }
     pub fn encode(
         &self,

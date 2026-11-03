@@ -68,10 +68,10 @@ impl PipelineOwners {
             },
         );
         entries[&id].owner.as_ref().unwrap().retain_pipeline();
-        if let Some(old) = old {
-            if old.phase == HeldEntryPhase::Held {
-                old.owner.unwrap().release_pipeline();
-            }
+        if let Some(old) = old
+            && old.phase == HeldEntryPhase::Held
+        {
+            old.owner.unwrap().release_pipeline();
         }
     }
     pub(crate) fn queue_companion(
@@ -107,10 +107,10 @@ impl PipelineOwners {
             }
             reclaimed = true;
             cache.release_held_render_pipeline(*id);
-            if let Some(owner) = &entry.owner {
-                if entry.phase == HeldEntryPhase::Held {
-                    owner.release_pipeline();
-                }
+            if let Some(owner) = &entry.owner
+                && entry.phase == HeldEntryPhase::Held
+            {
+                owner.release_pipeline();
             }
             false
         });

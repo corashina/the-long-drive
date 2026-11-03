@@ -406,10 +406,10 @@ fn transparent(
     glass.completed(
         frame.frame,
         // Mirror views draw in the main submission. Probe faces have their own.
-        if !super::surface_views::probe_view(source_view.index) {
-            frame.main_token
-        } else {
+        if super::surface_views::probe_view(source_view.index) {
             frame.probe_token
+        } else {
+            frame.main_token
         },
         order.glass_counts(),
     );

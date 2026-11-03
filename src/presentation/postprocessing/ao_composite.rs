@@ -105,14 +105,7 @@ impl AoCompositePass {
         cache.get_render_pipeline(self.pipeline).is_some()
     }
     pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        match cache.get_render_pipeline_state(self.pipeline) {
-            CachedPipelineState::Err(
-                bevy::shader::ShaderCacheError::ShaderNotLoaded(_)
-                | bevy::shader::ShaderCacheError::ShaderImportNotYetAvailable,
-            ) => None,
-            CachedPipelineState::Err(e) => Some(format!("Source AO composite pipeline: {e}")),
-            _ => None,
-        }
+        super::named_pipeline_failure(cache, &[self.pipeline], "Source AO composite pipeline")
     }
     pub fn encode(
         &mut self,

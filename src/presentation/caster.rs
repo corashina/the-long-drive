@@ -262,7 +262,16 @@ impl CasterPasses {
                 &mut descriptor.vertex.shader_defs,
                 &mut fragment.shader_defs,
             ] {
-                defs.retain(|v|!matches!(v,ShaderDefVal::Bool(n,_)if n=="SOURCE_SURFACE"||n=="SOURCE_FORWARD_ADD"||n=="SOURCE_FORWARD_ONE"||n=="SOURCE_LAMPS"||n=="SOURCE_WORLD"));
+                defs.retain(|v| {
+                    !matches!(v, ShaderDefVal::Bool(n, _) if matches!(
+                        n.as_str(),
+                        "SOURCE_SURFACE"
+                            | "SOURCE_FORWARD_ADD"
+                            | "SOURCE_FORWARD_ONE"
+                            | "SOURCE_LAMPS"
+                            | "SOURCE_WORLD"
+                    ))
+                });
                 defs.retain(|v| !surface_only(v));
                 defs.push(ShaderDefVal::Bool("SOURCE_CASTER".into(), true));
                 if world_shader {
