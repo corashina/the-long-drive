@@ -23,6 +23,9 @@ const STRUCTURE_REFRESH_DISTANCE: f32 = 1.0;
 pub const STAGING: usize = 32 * MIB;
 pub const CHECKPOINTS: usize = 16 * MIB;
 pub const PROTOTYPE_CPU: usize = 512 * MIB;
+/// Loads and generation jobs that run at the same time: renderer loads, terrain, road and
+/// replay work. Staging and the CPU budgets bound their memory.
+pub const EXTERNAL_JOBS: usize = 6;
 /// The first part of the world that a supported area still waits for.
 #[derive(Clone, Copy, Debug)]
 pub enum SupportGap<'a> {
@@ -1321,7 +1324,7 @@ impl WorldStream {
             ResourceBudget {
                 name: super::metrics::BUDGET_LABELS[9].0,
                 used: jobs,
-                limit: 2,
+                limit: EXTERNAL_JOBS,
                 unit: super::metrics::BUDGET_LABELS[9].1,
             },
         ]
@@ -1438,7 +1441,7 @@ impl WorldStream {
         if !self.initial_generation_ready {
             return 0;
         }
-        let free = 2usize.saturating_sub(
+        let free = EXTERNAL_JOBS.saturating_sub(
             self.presentation.jobs
                 + usize::from(self.terrain_execution.has_pending())
                 + usize::from(self.road_work.is_some())
@@ -1817,7 +1820,7 @@ impl WorldStream {
         }
         timer.next(Stage::DescriptorPlan);
         while !self.initial_generation_ready {
-            let slots = 2usize.saturating_sub(self.presentation.jobs);
+            let slots = EXTERNAL_JOBS.saturating_sub(self.presentation.jobs);
             let before = (
                 self.roads.prepared_segments(),
                 self.placements.prepared_buildings(),

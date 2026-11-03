@@ -153,9 +153,19 @@ fn game_mode(reference: &ReferenceManifest) -> crate::world::GameMode {
     )
 }
 
+/// The parsed reference of `prepare`, for `run`.
+struct Prepared {
+    reference: Arc<ReferenceManifest>,
+    materials: presentation::materials::SourceMaterials,
+    fixed_assets: presentation::fixed_assets::SourceFixedAssets,
+}
+thread_local! {
+    static PREPARED: std::cell::RefCell<Option<Prepared>> = const { std::cell::RefCell::new(None) };
+}
+
 #[wasm_bindgen]
-/// `startup` is the encoded `SimStartup` of the simulation worker.
-pub fn run(reference_json: &[u8], startup: &[u8]) -> Result<(), JsValue> {
+/// Parses and checks the reference. It runs while the simulation worker starts.
+pub fn prepare(reference_json: &[u8]) -> Result<(), JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
     console_error_panic_hook::set_once();
     let reference = Arc::new(
@@ -165,6 +175,30 @@ pub fn run(reference_json: &[u8], startup: &[u8]) -> Result<(), JsValue> {
     if let Err(error) = crate::reference::AudioReference::from_value(&reference.audio, &reference) {
         game_audio_error(&error.to_string());
     }
+    // Reject unsupported reference data before the app starts. Systems need these resources.
+    let materials = presentation::materials::load_materials(&reference)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let fixed_assets = presentation::fixed_assets::SourceFixedAssets::new(&reference)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    PREPARED.set(Some(Prepared {
+        reference,
+        materials,
+        fixed_assets,
+    }));
+    Ok(())
+}
+
+#[wasm_bindgen]
+/// `startup` is the encoded `SimStartup` of the simulation worker. `prepare` comes first.
+pub fn run(startup: &[u8]) -> Result<(), JsValue> {
+    let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
+    let Prepared {
+        reference,
+        materials,
+        fixed_assets,
+    } = PREPARED
+        .take()
+        .ok_or_else(|| JsValue::from_str("The reference is not prepared."))?;
     let startup =
         simulation::boundary::decode_startup(startup).map_err(|e| JsValue::from_str(&e.0))?;
     let mut ledger = crate::ownership::PresentationLedger::default();
@@ -174,11 +208,6 @@ pub fn run(reference_json: &[u8], startup: &[u8]) -> Result<(), JsValue> {
         presentation::readiness::RendererStateHandle::default,
     )
     .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    // Reject unsupported reference data before the app starts. Systems need these resources.
-    let materials = presentation::materials::load_materials(&reference)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let fixed_assets = presentation::fixed_assets::SourceFixedAssets::new(&reference)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let allocation = presentation::world::runtime::SourcePresentationAllocation::bootstrap(
         startup.session,
         fixed,
