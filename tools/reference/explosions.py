@@ -25,10 +25,6 @@ PLAYER_FIELDS={'min_force_to_die':'minForceToDieFromExplosion','hear_loss_modifi
     'ear_ringing_gain':'earRingingGain','ear_ringing_regen':'earRingingRegen'}
 
 
-def _order(identity):
-    return identity['file'],identity['path_id']
-
-
 def _sound(source, owner, pointer) -> dict:
     """An AudioSource link: its clip joins the audio clips."""
     s=source.resolve(owner,pointer)

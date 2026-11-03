@@ -221,7 +221,6 @@ def recover_acquisition(source, manifest):
     evidence = recover_methods(source, code)
     stations, categories, box_table = recover_station_graphs(source, manifest, code)
     prototypes = {p['item_id']:p for p in manifest['item_prototypes'] if p['item_id'] is not None}
-    nodes = {(n['source']['file'],n['source']['path_id']):n for n in manifest['nodes']}
     def ptr(reader, d, field):
         target = source.resolve(reader,d[field])
         return source_id(target) if target else None

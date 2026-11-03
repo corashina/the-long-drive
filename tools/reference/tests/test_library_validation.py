@@ -1,8 +1,7 @@
-import hashlib
 import json
 import tempfile
 import unittest
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
 

@@ -1,7 +1,6 @@
 """Hashed source resources for sky, lighting, and active effects."""
 import hashlib
 import math
-from pathlib import Path
 from PIL import Image
 from .source import source_id, vector
 from .materials import source_mip_images

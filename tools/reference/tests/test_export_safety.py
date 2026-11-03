@@ -2,7 +2,6 @@ import contextlib
 import io
 import json
 import tempfile
-import subprocess
 import unittest
 from pathlib import Path
 from types import SimpleNamespace as N

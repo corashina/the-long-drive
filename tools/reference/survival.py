@@ -2,20 +2,18 @@
 import hashlib
 import json
 import re
-import struct
 from pathlib import Path
 from .source import LibrarySource, key, source_id
 from .collision import world_pose, geometry, step_surface, collider_tag
 from .gltf import GltfExporter
 from .actions import recover_pickup
+from .render_lighting import f32
 
 SURVIVAL_FIELDS = 'waterToPissRatio foodToShitRatio bloodToHpRatio alcoholHeal alcoholConvertToPiss carFluidsDamage maxHealingSpeed healingToiletFullModfiier waterDamage foodDamage defTemp coldTemp hotTemp foodLoss coldFoodLossModifier hotFoodLossModifier waterLoss coldWaterLossModifier hotWaterLossModifier runFoodLossModifier runWaterLossModifier delaySpeed'.split()
 
 def snake(name):
     return re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
 
-def f32(value):
-    return struct.unpack('<f', struct.pack('<f', value))[0]
 
 def managed_evidence(source, assertions):
     root=source.library.records_root/'managed'

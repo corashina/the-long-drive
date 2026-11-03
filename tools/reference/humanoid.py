@@ -2,7 +2,6 @@
 `ThirdPersonAnimatorController` states that `newAiAnim` drives, and the clip muscle tracks.
 Poses stay in the source (left-handed) space under the Animator Transform. Angles are in radians."""
 import json
-import math
 from .library.reader import checked
 from .source import key, source_id
 
