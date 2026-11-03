@@ -11,9 +11,6 @@ KEY_NAMES = {'LeftControl':'ControlLeft', 'RightControl':'ControlRight', 'LeftSh
     'LeftAlt':'AltLeft', 'RightAlt':'AltRight', 'UpArrow':'ArrowUp', 'DownArrow':'ArrowDown', 'LeftArrow':'ArrowLeft',
     'RightArrow':'ArrowRight', 'KeypadPlus':'NumpadAdd', 'KeypadMinus':'NumpadSubtract', 'Space':'Space', 'Tab':'Tab',
     'CapsLock':'CapsLock', 'Backspace':'Backspace'}
-# Port default keys that differ from InitDefault. Ctrl+W (crouch + forward) closes a browser tab, so crouch is C.
-# Camera leaves C for O, a letter InitDefault does not use.
-PORT_KEYS = {'duck':['KeyC',None,None], 'camera':['KeyO',None,None]}
 # oneKey.Set(axis, invert) mouse axes, named like oneKey.GetName.
 MOUSE_AXES = ('Mouse X', 'Mouse Y', 'Mouse ScrollWheel')
 
@@ -206,7 +203,7 @@ def recover_bindings(text, defaults):
                 if axis not in MOUSE_AXES:raise ValueError(f'Unmapped input axis: {axis}')
                 slots.append(('-' if invert=='true' else '')+axis)
         evidence.append({'source_input':name,'index':index,'keys':slots})
-        if name not in LEFT_OUT:bindings.append({'action':name,'keys':PORT_KEYS.get(name,slots)})
+        if name not in LEFT_OUT:bindings.append({'action':name,'keys':slots})
     if keys:raise ValueError('Input default outside the enum')
     return bindings, evidence
 

@@ -98,8 +98,7 @@ Library assets do not add gameplay.
 | X | Split a wheel | — |
 | Hold LMB | Fill an open container | Use an aimed switch |
 | I | — | Tap ignition; hold starter |
-| C | Crouch | — |
-| Left Ctrl / Right Ctrl / Numpad 0 | — | Clutch |
+| Left Ctrl / Right Ctrl / Numpad 0 | Crouch with Ctrl | Clutch |
 | Up arrow / Down arrow | — | Shift up / down |
 | R / Numpad + | — | Select reverse |
 | 0 / Numpad - / N | — | Select neutral |
@@ -109,7 +108,7 @@ Library assets do not add gameplay.
 | Hold V | Sleep, when eligible | Sleep, when eligible |
 | Hold P | Urinate | Urinate |
 | B | Burp or fart | Burp or fart |
-| O | — | Switch first person / chase view |
+| C | — | Switch first person / chase view |
 | Backspace | Hide or show feedback | Hide or show feedback |
 | Esc | Pause menu | Pause menu |
 
