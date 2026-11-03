@@ -55,16 +55,6 @@ impl RoadLamps {
         self.preflight_ready.then_some(self.required.as_slice())
     }
 
-    pub fn reset_instances(&mut self, commands: &mut Commands) {
-        for proxy in self.source_proxies.drain(..) {
-            commands.entity(proxy.node).despawn();
-            commands.entity(proxy.light).despawn();
-        }
-        self.required.clear();
-        self.allocation.fill(None);
-        self.preflight_ready = false;
-        self.origin = [f64::INFINITY; 3];
-    }
     pub fn new() -> Self {
         use crate::presentation::lighting::MAX_LIGHTS;
         Self {

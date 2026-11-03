@@ -299,14 +299,17 @@ impl SourceMaterials {
     ) -> Result<(), ReferenceError> {
         let mut failure = None;
         for texture in self.textures.iter_mut() {
-            if texture.image.is_some() && texture.chain.is_none() && !texture.upload.completed() {
+            if let Some(image) = &texture.image
+                && texture.chain.is_none()
+                && !texture.upload.completed()
+            {
                 texture.stalled = texture.stalled.saturating_add(1);
                 if texture.stalled == STALLED_STEPS {
                     warn!(
                         "{}: GPU upload not complete after {STALLED_STEPS} steps \
                          (main image {}, render receipt {}). Loading it again.",
                         texture.label,
-                        images.contains(texture.image.as_ref().unwrap().id()),
+                        images.contains(image.id()),
                         if texture.upload.registered() {
                             "registered"
                         } else {
@@ -675,11 +678,7 @@ impl SourceMaterials {
     }
 }
 
-impl PrimaryOwnership {
-    pub fn asset_ids(&self) -> impl Iterator<Item = SourceAssetId> + '_ {
-        self.assets.keys().copied()
-    }
-}
+impl PrimaryOwnership {}
 
 impl SourceMaterials {
     pub(super) fn select_lighting_textures(

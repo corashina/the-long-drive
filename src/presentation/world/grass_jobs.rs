@@ -120,30 +120,6 @@ impl GrassJobs {
             "uploading": self.instances.iter().filter(|i| matches!(i.pending, Some(Pending::Upload { .. }))).count(),
         })
     }
-    pub fn release_all(
-        &mut self,
-        meshes: &mut Assets<Mesh>,
-        materials: &mut Assets<GrassMaterial>,
-    ) {
-        self.worker.dispose();
-        self.actor_cpu = 0;
-        self.index.clear();
-        for instance in self.instances.drain(..) {
-            if let Some(accepted) = instance.accepted {
-                meshes.remove(accepted.mesh.id());
-                materials.remove(accepted.material.id());
-            }
-            if let Some(Pending::Upload { mesh, material, .. }) = instance.pending {
-                meshes.remove(mesh.id());
-                materials.remove(material.id());
-            }
-        }
-    }
-    pub fn settled(&self) -> bool {
-        self.instances
-            .iter()
-            .all(|i| i.ready && i.pending.is_none())
-    }
 
     pub(crate) fn measurement_meshes(
         &self,

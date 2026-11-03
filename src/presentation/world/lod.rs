@@ -413,9 +413,6 @@ impl LodSchedule {
     pub fn retained_bytes(&self) -> usize {
         self.due.capacity() * std::mem::size_of::<Due>()
     }
-    pub fn reset(&mut self) {
-        *self = Self::default();
-    }
     /// Starts a new instance in `slot`. It evaluates at the next update.
     pub fn spawn(&mut self, lod: &mut LodInstance, slot: usize) {
         self.live += lod.groups.len() + 1;

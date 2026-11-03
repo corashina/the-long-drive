@@ -365,13 +365,10 @@ impl WorldPresentation<'_, '_> {
                     &self.chains,
                     &self.server,
                 ))
-                || prototype.deferred_materials.iter().any(|m| {
-                    !self.materials.cache.world_textures.retirable(
-                        &m.source,
-                        &self.images,
-                        &self.server,
-                    )
-                })
+                || prototype
+                    .deferred_materials
+                    .iter()
+                    .any(|m| !self.materials.cache.world_textures.retirable(&m.source))
                 || prototype
                     .nodes
                     .iter()
@@ -417,11 +414,10 @@ impl WorldPresentation<'_, '_> {
                     .prototypes
                     .references_material(reference, &material.source)
                 {
-                    self.materials.cache.world_textures.release(
-                        &material.source,
-                        &mut self.images,
-                        &self.server,
-                    )?;
+                    self.materials
+                        .cache
+                        .world_textures
+                        .release(&material.source, &mut self.images)?;
                 }
             }
             self.allocation.retired_materials.swap_remove(index);

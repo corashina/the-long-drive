@@ -147,20 +147,6 @@ impl SourceLighting {
                 .sum::<usize>()
             + self.road_lamps.clone_bytes()
     }
-
-    /// Replace owned light instances. Retain loaded scenes and prepared assets.
-    pub fn reset_instances(&mut self, commands: &mut Commands) {
-        self.road_lamps.reset_instances(commands);
-        for light in self.lights.drain(..) {
-            commands.entity(light.entity).despawn();
-        }
-        self.uniform.lights.fill(GpuLight::default());
-        self.uniform.counts.x = 0;
-        for material in &mut self.lamp_materials {
-            material.current = None;
-        }
-        self.bound = false;
-    }
 }
 #[derive(Resource)]
 pub struct LightingGpu {

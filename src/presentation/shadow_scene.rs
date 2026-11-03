@@ -365,7 +365,6 @@ pub(super) fn prepare_scene(
         scene.lamp_animated = [false; LAMP_FACES];
     }
     scene.mask_revisions[0] = scene.views[0].revision() + scene.lamp_revision;
-    drop(changes);
     let mut visibility = updates.p1();
     scene.shadow_only = 0;
     let entities = &scene.caster_data.entities;

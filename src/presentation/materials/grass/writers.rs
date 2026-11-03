@@ -101,7 +101,6 @@ fn spawn_pass(mut commands: Commands) {
 }
 fn init(
     mut commands: Commands,
-    _device: Res<RenderDevice>,
     cache: Res<PipelineCache>,
     shaders: Res<crate::presentation::fixed_assets::AdmittedShaders>,
     pass: Option<Res<WriterPass>>,
@@ -403,13 +402,6 @@ impl GrassWriters {
             "status": format!("{:?}", *self.status.lock().unwrap()),
             "ready": self.ready().ok(),
         })
-    }
-    pub fn release_all(&mut self) {
-        self.writers.clear();
-        self.pending.clear();
-        self.allocations.clear();
-        self.admitted = false;
-        self.frame = None;
     }
     pub fn drained(&self) -> bool {
         !self.pending_gpu.load(Ordering::Acquire)

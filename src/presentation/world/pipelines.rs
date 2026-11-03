@@ -144,19 +144,6 @@ impl WorldPipelines {
                 .any(|ticket| ticket.0.lock().unwrap().ids.contains(&id))
         })
     }
-    pub fn settled(&self) -> Result<bool, ReferenceError> {
-        let Some(bank) = &self.jobs else {
-            return Ok(true);
-        };
-        for ticket in &bank.lock().unwrap().pairs {
-            match ticket.state() {
-                RenderingState::Loading => return Ok(false),
-                RenderingState::Failed(e) => return Err(ReferenceError(e)),
-                RenderingState::Ready => {}
-            }
-        }
-        Ok(true)
-    }
 
     pub(crate) fn request_continuation<M: Material>(
         &mut self,

@@ -260,7 +260,7 @@ pub(crate) fn publish(
         startup: serde_json::json!({
             "fixed": fixed.startup_audit(),
             "surfaces": surfaces.startup_audit(),
-            "textures": materials.world_textures.startup_audit(&images, &server),
+            "textures": materials.world_textures.startup_audit(),
             "primary": materials.primary_startup_audit(&server),
             "instances": instances.startup_audit(&grass),
             "grass": grass.startup_audit(),

@@ -503,32 +503,6 @@ impl SourceInstances {
     pub fn roots(&self) -> impl Iterator<Item = Entity> + '_ {
         self.instances.iter().map(|i| i.root)
     }
-    pub fn release_all(&mut self, commands: &mut Commands, materials: &mut InstanceMaterials) {
-        for instance in self.instances.drain(..) {
-            commands.entity(instance.root).despawn();
-            for renderer in instance.renderers {
-                materials.release(renderer.binding);
-                for variant in renderer.variants.into_iter().chain(renderer.pending) {
-                    materials.release(variant.binding);
-                }
-            }
-        }
-        materials.cache.generated.reset();
-        self.props.clear();
-        self.pending = None;
-        self.bindings_dirty = true;
-        self.slot_instances.clear();
-        self.selection.reset(0);
-        self.lods.reset();
-        self.origin = None;
-        self.revision = self.revision.wrapping_add(1);
-        self.retire_key = None;
-        self.retiring.clear();
-        self.not_ready.clear();
-        self.writer_instances.clear();
-        self.writers_dirty = true;
-        self.cache_bytes = self.measure_cache_bytes();
-    }
 
     fn rebase(&mut self, origin: crate::world::WorldOrigin, commands: &mut Commands) {
         if self.origin == Some(origin.offset) {
