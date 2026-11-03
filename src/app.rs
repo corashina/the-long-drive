@@ -707,19 +707,43 @@ fn select_world_views(
     views: Res<presentation::view_frame::SourceViewFrame>,
     mut required_views: Local<Option<crate::world::RequiredViews>>,
     epoch: Res<presentation::view_frame::SourceSceneEpoch>,
+    cameras: Query<(
+        &presentation::surface_views::SourceSurfaceView,
+        &Camera,
+        &GlobalTransform,
+    )>,
 ) {
     let drive = &mut *drive;
     drive.world.views.clear();
     let state = &sim.frame.state;
-    let Some(first) = world_snapshot(&views, &epoch, state.session) else {
+    // The world camera view needs no lighting assets, so the world loads while they load.
+    let first = cameras
+        .iter()
+        .find(|(view, ..)| view.index == 0)
+        .and_then(|(_, camera, pose)| {
+            presentation::view_frame::world_view_snapshot(
+                camera,
+                pose,
+                state.fov_degrees,
+                state.far_plane,
+                reference.0.render_lighting.shadows.distance,
+            )
+        });
+    let Some(first) = first else {
         *required_views = None;
         return;
+    };
+    // Probe views come from the lighting frame. Before it is current, no probe is enabled.
+    let probes = if world_snapshot(&views, &epoch, state.session).is_some() {
+        views.probe_enabled
+    } else {
+        Default::default()
     };
     let forward = light_forward(&sim.frame.lighting.cycle);
     let origin = state.stream_origin;
     let mask = reference.0.render_lighting.lights[0].mask;
     let result = (|| -> Result<(), crate::reference::ReferenceError> {
-        let first = presentation::view_frame::required_view(first, origin, forward, mask)?;
+        let first = presentation::view_frame::required_view(&first, origin, forward, mask)?;
         let required =
             required_views.get_or_insert_with(|| crate::world::RequiredViews::new(first));
         required.reset(first);
@@ -728,7 +752,7 @@ fn select_world_views(
             &reference.0.render_lighting.probes,
             &views.probe_position,
             &views.probe_near,
-            &views.probe_enabled,
+            &probes,
             origin,
             forward,
             mask,
