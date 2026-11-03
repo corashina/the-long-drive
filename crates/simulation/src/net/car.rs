@@ -1,6 +1,9 @@
 //! Shared car state of source `carscript` (`UpdMulti`, `CarSyncValues`, `UpdMulti*`).
 //! The car step reads `remote`, writes `sent`, and takes the received changes.
-use super::message::{CarFloatsMessage, CarIgnitionMessage, PoseMessage};
+use super::items::Out;
+use super::message::{
+    CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage, Message, PoseMessage,
+};
 use crate::reference::ReferenceManifest;
 use crate::starting_area::{GarageRuntime, VehicleRuntime};
 use crate::vehicle::VehiclePose;
@@ -117,12 +120,149 @@ pub fn shared(vehicle: &VehicleRuntime) -> CarShared {
     }
 }
 
+/// Source `carscript.UpdMulti`: driver values older than 1 s drop.
+const VALUES_SECONDS: f64 = 1.;
+
+/// Source `carscript.CarSyncValues` entry of one peer and one car.
+struct Values {
+    slot: u8,
+    car: u64,
+    floats: CarFloats,
+    time: f64,
+}
+
+/// Car messages of all peers: driver controls, handbrake, gear and ignition.
+#[derive(Default)]
+pub struct CarSync {
+    values: Vec<Values>,
+    /// The cars carry session state that must clear when the session ends.
+    touched: bool,
+}
+
+impl CarSync {
+    /// The session ended: no peer drives a car.
+    pub fn end(&mut self, runtime: &mut GarageRuntime) {
+        self.values.clear();
+        if std::mem::take(&mut self.touched) {
+            for vehicle in runtime.vehicles.values_mut() {
+                vehicle.net.clear();
+            }
+        }
+    }
+
+    /// A peer left. Its driver values drop.
+    pub fn leave(&mut self, slot: u8) {
+        self.values.retain(|c| c.slot != slot);
+    }
+
+    /// A car message of peer `slot`. `now`: the session clock.
+    pub fn receive(
+        &mut self,
+        reference: &ReferenceManifest,
+        runtime: &mut GarageRuntime,
+        now: f64,
+        packet: &[u8],
+    ) {
+        if let Ok((slot, m)) = CarFloatsMessage::decode(packet) {
+            // Source `UpdMultiValues`.
+            let floats = CarFloats::of(&m);
+            match self
+                .values
+                .iter_mut()
+                .find(|c| c.slot == slot && c.car == m.car)
+            {
+                Some(c) => {
+                    c.floats = floats;
+                    c.time = now;
+                }
+                None => self.values.push(Values {
+                    slot,
+                    car: m.car,
+                    floats,
+                    time: now,
+                }),
+            }
+        } else if let Ok((_, m)) = CarHandbrakeMessage::decode(packet) {
+            got_handbrake(runtime, m.car, m.handbrake);
+        } else if let Ok((_, m)) = CarGearMessage::decode(packet) {
+            got_gear(reference, runtime, m.car, m.gear as usize);
+        } else if let Ok((_, m)) = CarIgnitionMessage::decode(packet) {
+            got_ignition(runtime, &m);
+        }
+    }
+
+    /// Source `carscript.UpdMulti` and the `SCar*` senders on change. The receiver half drops old
+    /// driver values and merges the rest into each car.
+    pub(super) fn send(&mut self, runtime: &mut GarageRuntime, now: f64, out: &mut Out) {
+        self.touched = true;
+        self.values.retain(|c| now - c.time < VALUES_SECONDS);
+        for vehicle in runtime.vehicles.values_mut() {
+            vehicle.net.remote = self
+                .values
+                .iter()
+                .filter(|c| c.car == vehicle.net.key)
+                .map(|c| c.floats)
+                .reduce(CarFloats::merge);
+        }
+        for (key, vehicle) in &runtime.vehicles {
+            let net = &vehicle.net;
+            if let Some(f) = net.sent {
+                out.push(&CarFloatsMessage {
+                    car: net.key,
+                    steer: f.steer,
+                    horn: f.horn,
+                    gas: f.gas,
+                    brake: f.brake,
+                    clutch: f.clutch,
+                    bike_gas: f.bike_gas,
+                });
+            }
+            let Some(was) = net.shared else {
+                continue;
+            };
+            let now = shared(vehicle);
+            if now.handbrake != was.handbrake {
+                out.push(&CarHandbrakeMessage {
+                    car: net.key,
+                    handbrake: now.handbrake as u8 as f32,
+                    pad: 0,
+                });
+            }
+            if now.gear != was.gear {
+                out.push(&CarGearMessage {
+                    car: net.key,
+                    gear: now.gear as u32,
+                    pad: 0,
+                });
+            }
+            // Source sends on a toggle and when the starter begins.
+            if now.ignition != was.ignition || (now.starter && !was.starter) {
+                let mut flags = 0;
+                if now.ignition {
+                    flags |= CarIgnitionMessage::IGNITION;
+                }
+                if now.starter {
+                    flags |= CarIgnitionMessage::STARTING;
+                }
+                out.push(&CarIgnitionMessage {
+                    car: net.key,
+                    flags,
+                    rpm: runtime.engine_rpm(key),
+                });
+            }
+        }
+        for vehicle in runtime.vehicles.values_mut() {
+            vehicle.net.shared = Some(shared(vehicle));
+        }
+    }
+}
+
 fn find(runtime: &mut GarageRuntime, car: u64) -> Option<&mut VehicleRuntime> {
     runtime.vehicles.values_mut().find(|v| v.net.key == car)
 }
 
 /// Source `UpdMultiHandbrake`.
-pub fn got_handbrake(runtime: &mut GarageRuntime, car: u64, handbrake: f32) {
+fn got_handbrake(runtime: &mut GarageRuntime, car: u64, handbrake: f32) {
     if let Some(v) = find(runtime, car) {
         v.handbrake = handbrake > 0.5;
         if let Some(shared) = &mut v.net.shared {
@@ -132,7 +272,7 @@ pub fn got_handbrake(runtime: &mut GarageRuntime, car: u64, handbrake: f32) {
 }
 
 /// Source `UpdMultiGear`. The next step shifts, so the lever moves.
-pub fn got_gear(reference: &ReferenceManifest, runtime: &mut GarageRuntime, car: u64, gear: usize) {
+fn got_gear(reference: &ReferenceManifest, runtime: &mut GarageRuntime, car: u64, gear: usize) {
     if let Some(v) = find(runtime, car)
         && gear < v.record(reference).gear_ratios.len()
     {
@@ -145,7 +285,7 @@ pub fn got_gear(reference: &ReferenceManifest, runtime: &mut GarageRuntime, car:
 
 /// Source `UpdMultiIgnition`. The port does not pulse the starter: source `mstarting` lasts one
 /// frame, and the rpm carries the start.
-pub fn got_ignition(runtime: &mut GarageRuntime, m: &CarIgnitionMessage) {
+fn got_ignition(runtime: &mut GarageRuntime, m: &CarIgnitionMessage) {
     if let Some(v) = find(runtime, m.car) {
         v.ignition.ignition = m.flags & CarIgnitionMessage::IGNITION != 0;
         v.net.rpm = Some(m.rpm);

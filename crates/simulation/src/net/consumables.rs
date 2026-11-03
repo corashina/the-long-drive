@@ -2,7 +2,7 @@
 //! at each change. The port reads them each `SYNC_TIME` and sends what changed since it last sent
 //! or received it.
 use super::items::Out;
-use super::message::{AmmoMessage, FoodMessage, WeaponMessage};
+use super::message::{AmmoMessage, FoodMessage, Message, WeaponMessage};
 use super::objects::{NetKey, ObjectIndex};
 use super::state::SYNC_TIME;
 use crate::interaction::guns::GunSnapshot;
@@ -82,8 +82,32 @@ impl ConsumableSync {
             .retain(|id, _| items.get(*id).is_some_and(|i| !i.removed));
     }
 
+    /// Source `UpdFood`, `UpdAmmo` and `Weapon` of another peer.
+    pub fn receive(
+        &mut self,
+        reference: &ReferenceManifest,
+        runtime: &mut GarageRuntime,
+        index: &ObjectIndex,
+        packet: &[u8],
+    ) {
+        let item = |key| index.item(NetKey(key));
+        if let Ok((_, m)) = FoodMessage::decode(packet) {
+            if let Some(id) = item(m.key) {
+                self.got_food(reference, runtime, id, &m);
+            }
+        } else if let Ok((_, m)) = AmmoMessage::decode(packet) {
+            if let Some(id) = item(m.key) {
+                self.got_ammo(runtime, id, &m);
+            }
+        } else if let Ok((_, m)) = WeaponMessage::decode(packet)
+            && let Some(id) = item(m.key)
+        {
+            self.got_gun(runtime, id, &m);
+        }
+    }
+
     /// Source `UpdFood`.
-    pub fn got_food(
+    fn got_food(
         &mut self,
         reference: &ReferenceManifest,
         runtime: &mut GarageRuntime,
@@ -102,7 +126,7 @@ impl ConsumableSync {
     }
 
     /// Source `UpdAmmo`: `ammoscript.UpdAmmoFromMulti`.
-    pub fn got_ammo(&mut self, runtime: &mut GarageRuntime, item: ItemId, m: &AmmoMessage) {
+    fn got_ammo(&mut self, runtime: &mut GarageRuntime, item: ItemId, m: &AmmoMessage) {
         let area = &runtime.area;
         let Some(mut ammo) = area
             .spawned
@@ -120,7 +144,7 @@ impl ConsumableSync {
     }
 
     /// Source `Weapon`: `weaponscript.UpdFromMulti`.
-    pub fn got_gun(&mut self, runtime: &mut GarageRuntime, item: ItemId, m: &WeaponMessage) {
+    fn got_gun(&mut self, runtime: &mut GarageRuntime, item: ItemId, m: &WeaponMessage) {
         let state = GunSnapshot {
             ammo: m.ammo,
             fr: m.fr,
