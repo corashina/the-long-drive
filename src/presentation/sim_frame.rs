@@ -70,6 +70,8 @@ pub(crate) struct SimFrameResource {
     pub structures_moved: bool,
     /// Plate texts by world car.
     pub plates: HashMap<GeneratedId, Vec<String>>,
+    /// Changes when a plate text arrives.
+    pub plate_revision: u64,
     /// The simulation part of a world measurement, waiting for the renderer part.
     pub measurements: Option<String>,
     /// A simulation failure that the browser did not show yet.
@@ -148,6 +150,7 @@ impl SimFrameResource {
                 Change::Screens(items) => self.screen_set = Some(items.clone()),
                 Change::Plates { id, texts } => {
                     self.plates.insert(id.clone(), texts.clone());
+                    self.plate_revision = self.plate_revision.wrapping_add(1);
                 }
                 Change::Measurements(json) => self.measurements = Some(json.clone()),
                 Change::Failure(failure) => self.failure = Some(failure.clone()),
