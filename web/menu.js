@@ -84,7 +84,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
   }
  }
  function paint(){
-  const state=model.state;menu.hidden=state==='playing';settingsNode.hidden=state!=='settings';gameMode.hidden=state!=='game-mode';savesNode.hidden=state!=='saves';appearanceNode.hidden=state!=='appearance';multiplayerNode.hidden=state!=='multiplayer';initial.hidden=!['loading','start-menu','error'].includes(state);paused.hidden=state!=='pause-menu';
+  const state=model.state;menu.hidden=state==='playing';settingsNode.hidden=state!=='settings';gameMode.hidden=state!=='game-mode';savesNode.hidden=state!=='saves';appearanceNode.hidden=state!=='appearance';multiplayerNode.hidden=state!=='multiplayer';initial.hidden=!['start-menu','error'].includes(state);menu.classList.toggle('covered',state==='loading');paused.hidden=state!=='pause-menu';
   if(hud&&state!=='playing')hud.hidden=true;
   figure?.toggle(state==='start-menu');
   clutch.disabled=model.pending;gears.disabled=model.pending||!clutch.checked;
@@ -103,8 +103,9 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
    // The preview and the save follow the screen, whatever closes it.
    if(lastState==='appearance')appearance?.close();
    if(state==='appearance')appearance?.open();
+   // The art picked for the loading cover stays when the menu opens.
+   if(state==='loading'||(state==='start-menu'||state==='pause-menu')&&lastState!=='loading'){const pair=ui.pairUrls[Math.floor(Math.random()*ui.pairUrls.length)];art.style.backgroundImage='url("'+pair.background+'")';frame.style.backgroundImage='url("'+pair.frame+'")';}
    if(state==='start-menu'||state==='pause-menu'){
-    const pair=ui.pairUrls[Math.floor(Math.random()*ui.pairUrls.length)];art.style.backgroundImage='url("'+pair.background+'")';frame.style.backgroundImage='url("'+pair.frame+'")';
     queueMicrotask(()=>document.querySelector(state==='pause-menu'?'#resume':'#new-game').focus({preventScroll:true}));
    } else if(SUBSCREENS.includes(state))queueMicrotask(()=>document.querySelector({settings:'#back','game-mode':'#game-mode-back',saves:'#save-back',appearance:'#appearance-back',multiplayer:'#multiplayer-back'}[state]).focus({preventScroll:true}));
    lastState=state;
