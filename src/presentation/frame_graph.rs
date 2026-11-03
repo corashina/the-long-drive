@@ -1229,6 +1229,7 @@ pub fn source_render_audit() -> String {
         "graph_control_bytes": super::readiness::control_bytes(),
         "gpu_validated_generation": audit.gate.validated_generation(),
         "gpu_ms": super::gpu_timing::stage_ms(),
+        "scene_scale": crate::render_scale::percent(),
     }))
     .expect("source diagnostic values serialize")
 }
