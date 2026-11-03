@@ -58,7 +58,7 @@ impl BuildingComponents {
     }
 }
 
-/// False: a building lookup does not fit `room`. The ramps up to that building are appended.
+/// False: a building lookup does not fit `room`. It appends the ramps up to that building.
 pub fn append_ramps(
     reference: &WorldReference,
     rules: &SourceRules,

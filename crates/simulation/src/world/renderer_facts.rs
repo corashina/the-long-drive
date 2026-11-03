@@ -6,7 +6,7 @@ use crate::reference::SourceId;
 pub enum RendererFact {
     /// The renderer needs the prototype. The renderer checked `can_hold_prototype`.
     HoldPrototype(SourceId),
-    /// The input staging reserve and metadata bytes. Once per stream.
+    /// The input staging reserve and metadata bytes. It comes once per stream.
     ConfigureStaging { reserve: usize, metadata: usize },
     /// The prototype materials are ready.
     BindPrototype(SourceId),

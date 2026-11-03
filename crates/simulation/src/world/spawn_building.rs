@@ -81,7 +81,7 @@ impl SpawnEvaluation<'_> {
                         .component(self.reference, target, "tosaveitemscript")?
                 {
                     self.start_save(&child, save, 0)?;
-                    // The bat is a world item: publish it as content.
+                    // The bat is a world item. Publish it as content.
                     self.push(SpawnedContent {
                         inputs: super::spawn_state::SpawnInitialization::default(),
                         placement: child.clone(),

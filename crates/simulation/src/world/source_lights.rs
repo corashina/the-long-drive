@@ -24,7 +24,7 @@ pub struct WorldLight {
     pub node: Option<u32>,
 }
 impl WorldLight {
-    /// Structure lights append their component identity; road lights share the pole identity.
+    /// Structure lights append their component identity. Road lights share the pole identity.
     pub fn owned_by(&self, parent: &GeneratedId) -> bool {
         if self.biome.is_some() {
             return self.id == *parent;

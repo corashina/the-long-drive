@@ -54,7 +54,7 @@ pub struct Explosive {
     pub explode_force: f32,
     pub explosion_type: i32,
     pub min_ammo: f32,
-    /// The item's own ammoscript: its rounds are the item's ammo binding.
+    /// The item's own ammoscript. Its rounds are the item's ammo binding.
     pub ammo: Option<SourceId>,
     pub color: [f32; 4],
     /// ccolor: the colorscript whose color replaces `color`.

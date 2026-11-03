@@ -202,7 +202,7 @@ impl BuildingSequence {
         let group = &mut state.groups[state.current_group];
         let mut selected = select(rule, group, &mut self.random, &mut state.draws);
         if rule.types[selected].type_id == state.previous_type {
-            // Exactly one extra selection; it also increments the source group count.
+            // Make exactly one extra selection. It also increments the source group count.
             selected = select(rule, group, &mut self.random, &mut state.draws);
         }
         let selection = &rule.types[selected];
@@ -794,7 +794,7 @@ pub fn active(prototype: &WorldPrototypeReference, index: usize) -> bool {
     let mut node = Some(index);
     while let Some(i) = node {
         let n = &prototype.nodes[i];
-        // Instantiate activates the selected root; child activeSelf is preserved.
+        // Instantiate activates the selected root and keeps the child activeSelf.
         if n.parent.is_some() && !n.active {
             return false;
         }
@@ -824,7 +824,7 @@ pub fn node_pose(prototype: &WorldPrototypeReference, index: usize) -> Transform
     }
     result
 }
-/// Node `index` in the frame of node `frame` of the same prototype. Scale is dropped.
+/// Node `index` in the frame of node `frame` of the same prototype. It drops the scale.
 pub fn node_frame(
     prototype: &WorldPrototypeReference,
     frame: usize,
@@ -903,7 +903,7 @@ fn copy_prototype(
         if component.class_name == "LODGroup" {
             let source = vector(&component.fields["m_LocalReferencePoint"]);
             let center = node_point(prototype, index, [source[0], source[1], -source[2]]);
-            // m_Size encloses the group's renderer bounds. Sphere encloses that cube.
+            // m_Size encloses the group's renderer bounds. The sphere encloses that cube.
             let reach = number(&component.fields["m_Size"]) as f64 * 3.0_f64.sqrt() * 0.5;
             let scale = node_scale_bound(prototype, index);
             radius = radius.max(norm(center) + reach * scale);

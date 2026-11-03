@@ -93,7 +93,7 @@ pub struct WorldDelta {
     new_surfaces: Vec<RendererSurface>,
     prepared_changed: bool,
     /// The prepared surface. `None` with `prepared_changed`: no prepared surface.
-    /// The surface data is left out when the last list has it.
+    /// The delta leaves out the surface data when the last list has it.
     prepared: Option<(WorldRequest, SurfaceKey, Option<RendererSurface>)>,
     lights_changed: bool,
     lights: Vec<WorldLight>,
@@ -825,7 +825,7 @@ impl RendererWorld {
     }
 }
 
-/// Lights compare by their changing values. The light record is fixed by its id.
+/// Lights compare by their changing values. Its id fixes the light record.
 fn same_light(a: &WorldLight, b: &WorldLight) -> bool {
     a.id == b.id
         && a.pole == b.pole

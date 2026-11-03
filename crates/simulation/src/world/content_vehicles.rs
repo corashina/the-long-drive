@@ -23,7 +23,7 @@ use rapier3d::prelude::{ColliderHandle, RigidBodyHandle};
 use std::collections::BTreeMap;
 
 /// Binds the engine and radiator parts and the car of one bound content.
-/// Call after slots, parts and wheels bind and before seats bind: seats find the vehicle.
+/// Call after slots, parts and wheels bind and before seats bind, because seats find the vehicle.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bind(
     content: &ContentInstance,
@@ -43,7 +43,7 @@ pub(super) fn bind(
     let node_item = |node: u32| {
         crate::world::content_mechanisms::node_item(content, prototype, world, rules, node as usize)
     };
-    // The car first: parts register only when nothing can fail.
+    // Bind the car first. Parts register only when nothing can fail.
     if let Some(record) = &prototype.vehicle {
         if content.item.is_none() {
             return Err(ReferenceError("Car prototype root has no item".into()));
@@ -242,7 +242,7 @@ pub(super) fn bind(
         );
     }
     for record in &prototype.gauges {
-        // The gauge part: the nearest item at or above the meter node.
+        // The gauge part is the nearest item at or above the meter node.
         let mut cursor = Some(record.node);
         let mut item = None;
         while let Some(n) = cursor {
@@ -278,7 +278,7 @@ pub(super) fn bind(
         if restored {
             blood.set_colliders(physics, true);
         }
-        // Source: the sponge washes the trigger while its GameObject is active.
+        // In the source, the sponge washes the trigger while its GameObject is active.
         let appearance = &content.content.appearance;
         if restored
             || crate::world::spawn_appearance::node_active(
@@ -558,7 +558,7 @@ pub fn spawn(
     if vehicles.contains_key(&key) {
         return Err(ReferenceError("Car runtime already exists".into()));
     }
-    // Plate binder: each copy draws its labels from its key. A reload draws the same texts.
+    // In the plate binder, each copy draws its labels from its key. A reload draws the same texts.
     let plates = crate::plates::copy_texts(&record.plates, key.seed())?;
     physics.add_vehicle(key.clone(), copy.chassis, copy.colliders, prototype)?;
     let mut runtime = VehicleRuntime::world(

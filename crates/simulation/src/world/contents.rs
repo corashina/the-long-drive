@@ -172,7 +172,7 @@ pub struct SourceContents {
     active: Vec<ContentInstance>,
     /// `retained_bytes` and `pending_bytes` of the current state. Every `&mut self` call clears it.
     bytes: std::cell::Cell<Option<(usize, usize)>>,
-    // Membership and order only. Pose and appearance remain live.
+    // It changes on membership and order only. Pose and appearance remain live.
     active_revision: u64,
     /// Bumps when a cursor or its root content changes.
     roots_revision: u64,
@@ -841,7 +841,7 @@ impl SourceContents {
             return Err(ReferenceError("Missing source deferred family".into()));
         }
         // A child appends before the old record retires, including its final task.
-        // The existing family claim covers it; its record and CPU storage need admission.
+        // The existing family claim covers it. Its record and CPU storage need admission.
         let staging = self.admit_queues(limit, 1, staging)?;
         let batch = &self.deferred[index];
         let (parent, source) = &batch.tasks[batch.next];
@@ -1025,7 +1025,7 @@ impl SourceContents {
             changed
         })
     }
-    /// Source flashlightscript.Break: sets the lamps in `lamps` broken. Bit i is `Lamps[i]`.
+    /// Source flashlightscript.Break. Sets the lamps in `lamps` broken. Bit i is `Lamps[i]`.
     pub fn break_lamps(
         &mut self,
         reference: &WorldReference,
@@ -1042,7 +1042,7 @@ impl SourceContents {
             inputs.break_lamps(parent, source, lamps)
         })
     }
-    /// Live `jamValue` of electronics `component` on `parent`: its lamps and lights refresh.
+    /// Sets the live `jamValue` of electronics `component` on `parent`. Its lamps and lights refresh.
     pub fn set_jam(
         &mut self,
         reference: &WorldReference,
@@ -1186,7 +1186,7 @@ impl SourceContents {
             .map(|p| (p, false))
             .chain(replays.iter().map(|p| (p, true)))
         {
-            // As `advance`: a replay root discovers through its replay cursor only.
+            // As in `advance`, a replay root discovers through its replay cursor only.
             if !replay && replays.iter().any(|root| root.id == parent.id) {
                 continue;
             }

@@ -36,21 +36,21 @@ pub struct ObjectSnapshot {
     pub fluids: Option<crate::fluids::FluidSnapshot>,
     pub valve: Option<f32>,
     pub lamp: Option<bool>,
-    /// Source `Lamp.broken` set by flashlightscript.Break. Bit i is `Lamps[i]`. None at spawn.
+    /// Source `Lamp.broken` set by flashlightscript.Break. Bit i is `Lamps[i]`. It is None at spawn.
     pub lamp_broken: Option<u64>,
     /// Tuned compass bearing or clock offset (meterscript szamlap value).
     pub dial: Option<f32>,
-    /// Spray bottle or loose ammo ammoscript count; None at its spawn count.
+    /// Spray bottle or loose ammo ammoscript count. It is None at its spawn count.
     pub ammo: Option<f32>,
-    /// Gun state; None at its spawn state.
+    /// Gun state. It is None at its spawn state.
     pub gun: Option<crate::interaction::guns::GunSnapshot>,
-    /// Genie lamp ginlampscript value; None at its startup value.
+    /// Genie lamp ginlampscript value. It is None at its startup value.
     pub glow: Option<f32>,
     /// save_radioscript controls of a portable radio.
     pub radio: Option<crate::save::RadioSnapshot>,
     /// Metal detector onOffButton turn state.
     pub detector: Option<bool>,
-    /// Loot tool state; None at its spawn state.
+    /// Loot tool state. It is None at its spawn state.
     pub tool: Option<crate::save::ToolStateSnapshot>,
     pub linear_velocity: [f32; 3],
     pub angular_velocity: [f32; 3],
@@ -222,7 +222,7 @@ impl ChangeRecords {
         }
     }
     pub fn record(&mut self, key: ObjectKey, current: ObjectSnapshot, baseline: &ObjectSnapshot) {
-        // An attachment owner keeps its record: its dependents can unload with it.
+        // An attachment owner keeps its record. Its dependents can unload with it.
         if &current == baseline && !self.has_attachment_dependents(&key) {
             self.forget(&key);
             return;
@@ -693,8 +693,8 @@ pub fn locked_attachment(
     })
 }
 
-/// Source `Lock(_ignoreTime: true)`: locks a saved item at once into the bound volume of `owner`.
-/// No drop delay and no two-scan wait. The owner must be in place first.
+/// Source `Lock(_ignoreTime: true)`. Locks a saved item at once into the bound volume of `owner`.
+/// There is no drop delay and no two-scan wait. The owner must be in place first.
 pub fn restore_lock(
     id: crate::reference::ItemId,
     owner: crate::reference::ItemId,
@@ -737,7 +737,7 @@ pub fn restore_motion(
         && let Some(handle) = item.body
     {
         physics.try_edit_body(handle, |body| {
-            // Source tosaveitemscript.FInit: a buried item is kinematic.
+            // Source tosaveitemscript.FInit. A buried item is kinematic.
             if snapshot.buried {
                 body.set_body_type(
                     rapier3d::prelude::RigidBodyType::KinematicPositionBased,

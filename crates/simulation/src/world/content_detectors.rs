@@ -107,7 +107,7 @@ impl WorldStream {
                 .ok_or_else(|| ReferenceError("Metal detector node outside its prototype".into()))
         };
         let f = rules.get(reference, script)?.fields;
-        // Source queries ignore triggers; the scan excludes sensors.
+        // Source queries ignore triggers. The scan excludes sensors.
         if integer(f, "detectorTriggerInteraction")? != 1 {
             return Err(ReferenceError("Metal detector must ignore triggers".into()));
         }
@@ -171,7 +171,7 @@ impl WorldStream {
         if flag(n, "noValueLerp")? || flag(n, "lerpAngle")? {
             return Err(ReferenceError("Unsupported metal detector needle".into()));
         }
-        // Source checks X, then Y, then Z; none falls back to X.
+        // Source checks X, then Y, then Z. If none matches, it falls back to X.
         let axis = ["X", "Y", "Z"]
             .iter()
             .map(|a| flag(n, a))

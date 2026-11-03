@@ -461,7 +461,7 @@ impl WorldStream {
             Some((b.parent.child_seed(&b.source, 0), on, broken))
         })
     }
-    /// Source `UpdFlashlight`: the lamp control with seed `seed` takes `on` and the `broken` bits.
+    /// Source `UpdFlashlight`. The lamp control with seed `seed` takes `on` and the `broken` bits.
     /// False if no control has the seed.
     pub fn set_generated_lamp(
         &mut self,
@@ -487,7 +487,7 @@ impl WorldStream {
         }
         Ok(true)
     }
-    /// Source flashlightscript.Break: sets the lamps in `lamps` of a structure control broken
+    /// Source flashlightscript.Break. Sets the lamps in `lamps` of a structure control broken
     /// and refreshes their nodes and lights. Bit i is `Lamps[i]`.
     pub(super) fn break_generated_lamps(
         &mut self,
