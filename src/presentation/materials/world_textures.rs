@@ -117,6 +117,7 @@ impl WorldTextures {
                 "hashes": a.layers.iter().map(|l| &l.hash).collect::<Vec<_>>(),
                 "sources": a.layers.iter().map(|l| &l.source).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
+            "counters": super::world_texture_upload::COUNTER_NAMES.iter().zip(queue.counters).map(|(n, c)| (n.to_string(), serde_json::Value::from(c))).collect::<serde_json::Map<_, _>>(),
             "slots": queue.ownership.slots.iter().flatten().map(|o| serde_json::json!({
                 "session": o.identity.session, "request": o.identity.request, "state": format!("{:?}", o.state),
                 "bytes": o.bytes, "cancelled": o.cancelled,
@@ -487,6 +488,17 @@ impl WorldTextures {
                 .map(|job| (owner, job.array, job.layer, job.batch))
         });
         let empty = current.is_none();
+        queue.counters[0] += 1;
+        let state = queue.ownership.slots[0].map(|o| o.state);
+        let index = match state {
+            Some(BatchState::Loading) => 1,
+            Some(BatchState::Ready) => 2,
+            Some(BatchState::Submitted) => 3,
+            Some(_) => 4,
+            None => 5,
+        };
+        queue.counters[index] += 1;
+        queue.counters[6] += u64::from(queue.ownership.slots[1].is_some());
         let refill = current
             .as_ref()
             .is_some_and(|(owner, ..)| owner.identity.session == self.session && !owner.cancelled)
@@ -589,6 +601,7 @@ impl WorldTextures {
             ledger.request_staging(requested);
             ledger.request_prototype(requested, 0);
             if !claims || jobs == 0 {
+                queue.counters[7] += 1;
                 return Ok(());
             }
             let admission = if refill {
@@ -601,8 +614,11 @@ impl WorldTextures {
                     .admit(selected.iter().map(|s| (s.3, s.4)), available, true)
             };
             match admission {
-                Ok(()) => (),
-                Err(Admission::Wait) => return Ok(()),
+                Ok(()) => queue.counters[9] += 1,
+                Err(Admission::Wait) => {
+                    queue.counters[8] += 1;
+                    return Ok(());
+                }
                 Err(Admission::Permanent) => {
                     let (i, l, b, _, _) = selected[0];
                     let source = &self.arrays[i].as_ref().unwrap().layers[l];
