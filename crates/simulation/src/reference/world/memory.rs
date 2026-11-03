@@ -122,7 +122,6 @@ fields!(WorldPrototypeNode:source,name,parent,active,renderer_enabled,layer,tran
 fields!(WorldBiomeMaterialSet:desert,variants);
 fields!(SkinnedMeshReference<u32, u32>:source,mesh,node,bones,bind_poses,positions,normals,tangents,uv,joints,weights,triangles);
 fields!(WorldColliderReference:body,source,node,enabled,trigger,role,material,deformed_skin,source_empty_mesh,geometry);
-fields!(WorldSourceReceipt:source,sha256);
 fields!(WorldSourceRecord:source,class_name,fields);
 impl ImmutableInputBytes for WorldFields {
     fn heap_bytes(&self) -> usize {
@@ -132,8 +131,8 @@ impl ImmutableInputBytes for WorldFields {
 fields!(WorldExclusion:source,field,target,reason,catalog);
 fields!(WorldStartupReference:group,source,pose,prototype,start_car,conditions);
 fields!(WorldStartCondition:source,random_start,random_min,random_max,override_min,override_max);
-fields!(WorldCollisionRules:source,record_sha256,layers);
-fields!(WorldStartupHole:component,filter,mesh,mesh_sha256,vertices);
+fields!(WorldCollisionRules:source,layers);
+fields!(WorldStartupHole:component,filter,mesh,vertices);
 fields!(WorldNoiseReference:amplitude,frequency,lacunarity,octaves,persistence);
 fields!(WorldRoadReference:gen_at_start,gen_in_one_frame,source,prototypes,length,road_bone_num,road_bone_length,road_segment_length,road_above_terrain,width,scale,xmax_angle,ymax_angle,start_straight,straight_modifier,align_edge_of_the_world,aliign_road,align_buildings,force_homesick,def_point_range,def_point_step,add_point,building_bone_num,noises);
 fields!(WorldTerrainReference:source,prefabs,materials,textures,game_settings,tiles,edge_of_world,edge_of_world_gradient,edge_of_world_generation_dist,edge_of_world_warp_dist,edge_of_world_warp_offset,random_seed,seed);

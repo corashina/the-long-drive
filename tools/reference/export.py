@@ -246,7 +246,8 @@ def verify_reference(output: Path, library) -> None:
         declared = {entry['file'].removeprefix('reference/') for entry in asset['dependencies']}
         from .native_bc import texture_inputs, validate_storage
         files = {r['file']: r for r in manifest['file_catalog']['files']}
-        selected = [t for m in manifest['rendering']['materials'] if m['asset'] == asset['id'] for t in m['properties']['textures']]
+        from .runtime_encoding import material_textures
+        selected = [t for m, t in material_textures(manifest) if m['asset'] == asset['id']]
         for texture in selected: validate_storage(texture, files)
         material_mips = {Path(name).name for texture in selected for name in texture_inputs(texture)}
         required = uris | material_mips

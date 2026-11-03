@@ -1281,10 +1281,12 @@ impl GarageRuntime {
             );
         // fpscontroller `scrubbing`: `drotkefe.Use` in the hand, or pointing.
         let scrubbing = (input.held & keys::PRIMARY != 0
-            && interaction
+            && self
+                .area
+                .interaction
                 .equipment
                 .item()
-                .is_some_and(|id| interaction.cleaning.is_brush(id)))
+                .is_some_and(|id| self.area.interaction.cleaning.is_brush(id)))
             || input.player_held & crate::simulation::player_keys::POINT != 0;
         PlayerStepContext {
             scrubbing,
