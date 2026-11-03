@@ -252,8 +252,6 @@ pub struct WorldStream {
     startup: Option<StartupTerrain>,
     /// Fixed prototype placements of the startup list, set with `startup`.
     startup_placements: Vec<Placement>,
-    /// StartSpawnItems world prototype copies (spray bottles, binoculars): prototype and Transform.
-    startup_items: Vec<(crate::reference::SourceId, crate::reference::SourceId)>,
     startup_candidates: Vec<u32>,
     startup_next: usize,
     startup_points: Vec<TerrainRoadPoint>,
@@ -860,23 +858,6 @@ impl WorldStream {
             light_keep: Vec::new(),
             startup: None,
             startup_placements: Vec::new(),
-            startup_items: {
-                let s = &reference.small_items;
-                let copies = |prototype: &crate::reference::SourceId, transform| {
-                    (prototype.clone(), Clone::clone(transform))
-                };
-                s.spray_bottle
-                    .startup
-                    .iter()
-                    .map(|v| copies(&s.spray_bottle.prototype, &v.transform))
-                    .chain(
-                        s.binoculars
-                            .startup
-                            .iter()
-                            .map(|v| copies(&s.binoculars.prototype, &v.transform)),
-                    )
-                    .collect()
-            },
             startup_candidates: Vec::new(),
             startup_next: 0,
             startup_points: Vec::new(),
@@ -1038,7 +1019,7 @@ impl WorldStream {
     }
     /// A sandbox world spawn: a startup placement after the source startup list.
     fn added_placement(&self, placement: &Placement) -> bool {
-        let base = (self.reference.startup.len() + self.startup_items.len()) as u32;
+        let base = self.reference.startup.len() as u32;
         placement.id.layer == WorldLayer::Startup && placement.id.ordinal >= base
     }
     /// The progress of each sandbox world spawn.
@@ -1697,40 +1678,6 @@ impl WorldStream {
                 object_seed: 0,
             });
         }
-        // StartSpawnItems copies of world prototypes take their aligned scene pose.
-        for (index, (prototype, transform)) in self.startup_items.iter().enumerate() {
-            let pose = super::source_world_pose(&self.reference, startup, transform, &[])?;
-            let scale = self
-                .reference
-                .prototypes
-                .iter()
-                .find(|p| &p.source == prototype)
-                .ok_or_else(|| ReferenceError("Startup item prototype missing".into()))?
-                .prefab_pose
-                .scale;
-            let position = pose.position.map(f64::from);
-            let radius = self.contents.rules.radius(prototype).unwrap_or(0.);
-            placements.push(Placement {
-                id: super::GeneratedId {
-                    layer: WorldLayer::Startup,
-                    generator: transform.clone(),
-                    unit: [0, 0],
-                    ordinal: (self.reference.startup.len() + index) as u32,
-                    children: Vec::new(),
-                },
-                prototype: prototype.clone(),
-                pose: super::AbsolutePose {
-                    position,
-                    rotation: pose.rotation,
-                },
-                scale,
-                bounds: WorldBounds {
-                    min: position.map(|v| v - radius),
-                    max: position.map(|v| v + radius),
-                },
-                object_seed: 0,
-            });
-        }
         Ok(placements)
     }
     /// Adds a fixed startup placement of world prototype `prototype` at `pose`. The sandbox uses it.
@@ -1752,7 +1699,7 @@ impl WorldStream {
             .prefab_pose
             .scale;
         let radius = self.contents.rules.radius(prototype).unwrap_or(0.);
-        let ordinal = (self.reference.startup.len() + self.startup_items.len()) as u32
+        let ordinal = self.reference.startup.len() as u32
             + self
                 .startup_placements
                 .iter()
