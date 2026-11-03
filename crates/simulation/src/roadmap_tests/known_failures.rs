@@ -390,3 +390,51 @@ fn tp_k9_lmb_looks_through_the_binoculars_in_the_hand() {
         "release ends the use"
     );
 }
+
+/// K11. A world car wheel comes off by hand. The use ray from beside a mounted wheel takes its
+/// hubcap or the wheel, not the push of the car body.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k11_the_hand_takes_a_mounted_wheel_or_its_hubcap() {
+    use crate::interaction::items::ItemLocation;
+    use rapier3d::math::{Rotation, Vector};
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    act(
+        &mut run,
+        &reference,
+        r#"{"action":"spawn","name":"Car04Full","forward":8.0}"#,
+    );
+    seconds(&mut run, &reference, 4.);
+    let sensors: Vec<_> = run.wheels.sensor_rims().collect();
+    let mut wheels = 0;
+    for (sensor, rim) in sensors {
+        let rim_state = run.area.items.get(rim).unwrap();
+        if !matches!(rim_state.location, ItemLocation::WheelSlot(_)) {
+            continue;
+        }
+        let chassis = run.physics.rapier().bodies[rim_state.body.unwrap()].position();
+        let at = run.physics.rapier().colliders[sensor]
+            .compute_aabb()
+            .center();
+        // From 1 m beside the wheel, on its side of the car.
+        let side = chassis.rotation * Vector::X;
+        let eye = at + side * (at - chassis.translation).dot(side).signum() + Vector::Y * 0.3;
+        let view = crate::vehicle::VehiclePose {
+            position: eye.to_array(),
+            rotation: Rotation::from_rotation_arc(-Vector::Z, (at - eye).normalize()).to_array(),
+        };
+        let aim = run
+            .area
+            .interaction
+            .resolve(&run.physics, view, &run.area.items);
+        let target = aim.grab_target.map(|t| t.item);
+        assert!(
+            target == Some(rim) || target.is_some_and(|t| run.area.interaction.parts.contains(t)),
+            "the hand takes rim {rim:?} or its hubcap, not {target:?} (push {:?})",
+            aim.push_target.map(|t| t.item)
+        );
+        wheels += 1;
+    }
+    assert!(wheels >= 4, "the car has {wheels} mounted wheels");
+}
