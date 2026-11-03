@@ -14,7 +14,8 @@ use bevy::pbr::{
 use bevy::platform::collections::HashMap;
 use bevy::render::{
     batching::gpu_preprocessing::BatchedInstanceBuffers,
-    mesh::allocator::MeshAllocator,
+    mesh::{RenderMesh, allocator::MeshAllocator},
+    render_asset::RenderAssets,
     render_phase::{
         PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult, TrackedRenderPass,
     },
@@ -94,7 +95,15 @@ pub(crate) fn prepare_groups(
     }
 }
 
+/// True when the mesh pipeline of `mesh` uses the skinned mesh layout. Same test as Bevy.
+fn skinned_layout(mesh: &RenderMesh) -> bool {
+    mesh.layout.0.contains(Mesh::ATTRIBUTE_JOINT_INDEX)
+        && mesh.layout.0.contains(Mesh::ATTRIBUTE_JOINT_WEIGHT)
+}
+
 /// The mesh group of a source draw. Static draws bind the stable group, others the Bevy group.
+/// The pipeline takes the skinned layout from the mesh joints. The bind group takes it from a
+/// live skin. When they differ, the draw is skipped: a WebGPU validation error stops the game.
 pub struct SetSourceMeshBindGroup<const I: usize>;
 impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetSourceMeshBindGroup<I> {
     type Param = (
@@ -103,6 +112,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetSourceMeshBindGroup<I
         SRes<SkinUniforms>,
         SRes<MorphIndices>,
         SRes<MeshAllocator>,
+        SRes<RenderAssets<RenderMesh>>,
         <SetMeshBindGroup<I> as RenderCommand<P>>::Param,
     );
     type ViewQuery = <SetMeshBindGroup<I> as RenderCommand<P>>::ViewQuery;
@@ -111,16 +121,35 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetSourceMeshBindGroup<I
         item: &P,
         view: ROQueryItem<'w, '_, Self::ViewQuery>,
         _: Option<()>,
-        (groups, meshes, skins, morphs, allocator, bevy): SystemParamItem<'w, '_, Self::Param>,
+        (groups, meshes, skins, morphs, allocator, render_meshes, bevy): SystemParamItem<
+            'w,
+            '_,
+            Self::Param,
+        >,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
+        let entity = item.main_entity();
+        if let Some(mesh) = meshes
+            .mesh_asset_id(entity)
+            .and_then(|id| render_meshes.into_inner().get(id))
+        {
+            let skin = skins.skin_byte_offset(entity).is_some();
+            if skinned_layout(mesh) != skin {
+                warn_once!(
+                    "Skipped a source draw: its mesh joints and its skin differ \
+                     (entity {entity:?}, mesh joints {}, live skin {skin})",
+                    !skin
+                );
+                return RenderCommandResult::Skip;
+            }
+        }
         let draws = StaticDraws {
             meshes: meshes.into_inner(),
             skins: skins.into_inner(),
             morphs: morphs.into_inner(),
             allocator: allocator.into_inner(),
         };
-        if draws.contains(item.main_entity())
+        if draws.contains(entity)
             && let Some((_, group)) = groups.into_inner().0.get(&TypeId::of::<P>())
         {
             match item.extra_index() {
