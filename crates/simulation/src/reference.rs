@@ -1113,11 +1113,18 @@ impl ReferenceManifest {
     }
 
     pub fn from_runtime_json(bytes: &[u8]) -> Result<Self, ReferenceError> {
+        let manifest = Self::from_checked_runtime_json(bytes)?;
+        manifest.validate_gameplay()?;
+        Ok(manifest)
+    }
+
+    /// Parses runtime bytes that `from_runtime_json` checks in another place.
+    /// The renderer uses it: the simulation worker checks the same bytes.
+    pub fn from_checked_runtime_json(bytes: &[u8]) -> Result<Self, ReferenceError> {
         require(bytes.len() <= MAX_MANIFEST_BYTES, "manifest size")?;
         let mut manifest: Self =
             serde_json::from_slice(bytes).map_err(|e| ReferenceError(e.to_string()))?;
         std::sync::Arc::make_mut(&mut manifest.file_catalog).admit()?;
-        manifest.validate_gameplay()?;
         AudioRecord::check_playback(&mut manifest);
         Ok(manifest)
     }

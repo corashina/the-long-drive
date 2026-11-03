@@ -233,7 +233,7 @@ async function load(){
  rustCpuProfile=cpu_profile;if(startupCpuProfile)rustCpuProfile(true);
  window.gameThumbnailFrame=()=>thumbnail.frame();thumbnail.connect(request_thumbnail);
  // Rust copies only the shell fields, so JS does not parse the world records.
- const text=manifest_shell(bytes),manifest=JSON.parse(text);
+ startup.begin('shell');const text=manifest_shell(bytes),manifest=JSON.parse(text);startup.end('shell');
  const {manifest_sha256:manifestHash}=await manifestStamp(bytes,manifest);
  const bindings=manifest.driving.bindings,actionIds=actionIndex(bindings);
  settings=createSettings(()=>localStorage,manifest.settings,{...displayFields(manifest.world.mirrors.draw_distance),quality:qualityField,...gameFields(manifest.world.start_cars.length),inputs:inputsField(bindings),language:languageField(manifest.language)});
@@ -305,11 +305,11 @@ async function load(){
  // Parse the reference here while the worker parses its own copy and starts.
  // The start message goes out in the first callback of `startWorld`, before this await ends.
  await startWorld;if(failed)return;
- prepare(bytes);
+ startup.begin('prepare');prepare(bytes);startup.end('prepare');
  const {world,startup:startupBytes,loadError}=await simulationStarted;
  if(world)menu.started(world.error||loadError,world.operation);
  if(world?.operation==='join'&&(world.error||loadError))multiplayer.leave();
- if(failed)return;run(startupBytes);
+ if(failed)return;startup.begin('run');run(startupBytes);startup.end('run');
  cpuProfile.end('startup');
 }
 load().catch(error=>fail(error?.message??String(error)));

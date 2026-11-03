@@ -8,7 +8,7 @@ rust-version = "1.99"
 crate-type = ["cdylib", "rlib"]
 
 [workspace]
-members = ["crates/simulation", "crates/simulation-worker", "crates/terrain", "crates/terrain-worker", "crates/road-mesh", "crates/road-worker", "crates/grass-mesh", "crates/grass-worker"]
+members = ["crates/simulation", "crates/simulation-worker", "crates/terrain", "crates/terrain-worker", "crates/road-mesh", "crates/road-worker", "crates/grass-mesh", "crates/grass-worker", "crates/wasm-heap"]
 
 [dependencies]
 simulation = { path = "crates/simulation" }
@@ -19,6 +19,7 @@ serde_json = { version = "=1.0.151", features = ["float_roundtrip", "raw_value"]
 terrain = { path = "crates/terrain" }
 road-mesh = { path = "crates/road-mesh" }
 grass-mesh = { path = "crates/grass-mesh" }
+wasm-heap = { path = "crates/wasm-heap" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 async-lock = "=3.4.2"

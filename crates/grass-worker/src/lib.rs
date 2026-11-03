@@ -2,6 +2,7 @@
 use grass_mesh::{GrassDomain, GrassExpansion, GrassMeshData, GrassPatch, GrassSettings};
 use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 use wasm_bindgen::prelude::*;
+use wasm_heap as _;
 
 struct Dataset {
     patches: Arc<[GrassPatch]>,

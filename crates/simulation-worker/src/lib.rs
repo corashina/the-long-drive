@@ -6,6 +6,7 @@ use simulation::world::{GameMode, GameOptions};
 use std::cell::RefCell;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
+use wasm_heap as _;
 
 thread_local! {
     static SESSION: RefCell<Option<Session>> = const { RefCell::new(None) };
