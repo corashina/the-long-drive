@@ -53,7 +53,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  const art=document.querySelector('#menu-art'),frame=document.querySelector('#menu-frame'),hud=document.querySelector('#hud');
  const initialNodes=[['#new-game','start'],['#start-load','start'],['#start-load-last','start-controls'],['#start-settings','start-controls'],['#start-game-mode','start-controls'],['#start-appearance','start-controls'],['#start-multiplayer','start-controls']];
  const pauseNodes=[['#resume','continue'],['#save','continue'],['#load','continue'],['#pause-new-game','restart'],['#recover','recover'],['#settings','controls'],['#pause-game-mode','controls'],['#appearance','controls'],['#multiplayer','controls']];
- const actionNodes=[...initialNodes,...pauseNodes],backNodes=['#back','#game-mode-back','#save-back','#appearance-back','#multiplayer-back'],nodes=[...actionNodes,...backNodes.map(selector=>[selector,'back'])];
+ const actionNodes=[...initialNodes,...pauseNodes],backNodes=['#back','#game-mode-back','#save-back','#appearance-back','#multiplayer-back'],nodes=[...actionNodes,...backNodes.filter(selector=>selector!=='#back').map(selector=>[selector,'back'])];
  let lastState='',lastError='',lastStatus='',lastTravel=-1,pendingDriving=0,canLast=false,startResult=null;
  const screen=createSaveScreen({settings,word:language.word,paint:()=>paint(),run:(operation,name)=>operate(operation,...(operation==='save'?[name,thumbnail()]:operation==='loadLast'?[buildId]:[name]))});
  const clutch=document.querySelector('#automatic-clutch'),gears=document.querySelector('#automatic-gears');
@@ -134,7 +134,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  document.querySelector('#recover').addEventListener('click',()=>{clearInput();model.recover();flush();paint();});
  const fullscreen=document.querySelector('#fullscreen');fullscreen.disabled=!document.fullscreenEnabled;
  fullscreen.addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.querySelector('main').requestFullscreen();}catch{model.error='Fullscreen is unavailable.';paint();}});
- document.addEventListener('fullscreenchange',()=>{fullscreen.textContent=document.fullscreenElement?'Exit fullscreen':'Fullscreen';resize();});
+ document.addEventListener('fullscreenchange',()=>{fullscreen.textContent=document.fullscreenElement?'Exit':'Enter';resize();});
  window.addEventListener('keydown',event=>{if(event.code!=='Escape'||event.repeat)return;event.preventDefault();if(model.state==='saves'&&!model.pending){if(screen.state.escape()==='back')model.back();paint();}else if(['settings','game-mode','appearance','multiplayer'].includes(model.state)){model.back();paint();}else if(model.state==='playing'||model.pending)pause(true);else if(model.state==='pause-menu')capture();});
  document.addEventListener('pointerlockchange',()=>{if(document.pointerLockElement!==canvas && model.state==='playing')pause();});
  window.addEventListener('blur',pause);document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
