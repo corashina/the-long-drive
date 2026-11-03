@@ -1294,12 +1294,11 @@ pub(crate) fn register_world_light(
         node: Some(node),
         pose: Transform::default(),
     });
-    let half = record.full_cone_degrees.to_radians() * 0.5;
     source.uniform.lights[index] = GpuLight {
         cookie_rect: cookie,
         mask: UVec4::new(
             record.culling_mask,
-            (half.cos() / half.sin()).to_bits(),
+            spot_cotangent_bits(record.full_cone_degrees),
             0,
             0,
         ),
