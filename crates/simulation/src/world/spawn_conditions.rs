@@ -51,11 +51,7 @@ impl SpawnEvaluation<'_> {
             set_random: flag(f, "setRandom")?,
             selected: integer(f, "slectedRandomTipus")?,
             kind: text(f, "tipus")?.to_owned(),
-            states: [
-                state,
-                integer(f, "state2")?,
-                integer(f, "state3")?,
-            ],
+            states: [state, integer(f, "state2")?, integer(f, "state3")?],
             child_new_color: flag(f, "isChildnewColor")?,
             color: [
                 number(color, "r")?,
