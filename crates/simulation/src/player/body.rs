@@ -571,7 +571,7 @@ impl BodyState {
         (self.rig.target(node), HandFrame::Node(node))
     }
 
-    /// fpscontroller.UpdHandPos. Item hand frames come only from melee weapon grips.
+    /// fpscontroller.UpdHandPos. An equipped item's hand frames are its `RightHandPos` and `LeftHandPos`.
     fn upd_hand_pos(&mut self, input: &BodyInputs, dt: f32) {
         let def = |i: usize| {
             (

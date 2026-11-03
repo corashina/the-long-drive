@@ -2,7 +2,7 @@
 use super::items::{ItemLocation, ItemStore};
 use crate::player::PlayerState;
 use crate::reference::{
-    ItemId, PickupReference, PlayerReference, ReferenceError, ReferenceManifest,
+    ItemId, NodeId, PickupReference, PlayerReference, ReferenceError, ReferenceManifest, SourceId,
 };
 use crate::simulation::{FrameInput, keys};
 use crate::vehicle::{PhysicsWorld, to_rapier};
@@ -56,10 +56,50 @@ fn lift_layer(
         .collect()
 }
 
+fn insert_grips(
+    map: &mut HashMap<SourceId, [Option<Pose>; 2]>,
+    rule: &PickupReference,
+    grips: [Option<Pose>; 2],
+) {
+    if grips.iter().any(Option::is_some) {
+        map.insert(rule.source.clone(), grips);
+    }
+}
+
+/// Grips of a manifest pickup relative to its `root` node.
+fn manifest_grips(
+    r: &ReferenceManifest,
+    rule: &PickupReference,
+    root: NodeId,
+) -> Result<[Option<Pose>; 2], ReferenceError> {
+    let missing = || ReferenceError("Missing pickup grip node".into());
+    let asset = r
+        .nodes
+        .iter()
+        .find(|n| n.id == root)
+        .ok_or_else(missing)?
+        .asset;
+    let grip = |source: &Option<SourceId>| -> Result<Option<Pose>, ReferenceError> {
+        let Some(source) = source else {
+            return Ok(None);
+        };
+        let node = r
+            .nodes
+            .iter()
+            .find(|n| &n.source == source && n.asset == asset)
+            .ok_or_else(missing)?;
+        let pose = |id| super::items::node_pose(r, id).map(to_rapier);
+        Ok(Some(pose(root)?.inverse() * pose(node.id)?))
+    };
+    Ok([grip(&rule.left_hand_grip)?, grip(&rule.right_hand_grip)?])
+}
+
 pub struct CarryState {
     reference: PlayerReference,
     pub(super) settings: crate::reference::PlayerSettings,
     rules: HashMap<ItemId, PickupReference>,
+    /// Source `LeftHandPos` and `RightHandPos` in the item root frame, by pickupable source.
+    grips: HashMap<SourceId, [Option<Pose>; 2]>,
     held: Option<HeldState>,
     anchor: Option<RigidBodyHandle>,
     acquisition_held: bool,
@@ -166,6 +206,24 @@ impl CarryState {
         {
             return Err(ReferenceError("Invalid carry weight range".into()));
         }
+        let mut grips = HashMap::new();
+        for item in &reference.items {
+            if let Some(rule) = &item.pickup {
+                insert_grips(
+                    &mut grips,
+                    rule,
+                    manifest_grips(reference, rule, item.node)?,
+                );
+            }
+        }
+        for prototype in &reference.item_prototypes {
+            for pickup in &prototype.pickups {
+                let body = prototype.bodies.iter().find(|b| b.id == pickup.body);
+                let root = body.ok_or_else(|| ReferenceError("Missing pickup body".into()))?;
+                let found = manifest_grips(reference, &pickup.pickup, root.node)?;
+                insert_grips(&mut grips, &pickup.pickup, found);
+            }
+        }
         Ok(Self {
             reference: player.clone(),
             settings: crate::reference::PlayerSettings::defaults(reference),
@@ -174,6 +232,7 @@ impl CarryState {
                 .iter()
                 .filter_map(|item| item.pickup.clone().map(|rule| (item.id, rule)))
                 .collect(),
+            grips,
             held: None,
             anchor: None,
             acquisition_held: false,
@@ -285,6 +344,18 @@ impl CarryState {
     }
     pub fn held(&self) -> Option<ItemId> {
         self.held.as_ref().map(|held| held.item)
+    }
+    /// Source `LeftHandPos` and `RightHandPos` of the item, in its root frame.
+    pub fn hand_grips(&self, item: ItemId) -> [Option<Pose>; 2] {
+        self.rules
+            .get(&item)
+            .and_then(|rule| self.grips.get(&rule.source))
+            .copied()
+            .unwrap_or_default()
+    }
+    /// Generated items: `grips` are relative to the pickupable root.
+    pub(crate) fn register_grips(&mut self, rule: &PickupReference, grips: [Option<Pose>; 2]) {
+        insert_grips(&mut self.grips, rule, grips);
     }
     pub fn body(&self) -> Option<RigidBodyHandle> {
         self.held.as_ref().map(|held| held.body)
