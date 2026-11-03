@@ -38,7 +38,21 @@ pub(super) struct UploadQueue {
     pub ownership: BatchQueue,
     pub jobs: [Option<Upload>; 2],
     pub next_request: u64,
+    /// Main frames by queue state. Startup audit only. See `COUNTER_NAMES`.
+    pub counters: [u64; COUNTER_NAMES.len()],
 }
+pub(super) const COUNTER_NAMES: [&str; 10] = [
+    "frames",
+    "current_loading",
+    "current_ready",
+    "current_submitted",
+    "current_complete",
+    "empty",
+    "second_held",
+    "wait_claim_or_job",
+    "wait_credit",
+    "admitted",
+];
 impl UploadQueue {
     pub fn poll(&mut self, server: &AssetServer, batches: &Assets<SourceTextureBatch>) {
         for job in self.jobs.iter_mut().flatten() {
