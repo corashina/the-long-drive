@@ -7,7 +7,7 @@ pub fn dataset_encoded_len(patches: &[GrassPatch]) -> Result<usize, String> {
     patches
         .len()
         .checked_mul(60)
-        .and_then(|bytes| bytes.checked_add(36))
+        .and_then(|bytes| bytes.checked_add(44))
         .ok_or_else(|| "Grass dataset size overflow".into())
 }
 pub fn encode_dataset(patches: &[GrassPatch], settings: GrassSettings, out: &mut Vec<u8>) {
@@ -20,6 +20,8 @@ pub fn encode_dataset(patches: &[GrassPatch], settings: GrassSettings, out: &mut
     out.extend(settings.lod_end.to_le_bytes());
     out.extend(settings.lod_max.to_le_bytes());
     out.extend(u32::from(settings.smooth_domain).to_le_bytes());
+    out.extend(settings.thin_start.to_le_bytes());
+    out.extend(settings.thin_floor.to_le_bytes());
     out.extend(
         u32::try_from(patches.len())
             .expect("admitted Grass patch count")
@@ -84,8 +86,15 @@ impl Reader<'_> {
         let lod_end = self.f32()?;
         let lod_max = self.u32()?;
         let smooth = self.u32()?;
+        let thin_start = self.f32()?;
+        let thin_floor = self.f32()?;
         // Preserve the checked source material constraints.
-        if !matches!(max_tessellation, 2 | 4) || !(1..=6).contains(&lod_max) || smooth > 1 {
+        if !matches!(max_tessellation, 2 | 4)
+            || !(1..=6).contains(&lod_max)
+            || smooth > 1
+            || !(0.0..fade_end).contains(&thin_start)
+            || !(0.0..=1.0).contains(&thin_floor)
+        {
             return Err("Unsupported checked Grass settings".into());
         }
         Ok(GrassSettings {
@@ -97,6 +106,8 @@ impl Reader<'_> {
             lod_end,
             lod_max,
             smooth_domain: smooth != 0,
+            thin_start,
+            thin_floor,
         })
     }
     fn patch(&mut self) -> Result<GrassPatch, String> {

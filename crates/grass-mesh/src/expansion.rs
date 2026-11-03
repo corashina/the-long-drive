@@ -11,7 +11,7 @@ struct PatchPlan {
 pub struct GrassMeshData {
     pub anchors: Vec<[f32; 3]>,
     pub uvs: Vec<[f32; 2]>,
-    /// Fraction along blade, side, source domain smoothing, previous fraction.
+    /// Fraction along blade, side, source domain smoothing, distance thin scale.
     pub blades: Vec<[f32; 4]>,
     pub patches: Vec<u32>,
     pub indices: Vec<u32>,
@@ -208,16 +208,21 @@ impl GrassExpansion {
                 plan.real,
                 plan.factor,
             );
-            let segments = self
-                .settings
-                .segments(anchor.position.distance(self.view.position));
+            let distance = anchor.position.distance(self.view.position);
+            let thin = self.settings.thin(anchor.position, distance);
+            if thin == 0.0 {
+                self.triangle += 1;
+                work += 1;
+                continue;
+            }
+            let segments = self.settings.segments(distance);
             let emitted = (segments as usize + 1) * 2;
             if work + emitted > 4096 {
                 return Ok(false);
             }
             work += emitted;
             if emit {
-                self.emit(anchor, segments);
+                self.emit(anchor, segments, thin);
             } else {
                 self.vertices = self
                     .vertices
@@ -232,17 +237,16 @@ impl GrassExpansion {
         }
         Ok(true)
     }
-    fn emit(&mut self, anchor: GrassAnchor, segments: u32) {
+    fn emit(&mut self, anchor: GrassAnchor, segments: u32, thin: f32) {
         let start = self.output.anchors.len() as u32;
         for step in 0..=segments {
             let fraction = step as f32 / segments as f32;
-            let previous = step.saturating_sub(1) as f32 / segments as f32;
             for side in [-1.0, 1.0] {
                 self.output.anchors.push(anchor.position.to_array());
                 self.output.uvs.push(anchor.uv.to_array());
                 self.output
                     .blades
-                    .push([fraction, side, anchor.smoothing, previous]);
+                    .push([fraction, side, anchor.smoothing, thin]);
                 self.output.patches.push(self.patch as u32);
             }
             if step < segments {

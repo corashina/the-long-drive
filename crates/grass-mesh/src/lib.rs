@@ -28,7 +28,15 @@ pub struct GrassSettings {
     pub lod_end: f32,
     pub lod_max: u32,
     pub smooth_domain: bool,
+    /// Distance where blades start to thin out.
+    pub thin_start: f32,
+    /// Share of blades that stay at the fade end.
+    pub thin_floor: f32,
 }
+/// Distance band, as a share of blades, over which one blade shrinks to zero.
+const THIN_BAND: f32 = 0.1;
+/// View widening per unit distance (about 17 degrees), so a turn shows no gap before the next rebuild.
+const VIEW_MARGIN: f32 = 0.3;
 #[derive(Clone, Copy)]
 pub struct GrassAnchor {
     pub position: Vec3,
@@ -46,12 +54,18 @@ impl GrassSettings {
         if nearest >= self.fade_end {
             return (0.0, 0);
         }
-        let visible = view.clip_planes.iter().all(|plane| {
-            patch
-                .positions
-                .iter()
-                .any(|position| plane.dot(position.extend(1.0)) > -self.max_height)
-        });
+        let inside = |margin: f32| {
+            view.clip_planes.iter().all(|plane| {
+                patch
+                    .positions
+                    .iter()
+                    .any(|position| plane.dot(position.extend(1.0)) > -margin)
+            })
+        };
+        if !inside(self.max_height + nearest * VIEW_MARGIN) {
+            return (0.0, 0);
+        }
+        let visible = inside(self.max_height);
         let mut mean = 0.0;
         if visible {
             let cap = (1u32 << self.max_tessellation) as f32;
@@ -68,6 +82,14 @@ impl GrassSettings {
         // The checked hull applies this minimum after its plane test.
         let real = mean.max(2.0);
         (real, real.log2().ceil().exp2() as u32)
+    }
+    /// Height scale of a blade at this distance. Zero means the blade is not drawn.
+    /// Each blade has its own fixed value, so blades vanish one by one and no ring shows.
+    pub fn thin(&self, anchor: Vec3, distance: f32) -> f32 {
+        let fall = smooth((distance - self.thin_start) / (self.fade_end - self.thin_start));
+        let kept = 1.0 - (1.0 - self.thin_floor) * fall;
+        let value = hash(anchor.xz() + Vec2::new(-3100.0, 7700.0));
+        smooth(((1.0 + THIN_BAND) * kept - value) / THIN_BAND)
     }
     pub fn segments(&self, distance: f32) -> u32 {
         ((self.lod_max as f32
