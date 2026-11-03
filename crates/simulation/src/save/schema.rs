@@ -66,7 +66,7 @@ pub struct SaveSnapshot {
     pub cigarettes: CigarettesSnapshot,
     /// Source save_sandstorm and the storm spawner timer.
     pub weather: WeatherSnapshot,
-    /// Spawner rabbits. The spawner timer is not saved: the source coroutine restarts.
+    /// Spawner rabbits. The save has no spawner timer. The source coroutine restarts.
     pub rabbits: Vec<RabbitSnapshot>,
     /// Human monsters that buildings spawned, far ones included.
     pub humans: Vec<HumanSnapshot>,
@@ -128,7 +128,7 @@ pub struct StormSnapshot {
     pub speed: f32,
     pub direction: [f32; 2],
 }
-/// Spawned items are named by their spawn serial.
+/// A spawn serial names each spawned item.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CigarettesSnapshot {
@@ -157,9 +157,9 @@ pub struct SpawnedItemSnapshot {
     pub prototype: SourceKey,
     pub pickup: u32,
     pub pose: AbsolutePose,
-    /// Gun state; None at its spawn state.
+    /// Gun state. It is None at its spawn state.
     pub gun: Option<crate::interaction::guns::GunSnapshot>,
-    /// Magazine rounds; None at the prefab count.
+    /// Magazine rounds. It is None at the prefab count.
     pub ammo: Option<f32>,
 }
 /// One runtime food copy, saved in the world at its pose.
@@ -519,7 +519,7 @@ mod g04_ordered_state {
 
     #[test]
     fn current_schema_passes_the_version_gate() {
-        // Schema 43 reaches payload parsing; the empty payload then fails as corrupt data.
+        // Schema 43 reaches payload parsing. The empty payload then fails as corrupt data.
         assert!(matches!(
             SaveSnapshot::from_json(br#"{"schema_version":43}"#),
             Err(SaveError::CorruptData(_))

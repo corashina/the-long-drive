@@ -123,7 +123,7 @@ impl InstrumentState {
         state.reset(r);
         state
     }
-    /// Startup values. Keeps the buffers.
+    /// Sets the startup values. It keeps the buffers.
     pub fn reset(&mut self, r: &InstrumentReference) {
         self.signals.fill(0.);
         self.values.fill(0.);

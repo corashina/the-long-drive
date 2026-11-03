@@ -3,7 +3,7 @@ use crate::world::stream::tests::kit::*;
 use std::collections::HashMap;
 
 /// SI1: each StartSpawnItems row spawns one item at its scene pose. After 5 s each item rests
-/// within 0.5 m of its start: none falls through a shelf or the floor.
+/// within 0.5 m of its start. None falls through a shelf or the floor.
 #[test]
 #[ignore = "requires the installed source export"]
 fn tp_si1_start_house_items_spawn_and_stay_in_place() {

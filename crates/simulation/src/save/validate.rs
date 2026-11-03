@@ -1067,7 +1067,7 @@ fn data(valid: bool, detail: &str) -> Result<(), SaveError> {
     }
 }
 
-// Browser Date.toISOString emits UTC, with optional fractional seconds accepted here.
+// Browser Date.toISOString emits UTC. This parser accepts optional fractional seconds.
 fn timestamp(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() < 20

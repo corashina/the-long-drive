@@ -63,7 +63,7 @@ fn drain(container: &mut FluidContainer, liters: f32) -> f32 {
     let before = container.total();
     if before > 0.0 && liters > 0.0 {
         container.change_without_mix(-liters);
-        // Finite-state correction: overdraw must not publish fluid creation.
+        // Finite-state correction. An overdraw must not publish fluid creation.
         container.bound_engine_drain(quantities);
     }
     before - container.total()
@@ -153,7 +153,7 @@ pub struct EngineOutput {
     pub temperature: f32,
     /// Source `selectedFanSpeed` in degrees per second while `Cool` spins the fan.
     pub fan_speed: f32,
-    /// Source `carscript` coolant boil fraction: steam rate and boil volume scale with it.
+    /// Source `carscript` coolant boil fraction. Steam rate and boil volume scale with it.
     pub boil: f32,
 }
 
@@ -366,7 +366,7 @@ impl EngineState {
                 self.draw_start_chance(reference, running, &mut start_sample);
             }
         }
-        // Source draws the kick start chance only when `SStart` is set.
+        // The source draws the kick start chance only when `SStart` is set.
         let kick_start = start_clip
             && reference.kickstart
             && installed.wheel_rpm > reference.shutdown_rpm

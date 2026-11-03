@@ -12,7 +12,7 @@ use crate::starting_area::GarageRuntime;
 use crate::world::fnv1a;
 use std::collections::{HashMap, HashSet};
 
-/// The shared fields: the source sends no repair progress.
+/// The shared fields. The source sends no repair progress.
 #[derive(Clone, Copy, PartialEq)]
 struct Value {
     state: u8,
@@ -72,7 +72,7 @@ impl ConditionSync {
             return;
         }
         self.timer = 0.;
-        // The first read is the baseline: both peers start from one save.
+        // The first read is the baseline. Both peers start from one save.
         for (id, state) in conditions.iter() {
             let now = Value::of(state);
             if let Some((_, known)) = self.known.insert(id, (None, now))
