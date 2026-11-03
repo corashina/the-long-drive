@@ -1,0 +1,4 @@
+* -text
+src/shape/convex_polyhedron.rs text eol=lf
+SOURCE_PATCH.md text eol=lf
+.gitattributes text eol=lf
