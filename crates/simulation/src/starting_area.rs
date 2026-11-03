@@ -556,6 +556,11 @@ pub struct VehicleRuntime {
     pub pedal_angle: f32,
     /// Source `carscript` drive leg poses of the pedals.
     pub pedal_reach: crate::simulation::reach::PedalReach,
+    /// Source `carscript` throttle, brake, clutch and handbrake of the last step.
+    /// The control pedals and the handbrake lamp read them.
+    pub pedal_inputs: crate::simulation::control_pedals::PedalInputs,
+    /// Source `UpdPedal` state of the control pedals. It is not saved.
+    pub control_pedals: crate::simulation::control_pedals::ControlPedals,
     /// Multiplayer state. It is not saved.
     pub net: crate::net::car::CarNet,
 }
@@ -626,6 +631,11 @@ impl VehicleRuntime {
             pedals: Default::default(),
             pedal_angle: 0.,
             pedal_reach: Default::default(),
+            pedal_inputs: crate::simulation::control_pedals::PedalInputs {
+                handbrake: record.handbrake as u8 as f32,
+                ..Default::default()
+            },
+            control_pedals: Default::default(),
             net: crate::net::car::CarNet::new(parts.seed),
         }
     }
@@ -649,6 +659,9 @@ impl VehicleRuntime {
             (s.lamp_bits, s.digits_lit).hash(&mut h);
         }
         self.pedal_angle.to_bits().hash(&mut h);
+        for v in self.control_pedals.values() {
+            v.to_bits().hash(&mut h);
+        }
         if let Some(l) = &self.lever {
             let (t, r) = (l.translation.to_array(), l.rotation.to_array());
             for v in t.iter().chain(&r) {
@@ -743,6 +756,7 @@ impl VehicleRuntime {
             .as_ref()
             .map(|lever| crate::simulation::lever::LeverState::rest(lever, state.gear));
         self.handbrake = state.handbrake;
+        self.pedal_inputs.handbrake = state.handbrake as u8 as f32;
         self.trip_m = state.trip_m;
         self.requested_headlights = state.requested_headlights;
         self.steer = state.steer;
@@ -1256,11 +1270,7 @@ impl GarageRuntime {
             .interaction
             .dragging_mechanism()
             .is_some_and(|id| self.area.interaction.mechanisms.slideable(id));
-        let interaction = &self.area.interaction;
-        let binoculars = input.held & keys::PRIMARY != 0
-            && interaction
-                .binoculars
-                .reserves_lmb(interaction.equipment.item(), interaction.held());
+        let binoculars = self.area.interaction.binoculars.active().is_some();
         // Source `CanDuck` is false while the player hums.
         let duck_allowed = !self.hum.humming()
             && PlayerStepContext::can_duck(
@@ -1269,7 +1279,17 @@ impl GarageRuntime {
                     || binoculars,
                 picked_up,
             );
+        // fpscontroller `scrubbing`: `drotkefe.Use` in the hand, or pointing.
+        let scrubbing = (input.held & keys::PRIMARY != 0
+            && self
+                .area
+                .interaction
+                .equipment
+                .item()
+                .is_some_and(|id| self.area.interaction.cleaning.is_brush(id)))
+            || input.player_held & crate::simulation::player_keys::POINT != 0;
         PlayerStepContext {
+            scrubbing,
             duck_allowed,
             wheel_posture_allowed: duck_allowed && !slideable,
             mouse_consumed,
@@ -1390,6 +1410,12 @@ impl GarageRuntime {
             self.survival.output(),
             factors.fluid_scale,
         );
+        if self.area.interaction.reserves_lmb() {
+            // fpscontroller noLMBUse: the binocular LMB does not use the aimed item.
+            input.held &= !keys::PRIMARY;
+            input.pressed &= !keys::PRIMARY;
+            input.released &= !keys::PRIMARY;
+        }
         let action = outcome.action;
         if action.is_none()
             && (input.pressed | input.released) & keys::GRAB != 0
@@ -2186,13 +2212,16 @@ impl GarageRuntime {
             self.advance_levers(reference, input.dt);
         }
     }
-    /// Source `carscript.Update`: eases each car gear lever by render time `dt`.
+    /// Source `carscript.Update`: eases each car gear lever and control pedal by render time `dt`.
     pub fn advance_levers(&mut self, reference: &ReferenceManifest, dt: f32) {
         for vehicle in self.vehicles.values_mut() {
             let record = world_vehicle(reference, vehicle.prototype);
             if let (Some(lever), Some(r)) = (&mut vehicle.lever, &record.lever) {
                 lever.step(r, &reference.driving.lever, dt);
             }
+            vehicle
+                .control_pedals
+                .step(&record.control_pedals, vehicle.pedal_inputs, dt);
         }
     }
 
@@ -2306,7 +2335,14 @@ impl GarageRuntime {
         key: &ObjectKey,
         prototype: usize,
     ) {
-        car_switch_sound(&mut self.audio, &self.physics, reference, key, prototype);
+        car_sound(
+            &mut self.audio,
+            &self.physics,
+            reference,
+            key,
+            prototype,
+            |a| a.switch.as_ref(),
+        );
     }
 
     /// Advances exhaust smoke every step, so old smoke ages out when the engine stops.
@@ -2646,12 +2682,13 @@ impl GarageRuntime {
             .and_then(|item| self.powertrain.engine(item));
         let output = engine.map_or_else(EngineOutput::default, |e| e.state.output());
         if vehicle.ignition.ignition != was_ignition {
-            car_switch_sound(
+            car_sound(
                 &mut self.audio,
                 &self.physics,
                 reference,
                 key,
                 vehicle.prototype,
+                |a| a.switch.as_ref(),
             );
         }
         if chassis_active
@@ -2699,6 +2736,23 @@ impl GarageRuntime {
             steer: vehicle.steer,
             // Source `handbrake` axis beside the lever state.
             handbrake: (vehicle.handbrake as u8 as f32).max(controls.handbrake),
+        };
+        // Source `carscript.Update`: the handbrake sound when the handbrake leaves or reaches 0.
+        if (vehicle.pedal_inputs.handbrake > 0.01) != (drive.handbrake > 0.01) {
+            car_sound(
+                &mut self.audio,
+                &self.physics,
+                reference,
+                key,
+                vehicle.prototype,
+                |a| a.handbrake.as_ref(),
+            );
+        }
+        vehicle.pedal_inputs = crate::simulation::control_pedals::PedalInputs {
+            gas: throttle,
+            brake,
+            clutch: drivetrain.clutch,
+            handbrake: drive.handbrake,
         };
         // Source `carscript.Update` calls `Balance()` for a seated driver or an in-use push grip.
         // A push leaves source `isteer` at 0 after `ResetInput`, so the balance steer is 0.
@@ -3363,20 +3417,21 @@ fn engine_sound_input<'a>(
     })
 }
 
-/// The `carscript` switch sound of car `key` at its chassis: ignition and light switch.
-fn car_switch_sound(
+/// A `carscript` one-shot sound of car `key` at its chassis. `pick` selects it.
+fn car_sound(
     audio: &mut Option<crate::audio::AudioState>,
     physics: &PhysicsWorld,
     reference: &ReferenceManifest,
     key: &ObjectKey,
     prototype: usize,
+    pick: impl Fn(&crate::reference::CarAudioReference) -> Option<&crate::reference::CarShotReference>,
 ) {
     let (Some(audio), Some(shot)) = (
         audio.as_mut(),
         world_vehicle(reference, prototype)
             .audio
             .as_ref()
-            .and_then(|a| a.switch.as_ref()),
+            .and_then(pick),
     ) else {
         return;
     };
@@ -3420,6 +3475,7 @@ pub fn instrument_sample(
         local_ignition: vehicle.ignition.ignition
             && vehicle.electronics_output() > limits.electronics_off_threshold,
         electronics_output: vehicle.electronics_output(),
+        handbrake: vehicle.pedal_inputs.handbrake,
         distance_m: vehicle.trip_m,
     }
 }
