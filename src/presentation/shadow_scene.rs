@@ -49,6 +49,8 @@ pub struct ShadowScene {
     pub split_counts: [[usize; 4]; VIEW_COUNT],
     pub shadow_only: usize,
     bounds: WorldBoundsCache<Entity>,
+    /// Renderers already reported with nonfinite bounds.
+    nonfinite: bevy::ecs::entity::EntityHashSet,
     index: CasterIndex<CasterKey>,
     grid: CasterGrid,
     lamp_masks: LampMasks,
@@ -424,10 +426,6 @@ fn update_caster(
     } else {
         0
     };
-    if !rebuilding && !scene.index.contains(key) {
-        return Ok(false);
-    }
-    let animated = mesh.animated();
     let world = mesh.transform.affine();
     let bounds = mesh.bounds;
     let bounds_key = BoundsKey::new(
@@ -435,13 +433,27 @@ fn update_caster(
         bounds.center.to_array(),
         bounds.half_extents.to_array(),
     );
-    let bounds = scene.bounds.get_or_update(mesh.entity, bounds_key, || {
+    let Some(bounds) = scene.bounds.get_or_update(mesh.entity, bounds_key, || {
         world_bounds(
             world,
             bounds.center.to_array(),
             bounds.half_extents.to_array(),
         )
-    })?;
+    }) else {
+        // A nonfinite transform casts no shadow. It does not stop the game.
+        if scene.nonfinite.insert(mesh.entity) {
+            let source = &mesh.record.0.source;
+            warn!(
+                "Renderer {}:{} has nonfinite shadow bounds and casts no shadow. Translation {}, local bounds {:?} {:?}",
+                source.file, source.path_id, world.translation, bounds.center, bounds.half_extents
+            );
+        }
+        return Ok(!scene.index.contains(key));
+    };
+    if !rebuilding && !scene.index.contains(key) {
+        return Ok(false);
+    }
+    let animated = mesh.animated();
     let input = CasterInput {
         bounds,
         state: CandidateState {
