@@ -203,7 +203,9 @@ fn upload_job(
     };
     let batch = job.payload.as_ref().unwrap();
     let _scope = job.preparation.scope(device);
+    let block = batch.format.block();
     for region in batch.regions.iter() {
+        // A BC copy covers whole blocks. A mip under 4 pixels uses its 4x4 physical size.
         queue.write_texture(
             TexelCopyTextureInfo {
                 texture: &image.texture,
@@ -218,12 +220,12 @@ fn upload_job(
             &batch.payload[region.decoded_offset..region.decoded_offset + region.decoded_bytes],
             TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(region.width * 4),
-                rows_per_image: Some(region.rows),
+                bytes_per_row: Some(batch.format.row_stride(region.width)),
+                rows_per_image: Some(region.rows.div_ceil(block)),
             },
             Extent3d {
-                width: region.width,
-                height: region.rows,
+                width: region.width.next_multiple_of(block),
+                height: region.rows.next_multiple_of(block),
                 depth_or_array_layers: 1,
             },
         );

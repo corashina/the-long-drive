@@ -1,5 +1,7 @@
 //! Checked row and mip descriptors. Raw bytes use the checked source asset reader.
-use super::{FileCatalog, FileReceipt, LightingTextureRecord, ReferenceError, SourceId, require};
+use super::{
+    ChunkFormat, FileCatalog, FileReceipt, LightingTextureRecord, ReferenceError, SourceId, require,
+};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_BATCH_BYTES: usize = 1024 * 1024;
@@ -32,6 +34,7 @@ pub struct TextureBatchRegion {
 #[serde(deny_unknown_fields)]
 pub struct TextureBatchDescriptor {
     pub source: SourceId,
+    pub format: ChunkFormat,
     pub width: u32,
     pub height: u32,
     pub mip_count: u32,
@@ -41,12 +44,6 @@ pub struct TextureBatchDescriptor {
 
 fn invalid() -> ReferenceError {
     ReferenceError("Texture batch coverage or size".into())
-}
-fn pixels(width: u32, rows: u32) -> Result<usize, ReferenceError> {
-    (width as usize)
-        .checked_mul(rows as usize)
-        .and_then(|n| n.checked_mul(4))
-        .ok_or_else(invalid)
 }
 impl TextureBatchDescriptor {
     pub fn parse(input: &[u8], decoded_bytes: usize) -> Result<Self, ReferenceError> {
@@ -64,9 +61,13 @@ impl TextureBatchDescriptor {
         Ok(descriptor)
     }
     pub fn validate(&self) -> Result<(), ReferenceError> {
+        let block = self.format.block();
+        let pixels = |width, rows| self.format.region_bytes(width, rows);
         require(
             self.width > 0
                 && self.height > 0
+                && self.width % block == 0
+                && self.height % block == 0
                 && self.mip_count > 0
                 && self.mip_count <= 32 - self.width.max(self.height).leading_zeros()
                 && !self.regions.is_empty()
@@ -92,6 +93,7 @@ impl TextureBatchDescriptor {
             require(
                 region.width == width
                     && region.row < height
+                    && region.row % block == 0
                     && region.rows > 0
                     && region.rows <= height - region.row,
                 "texture batch region dimensions",
@@ -176,7 +178,7 @@ impl LightingTextureRecord {
             let mut largest = 0;
             for _ in 0..batch.region_count {
                 let chunk = self.chunks.get(index).ok_or_else(invalid)?;
-                let bytes = pixels(chunk.width, chunk.rows)?;
+                let bytes = self.format.region_bytes(chunk.width, chunk.rows)?;
                 decoded += bytes;
                 largest = largest.max(bytes + 16);
                 index += 1;
@@ -198,6 +200,7 @@ impl LightingTextureRecord {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TextureArrayKey {
+    pub format: ChunkFormat,
     pub width: u32,
     pub height: u32,
     pub srgb: bool,
@@ -211,6 +214,7 @@ pub struct TextureArrayKey {
 impl From<&LightingTextureRecord> for TextureArrayKey {
     fn from(t: &LightingTextureRecord) -> Self {
         Self {
+            format: t.format,
             width: t.width,
             height: t.height,
             srgb: t.color_space != 0,
@@ -232,14 +236,13 @@ impl TextureArrayKey {
         {
             return Err(ReferenceError("Invalid source texture dimensions".into()));
         }
-        let bytes: u64 = (0..self.mips)
-            .map(|level| {
-                u64::from((self.width >> level).max(1))
-                    * u64::from((self.height >> level).max(1))
-                    * 4
-            })
-            .sum();
-        usize::try_from(bytes).map_err(|_| ReferenceError("Source texture size overflow".into()))
+        (0..self.mips).try_fold(0usize, |sum, level| {
+            let bytes = self
+                .format
+                .region_bytes((self.width >> level).max(1), (self.height >> level).max(1))?;
+            sum.checked_add(bytes)
+                .ok_or_else(|| ReferenceError("Source texture size overflow".into()))
+        })
     }
 }
 
@@ -293,4 +296,64 @@ pub fn texture_bank_groups<'a>(
         });
     }
     Ok(groups)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn descriptor(row: u32) -> TextureBatchDescriptor {
+        // An 8x8 BC1 chain: mips of 2x2, 1x1, 1x1 and 1x1 blocks.
+        let mut texture_offset = 0;
+        let regions = [
+            (0, 0, 8, 4),
+            (0, 4, 8, 4),
+            (1, 0, 4, 4),
+            (2, 0, 2, 2),
+            (3, 0, 1, 1),
+        ]
+        .iter()
+        .enumerate()
+        .map(|(i, &(mip, start, width, rows))| {
+            let bytes = ChunkFormat::Bc1.region_bytes(width, rows).unwrap();
+            let region = TextureBatchRegion {
+                input: FileReceipt {
+                    file: format!("reference/t.mip-{i}.bc1.smip"),
+                    bytes: bytes as u32 + 16,
+                    sha256: "0".repeat(64),
+                    image_size: None,
+                },
+                mip,
+                row: if i == 1 { row } else { start },
+                width,
+                rows,
+                texture_offset,
+                decoded_offset: texture_offset,
+                decoded_bytes: bytes,
+            };
+            texture_offset += bytes;
+            region
+        })
+        .collect();
+        TextureBatchDescriptor {
+            source: SourceId {
+                file: "a".into(),
+                path_id: 1,
+            },
+            format: ChunkFormat::Bc1,
+            width: 8,
+            height: 8,
+            mip_count: 4,
+            decoded_bytes: texture_offset,
+            regions,
+        }
+    }
+
+    #[test]
+    fn bc_regions_cover_whole_block_rows() {
+        let valid = descriptor(4);
+        valid.validate().unwrap();
+        assert_eq!(valid.decoded_bytes, 16 + 16 + 8 + 8 + 8);
+        assert!(descriptor(2).validate().is_err());
+    }
 }

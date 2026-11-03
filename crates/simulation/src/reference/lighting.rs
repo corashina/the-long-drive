@@ -328,6 +328,7 @@ impl LightingRecord {
         for t in &self.textures {
             check(
                 t.id > 0
+                    && t.format == super::ChunkFormat::Rgba8
                     && t.mip_count <= 32 - t.width.max(t.height).leading_zeros()
                     && t.width > 0
                     && t.height > 0

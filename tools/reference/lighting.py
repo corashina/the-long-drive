@@ -18,20 +18,58 @@ def resource(reader, output, suffix, payload):
     path=output/name;path.write_bytes(payload)
     return {'source':source_id(reader),'path':f'reference/{name}','sha256':hashlib.sha256(payload).hexdigest()}
 
-def texture_chunks(reader, output, payload):
-    """Bound browser reader and upload ownership without changing decoded bytes."""
-    width,height,count=struct.unpack_from('<III',payload,4)
-    chunks=[];offset=16
-    for mip in range(count):
-        w=max(1,width>>mip);h=max(1,height>>mip)
-        rows=max(1,(1024*1024)//(w*4))
+CHUNK_BYTES = 1024 * 1024
+# Bytes of one 4x4 block, or of one pixel for rgba8.
+UNIT_BYTES = {'rgba8': 4, 'bc1': 8, 'bc3': 16}
+
+
+def block(fmt):
+    return 1 if fmt == 'rgba8' else 4
+
+
+def region_bytes(fmt, width, rows):
+    b = block(fmt)
+    return -(-width // b) * -(-rows // b) * UNIT_BYTES[fmt]
+
+
+def chunk_format(obj, banked):
+    """Banked world textures keep source BC1/BC3 blocks. Fixed lighting rows stay RGBA8."""
+    if not banked or obj.m_Width % 4 or obj.m_Height % 4:
+        return 'rgba8'
+    return {10: 'bc1', 28: 'bc1', 12: 'bc3', 29: 'bc3'}.get(int(obj.m_TextureFormat), 'rgba8')
+
+
+def mip_payloads(obj, fmt):
+    if fmt != 'rgba8':
+        from .native_bc import source_blocks
+        yield from source_blocks(obj)
+        return
+    from .mips import decoded_mips
+    payload = decoded_mips(obj)
+    offset = 16
+    for mip in range(obj.m_MipCount):
+        size = region_bytes(fmt, max(1, obj.m_Width >> mip), max(1, obj.m_Height >> mip))
+        yield payload[offset:offset + size]
+        offset += size
+    if offset != len(payload):raise ValueError('Decoded texture payload length')
+
+
+def texture_chunks(reader, output, obj, fmt):
+    """Split each mip into bounded row chunks. A BC chunk starts on a block row."""
+    chunks=[];b=block(fmt)
+    for mip,data in enumerate(mip_payloads(obj, fmt)):
+        w=max(1,obj.m_Width>>mip);h=max(1,obj.m_Height>>mip)
+        if len(data)!=region_bytes(fmt,w,h):raise ValueError('Texture mip payload length')
+        rows=max(b,CHUNK_BYTES//region_bytes(fmt,w,b)*b)
+        offset=0
         for row in range(0,h,rows):
-            size=min(rows,h-row)
-            part=b'SMIP'+struct.pack('<III',w,size,1)+payload[offset:offset+w*size*4]
-            chunks.append({'data':resource(reader,output,f'mip-{mip}-row-{row}.smip',part),
+            size=min(rows,h-row);n=region_bytes(fmt,w,size)
+            part=b'SMIP'+struct.pack('<III',w,size,1)+data[offset:offset+n]
+            # A texture can also be a fixed RGBA8 row. The format suffix keeps the file names apart.
+            suffix=f'mip-{mip}-row-{row}.smip' if fmt=='rgba8' else f'mip-{mip}-row-{row}.{fmt}.smip'
+            chunks.append({'data':resource(reader,output,suffix,part),
                 'mip':mip,'row':row,'width':w,'rows':size})
-            offset+=w*size*4
-    if offset!=len(payload):raise ValueError('Decoded texture payload length')
+            offset+=n
     return chunks
 
 
@@ -41,7 +79,7 @@ BATCH_DESCRIPTOR_BYTES = 64 * 1024
 
 
 def _texture_regions(texture, output):
-    width, height, count = (texture[k] for k in ('width', 'height', 'mip_count'))
+    width, height, count, fmt = (texture[k] for k in ('width', 'height', 'mip_count', 'format'))
     if min(width, height, count) <= 0 or count > max(width, height).bit_length():
         raise ValueError('Texture batch dimensions')
     index = 0
@@ -54,7 +92,7 @@ def _texture_regions(texture, output):
                 raise ValueError('Missing texture batch region')
             chunk = texture['chunks'][index]
             rows = chunk['rows']
-            size = w * rows * 4
+            size = region_bytes(fmt, w, rows)
             if (chunk['mip'], chunk['row'], chunk['width']) != (mip, row, w) or not 0 < rows <= h-row or size > BATCH_BYTES or chunk['data']['source'] != texture['source']:
                 raise ValueError('Texture batch region coverage')
             name = chunk['data']['path']
@@ -78,14 +116,14 @@ def _batch_descriptors(texture, output):
     decoded = 0
     for region in _texture_regions(texture, output):
         if regions and (decoded + region['decoded_bytes'] > BATCH_BYTES or len(regions) == BATCH_ENTRIES):
-            yield dict(source=texture['source'], width=texture['width'], height=texture['height'], mip_count=texture['mip_count'], decoded_bytes=decoded, regions=regions)
+            yield dict(source=texture['source'], format=texture['format'], width=texture['width'], height=texture['height'], mip_count=texture['mip_count'], decoded_bytes=decoded, regions=regions)
             regions = []
             decoded = 0
         region['decoded_offset'] = decoded
         regions.append(region)
         decoded += region['decoded_bytes']
     if regions:
-        yield dict(source=texture['source'], width=texture['width'], height=texture['height'], mip_count=texture['mip_count'], decoded_bytes=decoded, regions=regions)
+        yield dict(source=texture['source'], format=texture['format'], width=texture['width'], height=texture['height'], mip_count=texture['mip_count'], decoded_bytes=decoded, regions=regions)
 
 
 def _descriptor_bytes(descriptor):
@@ -137,13 +175,12 @@ def texture(source, reader, output):
     identity=key(reader)
     if identity not in source.lighting_textures:
         obj=source.texture_object(reader)
-        from .mips import decoded_mips
-        payload=decoded_mips(obj)
+        fmt=chunk_format(obj,getattr(source,'banked_textures',False))
         s=obj.m_TextureSettings
         # The browser loads only the row chunks. Do not export whole-texture copies.
         source.lighting_textures[identity]={'id':len(source.lighting_textures)+1,'source':source_id(reader),'width':obj.m_Width,'height':obj.m_Height,
             'source_format':obj.m_TextureFormat,'sample_channel':'alpha' if obj.m_TextureFormat==1 else 'rgba','color_space':obj.m_ColorSpace,'filter_mode':s.m_FilterMode,'wrap_u':s.m_WrapU,'wrap_v':s.m_WrapV,
-            'chunks':texture_chunks(reader,output,payload),'mip_count':obj.m_MipCount,'aniso':s.m_Aniso,'mip_bias':s.m_MipBias}
+            'format':fmt,'chunks':texture_chunks(reader,output,obj,fmt),'mip_count':obj.m_MipCount,'aniso':s.m_Aniso,'mip_bias':s.m_MipBias}
     return source.lighting_textures[identity]['id']
 
 def sky_material(source, reader, output):
