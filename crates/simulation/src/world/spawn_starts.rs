@@ -332,6 +332,23 @@ impl SpawnEvaluation<'_> {
         }
         Ok(())
     }
+    /// Scene tank fluids of a StartSpawnItems copy, with the prefab tank capacity.
+    pub(super) fn start_tanks(
+        &self,
+        row: &crate::reference::WorldStartupReference,
+    ) -> Result<Vec<(SourceId, crate::fluids::FluidContainer)>, ReferenceError> {
+        row.tanks
+            .iter()
+            .map(|t| {
+                let tank = self.rules.get(self.reference, &t.source)?;
+                let capacity = number(fields(value(tank.fields, "F")?)?, "maxC")?;
+                Ok((
+                    t.source.clone(),
+                    crate::fluids::FluidContainer::new(capacity, &t.fluids),
+                ))
+            })
+            .collect()
+    }
     /// Source `tipus.tank`: the variant replaces the tank fluids (Car06 start car diesel pick).
     /// It runs after `RandomSpawned`, so it also replaces a random primary fluid.
     fn selector_fluid(

@@ -482,6 +482,13 @@ impl StructureViews {
                 },
             );
         }
+        // Source `carscript.UpdPedal`: car pedals and handbrake lever.
+        if let Some((record, vehicle)) = car {
+            let rest = |n: u32| prototype.nodes[n as usize].transform;
+            for (n, pose) in vehicle.control_pedals.poses(&record.control_pedals, rest) {
+                local(n as usize, pose);
+            }
+        }
         // Source `bikepedalscript.UpdPedals`: turned pedals and level feet holders.
         if let Some((record, vehicle)) = car
             && let Some(r) = &record.pedals

@@ -3,7 +3,6 @@ import copy
 import hashlib
 import json
 import re
-import shutil
 from pathlib import Path
 from .library.reader import checked
 from .library.types import ObjectId
@@ -257,7 +256,7 @@ def car_voice(templates, record):
 
 
 # AudioSources that the car sound records own. Other voice lists skip them.
-CAR_SOURCES={'enginescript':('SAlap','SMotor'),'carscript':('SHornSound','SSounds','CoolantBoil'),
+CAR_SOURCES={'enginescript':('SAlap','SMotor'),'carscript':('SHornSound','SSounds','SValtoSound','CoolantBoil'),
     'talajnezo':('GroundSource','SpringSource','SlideSource')}
 
 
@@ -301,7 +300,7 @@ def engine_audio(source, reader, sound, shot):
 
 
 def car_audio(source, car_reader, wheels, cycle, sound, shot):
-    """carscript horn and switch sounds and talajnezo wheel sounds, in the chassis (`RB`) frame.
+    """carscript horn, switch and handbrake sounds and talajnezo wheel sounds, in the chassis (`RB`) frame.
 
     `wheels` holds the GroundSource, SpringSource and SlideSource readers of each wheel, in wheel effect order.
     """
@@ -310,11 +309,13 @@ def car_audio(source, car_reader, wheels, cycle, sound, shot):
     owner=source.transform_for(source.resolve(body,source.read(body)['m_GameObject']))
     horn=source.resolve(car_reader,d['SHornSound'])
     switch=source.resolve(car_reader,d['SSounds'])
+    shift=source.resolve(car_reader,d['SValtoSound'])
     boil=source.resolve(car_reader,d['CoolantBoil'])
     return {'horn':None if horn is None else {'sound':sound(horn,owner,None),'stimulus':sound_stimulus(source,[horn],owner),
             'pitch':[d['HornPitchMin'],d['HornPitchMax']],'temperature':[cycle['tempNights'][0],cycle['tempDays'][0]],
             'attack_release_rate':10.},
         'switch':None if switch is None else shot(car_reader,d['turnedRadioSOund'],1.,switch,owner),
+        'handbrake':None if shift is None else shot(car_reader,d['handbrakeSound'],1.,shift,owner),
         'boil':None if boil is None else {'sound':sound(boil,owner,None),'max_gain':d['coolantBoilMaxSound']},
         'wheels':[{field:sound(w[field],owner,None) for field in ('ground','spring','slide')} for w in wheels],
         'route':None}
@@ -334,12 +335,45 @@ def car_route(source, reader, interiors, mixer):
         'car_mixer':mixer(source.resolve(reader,d['GCarSounds'])) if d['GCarSounds']['m_PathID'] else None}
 
 
+OPUS_RATE = 48000
+OPUS_CHANNEL_BITS = 48000
+WAV_ONLY = ('format', 'format_tag', 'bits_per_sample', 'block_align', 'data_bytes')
+
+
+def encode_opus(source: Path, target: Path, channels: int) -> None:
+    """Encode one WAV clip to Ogg Opus. Bitexact muxing gives the same bytes on each export."""
+    import av
+    if channels not in (1, 2):
+        raise ValueError(f'Opus clip needs 1 or 2 channels: {source}')
+    with av.open(str(source)) as reader, av.open(str(target), 'w', format='ogg', options={'fflags': '+bitexact'}) as writer:
+        stream = writer.add_stream('libopus', rate=OPUS_RATE, layout='mono' if channels == 1 else 'stereo')
+        stream.bit_rate = OPUS_CHANNEL_BITS * channels
+        resampler = av.AudioResampler(format='s16', layout=stream.layout, rate=OPUS_RATE)
+        for frame in [*reader.decode(audio=0), None]:
+            for samples in resampler.resample(frame):
+                writer.mux(stream.encode(samples))
+        writer.mux(stream.encode(None))
+
+
+def opus_frames(path: Path) -> tuple[int, int]:
+    """Decode an exported clip. Return its channel count and 48 kHz frame count."""
+    import av
+    with av.open(str(path)) as reader:
+        stream = reader.streams.audio[0]
+        if stream.codec_context.name != 'opus' or stream.rate != OPUS_RATE:
+            raise ValueError(f'Runtime clip is not 48 kHz Opus: {path}')
+        return stream.channels, sum(frame.samples for frame in reader.decode(stream))
+
+
 def copy_audio(library, identity: ObjectId, clip_id: int, output: Path, usage: str) -> dict:
     path, metadata = library.audio(identity)
-    name = f'audio-{identity.file}-{identity.path_id}.wav'
-    shutil.copyfile(path, output / name)
+    name = f'audio-{identity.file}-{identity.path_id}.ogg'
+    encode_opus(path, output / name, metadata['channels'])
+    data = (output / name).read_bytes()
+    clip = {k: v for k, v in metadata.items() if k not in WAV_ONLY}
     return {'id': clip_id, 'source': {'file':identity.file,'path_id':identity.path_id},
-        'path': 'reference/' + name, 'usages':[usage], **metadata}
+        'path': 'reference/' + name, 'usages':[usage], **clip,
+        'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
 
 
 def recover_audio(source, roots: dict, manifest: dict, library, output: Path) -> dict:
@@ -875,13 +909,13 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
 
 def validate_audio_export(audio: dict, output: Path) -> None:
     """Check each exported clip file against its record. The Rust contract owns the record schema."""
-    from .library.audio import validate_wav
     for c in audio['clips']:
         name=c['path'].removeprefix('reference/')
         checked(output,{'file':name,'bytes':c['bytes'],'sha256':c['sha256']})
-        actual=validate_wav(output/name,{'m_Channels':c['channels'],'m_Frequency':c['frequency'],
-            'm_BitsPerSample':c['bits_per_sample'],'m_Length':c['source_duration_seconds']})
-        if any(c[k]!=v for k,v in actual.items()):raise ValueError('Runtime WAV metadata mismatch')
+        channels,frames=opus_frames(output/name)
+        # The resampler may round the clip end by one source frame.
+        if channels!=c['channels'] or abs(frames-c['frames']*OPUS_RATE/c['frequency'])>OPUS_RATE/c['frequency']+1:
+            raise ValueError(f'Runtime Opus clip differs from source samples: {name}')
 
 
 def recover_ambient(source):

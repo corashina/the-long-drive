@@ -156,13 +156,6 @@ impl UiReference {
             )?;
         }
         for role in [
-            "start",
-            "start-controls",
-            "continue",
-            "controls",
-            "restart",
-            "recover",
-            "back",
             "use",
             "pickup",
             "mount",

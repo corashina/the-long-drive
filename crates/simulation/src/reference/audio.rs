@@ -25,8 +25,7 @@ record!(AudioMethod {
 });
 record!(AudioClipReference {
     id: u32, source: SourceId, usages: Vec<String>, path: String, sha256: String, bytes: u64,
-    format: String, format_tag: u16, channels: u16, frequency: u32, bits_per_sample: u16,
-    block_align: u16, data_bytes: u64, frames: u64, duration_seconds: f64,
+    channels: u16, frequency: u32, frames: u64, duration_seconds: f64,
     source_duration_seconds: f64, duration_delta_seconds: f64, duration_delta_frames: f64,
     duration_tolerance_frames: f64, duration_status: String
 });
@@ -261,8 +260,6 @@ impl AudioReference {
             require(!set.contains(&0), "audio zero ID")?;
         }
         for c in &self.clips {
-            let block_align = c.channels.checked_mul(c.bits_per_sample / 8);
-            let data_bytes = c.frames.checked_mul(u64::from(c.block_align));
             require(
                 !c.usages.is_empty() && c.usages.iter().all(|u| u == "effect" || u == "radio"),
                 "audio clip usage",
@@ -271,16 +268,12 @@ impl AudioReference {
                 hash(&c.sha256)
                     && c.source.path_id != 0
                     && c.path
-                        == format!("reference/audio-{}-{}.wav", c.source.file, c.source.path_id)
+                        == format!("reference/audio-{}-{}.ogg", c.source.file, c.source.path_id)
                     && !c.source.file.contains(['/', '\\', ':'])
-                    && c.channels > 0
+                    && (1..=2).contains(&c.channels)
                     && c.frequency > 0
                     && c.frames > 0
-                    && c.bits_per_sample > 0
-                    && c.bits_per_sample % 8 == 0
-                    && block_align == Some(c.block_align)
-                    && data_bytes == Some(c.data_bytes)
-                    && c.bytes > c.data_bytes
+                    && c.bytes > 0
                     && [
                         c.duration_seconds,
                         c.source_duration_seconds,
@@ -518,6 +511,7 @@ impl AudioReference {
                     && rising(h.temperature)
                     && h.attack_release_rate > 0.
             }) && a.switch.as_ref().is_none_or(shot)
+                && a.handbrake.as_ref().is_none_or(shot)
                 && a.boil.as_ref().is_none_or(|b| {
                     loop_voice(&b.sound) && b.max_gain.is_finite() && b.max_gain >= 0.
                 })

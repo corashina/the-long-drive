@@ -40,6 +40,10 @@ impl SpawnEvaluation<'_> {
         let f = record.fields;
         let color = fields(value(f, "color")?)?;
         let index = self.initialization.conditions.len();
+        let state = match self.start_condition_row(parent, record.source) {
+            Some(c) => c.state,
+            None => integer(f, "state")?,
+        };
         self.initialization.conditions.push(ConditionState {
             parent: parent.id.clone(),
             source: record.source.clone(),
@@ -47,11 +51,7 @@ impl SpawnEvaluation<'_> {
             set_random: flag(f, "setRandom")?,
             selected: integer(f, "slectedRandomTipus")?,
             kind: text(f, "tipus")?.to_owned(),
-            states: [
-                integer(f, "state")?,
-                integer(f, "state2")?,
-                integer(f, "state3")?,
-            ],
+            states: [state, integer(f, "state2")?, integer(f, "state3")?],
             child_new_color: flag(f, "isChildnewColor")?,
             color: [
                 number(color, "r")?,
@@ -299,20 +299,23 @@ struct RandomStart {
     override_max: Option<i32>,
 }
 impl SpawnEvaluation<'_> {
+    /// The scene start condition of `source` on a startup placement root.
+    fn start_condition_row(
+        &self,
+        parent: &Placement,
+        source: &SourceId,
+    ) -> Option<&crate::reference::WorldStartCondition> {
+        self.reference
+            .startup_row(&parent.id)
+            .and_then(|s| s.conditions.iter().find(|c| &c.source == source))
+    }
     /// The random start fields of `record`. The picked start car takes its scene values.
     fn random_start(
         &self,
         parent: &Placement,
         record: SourceRecord<'_>,
     ) -> Result<RandomStart, ReferenceError> {
-        if parent.id.layer == super::WorldLayer::Startup
-            && parent.id.children.is_empty()
-            && let Some(c) = self
-                .reference
-                .startup
-                .get(parent.id.ordinal as usize)
-                .and_then(|s| s.conditions.iter().find(|c| &c.source == record.source))
-        {
+        if let Some(c) = self.start_condition_row(parent, record.source) {
             return Ok(RandomStart {
                 start: c.random_start,
                 min: c.random_min,

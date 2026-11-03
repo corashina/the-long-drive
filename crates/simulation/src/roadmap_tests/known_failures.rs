@@ -297,3 +297,96 @@ fn tp_k7_a_seated_player_changes_seat_in_the_same_car() {
     );
     assert_eq!(player.seat_vehicle().cloned(), car, "in the same car");
 }
+
+/// K8. Renderer loads can hold all staging while a held item changes every frame, as the spray
+/// bottle count does. The changed destination selection waits for staging room and the game
+/// does not stop with "Changed destination selection exceeds staging admission".
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k8_full_renderer_staging_does_not_stop_a_changing_held_item() {
+    use crate::world::stream::STAGING;
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let item = find(&run, "OilCan");
+    hold_renderer_staging(&mut run.stream, STAGING);
+    pick_up(&mut run, &reference, item);
+    // `frame` fails the test on a stream failure.
+    for step in 0..60 {
+        look(&mut run, (step % 20) as f32 * 3., 0.);
+        frame(&mut run, &reference);
+    }
+    hold_renderer_staging(&mut run.stream, 0);
+    seconds(&mut run, &reference, 1.);
+    assert!(run.world_supported(), "the world stays ready");
+}
+
+/// K9. Source `fpscontroller` `Bbinoculars`: LMB with the binoculars in the hand looks through
+/// them. The frame input route keeps LMB for the fixed step, and the frame state has the
+/// binocular camera.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k9_lmb_looks_through_the_binoculars_in_the_hand() {
+    use crate::boundary::StateBlock;
+    use crate::simulation::{FIXED_DT, FrameInput, keys};
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let hand = r#"{"action":"hand","name":"binoculars"}"#;
+    for _ in 0..30 {
+        if act(&mut run, &reference, hand)["pending"] != true {
+            break;
+        }
+        seconds(&mut run, &reference, 1.);
+    }
+    let held = |run: &GarageRuntime| {
+        run.area
+            .interaction
+            .equipment
+            .item()
+            .or(run.area.interaction.held())
+    };
+    assert!(held(&run).is_some(), "the binoculars are in the hand");
+    let press = |run: &mut GarageRuntime, input: FrameInput| {
+        let view = run.area.player.view(&run.physics).head_pose;
+        let fixed = run
+            .advance_inventory_frame(&reference, input, FIXED_DT, view)
+            .fixed_input;
+        frame_with(run, &reference, fixed);
+    };
+    let lmb = FrameInput {
+        held: keys::PRIMARY,
+        pressed: keys::PRIMARY,
+        ..Default::default()
+    };
+    press(&mut run, lmb);
+    press(
+        &mut run,
+        FrameInput {
+            held: keys::PRIMARY,
+            ..Default::default()
+        },
+    );
+    let used = run.area.interaction.binoculars.active();
+    assert_eq!(
+        used.map(|b| Some(b.item)),
+        Some(held(&run)),
+        "LMB uses the binoculars"
+    );
+    let mut frame = crate::boundary::SimFrame::default();
+    run.fill_frame(&reference, 1., &mut frame);
+    let flags = frame.state.flags;
+    assert!(
+        flags & StateBlock::BINOCULARS != 0,
+        "the view is the binocular camera"
+    );
+    press(
+        &mut run,
+        FrameInput {
+            released: keys::PRIMARY,
+            ..Default::default()
+        },
+    );
+    assert!(
+        run.area.interaction.binoculars.active().is_none(),
+        "release ends the use"
+    );
+}
