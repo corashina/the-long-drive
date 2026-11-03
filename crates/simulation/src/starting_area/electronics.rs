@@ -1,4 +1,4 @@
-//! Source `empscript` and `electronicsscript` updates: EMPs jam the electronics in range.
+//! Source `empscript` and `electronicsscript` updates. EMPs jam the electronics in range.
 use super::GarageRuntime;
 use crate::reference::ReferenceManifest;
 
@@ -12,7 +12,7 @@ impl GarageRuntime {
             emp.advance(dt);
         }
         let emps = &self.emps;
-        // Car electronics sit on the car hierarchy: the chassis position stands for each node.
+        // Car electronics sit on the car hierarchy. The chassis position stands for each node.
         for (key, vehicle) in &mut self.vehicles {
             if vehicle.electronics.is_empty() {
                 continue;

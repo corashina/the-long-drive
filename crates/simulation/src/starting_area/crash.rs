@@ -1,4 +1,4 @@
-//! Car crash step: source `carscript.Update` calls `DamageStuff(|speed - lspeed|)`.
+//! Car crash step. Source `carscript.Update` calls `DamageStuff(|speed - lspeed|)`.
 use super::GarageRuntime;
 use crate::car::VehicleRuntime;
 use crate::crash::{Blood, Candidate, Flags, HornHit};
@@ -45,7 +45,7 @@ impl GarageRuntime {
         self.vehicles = vehicles;
     }
 
-    /// Source `carscript.DamageStuff(v)` on car `key`: the crash step and blasts call it.
+    /// Source `carscript.DamageStuff(v)` on car `key`. The crash step and blasts call it.
     /// The caller takes `vehicle` out of `self.vehicles`.
     pub(crate) fn crash_car(
         &mut self,
@@ -142,7 +142,7 @@ impl GarageRuntime {
             )
         };
         let parts = &self.area.interaction.parts;
-        // The port keeps the player seated: a part that holds the player's seat stays on.
+        // The port keeps the player seated. A part that holds the player's seat stays on.
         let seat = self.area.player.seat_item();
         let holds_seat =
             |item| seat.is_some_and(|s| parts.holds(item, s) || under(items, wheels, s, item));

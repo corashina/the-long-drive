@@ -234,7 +234,7 @@ pub fn layout_text(
     }
     if !mesh.vertices.is_empty() {
         let max_advance = advance - last_spacing;
-        // TMP alignment: 1 left, 2 center; 256 top, 512 middle. Margins are left, top, right, bottom.
+        // TMP alignment: 1 left, 2 center, 256 top, 512 middle. Margins are left, top, right, bottom.
         let [w, h] = layout.bounds;
         let [left, top, right, bottom] = layout.margin;
         let dx = if layout.horizontal_alignment == 1 {

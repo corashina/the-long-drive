@@ -198,7 +198,7 @@ impl StructureViews {
         for lamp in stream.presentation_lamps() {
             owners(self.lamp_slots.get(&lamp), &mut self.selection);
         }
-        // Cobweb changes are rare: a cleaned or start-disabled trigger.
+        // Cobweb changes are rare. They come from a cleaned or start-disabled trigger.
         for id in stream.cobweb_changes() {
             if let Some(&slot) = self.slots.get(id) {
                 self.selection.push(slot as usize);
@@ -412,7 +412,7 @@ impl StructureViews {
         if let Some(item) = food {
             check_food(reference, prototype, item)?;
         }
-        // Source `wearedRenderer.make = !otherView()`: other views show worn items.
+        // Source `wearedRenderer.make = !otherView()`. Other views show worn items.
         if !inputs.other_view
             && entry
                 .food
@@ -421,7 +421,7 @@ impl StructureViews {
         {
             row.flags |= StructureRow::WORN;
         }
-        // Source `makeinvisible` of the used binoculars: the camera does not draw the item.
+        // Source `makeinvisible` of the used binoculars. The camera does not draw the item.
         if entry.food.is_some() && entry.food == inputs.binoculars {
             row.flags |= StructureRow::CAMERA_HIDDEN;
         }
@@ -634,7 +634,7 @@ impl StructureViews {
             });
         }
         let tool = stream.tool_look(id);
-        // drotkefescript: the brush model slides on the contact.
+        // In drotkefescript, the brush model slides on the contact.
         if let Some((node, pose)) = tool.and_then(|t| t.model) {
             poses.push(NodePoseRow {
                 node: node as u32,
@@ -660,7 +660,7 @@ impl StructureViews {
             row.flags |= StructureRow::LAMP;
             row.lamp = color;
         }
-        // displayscript.Upd: on shows defMaterial with the computer output as _EmissionMap.
+        // displayscript.Upd. A display that is on shows defMaterial with the computer output as _EmissionMap.
         if let Some((on, map)) = stream.display_screen(id) {
             row.flags |= StructureRow::DISPLAY;
             if on {
@@ -759,7 +759,7 @@ impl StructureViews {
                 });
             }
         }
-        // sprayscript.UpdColor: the renderer shows the paint color.
+        // For sprayscript.UpdColor, the renderer shows the paint color.
         if let Some((node, color)) = tool.and_then(|t| t.color) {
             frame.node_colors.push(NodeColorRow {
                 node: node as u32,

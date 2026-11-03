@@ -489,7 +489,7 @@ impl PhysicsWorld {
         self.vehicle(key).driven_wheel_count()
     }
 
-    /// Sets the vehicle mass without locked cargo. The cargo mass is added.
+    /// Sets the vehicle mass without locked cargo. It adds the cargo mass.
     pub fn set_vehicle_mass(&mut self, key: &ObjectKey, mass_kg: f32) {
         let vehicle = self.vehicle(key);
         let (chassis, mass_kg) = (vehicle.chassis, mass_kg + vehicle.cargo_mass);
@@ -765,7 +765,7 @@ impl PhysicsWorld {
     }
 }
 
-/// Wheel ray rule: never the own body, and of vehicle colliders only chassis.
+/// Wheel ray rule. The ray never hits its own body, and of vehicle colliders it hits only chassis.
 fn wheel_ground(
     own: RigidBodyHandle,
     chassis: &[RigidBodyHandle],

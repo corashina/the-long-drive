@@ -51,7 +51,7 @@ impl ExhaustState {
         physics: &PhysicsWorld,
     ) {
         self.elapsed += dt;
-        // Source: without a tank the smoke keeps its last color.
+        // In the source, the smoke keeps its last color without a tank.
         let color = (input.running && self.elapsed >= self.next_color)
             .then_some(input.tank)
             .flatten()
@@ -74,7 +74,7 @@ impl ExhaustState {
     }
 }
 
-/// Source `GetBurnColor`: each fluid adds its color by share; each later fluid halves the sum.
+/// Source `GetBurnColor`. Each fluid adds its color by share. Each later fluid halves the sum.
 fn burn_color(tank: &FluidContainer, colors: &[[f32; 4]; 6]) -> [f32; 4] {
     let total = tank.total();
     let mut color = [0.; 4];
@@ -93,7 +93,7 @@ fn burn_color(tank: &FluidContainer, colors: &[[f32; 4]; 6]) -> [f32; 4] {
     color
 }
 
-/// Source smoke emission rate: scales with rpm while the engine runs.
+/// Source smoke emission rate. It scales with rpm while the engine runs.
 pub fn smoke_rate(running: bool, rpm: f32, max_rpm: f32, rate: f32) -> f32 {
     if running {
         inverse_lerp(0., max_rpm, rpm) * rate

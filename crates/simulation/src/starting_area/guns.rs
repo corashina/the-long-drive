@@ -80,7 +80,7 @@ impl GarageRuntime {
                 .set_node_light(&parent, node, intensity.is_some(), intensity.unwrap_or(0.));
         }
         for sound in interaction.guns.take_sounds() {
-            // Source `SWeaponShot`: other players hear the shot.
+            // Source `SWeaponShot`. Other players hear the shot.
             if self.shared_sounds.len() < self.shared_sounds.capacity() {
                 self.shared_sounds.push(crate::net::message::SoundMessage {
                     position: sound.position,
@@ -351,7 +351,7 @@ impl GarageRuntime {
             self.stream.set_ammo_item(id, ammo, &mut self.area.items);
         }
     }
-    /// The magazine went into a gun: `Destroy`.
+    /// Source `Destroy` of a magazine that went into a gun.
     fn consume_magazine(&mut self, source: ItemId) {
         let area = &mut self.area;
         if area.interaction.held() == Some(source) {

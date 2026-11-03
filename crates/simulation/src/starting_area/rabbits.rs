@@ -1,4 +1,4 @@
-//! Rabbit deaths: `aiscript.Die` turns the live body into ragdoll bones that the player can
+//! Rabbit deaths. `aiscript.Die` turns the live body into ragdoll bones that the player can
 //! carry, and `nyulscript.Die` plays a die clip. Evil rabbit clips and attack triggers.
 use super::GarageRuntime;
 use crate::creatures::ragdoll::Bone;
@@ -159,7 +159,7 @@ impl GarageRuntime {
         Ok(())
     }
 
-    /// Source `itemPlaceRemoveScript`: rabbits away from every important object unload, and far
+    /// Source `itemPlaceRemoveScript`. Rabbits away from every important object unload, and far
     /// rabbits near one come back where the world is loaded. The spawner then refills its slots.
     pub(super) fn place_remove_rabbits(
         &mut self,

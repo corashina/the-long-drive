@@ -45,7 +45,7 @@ impl StartingArea {
                 physics,
             )
             .expect("validated equipment receipt");
-        // Source RightHandRelease: Drop leaves pickedUpPoint on TpickedUpParent.
+        // In source RightHandRelease, Drop leaves pickedUpPoint on TpickedUpParent.
         self.interaction.carry.grip_at_anchor();
         physics.refresh_queries();
         Ok(true)
@@ -603,12 +603,12 @@ impl GarageRuntime {
         );
         let mut look_input = input;
         if self.area.interaction.guns.reloading {
-            // fpscontroller.reloading: R with a gun moves the gun, not the view or the carry.
+            // fpscontroller.reloading. R with a gun moves the gun, not the view or the carry.
             look_input.mouse = [0.; 2];
             look_input.wheel = 0.;
         }
         if self.driving_input.mouse_owned() {
-            // Source `inputscript.mouseDrive`: mouse look axes read zero.
+            // Source `inputscript.mouseDrive`. The mouse look axes read zero.
             look_input.mouse = [0.; 2];
         }
         let mut fixed_input =

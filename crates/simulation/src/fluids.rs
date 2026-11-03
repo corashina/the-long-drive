@@ -1,4 +1,4 @@
-//! Six-fluid containers owned by the item store.
+//! Six-fluid containers. The item store owns them.
 
 use crate::reference::TankReference;
 use serde::{Deserialize, Serialize};
@@ -136,7 +136,7 @@ impl FluidContainer {
         self.entries().map(|entry| entry.amount).sum()
     }
 
-    /// Finite derived volume for physics and presentation only.
+    /// The finite derived volume. Only physics and presentation use it.
     pub fn finite_total(&self) -> f32 {
         let total = self.total();
         if total.is_finite() { total } else { 0. }
@@ -231,7 +231,7 @@ pub struct VehicleFluids<'a> {
     pub coolant: Option<&'a mut FluidContainer>,
 }
 
-/// Both helpers receive amounts after caller sleep scaling.
+/// Both helpers receive amounts after the caller applies sleep scaling.
 pub fn transfer(source: &mut FluidContainer, destination: &mut FluidContainer, liters: f32) -> f32 {
     drink_transfer(source, destination, liters, false, false)
 }
