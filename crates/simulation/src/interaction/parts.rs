@@ -565,17 +565,7 @@ impl PartAttachments {
         if self.slots[s].part.is_some() {
             return Err(error("Generated initial slot occupied"));
         }
-        self.parts[i].slot = Some(s);
-        self.slots[s].part = Some(i);
-        physics.edit_body(self.parts[i].body.unwrap(), |body| body.set_enabled(false));
-        items.get_mut(item).unwrap().location = ItemLocation::PartSlot(id);
-        let old = to_rapier(items.get(item).unwrap().pose);
-        let world = self.slots[s].mount_pose
-            * Pose::from_rotation(rotation(self.parts[i].reference.local_rotation_after_mount));
-        self.move_assembly(i, old, world, items, physics);
-        self.cache_assembly_mass(items);
-        self.sync(items, physics)?;
-        Ok(())
+        self.mount(i, s, item, id, items, physics)
     }
     pub fn remove_generated(&mut self, item: ItemId) {
         let Some(index) = self.indices.remove(&item) else {
@@ -923,6 +913,20 @@ impl PartAttachments {
         }
         let i = self.indices[&item];
         let s = self.slot_indices[&id];
+        self.mount(i, s, item, id, items, physics)?;
+        physics.refresh_queries();
+        Ok(())
+    }
+    /// Puts part `i` into slot `s` and moves its assembly to the mount pose.
+    fn mount(
+        &mut self,
+        i: usize,
+        s: usize,
+        item: ItemId,
+        id: PartSlotId,
+        items: &mut ItemStore,
+        physics: &mut PhysicsWorld,
+    ) -> Result<(), ReferenceError> {
         self.parts[i].slot = Some(s);
         self.slots[s].part = Some(i);
         physics.edit_body(self.parts[i].body.unwrap(), |body| body.set_enabled(false));
@@ -933,7 +937,6 @@ impl PartAttachments {
         self.move_assembly(i, old, world, items, physics);
         self.cache_assembly_mass(items);
         self.sync(items, physics)?;
-        physics.refresh_queries();
         Ok(())
     }
     fn move_assembly(

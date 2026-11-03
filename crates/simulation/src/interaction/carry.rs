@@ -131,6 +131,28 @@ fn anchor_pose(
     )
 }
 
+/// Source `Recenter`: moves the held item back to its rule offset and rotation.
+fn recenter_held(
+    reference: &PlayerReference,
+    rule: &PickupReference,
+    held: &mut HeldState,
+    view: Rotation,
+    rotation_frame: Rotation,
+) {
+    held.offset = if rule.use_recenter_position {
+        Vector::from_array(rule.recenter_position)
+    } else {
+        Vector::from_array(reference.carry_anchor_offset) * rule.recenter_distance
+    };
+    held.rotation = rotation_frame.inverse()
+        * view
+        * if rule.use_recenter_rotation {
+            Rotation::from_array(rule.recenter_rotation)
+        } else {
+            Rotation::IDENTITY
+        };
+}
+
 impl CarryState {
     pub fn restore_save(
         &mut self,
@@ -564,18 +586,7 @@ impl CarryState {
             view.rotation
         };
         held.grip = None;
-        held.offset = if rule.use_recenter_position {
-            Vector::from_array(rule.recenter_position)
-        } else {
-            Vector::from_array(self.reference.carry_anchor_offset) * rule.recenter_distance
-        };
-        held.rotation = rotation_frame.inverse()
-            * view.rotation
-            * if rule.use_recenter_rotation {
-                Rotation::from_array(rule.recenter_rotation)
-            } else {
-                Rotation::IDENTITY
-            };
+        recenter_held(&self.reference, rule, held, view.rotation, rotation_frame);
     }
     pub fn step(
         &mut self,
@@ -613,18 +624,7 @@ impl CarryState {
         let rotating = input.held & keys::ROTATE != 0;
         let moving = input.held & keys::TRANSLATE != 0;
         if (input.held | input.pressed) & keys::RECENTER != 0 {
-            held.offset = if rule.use_recenter_position {
-                Vector::from_array(rule.recenter_position)
-            } else {
-                Vector::from_array(self.reference.carry_anchor_offset) * rule.recenter_distance
-            };
-            held.rotation = rotation_frame.inverse()
-                * view.rotation
-                * if rule.use_recenter_rotation {
-                    Rotation::from_array(rule.recenter_rotation)
-                } else {
-                    Rotation::IDENTITY
-                };
+            recenter_held(&self.reference, rule, held, view.rotation, rotation_frame);
         } else {
             if input.wheel.is_finite()
                 && wheel_allowed(input, tuning_available, player.view_owns_look_input())
