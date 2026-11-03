@@ -4120,9 +4120,14 @@ impl WorldStream {
         let fixed_decoration = self.fixed_decoration(placement);
         let (binding_reservation, binding_objects) =
             self.binding_reservation(prototype, &placement.id, fixed_decoration)?;
+        let appearance = self.appearance(&placement.id);
+        // A scaled or moving collider shape builds its own recipe.
+        let scaled = (placement.scale != prototype.prefab_pose.scale
+            || super::instances::moves_colliders(prototype, appearance))
+        .then(|| super::StructureRecipe::reservation(prototype));
         // Renderer staging credit is transient. The publication waits for it to come back.
         if !self.ledger.wait_for_room(
-            binding_reservation <= self.available_dependency_staging_bytes(),
+            binding_reservation + scaled.unwrap_or(0) <= self.available_dependency_staging_bytes(),
             Reclaim::STAGING,
         ) {
             return Ok(());
@@ -4144,22 +4149,8 @@ impl WorldStream {
                 "Source generated bindings exceed admission budget".into(),
             ));
         }
-        let appearance = self.appearance(&placement.id);
-        let instance = if placement.scale == prototype.prefab_pose.scale
-            && !super::instances::moves_colliders(prototype, appearance)
-        {
-            self.recipes[&placement.prototype].publish(
-                placement.clone(),
-                self.origin,
-                fixed_decoration,
-                physics,
-                &mut self.trigger_roles,
-            )?
-        } else {
-            let extra = super::StructureRecipe::reservation(prototype);
-            if self.metrics().active_cpu_bytes.saturating_add(extra * 2) > self.limits.active_cpu
-                || extra + binding_reservation > self.available_dependency_staging_bytes()
-            {
+        let instance = if let Some(extra) = scaled {
+            if self.metrics().active_cpu_bytes.saturating_add(extra * 2) > self.limits.active_cpu {
                 return Err(ReferenceError(
                     "Source scaled collision exceeds allocation budget".into(),
                 ));
@@ -4179,6 +4170,14 @@ impl WorldStream {
             )?;
             instance.cpu_bytes += extra;
             instance
+        } else {
+            self.recipes[&placement.prototype].publish(
+                placement.clone(),
+                self.origin,
+                fixed_decoration,
+                physics,
+                &mut self.trigger_roles,
+            )?
         };
         let appearance = self.appearance(&placement.id);
         for (index, body) in prototype.bodies.iter().enumerate() {
