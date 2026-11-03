@@ -94,12 +94,11 @@ impl WorldStream {
                 == rapier3d::prelude::RigidBodyType::KinematicPositionBased
         }) && items.get(id).is_some_and(|i| !i.buried)
             && self.contents.active().iter().any(|c| c.item == Some(id))
+            && let Some(previous) = self.changes.get(&key).and_then(|c| c.snapshot.as_ref())
         {
-            if let Some(previous) = self.changes.get(&key).and_then(|c| c.snapshot.as_ref()) {
-                snapshot.linear_velocity = previous.linear_velocity;
-                snapshot.angular_velocity = previous.angular_velocity;
-                snapshot.sleeping = previous.sleeping;
-            }
+            snapshot.linear_velocity = previous.linear_velocity;
+            snapshot.angular_velocity = previous.angular_velocity;
+            snapshot.sleeping = previous.sleeping;
         }
         Some(snapshot)
     }
@@ -191,15 +190,13 @@ impl WorldStream {
                     .supplies
                     .iter()
                     .find(|s| s.items.is_some_and(|(a, b)| a == id || b == id))
-                {
-                    if let Some(instance) = self
+                    && let Some(instance) = self
                         .structures
                         .iter()
                         .find(|s| s.placement.id == supply.key)
-                    {
-                        self.changes
-                            .set_replay(&key, &instance.placement, &supply.key);
-                    }
+                {
+                    self.changes
+                        .set_replay(&key, &instance.placement, &supply.key);
                 }
             }
         }
@@ -285,9 +282,10 @@ impl WorldStream {
                     components += 1;
                     parts += usize::from(matches!(class, "partscript" | "partslotscript"));
                     fields_bytes += match record.fields {
-                        Fields::Record(fields) => {
-                            fields.values().map(|v| v.input_heap_bytes()).sum::<usize>()
-                        }
+                        Fields::Record(fields) => fields
+                            .values()
+                            .map(crate::reference::world::WorldValue::input_heap_bytes)
+                            .sum::<usize>(),
                         Fields::Compact(fields) => fields
                             .iter()
                             .map(|f| f.value.input_heap_bytes())
@@ -431,29 +429,6 @@ impl WorldStream {
                     .chain(c.bindings.iter().map(|b| (b.item, &b.baseline)))
             })
     }
-    pub fn generated_cap_visuals(
-        &self,
-        id: &crate::world::GeneratedId,
-    ) -> &[crate::world::GeneratedCapVisual] {
-        self.contents
-            .active()
-            .iter()
-            .find(|c| &c.content.placement.id == id)
-            .map_or(&[], |c| c.caps.as_slice())
-    }
-    pub fn generated_node_pose(
-        &self,
-        id: &crate::world::GeneratedId,
-        node: usize,
-    ) -> Option<crate::vehicle::VehiclePose> {
-        self.contents
-            .active()
-            .iter()
-            .chain(&self.static_controls)
-            .find(|c| &c.content.placement.id == id)
-            .and_then(|c| c.poses.get(node))
-            .copied()
-    }
     /// The bound item of a door `usablescript` in a published structure.
     pub fn door_item(
         &self,
@@ -513,7 +488,7 @@ impl WorldStream {
             if let Some(item) = content.item {
                 unbind_storage(
                     item,
-                    &self.contents.active(),
+                    self.contents.active(),
                     items,
                     interaction,
                     physics,
@@ -535,22 +510,21 @@ impl WorldStream {
             for binding in &content.bindings {
                 if let (Some(state), Some((body, local))) =
                     (items.get(binding.item), binding.render_body)
+                    && state.body != Some(body)
                 {
-                    if state.body != Some(body) {
-                        let pose = to_rapier(state.pose) * to_rapier(local).inverse();
-                        if physics.rapier().bodies[body].position() != &pose {
-                            physics.edit_body(body, |state| state.set_position(pose, false));
-                        }
+                    let pose = to_rapier(state.pose) * to_rapier(local).inverse();
+                    if physics.rapier().bodies[body].position() != &pose {
+                        physics.edit_body(body, |state| state.set_position(pose, false));
                     }
                 }
             }
             if let Some(item) = content.item {
-                if let (Some(state), Some((body, local))) = (items.get(item), content.render_body) {
-                    if state.body != Some(body) {
-                        let pose = to_rapier(state.pose) * to_rapier(local).inverse();
-                        if physics.rapier().bodies[body].position() != &pose {
-                            physics.edit_body(body, |state| state.set_position(pose, false));
-                        }
+                if let (Some(state), Some((body, local))) = (items.get(item), content.render_body)
+                    && state.body != Some(body)
+                {
+                    let pose = to_rapier(state.pose) * to_rapier(local).inverse();
+                    if physics.rapier().bodies[body].position() != &pose {
+                        physics.edit_body(body, |state| state.set_position(pose, false));
                     }
                 }
                 continue;
@@ -629,29 +603,27 @@ impl WorldStream {
                     )?;
                     if let Some(edible) =
                         rules.component(&self.reference, pickup_root, "ediblescript")?
-                    {
-                        if let Some((prototype_index, food)) = reference
+                        && let Some((prototype_index, food)) = reference
                             .survival
                             .foods
                             .iter()
                             .enumerate()
                             .find(|(_, food)| &food.source == edible.source)
-                        {
-                            items.get_mut(id).unwrap().food =
-                                Some(crate::interaction::items::FoodState {
-                                    prototype_index,
-                                    bite: food.index,
-                                });
-                            let handles: Vec<_> = instance
-                                .colliders
-                                .iter()
-                                .filter(|(source, _)| {
-                                    food.colliders.iter().any(|c| &c.source == source)
-                                })
-                                .map(|(_, handle)| *handle)
-                                .collect();
-                            interaction.register_consumable(id, food, &handles);
-                        }
+                    {
+                        items.get_mut(id).unwrap().food =
+                            Some(crate::interaction::items::FoodState {
+                                prototype_index,
+                                bite: food.index,
+                            });
+                        let handles: Vec<_> = instance
+                            .colliders
+                            .iter()
+                            .filter(|(source, _)| {
+                                food.colliders.iter().any(|c| &c.source == source)
+                            })
+                            .map(|(_, handle)| *handle)
+                            .collect();
+                        interaction.register_consumable(id, food, &handles);
                     }
                     crate::world::content_containers::bind(
                         content,
@@ -771,7 +743,7 @@ impl WorldStream {
                         body.set_position(
                             to_rapier(state.pose) * to_rapier(state.local_pose).inverse(),
                             true,
-                        )
+                        );
                     });
                     Ok(())
                 })()
@@ -973,23 +945,23 @@ impl WorldStream {
                 if pending_parent {
                     break;
                 }
-                if let Some(change) = self.changes.get(items.object_key(item)) {
-                    if let Some(snapshot) = &change.snapshot {
-                        match restore_item(
-                            item,
-                            snapshot,
-                            reference,
-                            items,
-                            interaction,
-                            physics,
-                            wheels,
-                        ) {
-                            Ok(ready) => complete &= ready,
-                            Err(error) => {
-                                complete = false;
-                                restore_error = Some(error);
-                                break;
-                            }
+                if let Some(change) = self.changes.get(items.object_key(item))
+                    && let Some(snapshot) = &change.snapshot
+                {
+                    match restore_item(
+                        item,
+                        snapshot,
+                        reference,
+                        items,
+                        interaction,
+                        physics,
+                        wheels,
+                    ) {
+                        Ok(ready) => complete &= ready,
+                        Err(error) => {
+                            complete = false;
+                            restore_error = Some(error);
+                            break;
                         }
                     }
                 }
@@ -1221,33 +1193,30 @@ impl WorldStream {
                 .and_then(|id| items.get(id))
                 .is_some_and(|item| item.buried);
             if !departing && (distance < remove * remove || protected) && !removed {
-                if let Some(body) = id.and_then(|id| items.get(id)).and_then(|s| s.body) {
-                    if !protected
-                        && (buried || distance >= freeze * freeze || distance < unfreeze * unfreeze)
-                    {
-                        let kind = if buried || distance >= freeze * freeze {
-                            rapier3d::prelude::RigidBodyType::KinematicPositionBased
-                        } else {
-                            rapier3d::prelude::RigidBodyType::Dynamic
-                        };
-                        if physics.rapier().bodies[body].body_type() != kind {
-                            physics.edit_body(body, |state| state.set_body_type(kind, true));
-                            if kind == rapier3d::prelude::RigidBodyType::Dynamic {
-                                if let Some(item) = id {
-                                    if let Some(snapshot) = self
-                                        .changes
-                                        .get(items.object_key(item))
-                                        .and_then(|c| c.snapshot.as_ref())
-                                    {
-                                        physics.edit_body(body, |body| {
-                                            body.set_linvel(snapshot.linear_velocity.into(), true)
-                                        });
-                                        physics.edit_body(body, |body| {
-                                            body.set_angvel(snapshot.angular_velocity.into(), true)
-                                        });
-                                    }
-                                }
-                            }
+                if let Some(body) = id.and_then(|id| items.get(id)).and_then(|s| s.body)
+                    && !protected
+                    && (buried || distance >= freeze * freeze || distance < unfreeze * unfreeze)
+                {
+                    let kind = if buried || distance >= freeze * freeze {
+                        rapier3d::prelude::RigidBodyType::KinematicPositionBased
+                    } else {
+                        rapier3d::prelude::RigidBodyType::Dynamic
+                    };
+                    if physics.rapier().bodies[body].body_type() != kind {
+                        physics.edit_body(body, |state| state.set_body_type(kind, true));
+                        if kind == rapier3d::prelude::RigidBodyType::Dynamic
+                            && let Some(item) = id
+                            && let Some(snapshot) = self
+                                .changes
+                                .get(items.object_key(item))
+                                .and_then(|c| c.snapshot.as_ref())
+                        {
+                            physics.edit_body(body, |body| {
+                                body.set_linvel(snapshot.linear_velocity.into(), true);
+                            });
+                            physics.edit_body(body, |body| {
+                                body.set_angvel(snapshot.angular_velocity.into(), true);
+                            });
                         }
                     }
                 }
@@ -1278,7 +1247,7 @@ impl WorldStream {
                 // Restart: items that leave with this owner may sit before `index`.
                 if unbind_storage(
                     item,
-                    &self.contents.active(),
+                    self.contents.active(),
                     items,
                     interaction,
                     physics,
@@ -1820,18 +1789,19 @@ pub fn restore_item(
         return Ok(false);
     }
     let current = items.get(id).unwrap().location;
-    if let ItemLocation::PartSlot(current_slot) = current {
-        if target_slot != Some(current_slot) {
-            interaction.parts.remove(id, items, physics)?;
-            interaction
-                .parts
-                .detach_mechanism(id, &mut interaction.mechanisms, physics);
-        }
+    if let ItemLocation::PartSlot(current_slot) = current
+        && target_slot != Some(current_slot)
+    {
+        interaction.parts.remove(id, items, physics)?;
+        interaction
+            .parts
+            .detach_mechanism(id, &mut interaction.mechanisms, physics);
     }
-    if let ItemLocation::Attached(parent) = current {
-        if resolved != Some(parent) && wheels.rules().iter().any(|r| r.item == id) {
-            wheels.split(parent, items, physics)?;
-        }
+    if let ItemLocation::Attached(parent) = current
+        && resolved != Some(parent)
+        && wheels.rules().iter().any(|r| r.item == id)
+    {
+        wheels.split(parent, items, physics)?;
     }
     if let Some(slot) = target_slot {
         interaction.parts.validate_saved_slot(id, slot)?;
@@ -1841,67 +1811,65 @@ pub fn restore_item(
         interaction
             .parts
             .mount_mechanism(id, &mut interaction.mechanisms);
-    } else if let Some(parent) = resolved.filter(|_| volume.is_none()) {
-        if slot.is_none()
-            && items.get(id).unwrap().location != ItemLocation::Attached(parent)
-            && wheels.rules().iter().any(|r| r.item == id)
-        {
-            wheels.assemble(parent, id, items, physics)?;
-        }
+    } else if let Some(parent) = resolved.filter(|_| volume.is_none())
+        && slot.is_none()
+        && items.get(id).unwrap().location != ItemLocation::Attached(parent)
+        && wheels.rules().iter().any(|r| r.item == id)
+    {
+        wheels.assemble(parent, id, items, physics)?;
     }
-    if let (Some(parent_id), Some(attachment)) = (resolved, &snapshot.attachment) {
-        if attachment.slot.is_none()
-            && volume.is_none()
-            && !wheels.rules().iter().any(|r| r.item == id)
-        {
-            let parent = items.get(parent_id).unwrap();
-            let Some(parent_body) = parent.body else {
-                return Ok(false);
-            };
-            let item = items.get(id).unwrap();
-            let Some(old_body) = item.body else {
-                return Ok(false);
-            };
-            if old_body != parent_body {
-                if items
-                    .iter()
-                    .any(|other| other.body == Some(old_body) && !items.attached_to(other.id, id))
-                {
-                    return Err(ReferenceError(
-                        "Saved attachment shares an unrelated body".into(),
-                    ));
-                }
-                let local = crate::vehicle::VehiclePose {
-                    position: attachment.local_pose.position.map(|v| v as f32),
-                    rotation: attachment.local_pose.rotation,
-                };
-                let transform = to_rapier(parent.local_pose)
-                    * to_rapier(local)
-                    * to_rapier(item.local_pose).inverse();
-                let colliders = physics.rapier().bodies[old_body].colliders().to_vec();
-                for collider in colliders {
-                    let local = *physics.rapier().colliders[collider]
-                        .position_wrt_parent()
-                        .unwrap();
-                    physics.set_collider_parent(collider, Some(parent_body));
-                    physics.edit_collider(collider, |state| {
-                        state.set_position_wrt_parent(transform * local)
-                    });
-                }
-                let pose = *physics.rapier().bodies[parent_body].position();
-                let children: Vec<_> = items
-                    .iter()
-                    .filter(|i| i.body == Some(old_body))
-                    .map(|i| i.id)
-                    .collect();
-                for child_id in children {
-                    let child = items.set_body(child_id, Some(parent_body)).unwrap();
-                    child.local_pose = from_rapier(&(transform * to_rapier(child.local_pose)));
-                    child.pose = from_rapier(&(pose * to_rapier(child.local_pose)));
-                    child.inactive_pose = None;
-                }
-                physics.edit_body(old_body, |body| body.set_enabled(false));
+    if let (Some(parent_id), Some(attachment)) = (resolved, &snapshot.attachment)
+        && attachment.slot.is_none()
+        && volume.is_none()
+        && !wheels.rules().iter().any(|r| r.item == id)
+    {
+        let parent = items.get(parent_id).unwrap();
+        let Some(parent_body) = parent.body else {
+            return Ok(false);
+        };
+        let item = items.get(id).unwrap();
+        let Some(old_body) = item.body else {
+            return Ok(false);
+        };
+        if old_body != parent_body {
+            if items
+                .iter()
+                .any(|other| other.body == Some(old_body) && !items.attached_to(other.id, id))
+            {
+                return Err(ReferenceError(
+                    "Saved attachment shares an unrelated body".into(),
+                ));
             }
+            let local = crate::vehicle::VehiclePose {
+                position: attachment.local_pose.position.map(|v| v as f32),
+                rotation: attachment.local_pose.rotation,
+            };
+            let transform = to_rapier(parent.local_pose)
+                * to_rapier(local)
+                * to_rapier(item.local_pose).inverse();
+            let colliders = physics.rapier().bodies[old_body].colliders().to_vec();
+            for collider in colliders {
+                let local = *physics.rapier().colliders[collider]
+                    .position_wrt_parent()
+                    .unwrap();
+                physics.set_collider_parent(collider, Some(parent_body));
+                physics.edit_collider(collider, |state| {
+                    state.set_position_wrt_parent(transform * local);
+                });
+            }
+            let pose = *physics.rapier().bodies[parent_body].position();
+            let children: Vec<_> = items
+                .iter()
+                .filter(|i| i.body == Some(old_body))
+                .map(|i| i.id)
+                .collect();
+            for child_id in children {
+                let child = items.set_body(child_id, Some(parent_body)).unwrap();
+                child.local_pose = from_rapier(&(transform * to_rapier(child.local_pose)));
+                child.pose = from_rapier(&(pose * to_rapier(child.local_pose)));
+                child.inactive_pose = None;
+            }
+            physics.edit_body(old_body, |body| body.set_enabled(false));
         }
     }
     match (&snapshot.food, items.get(id).and_then(|i| i.food)) {

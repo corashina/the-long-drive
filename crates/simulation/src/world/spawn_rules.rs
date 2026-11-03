@@ -226,7 +226,10 @@ impl SourceRules {
                     return Ok(());
                 }
                 let fields = match record.fields {
-                    Fields::Record(f) => f.values().map(|v| v.input_heap_bytes()).sum::<usize>(),
+                    Fields::Record(f) => f
+                        .values()
+                        .map(super::super::reference::world::WorldValue::input_heap_bytes)
+                        .sum::<usize>(),
                     Fields::Compact(f) => {
                         f.iter().map(|f| f.value.input_heap_bytes()).sum::<usize>()
                     }
@@ -374,10 +377,10 @@ impl SourceRules {
         let go = self.get(reference, owner)?;
         for pointer in array(go.fields, "m_Component")? {
             let target = link(fields(pointer)?, "component")?;
-            if let Ok(r) = self.get(reference, target) {
-                if matches!(r.class_name, "Transform" | "RectTransform") {
-                    return Ok(r.source);
-                }
+            if let Ok(r) = self.get(reference, target)
+                && matches!(r.class_name, "Transform" | "RectTransform")
+            {
+                return Ok(r.source);
             }
         }
         Err(ReferenceError("Source object has no transform".into()))
@@ -404,10 +407,10 @@ impl SourceRules {
             let go = self.get(reference, n.owner)?;
             for pointer in array(go.fields, "m_Component")? {
                 let target = link(fields(pointer)?, "component")?;
-                if let Ok(r) = self.get(reference, target) {
-                    if r.class_name == class {
-                        return Ok(Some(r));
-                    }
+                if let Ok(r) = self.get(reference, target)
+                    && r.class_name == class
+                {
+                    return Ok(Some(r));
                 }
             }
         }
@@ -469,10 +472,10 @@ impl SourceRules {
         } else {
             let go = self.get(reference, n.owner)?;
             for p in array(go.fields, "m_Component")? {
-                if let Ok(r) = self.get(reference, link(fields(p)?, "component")?) {
-                    if include(r) {
-                        output.push(r.source);
-                    }
+                if let Ok(r) = self.get(reference, link(fields(p)?, "component")?)
+                    && include(r)
+                {
+                    output.push(r.source);
                 }
             }
             let t = self.get(reference, root)?;

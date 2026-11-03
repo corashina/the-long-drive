@@ -349,7 +349,12 @@ impl PlacementIndex {
             if self.sequence.state.next_distance >= SOURCE_END {
                 break;
             }
-            if self.sequence.state.next_building % BUILDING_CHECKPOINT_INTERVAL == 0 {
+            if self
+                .sequence
+                .state
+                .next_building
+                .is_multiple_of(BUILDING_CHECKPOINT_INTERVAL)
+            {
                 self.checked_blocks.push(true);
                 self.blocks.push(Block {
                     checkpoint: self.sequence.checkpoint(),

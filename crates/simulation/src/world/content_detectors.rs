@@ -377,27 +377,6 @@ impl WorldStream {
     }
 }
 
-#[cfg(test)]
-impl WorldStream {
-    /// Test probe of the detector on `item`: on, smooth value, needle value, the detector
-    /// transform in physics space and the first switch knob.
-    pub fn detector_probe(
-        &self,
-        item: ItemId,
-        items: &ItemStore,
-    ) -> Option<(bool, f32, f32, Pose, ColliderId)> {
-        let b = self.kinds.detectors.list.iter().find(|b| b.item == item)?;
-        let transform = to_rapier(items.get(item)?.pose) * b.transform;
-        Some((
-            b.detector.on,
-            b.detector.smooth,
-            b.needle.value,
-            transform,
-            *b.knobs.first()?,
-        ))
-    }
-}
-
 impl Bound for DetectorBinding {
     fn parent(&self) -> &GeneratedId {
         &self.parent

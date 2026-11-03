@@ -230,7 +230,7 @@ impl SpawnInitialization {
             + self
                 .conditions
                 .iter()
-                .map(|c| c.retained_heap())
+                .map(super::spawn_conditions::ConditionState::retained_heap)
                 .sum::<usize>()
             + self.initialized.capacity() * std::mem::size_of::<(GeneratedId, SourceId)>()
             + self.selectors.capacity() * std::mem::size_of::<(GeneratedId, SourceId, usize)>()
@@ -557,9 +557,9 @@ impl SourceSpawnState {
     fn push(&mut self, record: Record) {
         let records = &self.records;
         self.index.insert_unique(
-            FixedHasher.hash_one(&record.key),
+            FixedHasher.hash_one(record.key),
             records.len() as u32,
-            |&i| FixedHasher.hash_one(&records[i as usize].key),
+            |&i| FixedHasher.hash_one(records[i as usize].key),
         );
         self.heap_bytes += record.initialization.as_ref().map_or(0, |i| i.len());
         self.records.push(record);

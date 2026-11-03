@@ -122,9 +122,8 @@ fn append_ramps_with<'a>(
         };
         let angle = random.sample() as f32 * 360.;
         let radius = number(f, "rampMinRadius")?;
-        // The source passes rampMinRadius twice and still consumes this draw.
-        let fraction = random.sample() as f32;
-        let radius = radius + (radius - radius) * fraction;
+        // The source lerps rampMinRadius to itself, so this draw only advances the sequence.
+        random.sample();
         let low = number(f, "rampMinOffsety")?;
         let high = number(f, "rampMaxOffsety")?;
         let height = low + (high - low) * (random.sample() as f32);

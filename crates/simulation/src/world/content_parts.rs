@@ -342,10 +342,9 @@ pub(super) fn nearest_owner(
         }
         if let Some(part) =
             rules.component(&reference.world, &prototype.nodes[i].source, "partscript")?
+            && let Some(binding) = content.bindings.iter().find(|b| &b.source == part.source)
         {
-            if let Some(binding) = content.bindings.iter().find(|b| &b.source == part.source) {
-                return Ok(Some(binding.item));
-            }
+            return Ok(Some(binding.item));
         }
         node = prototype.nodes[i].parent.map(|n| n as usize);
     }

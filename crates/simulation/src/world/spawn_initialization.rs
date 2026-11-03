@@ -19,40 +19,39 @@ impl SpawnEvaluation<'_> {
     > {
         let f = &save.fields;
         let mut count = None;
-        if let Some(ammo) = optional(f, "ammo")? {
-            if self
+        if let Some(ammo) = optional(f, "ammo")?
+            && self
                 .rules
-                .component(self.reference, &save.source, "sprayscript")?
+                .component(self.reference, save.source, "sprayscript")?
                 .is_none()
-            {
-                let a = &self.rules.get(self.reference, ammo)?.fields;
-                let low = number(item, "fr1")?;
-                let high = number(item, "fr2")?;
-                let n = self.random.range_int(low as i32, high as i32);
-                // SetIntAmmo writes ammo; GetAmmo selects its int or float field.
-                let float = flag(a, "floatOrInt")?;
-                let mut actual = if float { number(a, "fammo")? } else { n as f32 };
-                if actual > number(a, "max")? || low == high {
-                    let v = self
-                        .random
-                        .range(number(a, "ammoRmin")?, number(a, "ammoRmax")?);
-                    actual = if float { v } else { v.trunc() };
-                }
-                count = Some(actual);
+        {
+            let a = &self.rules.get(self.reference, ammo)?.fields;
+            let low = number(item, "fr1")?;
+            let high = number(item, "fr2")?;
+            let n = self.random.range_int(low as i32, high as i32);
+            // SetIntAmmo writes ammo; GetAmmo selects its int or float field.
+            let float = flag(a, "floatOrInt")?;
+            let mut actual = if float { number(a, "fammo")? } else { n as f32 };
+            if actual > number(a, "max")? || low == high {
+                let v = self
+                    .random
+                    .range(number(a, "ammoRmin")?, number(a, "ammoRmax")?);
+                actual = if float { v } else { v.trunc() };
             }
+            count = Some(actual);
         }
         let mut primary = None;
         let mut tanks = Vec::new();
-        if let Some(first) = array(f, "tanks")?.first() {
-            if let Ok(id) = value_link(first) {
-                let tank = self.rules.get(self.reference, id)?;
-                primary = Some(self.random_fluid(&tank.fields, Some(item), None)?);
-                tanks.push((id.clone(), primary.as_ref().unwrap().clone()));
-                for other in array(&tank.fields, "otherTanks")? {
-                    let tank = self.rules.get(self.reference, value_link(other)?)?;
-                    let fluid = self.random_fluid(&tank.fields, None, None)?;
-                    tanks.push((tank.source.clone(), fluid));
-                }
+        if let Some(first) = array(f, "tanks")?.first()
+            && let Ok(id) = value_link(first)
+        {
+            let tank = self.rules.get(self.reference, id)?;
+            primary = Some(self.random_fluid(&tank.fields, Some(item), None)?);
+            tanks.push((id.clone(), primary.as_ref().unwrap().clone()));
+            for other in array(tank.fields, "otherTanks")? {
+                let tank = self.rules.get(self.reference, value_link(other)?)?;
+                let fluid = self.random_fluid(&tank.fields, None, None)?;
+                tanks.push((tank.source.clone(), fluid));
             }
         }
         for other in array(f, "randomizetanks")? {
@@ -81,21 +80,21 @@ impl SpawnEvaluation<'_> {
         let f = &save.fields;
         let mut primary = None;
         let mut tanks = Vec::new();
-        if let Some(first) = array(f, "tanks")?.first() {
-            if let Ok(id) = value_link(first) {
-                let tank = self.rules.get(self.reference, id)?;
-                let empty = optional(f, "engine")?.is_some()
-                    || self
-                        .rules
-                        .component(self.reference, &save.source, "coolantTankscript")?
-                        .is_some();
-                primary = Some(self.random_fluid(&tank.fields, None, Some(empty))?);
-                tanks.push((id.clone(), primary.as_ref().unwrap().clone()));
-                for other in array(&tank.fields, "otherTanks")? {
-                    let tank = self.rules.get(self.reference, value_link(other)?)?;
-                    let fluid = self.random_fluid(&tank.fields, None, None)?;
-                    tanks.push((tank.source.clone(), fluid));
-                }
+        if let Some(first) = array(f, "tanks")?.first()
+            && let Ok(id) = value_link(first)
+        {
+            let tank = self.rules.get(self.reference, id)?;
+            let empty = optional(f, "engine")?.is_some()
+                || self
+                    .rules
+                    .component(self.reference, save.source, "coolantTankscript")?
+                    .is_some();
+            primary = Some(self.random_fluid(&tank.fields, None, Some(empty))?);
+            tanks.push((id.clone(), primary.as_ref().unwrap().clone()));
+            for other in array(tank.fields, "otherTanks")? {
+                let tank = self.rules.get(self.reference, value_link(other)?)?;
+                let fluid = self.random_fluid(&tank.fields, None, None)?;
+                tanks.push((tank.source.clone(), fluid));
             }
         }
         for other in array(f, "randomizetanks")? {
@@ -117,22 +116,22 @@ impl SpawnEvaluation<'_> {
         let mut mix = number(f, "mixChance")?;
         let mut no_mix = flag(f, "noMixedFluids")?;
         let mut fluids = array(f, "randomFluids")?;
-        if let Some(item) = item {
-            if !flag(f, "alwaysDefaultFluid")? {
-                if flag(item, "overrideFluidAmount")? {
-                    low = number(item, "minFluid")?;
-                    high = number(item, "maxFluid")?;
-                    if low > 0. {
-                        empty = -1.;
-                    }
+        if let Some(item) = item
+            && !flag(f, "alwaysDefaultFluid")?
+        {
+            if flag(item, "overrideFluidAmount")? {
+                low = number(item, "minFluid")?;
+                high = number(item, "maxFluid")?;
+                if low > 0. {
+                    empty = -1.;
                 }
-                if flag(item, "overrideFluidType")? {
-                    fluids = array(item, "fluids")?;
-                    no_mix = flag(item, "noMixedFluids")?;
-                }
-                if flag(item, "overrideMixChance")? {
-                    mix = number(item, "mixChance")?;
-                }
+            }
+            if flag(item, "overrideFluidType")? {
+                fluids = array(item, "fluids")?;
+                no_mix = flag(item, "noMixedFluids")?;
+            }
+            if flag(item, "overrideMixChance")? {
+                mix = number(item, "mixChance")?;
             }
         }
         if let Some(default_empty) = default_empty {
@@ -185,7 +184,7 @@ impl SpawnEvaluation<'_> {
             ));
         }
         let f = &save.fields;
-        if flag(f, "started")? || !self.mark_started(&parent.id, &save.source) {
+        if flag(f, "started")? || !self.mark_started(&parent.id, save.source) {
             return Ok(());
         }
         for slot in array(f, "partslotscripts")? {
@@ -197,10 +196,10 @@ impl SpawnEvaluation<'_> {
                 .iter()
                 .find(|(p, s, _)| *p == parent.id && s == slot.source)
                 .map(|v| &v.2)
-                .or(optional(&slot.fields, "part")?)
+                .or(optional(slot.fields, "part")?)
             {
                 let part = self.rules.get(self.reference, part)?;
-                if let Some(save) = optional(&part.fields, "tosaveitem")? {
+                if let Some(save) = optional(part.fields, "tosaveitem")? {
                     self.start_save(parent, self.rules.get(self.reference, save)?, depth + 1)?;
                 }
             }
@@ -279,15 +278,14 @@ impl SpawnEvaluation<'_> {
                                             * if a == 2 { -1. } else { 1. }
                                 });
                             }
-                            if i == 0 {
-                                if let Some(mass) =
+                            if i == 0
+                                && let Some(mass) =
                                     self.rules.component(self.reference, &root, "massScript")?
-                                {
-                                    count = super::spawn_selection::box_count(
-                                        integer(mass.fields, "maxCountIfSpawnedInBox")?,
-                                        self.random,
-                                    );
-                                }
+                            {
+                                count = super::spawn_selection::box_count(
+                                    integer(mass.fields, "maxCountIfSpawnedInBox")?,
+                                    self.random,
+                                );
                             }
                             let mut id = parent.id.clone();
                             id.children.push((box_id.clone(), i as u32));

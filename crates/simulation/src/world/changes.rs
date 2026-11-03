@@ -300,17 +300,17 @@ impl ChangeRecords {
         placement: &Placement,
         instance: &super::GeneratedId,
     ) {
-        if let Some(index) = self.identities.get(key) {
-            if self.records[*index].1.replay.is_none() {
-                self.records[*index].1.replay = Some(placement.clone());
-                self.records[*index].1.instance = Some(instance.clone());
-                self.payload_bytes += super::contents::placement_heap(
-                    self.records[*index].1.replay.as_ref().unwrap(),
-                ) + super::contents::identity_heap(
-                    self.records[*index].1.instance.as_ref().unwrap(),
-                );
-                self.revision = self.revision.wrapping_add(1);
-            }
+        if let Some(index) = self.identities.get(key)
+            && self.records[*index].1.replay.is_none()
+        {
+            self.records[*index].1.replay = Some(placement.clone());
+            self.records[*index].1.instance = Some(instance.clone());
+            self.payload_bytes +=
+                super::contents::placement_heap(self.records[*index].1.replay.as_ref().unwrap())
+                    + super::contents::identity_heap(
+                        self.records[*index].1.instance.as_ref().unwrap(),
+                    );
+            self.revision = self.revision.wrapping_add(1);
         }
     }
     pub fn remove(&mut self, key: ObjectKey) {
@@ -733,30 +733,30 @@ pub fn restore_motion(
     items: &crate::interaction::items::ItemStore,
     physics: &mut crate::vehicle::PhysicsWorld,
 ) {
-    if let Some(item) = items.get(id) {
-        if let Some(handle) = item.body {
-            physics.try_edit_body(handle, |body| {
-                // Source tosaveitemscript.FInit: a buried item is kinematic.
-                if snapshot.buried {
-                    body.set_body_type(
-                        rapier3d::prelude::RigidBodyType::KinematicPositionBased,
-                        false,
-                    );
-                }
-                body.set_position(
-                    crate::vehicle::to_rapier(item.pose)
-                        * crate::vehicle::to_rapier(item.local_pose).inverse(),
+    if let Some(item) = items.get(id)
+        && let Some(handle) = item.body
+    {
+        physics.try_edit_body(handle, |body| {
+            // Source tosaveitemscript.FInit: a buried item is kinematic.
+            if snapshot.buried {
+                body.set_body_type(
+                    rapier3d::prelude::RigidBodyType::KinematicPositionBased,
                     false,
                 );
-                body.set_linvel(snapshot.linear_velocity.into(), false);
-                body.set_angvel(snapshot.angular_velocity.into(), false);
-                if snapshot.sleeping {
-                    body.sleep();
-                } else {
-                    body.wake_up(true);
-                }
-            });
-        }
+            }
+            body.set_position(
+                crate::vehicle::to_rapier(item.pose)
+                    * crate::vehicle::to_rapier(item.local_pose).inverse(),
+                false,
+            );
+            body.set_linvel(snapshot.linear_velocity.into(), false);
+            body.set_angvel(snapshot.angular_velocity.into(), false);
+            if snapshot.sleeping {
+                body.sleep();
+            } else {
+                body.wake_up(true);
+            }
+        });
     }
 }
 

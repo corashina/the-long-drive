@@ -111,7 +111,7 @@ struct PreparedSurface {
 }
 struct SelectedRoad {
     segment: RoadSegment,
-    light: Option<super::WorldLight>,
+    light: super::WorldLight,
     /// Pole rope poses toward the next segment pole.
     cable: Vec<super::NodeAppearance>,
 }
@@ -329,14 +329,13 @@ impl WorldStream {
                 }
                 if let Some(owner) = owner {
                     changes.set_replay(&object, &owner.origin, &owner.content.placement.id);
-                } else if let Some(supply) = supply {
-                    if let Some(instance) = self
+                } else if let Some(supply) = supply
+                    && let Some(instance) = self
                         .structures
                         .iter()
                         .find(|s| s.placement.id == supply.key)
-                    {
-                        changes.set_replay(&object, &instance.placement, &supply.key);
-                    }
+                {
+                    changes.set_replay(&object, &instance.placement, &supply.key);
                 }
             }
         }
@@ -356,10 +355,9 @@ impl WorldStream {
         {
             if let Some(snapshot) =
                 super::changes::capture(item.id, items, interaction, physics, reference)
+                && let Some(owner) = snapshot.attachment.and_then(|a| a.owner)
             {
-                if let Some(owner) = snapshot.attachment.and_then(|a| a.owner) {
-                    dependencies.push(owner);
-                }
+                dependencies.push(owner);
             }
         }
         while let Some(key) = dependencies.pop() {
@@ -1376,14 +1374,13 @@ impl WorldStream {
         }
     }
     fn rewind_road(&mut self, key: SurfaceKey) {
-        if key.layer == WorldLayer::Road {
-            if let Some(index) = self
+        if key.layer == WorldLayer::Road
+            && let Some(index) = self
                 .wanted_roads
                 .iter()
                 .position(|i| *i == key.unit[0] as u32)
-            {
-                self.next_geometry = self.next_geometry.min(index);
-            }
+        {
+            self.next_geometry = self.next_geometry.min(index);
         }
     }
     fn discard_unreserved_surface(&mut self) {
@@ -1409,16 +1406,15 @@ impl WorldStream {
         self.generation_revision += 1;
         // Frontier changes outside the selected source window do not invalidate readiness.
         let distance = f64::from(self.distances.road_gen_dist) + self.road_light.influence_margin();
-        if let Some(segment) = self.roads.latest_segment() {
-            if self
+        if let Some(segment) = self.roads.latest_segment()
+            && self
                 .road_focus
                 .into_iter()
                 .any(|point| intersects(segment.bounds, window(point, distance)))
-            {
-                self.planned_road_focus = [[f64::NAN; 3]; 2];
-                self.terrain_context_dirty = true;
-                self.revise_selection();
-            }
+        {
+            self.planned_road_focus = [[f64::NAN; 3]; 2];
+            self.terrain_context_dirty = true;
+            self.revise_selection();
         }
     }
     pub fn initial_generation_ready(&self) -> bool {
@@ -2488,24 +2484,24 @@ impl WorldStream {
                 .is_some_and(|key| self.wanted_tiles.contains(&key));
         self.terrain_execution
             .reconcile(self.request, retain_terrain);
-        if let Some(work) = &mut self.ready {
-            if !work.renderer_reserved {
-                let valid = if work.published.key.layer == WorldLayer::Road {
-                    work.published.road.is_some_and(|road| {
-                        self.selected_roads.iter().any(|r| r.segment == road)
-                            && self.road_focus.into_iter().any(|p| {
-                                source_distance_squared(p, road.position())
-                                    <= self.distances.road_gen_dist.powi(2)
-                            })
-                    })
-                } else {
-                    !self.terrain_context_dirty && self.wanted_tiles.contains(&work.published.key)
-                };
-                if valid {
-                    work.request = self.request;
-                } else {
-                    self.discard_unreserved_surface();
-                }
+        if let Some(work) = &mut self.ready
+            && !work.renderer_reserved
+        {
+            let valid = if work.published.key.layer == WorldLayer::Road {
+                work.published.road.is_some_and(|road| {
+                    self.selected_roads.iter().any(|r| r.segment == road)
+                        && self.road_focus.into_iter().any(|p| {
+                            source_distance_squared(p, road.position())
+                                <= self.distances.road_gen_dist.powi(2)
+                        })
+                })
+            } else {
+                !self.terrain_context_dirty && self.wanted_tiles.contains(&work.published.key)
+            };
+            if valid {
+                work.request = self.request;
+            } else {
+                self.discard_unreserved_surface();
             }
         }
         self.terrain_context_dirty = false;
@@ -2559,8 +2555,7 @@ impl WorldStream {
             .lights
             .iter()
             .find(|l| l.biome.is_some() && l.id.unit[0] == index as i64);
-        let possible_light = existing.map_or(true, |i| self.selected_roads[i].light.is_some());
-        let new_light = usize::from(possible_light && old_light.is_none());
+        let new_light = usize::from(old_light.is_none());
         let old_poles = self
             .lights
             .iter()
@@ -2682,12 +2677,10 @@ impl WorldStream {
             .iter()
             .find(|r| r.segment.index == index)
             .unwrap();
-        if let Some(light) = &retained.light {
-            if !self.lights.iter().any(|l| l.id == light.id) {
-                self.lights.push(light.clone());
-            }
-            self.wanted_lights.push(index);
+        if !self.lights.iter().any(|l| l.id == retained.light.id) {
+            self.lights.push(retained.light.clone());
         }
+        self.wanted_lights.push(index);
         self.refresh_poles();
         if self.metrics().generated_objects > self.limits.objects {
             self.failure = Some(format!(
@@ -2720,10 +2713,10 @@ impl WorldStream {
         match self.road_worker.poll() {
             Err(error) => self.road_failure(error),
             Ok(RoadPoll::Idle) => {
-                if let Some(work) = self.road_work.take() {
-                    if !work.canceled {
-                        self.road_failure(ReferenceError("Road worker lost its owned job".into()));
-                    }
+                if let Some(work) = self.road_work.take()
+                    && !work.canceled
+                {
+                    self.road_failure(ReferenceError("Road worker lost its owned job".into()));
                 }
             }
             Ok(RoadPoll::Ready(id)) => {
@@ -2966,7 +2959,6 @@ impl WorldStream {
         self.road_worker.packing_ended();
         if let Err(error) = self.road_worker.submit(identity, &input) {
             self.road_failure(error);
-            return;
         }
     }
     fn local_collision_pending(&self, key: SurfaceKey) -> bool {
@@ -3189,21 +3181,21 @@ impl WorldStream {
                 }
                 BindPrototype(source) => self.bind_prototype(&source)?,
                 ConfigureStaging { reserve, .. } => {
-                    self.ledger.configure_dependency_staging(reserve)?
+                    self.ledger.configure_dependency_staging(reserve)?;
                 }
                 ReleasePrototype(source) => self.release_prototype(&source)?,
                 BindRecipe(source) => self.bind_structure_recipe(&source)?,
                 ReserveSurface(request, key) if request.session == session => {
-                    self.reserve_surface_renderer(request, key)?
+                    self.reserve_surface_renderer(request, key)?;
                 }
                 AcceptSurface(request, key) if request.session == session => {
-                    self.accept_surface_renderer(request, key)?
+                    self.accept_surface_renderer(request, key)?;
                 }
                 DiscardSurface(request, key) if request.session == session => {
-                    self.discard_surface_renderer(request, key)?
+                    self.discard_surface_renderer(request, key);
                 }
                 AcceptStructure(request, id) if request.session == session => {
-                    self.accept_structure_renderer(request, &id)?
+                    self.accept_structure_renderer(request, &id)?;
                 }
                 ReserveSurface(..) | AcceptSurface(..) | DiscardSurface(..)
                 | AcceptStructure(..) => {}
@@ -3278,24 +3270,19 @@ impl WorldStream {
     }
     /// The renderer dropped the prepared surface after its work drained.
     /// Work that the stream dropped before the reservation arrived is already rewound.
-    fn discard_surface_renderer(
-        &mut self,
-        request: WorldRequest,
-        key: SurfaceKey,
-    ) -> Result<(), ReferenceError> {
+    fn discard_surface_renderer(&mut self, request: WorldRequest, key: SurfaceKey) {
         if !self
             .ready
             .as_ref()
             .is_some_and(|w| same_request(w.request, request) && w.published.key == key)
         {
-            return Ok(());
+            return;
         }
         self.ready = None;
         if key.layer == WorldLayer::Road {
             self.road_worker.publication_ended(false);
         }
         self.rewind_road(key);
-        Ok(())
     }
     /// The renderer finished the prepared surface. Its work drained.
     /// The renderer repeats the fact until its frame shows the publication, so a repeat
@@ -3507,10 +3494,8 @@ impl WorldStream {
                 if !keep {
                     removed[tier] = true;
                 }
-                if !keep {
-                    if let Some(handle) = surface.collider {
-                        physics.remove_collider(handle);
-                    }
+                if !keep && let Some(handle) = surface.collider {
+                    physics.remove_collider(handle);
                 }
                 keep
             });
@@ -3765,7 +3750,7 @@ impl WorldStream {
                     .surfaces
                     .iter()
                     .find(|s| s.key == *key)
-                    .map_or(true, |s| required(s.bounds, 1 << self.terrain_layer))
+                    .is_none_or(|s| required(s.bounds, 1 << self.terrain_layer))
         };
         changed |= super::required::select(
             &mut self.required.terrain,
@@ -3844,24 +3829,23 @@ impl WorldStream {
         if !self.initial_generation_ready || (prefer_supply && !self.placements.prepare(0)) {
             return Ok(None);
         }
-        if prefer_supply {
-            if let (super::QueryStatus::Complete, Some(supply)) = self
+        if prefer_supply
+            && let (super::QueryStatus::Complete, Some(supply)) = self
                 .placements
                 .nearest_supply_point(point, self.placements.coverage())?
-            {
-                let pose = supply.cap_pose;
-                let owner = (supply.building_index, supply.supply_index);
-                self.request_at(pose.position, pose.position);
-                self.recovery = Some(PendingRecovery {
-                    request: self.request,
-                    target: pose,
-                    supply: Some(owner),
-                    candidate: 0,
-                    best: None,
-                });
-                self.recovery_search = None;
-                return Ok(Some(pose));
-            }
+        {
+            let pose = supply.cap_pose;
+            let owner = (supply.building_index, supply.supply_index);
+            self.request_at(pose.position, pose.position);
+            self.recovery = Some(PendingRecovery {
+                request: self.request,
+                target: pose,
+                supply: Some(owner),
+                candidate: 0,
+                best: None,
+            });
+            self.recovery_search = None;
+            return Ok(Some(pose));
         }
         let mut nearest = None;
         for surface in &self.surfaces {
@@ -4040,14 +4024,14 @@ impl WorldStream {
             return Ok(());
         };
         let mut points = Vec::new();
-        if placement.id.layer == WorldLayer::Building && placement.id.children.is_empty() {
-            if self
+        if placement.id.layer == WorldLayer::Building
+            && placement.id.children.is_empty()
+            && self
                 .placements
                 .supplies_for_building(placement.id.unit[0] as u32, &mut points)?
                 != super::QueryStatus::Complete
-            {
-                return Err(ReferenceError("Building supply prefix is preparing".into()));
-            }
+        {
+            return Err(ReferenceError("Building supply prefix is preparing".into()));
         }
         if self.metrics().generated_objects + 1 + points.len() * 2 > self.limits.objects {
             return Err(ReferenceError(format!(
@@ -4141,7 +4125,7 @@ impl WorldStream {
                     prototype,
                     body.node as usize,
                     appearance,
-                ))
+                ));
             });
         }
         for (source, handle) in &instance.colliders {
@@ -4158,7 +4142,7 @@ impl WorldStream {
                             collider.node as usize,
                             appearance,
                         ),
-                )
+                );
             });
         }
         for point in points {
@@ -4402,7 +4386,7 @@ impl WorldStream {
                                     &recipe.parts,
                                     food.bite,
                                 ),
-                        )
+                        );
                     });
                 }
             }
@@ -4488,7 +4472,7 @@ impl WorldStream {
                 if let Some(item) = content.item {
                     content_bindings::unbind_storage(
                         item,
-                        &self.contents.active(),
+                        self.contents.active(),
                         items,
                         interaction,
                         physics,
@@ -4919,8 +4903,7 @@ impl WorldStream {
                 + self
                     .selected_roads
                     .iter()
-                    .filter_map(|r| r.light.as_ref())
-                    .map(super::WorldLight::heap_bytes)
+                    .map(|r| r.light.heap_bytes())
                     .sum::<usize>()
                 + self
                     .selected_roads
@@ -5280,10 +5263,10 @@ pub(super) fn lamp_materials_of(
             let lamp = fields(lamp)?;
             roots.clear();
             for r in array(lamp, "R")? {
-                if let Some(root) = value_link(r).ok().and_then(|r| rules.root(world, r).ok()) {
-                    if !roots.contains(&root) {
-                        roots.push(root);
-                    }
+                if let Some(root) = value_link(r).ok().and_then(|r| rules.root(world, r).ok())
+                    && !roots.contains(&root)
+                {
+                    roots.push(root);
                 }
             }
             if roots.is_empty() {

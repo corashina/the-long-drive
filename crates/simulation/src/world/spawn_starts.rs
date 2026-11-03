@@ -62,7 +62,7 @@ impl SpawnEvaluation<'_> {
                 let f = &record.fields;
                 match record.class_name {
                     "tosaveitemscript" if flag(f, "manualStart")? => {
-                        self.start_save(&parent, record, 0)?
+                        self.start_save(&parent, record, 0)?;
                     }
                     "partconditionscript" => {
                         let limits = if condition_source == Some(record.source) {
@@ -81,7 +81,7 @@ impl SpawnEvaluation<'_> {
                         self.start_condition(&parent, record, limits, 0)?;
                     }
                     "randomTypeSelector" if flag(f, "forceStart")? => {
-                        self.start_selector(&parent, record)?
+                        self.start_selector(&parent, record)?;
                     }
                     "electronicsscript" => {
                         self.mark_started(&parent.id, source);
@@ -232,7 +232,7 @@ impl SpawnEvaluation<'_> {
         let f = &record.fields;
         if flag(f, "started")?
             || !flag(f, "m_Enabled")?
-            || !self.mark_started(&parent.id, &record.source)
+            || !self.mark_started(&parent.id, record.source)
         {
             return Ok(());
         }

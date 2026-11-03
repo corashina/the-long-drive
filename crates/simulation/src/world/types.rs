@@ -144,7 +144,7 @@ mod pod_bytes {
                 f.write_str("mesh array bytes")
             }
             fn visit_bytes<E: de::Error>(self, bytes: &[u8]) -> Result<Vec<T>, E> {
-                if bytes.len() % size_of::<T>() != 0 {
+                if !bytes.len().is_multiple_of(size_of::<T>()) {
                     return Err(E::invalid_length(bytes.len(), &self));
                 }
                 let mut rows = vec![T::zeroed(); bytes.len() / size_of::<T>()];

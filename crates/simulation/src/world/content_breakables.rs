@@ -239,7 +239,7 @@ impl WorldStream {
                 let events = physics.rapier().colliders[collider].active_events();
                 if !events.contains(ActiveEvents::COLLISION_EVENTS) {
                     physics.edit_collider(collider, |c| {
-                        c.set_active_events(events | ActiveEvents::COLLISION_EVENTS)
+                        c.set_active_events(events | ActiveEvents::COLLISION_EVENTS);
                     });
                 }
             }
@@ -317,7 +317,7 @@ impl WorldStream {
                     let events = physics.rapier().colliders[*handle].active_events();
                     if prop && !events.contains(ActiveEvents::COLLISION_EVENTS) {
                         physics.edit_collider(*handle, |c| {
-                            c.set_active_events(events | ActiveEvents::COLLISION_EVENTS)
+                            c.set_active_events(events | ActiveEvents::COLLISION_EVENTS);
                         });
                     }
                 }

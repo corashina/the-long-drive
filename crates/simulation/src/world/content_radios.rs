@@ -401,15 +401,6 @@ impl WorldStream {
     }
 }
 
-#[cfg(test)]
-impl WorldStream {
-    /// Test probe: the first knob of `kind` on the portable radio `item`.
-    pub fn radio_knob(&self, item: ItemId, kind: Knob) -> Option<ColliderId> {
-        let b = self.kinds.radios.list.iter().find(|b| b.item == item)?;
-        b.knobs.iter().find(|(_, k)| *k == kind).map(|(c, _)| *c)
-    }
-}
-
 impl Bound for RadioBinding {
     fn parent(&self) -> &GeneratedId {
         &self.parent

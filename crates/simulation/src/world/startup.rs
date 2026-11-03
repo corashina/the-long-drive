@@ -203,10 +203,11 @@ impl StartupTerrain {
                     holes: &[],
                     biome_override: None,
                 };
-                let offset = if group == "StartObjsFix" || shared.is_none() {
-                    (context.height([position.x, position.z]) as f64 - position.y as f64) as f32
-                } else {
-                    shared.unwrap()
+                let offset = match shared {
+                    Some(offset) if group != "StartObjsFix" => offset,
+                    _ => {
+                        (context.height([position.x, position.z]) as f64 - position.y as f64) as f32
+                    }
                 };
                 if shared.is_none() {
                     shared = Some(offset);
