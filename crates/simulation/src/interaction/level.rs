@@ -1,4 +1,4 @@
-//! bubbleLevelScript: each spirit level bubble follows the vial tilt.
+//! bubbleLevelScript. Each spirit level bubble follows the vial tilt.
 use crate::reference::{BubbleReference, ReferenceError, Transform, WorldPrototypeReference};
 use crate::simulation::dials::{inverse_lerp, lerp};
 use crate::simulation::engine::torque;

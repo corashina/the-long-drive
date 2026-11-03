@@ -48,7 +48,7 @@ impl Binoculars {
     pub fn unbind(&mut self, item: ItemId) {
         self.bound.retain(|b| b.item != item);
     }
-    /// `noLMBUse`: carried or equipped binoculars own the LMB.
+    /// `noLMBUse`. Carried or equipped binoculars own the LMB.
     pub fn reserves_lmb(&self, equipped: Option<ItemId>, carried: Option<ItemId>) -> bool {
         self.owner(equipped, carried).is_some()
     }

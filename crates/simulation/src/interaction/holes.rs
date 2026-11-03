@@ -55,8 +55,8 @@ impl Holes {
     pub(super) fn forget(&mut self, tank: ItemId) {
         self.holes.retain(|h| h.tank != tank);
     }
-    /// `tankcapscript.Update` of each hole: spill by the tilt of the hole. Holes of a removed tank
-    /// are dropped.
+    /// `tankcapscript.Update` of each hole: spill by the tilt of the hole. It drops the holes of a
+    /// removed tank.
     pub(super) fn step(&mut self, items: &mut ItemStore, dt: f32, fluid_scale: f32) {
         self.holes.retain(|h| live(items, h.tank));
         for hole in &self.holes {

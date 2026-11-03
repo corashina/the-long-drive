@@ -121,9 +121,9 @@ pub enum Knob {
     Dial,
     Volume,
     Tuning,
-    /// usablescript turned with use: radio BChangeAMFM, metal detector onOffButton.
+    /// A usablescript that turns with use, such as radio BChangeAMFM or metal detector onOffButton.
     Switch,
-    /// musicboxscript use: rotateAble, turned with the mouse.
+    /// A musicboxscript use. The mouse turns its rotateAble.
     Crank,
 }
 
@@ -1219,7 +1219,7 @@ impl InteractionState {
         Ok(())
     }
 
-    /// Register a hose end opening. The segment owns the pose; it has no fluid.
+    /// Register a hose end opening. The segment owns the pose. It has no fluid.
     fn register_hose_end(
         &mut self,
         segment: ItemId,
@@ -1357,6 +1357,7 @@ impl InteractionState {
                 }
                 _ => None,
             },
+            // Source `GetCapString` reads `ls.l.g(nameText)`, not the serialized `nameString`.
             presentation: generated_presentation(
                 number(cap_record, "hasName")? != 0.0,
                 number(cap_record, "nameText")?,
@@ -1618,7 +1619,7 @@ impl InteractionState {
         fluid_scale: f32,
     ) -> InteractionOutcome {
         self.finish_cancelled_input(player, physics);
-        // The carry owns the wheel of a carried item: `route_frame_input` moves it to `carry`.
+        // The carry owns the wheel of a carried item. `route_frame_input` moves it to `carry`.
         let wheel =
             if input.wheel == 0. && input.carry.owner.is_some_and(|o| Some(o) == self.held()) {
                 input.carry.wheel
@@ -1633,7 +1634,7 @@ impl InteractionState {
             dt,
         );
         if binoculars.is_some() {
-            // fpscontroller: BcanTune. The wheel focuses and does not move the carried item.
+            // fpscontroller BcanTune. The wheel focuses and does not move the carried item.
             input.wheel = 0.;
             input.carry.wheel = 0.;
         }
@@ -1923,7 +1924,7 @@ impl InteractionState {
                             action = Some(InteractionAction::Ufo(control, 0.));
                         }
                     } else {
-                        // Source: `tunedFloat` is the scroll, or `LOOKY` while use is held.
+                        // In the source, `tunedFloat` is the scroll, or `LOOKY` while use is held.
                         let value = if use_input.wheel.is_finite() && use_input.wheel != 0. {
                             use_input.wheel * self.scroll_sensitivity
                         } else {
@@ -2002,7 +2003,7 @@ impl InteractionState {
                         mechanism_input.pressed &= !keys::PRIMARY;
                     }
                     let camera = player.view(physics).camera_pose;
-                    // Source: a new use moves the hand. A held usable only refreshes it.
+                    // In the source, a new use moves the hand. A held usable only refreshes it.
                     if use_input.pressed & (keys::USE | keys::PRIMARY) != 0
                         || use_input.wheel != 0.0
                     {
@@ -2020,7 +2021,7 @@ impl InteractionState {
                     }
                     self.mechanisms
                         .step(target.item, mechanism_input, camera, dt);
-                    // A usable can slide and be a switch knob (bus door button): both react.
+                    // A usable can slide and be a switch knob (bus door button). Both react.
                     if !matches!(action, Some(InteractionAction::DialTune(..))) {
                         action = Some(InteractionAction::Mechanism(target.item));
                     }
@@ -2054,7 +2055,7 @@ impl InteractionState {
         }
         let push_target = aim.push_target.filter(|target| valid(*target));
         let pushing = if player.seated() {
-            // Source: the seat push runs without any use, pickup or fill target.
+            // In the source, the seat push runs without any use, pickup or fill target.
             if action.is_none()
                 && self.held().is_none()
                 && aim.use_target.is_none()
@@ -2326,7 +2327,6 @@ fn inverse_lerp(start: f32, end: f32, value: f32) -> f32 {
     }
 }
 
-/// Source `GetCapString` reads `ls.l.g(nameText)`, not the serialized `nameString`.
 /// Pose of the opening's pose owner and the state of its fluid owner.
 /// An inactive pose owner does not pour.
 fn pour_source<'a>(

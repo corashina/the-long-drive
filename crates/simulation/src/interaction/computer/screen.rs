@@ -56,7 +56,7 @@ impl Canvas<'_> {
         let [w, h] = self.size;
         ((0..w).contains(&x) && (0..h).contains(&y)).then(|| ((h - 1 - y) * w + x) as usize * 4)
     }
-    /// A pixel-perfect canvas rect: the corners snap to whole pixels.
+    /// A pixel-perfect canvas rect. The corners snap to whole pixels.
     fn fill(&mut self, [x0, y0, x1, y1]: [f32; 4], color: [u8; 4]) {
         let [w, h] = self.size;
         let x = (x0.round() as i32).max(0)..(x1.round() as i32).min(w);

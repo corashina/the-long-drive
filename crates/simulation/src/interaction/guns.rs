@@ -30,7 +30,7 @@ const HIT_CAPACITY: usize = 32;
 const RANDOM_PITCH: [f32; 2] = [0.85, 1.15];
 /// `weaponscript.soundsMinPitch` and `soundsMaxPitch` of the `SSource` clips.
 const SOURCE_PITCH: [f32; 2] = [0.9, 1.1];
-/// `mainscript.holdButtonTime`: a shorter R press is a tap.
+/// `mainscript.holdButtonTime`. A shorter R press is a tap.
 const HOLD_BUTTON_TIME: f32 = 0.25;
 /// `weaponscript.reloading` stays set this long after `Reload`.
 const RELOADING_TIME: f32 = 0.3;
@@ -65,7 +65,7 @@ pub struct DecalSpawn {
     pub scale: f32,
 }
 
-/// One shot hit on an item: tanks and explosive props try to explode with the shot power.
+/// One shot hit on an item. Tanks and explosive props try to explode with the shot power.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Strike {
     pub item: ItemId,
@@ -122,7 +122,7 @@ struct Part {
     rest: Transform,
 }
 
-/// `MovingPart`: `T` moves between `T0` and `T1`. Poses are in the item root frame.
+/// `MovingPart`. `T` moves between `T0` and `T1`. Poses are in the item root frame.
 struct MovingNode {
     part: Part,
     /// The parent of `T` in the root frame, and its scale.
@@ -352,7 +352,7 @@ impl GunRuntime {
         let t = inverse_lerp(start, start + turn_duration(duration, self.queued), time);
         self.cylinder as f32 - dir as f32 * (1. - t)
     }
-    /// `bbgunscript`, `revolverScript` and `geppityuscript.Shot`. True fires.
+    /// `bbgunscript`, `revolverScript` and `geppityuscript.Shot`. True when the gun fires.
     fn kind_shot(&mut self, g: &Gun, use_ammo: bool, time: f32) -> bool {
         let r = &g.record;
         let has_ammo = self.ammo.count > 0.;
@@ -451,7 +451,7 @@ pub struct GunState {
     breaking: Option<ItemId>,
     /// Seconds since the R press.
     reload_hold: Option<f32>,
-    /// R is held with a gun: `fpscontroller.reloading` blocks look and scroll.
+    /// The player holds R with a gun. `fpscontroller.reloading` blocks look and scroll.
     pub reloading: bool,
     /// `ItemPrompt` bits of the gun reload.
     pub prompt: u8,
@@ -548,7 +548,7 @@ impl GunState {
         touch(&mut self.presented, item);
         true
     }
-    /// Sandbox: full ammo, a magazine in, and a full revolver cylinder. False: no runtime.
+    /// Sandbox: full ammo, a magazine in, and a full revolver cylinder. False without a runtime.
     pub fn fill(&mut self, item: ItemId) -> bool {
         let Some(rt) = self.runtimes.get_mut(&item) else {
             return false;
@@ -567,7 +567,7 @@ impl GunState {
     pub fn states(&self) -> impl Iterator<Item = (ItemId, GunSnapshot)> + '_ {
         self.runtimes.iter().map(|(id, rt)| (*id, rt.snapshot()))
     }
-    /// Source `UpdFromMulti`: a bound gun takes `state`. False if the gun has no runtime or the
+    /// Source `UpdFromMulti`. A bound gun takes `state`. False if the gun has no runtime or the
     /// state is invalid.
     pub fn set(&mut self, item: ItemId, state: GunSnapshot) -> bool {
         let Some(rt) = self.runtimes.get_mut(&item) else {
@@ -706,7 +706,8 @@ impl GunState {
     pub fn unloads(&self, item: ItemId) -> bool {
         self.record(item).is_some_and(|r| unloads(&r.kind))
     }
-    /// `weaponscript.Reload(other, unload)` at the gun `position`. `held`: `other` is picked up.
+    /// `weaponscript.Reload(other, unload)` at the gun `position`. `held` is true when
+    /// `other` is picked up.
     pub fn reload(
         &mut self,
         item: ItemId,
@@ -747,7 +748,7 @@ impl GunState {
         };
         Some((root_pose(items, physics, item)? * g.mag_pos?, mag_prefab))
     }
-    /// `weaponscript.Csoletores(LOOKX, LOOKY)` while R is held: the break barrel moves.
+    /// `weaponscript.Csoletores(LOOKX, LOOKY)` while R is held. The break barrel moves.
     pub fn break_barrel(&mut self, item: ItemId, look: [f32; 2], position: [f64; 3]) {
         let Some(rt) = self.runtimes.get_mut(&item) else {
             return;
@@ -770,7 +771,7 @@ impl GunState {
         }
         rt.fr = (rt.fr + delta * fr.fr_speed).clamp(0., 1.);
         let (value, last) = (rt.fr, rt.last_fr);
-        // CsoletoresSound: SSource plays one clip at a time.
+        // CsoletoresSound. SSource plays one clip at a time.
         let mut play = |clip: Option<(u32, f32)>, random: &mut UnityRandom| {
             if let Some((clip, gain)) = clip {
                 let pitch = random.range(SOURCE_PITCH[0], SOURCE_PITCH[1]);
@@ -814,7 +815,7 @@ impl GunState {
             touch(&mut self.presented, item);
         }
     }
-    /// `weaponscript.RWheel`: R and scroll queue revolver turns.
+    /// `weaponscript.RWheel`. R and scroll queue revolver turns.
     pub fn wheel(&mut self, item: ItemId, scroll: f32) {
         let Some(rt) = self.runtimes.get_mut(&item) else {
             return;
@@ -855,7 +856,7 @@ impl GunState {
         };
         let g = &self.guns[rt.gun];
         let r = &g.record;
-        // Refresh: barrels and moving parts follow FRValue.
+        // Refresh. Barrels and moving parts follow FRValue.
         for (b, part) in r.barrels.iter().zip(&g.barrels) {
             let Some(axis) = b.axis else { continue };
             let t = b.curve.as_ref().map_or(rt.fr, |c| curve(c, rt.fr));
@@ -1053,7 +1054,7 @@ impl GunState {
         }
         rt.last_pulling = rt.pulling;
         rt.pulling = false;
-        // BBcsomozgatasv: the SMove clip ends after the last move.
+        // BBcsomozgatasv. The SMove clip ends after the last move.
         if rt.move_frames > 0 {
             rt.move_frames -= 1;
         } else {
@@ -1183,7 +1184,7 @@ impl GunState {
             if skips(tag, layer) {
                 continue;
             }
-            // ShootEnd: the end tracer starts 3 m before the hit.
+            // ShootEnd. The end tracer starts 3 m before the hit.
             let back = point - direction * 3.;
             self.tracers[1].emit(1, absolute(world.origin, back), look(direction));
             let at = absolute(world.origin, point);
@@ -1341,7 +1342,7 @@ pub struct Reloaded {
     pub to_mag_pos: bool,
 }
 
-/// The kind `Reload(other, unload)`.
+/// The `Reload(other, unload)` of each gun kind.
 fn kind_reload(
     rt: &mut GunRuntime,
     kind: &GunKind,
@@ -1373,10 +1374,10 @@ fn kind_reload(
                 rt.chambers = load_chamber(rt.chambers, chambers);
             }
         }
-        // geppityuscript.Reload: unload drops the magazine with the gun rounds.
+        // geppityuscript.Reload. Unload drops the magazine with the gun rounds.
         GunKind::Magazine { .. } if unload => drop_magazine(rt, &mut result),
         // A picked-up magazine drops the old one and goes in. A loose magazine moves to
-        // `magPos` and swaps rounds; without a magazine in the gun it is used up.
+        // `magPos` and swaps rounds. Without a magazine in the gun, it is used up.
         GunKind::Magazine { .. } if other.is_mag => {
             if held {
                 drop_magazine(rt, &mut result);
@@ -1407,19 +1408,19 @@ fn unloads(kind: &GunKind) -> bool {
     !matches!(kind, GunKind::None)
 }
 
-/// `ammoscript.CanReload`: `to` takes rounds of its type, or a magazine.
+/// `ammoscript.CanReload`. `to` takes rounds of its type, or a magazine.
 pub fn accepts(to: &Ammo, from: &Ammo, from_mag: bool) -> bool {
     to.kind == from.kind && ((to.count < to.maximum && from.count > 0.) || from_mag)
 }
 
-/// `revolverScript.Reload`: the first empty chamber fills.
+/// `revolverScript.Reload`. The first empty chamber fills.
 pub fn load_chamber(bits: u32, chambers: usize) -> u32 {
     (0..chambers)
         .find(|i| bits & 1 << i == 0)
         .map_or(bits, |i| bits | 1 << i)
 }
 
-/// `revolverScript.Reload(unload)`: the last full chamber empties.
+/// `revolverScript.Reload(unload)`. The last full chamber empties.
 pub fn unload_chamber(bits: u32, chambers: usize) -> u32 {
     (0..chambers)
         .rev()
@@ -1693,7 +1694,7 @@ pub fn pellets(shot_count: u32) -> u32 {
     shot_count.max(1)
 }
 
-/// `weaponscript.Update`: a pulled trigger fires when automatic or newly pulled, and after
+/// `weaponscript.Update`. A pulled trigger fires when automatic or newly pulled, and after
 /// `minShootTime`.
 pub fn fires(automatic: bool, last_pulling: bool, time: f32, shot_time: f32, min: f32) -> bool {
     (automatic || !last_pulling) && time - shot_time >= min
@@ -1707,7 +1708,7 @@ pub fn fr_allows(rule: &GunBreakRule, value: f32) -> bool {
         || (rule.near && (value - rule.value).abs() < rule.near_value)
 }
 
-/// The shot ignores this hit: tag `Ignore` or the player layer.
+/// True when the shot ignores a hit with tag `Ignore` or on the player layer.
 pub fn skips(tag: Option<ColliderTag>, layer: u32) -> bool {
     tag == Some(ColliderTag::Ignore) || layer == PLAYER_LAYER
 }
