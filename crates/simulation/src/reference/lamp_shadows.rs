@@ -109,6 +109,10 @@ impl LampMasks {
     pub fn rows(&self) -> impl Iterator<Item = u32> + '_ {
         self.rows.iter().map(|(row, _)| *row)
     }
+    /// Rows and their lamp bits, in row order.
+    pub fn entries(&self) -> &[(u32, u8)] {
+        &self.rows
+    }
     /// Replace bits 4..7 of each mask. Returns the lamp bits that changed for any caster.
     pub fn write(
         &mut self,
@@ -170,33 +174,227 @@ impl LampMasks {
 /// Lamp face tiles: 6 for each lamp slot.
 pub const LAMP_FACES: usize = LAMP_SLOTS * 6;
 
-/// What a lamp face tile holds.
+/// What the static tile of a lamp face holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LampFace {
     /// Face projection, as bits.
     pub clip_from_world: [u32; 16],
     pub point: bool,
-    /// Caster content counter of the slot. It changes when the face content would change.
+    /// Static caster content of the face. It changes when the face content would change.
     pub contents: u64,
 }
 
-/// The face of each lamp tile at its last draw.
+/// Four side planes and the plane through the light of a face, from its clip matrix (columns, source frame).
+/// The planes use x, y and w only, so the depth convention does not matter.
+pub fn face_planes(clip: [[f32; 4]; 4]) -> [Plane; 5] {
+    let row = |r: usize| [clip[0][r], clip[1][r], clip[2][r], clip[3][r]];
+    let (x, y, w) = (row(0), row(1), row(3));
+    let add = |a: [f32; 4], b: [f32; 4], s: f32| std::array::from_fn(|i| a[i] + s * b[i]);
+    // w > 0 is the half space in front of the light.
+    [
+        add(w, x, 1.),
+        add(w, x, -1.),
+        add(w, y, 1.),
+        add(w, y, -1.),
+        w,
+    ]
+}
+
+/// The bounds touch all planes.
+fn touches(bounds: &Bounds, planes: &[Plane; 5]) -> bool {
+    planes.iter().all(|p| {
+        let d = p[0] * bounds.center[0] + p[1] * bounds.center[1] + p[2] * bounds.center[2] + p[3];
+        let r = p[0].abs() * bounds.extents[0]
+            + p[1].abs() * bounds.extents[1]
+            + p[2].abs() * bounds.extents[2];
+        d + r >= 0.
+    })
+}
+
+/// Spread the bits of a pose hash, so a sum of poses does not cancel.
+fn mix(mut v: u64) -> u64 {
+    v ^= v >> 33;
+    v = v.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    v ^= v >> 33;
+    v = v.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+    v ^ v >> 33
+}
+
+/// Static caster content and animated casters of each lamp face tile.
+pub struct FaceScan {
+    pub contents: [u64; LAMP_FACES],
+    pub animated: [bool; LAMP_FACES],
+}
+/// `poses` holds a hash of the identity and pose of each caster row. `animated` is in row order.
+/// The content is a sum, so it does not depend on row order. `epoch` changes all faces.
+pub fn scan_faces(
+    masks: &LampMasks,
+    casters: &[CasterInput],
+    poses: &[u64],
+    animated: &[u32],
+    faces: &[[Option<[Plane; 5]>; 6]; LAMP_SLOTS],
+    epoch: u64,
+) -> FaceScan {
+    let mut scan = FaceScan {
+        contents: [mix(epoch); LAMP_FACES],
+        animated: [false; LAMP_FACES],
+    };
+    for &(row, bits) in masks.entries() {
+        let bounds = &casters[row as usize].bounds;
+        let moving = animated.binary_search(&row).is_ok();
+        for (slot, planes) in faces.iter().enumerate() {
+            if bits >> (LAMP_BIT as usize + slot) & 1 == 0 {
+                continue;
+            }
+            for (face, planes) in planes.iter().enumerate() {
+                let Some(planes) = planes else { continue };
+                if !touches(bounds, planes) {
+                    continue;
+                }
+                let tile = slot * 6 + face;
+                if moving {
+                    scan.animated[tile] = true;
+                } else {
+                    scan.contents[tile] =
+                        scan.contents[tile].wrapping_add(mix(poses[row as usize]));
+                }
+            }
+        }
+    }
+    scan
+}
+
+/// `draw`: static casters draw into the static tile. `refresh`: the atlas tile copies the
+/// static tile, then the animated casters draw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LampPlan {
+    pub draw: [bool; LAMP_FACES],
+    pub refresh: [bool; LAMP_FACES],
+}
+
+/// The face of each lamp tile at its last draw, and its animated state at its last refresh.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct LampHistory([Option<LampFace>; LAMP_FACES]);
+pub struct LampHistory {
+    faces: [Option<LampFace>; LAMP_FACES],
+    animated: [bool; LAMP_FACES],
+}
 impl LampHistory {
-    /// A face draws when the atlas is forced or its tile holds a different face. The tiles keep the drawn faces.
+    /// A face draws when the atlas is forced or its tile holds a different face.
+    /// It refreshes when it draws, or it holds animated casters now or at its last refresh.
     /// An unused tile forgets its face: a spot face can cover it.
     pub fn plan(
         &mut self,
         forced: bool,
         current: &[Option<LampFace>; LAMP_FACES],
-    ) -> [bool; LAMP_FACES] {
-        std::array::from_fn(|tile| {
-            let draw = current[tile].is_some_and(|face| forced || self.0[tile] != Some(face));
-            if draw || current[tile].is_none() {
-                self.0[tile] = current[tile];
+        animated: &[bool; LAMP_FACES],
+    ) -> LampPlan {
+        let mut plan = LampPlan {
+            draw: [false; LAMP_FACES],
+            refresh: [false; LAMP_FACES],
+        };
+        for tile in 0..LAMP_FACES {
+            let Some(face) = current[tile] else {
+                self.faces[tile] = None;
+                self.animated[tile] = false;
+                continue;
+            };
+            let draw = forced || self.faces[tile] != Some(face);
+            let refresh = draw || animated[tile] || self.animated[tile];
+            if draw {
+                self.faces[tile] = Some(face);
             }
-            draw
-        })
+            if refresh {
+                self.animated[tile] = animated[tile];
+            }
+            plan.draw[tile] = draw;
+            plan.refresh[tile] = refresh;
+        }
+        plan
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reference::shadow_candidates::CandidateState;
+    use glam::{Mat4, Vec3};
+
+    fn caster(center: [f32; 3]) -> CasterInput {
+        CasterInput {
+            bounds: Bounds {
+                center,
+                extents: [0.2; 3],
+            },
+            state: CandidateState {
+                shadow_casting_mode: 1,
+                layer: 0,
+                renderer_present: true,
+                disabled: false,
+                force_off: false,
+                lod_group: 0,
+                lod_index_mask: 0,
+                active_lod: 0,
+            },
+            material_has_caster: true,
+        }
+    }
+
+    /// A face is dirty only when a static caster inside it moves. Animated casters only refresh it.
+    #[test]
+    fn only_the_face_with_a_moved_caster_is_dirty() {
+        let lamp = LampSphere {
+            light: 0,
+            center: [0.; 3],
+            range: 10.,
+            culling_mask: u32::MAX,
+        };
+        let slots = [Some(lamp), None, None, None];
+        let projection = Mat4::perspective_rh(1.6, 1., 10., 0.05);
+        let directions = [
+            (Vec3::X, Vec3::Y),
+            (Vec3::NEG_X, Vec3::Y),
+            (Vec3::Y, Vec3::Z),
+            (Vec3::NEG_Y, Vec3::Z),
+            (Vec3::Z, Vec3::Y),
+            (Vec3::NEG_Z, Vec3::Y),
+        ];
+        let mut faces = [[None; 6]; LAMP_SLOTS];
+        let mut clips = [[0; 16]; 6];
+        for (face, (forward, up)) in directions.into_iter().enumerate() {
+            let clip = projection * Mat4::look_to_rh(Vec3::ZERO, forward, up);
+            faces[0][face] = Some(face_planes(clip.to_cols_array_2d()));
+            clips[face] = clip.to_cols_array().map(f32::to_bits);
+        }
+        // Row 0: static caster on +X. Row 1: animated caster on -Y.
+        let mut casters = vec![caster([3., 0., 0.]), caster([0., -3., 0.])];
+        let mut poses = vec![1, 2];
+        let animated = [1];
+        let mut grid = CasterGrid::default();
+        let mut masks = vec![0; 2];
+        let mut lamp_masks = LampMasks::default();
+        let mut history = LampHistory::default();
+        let mut frame = |casters: &[CasterInput], poses: &[u64], history: &mut LampHistory| {
+            grid.rebuild(casters);
+            lamp_masks.write(casters, &grid, &slots, &mut masks);
+            let scan = scan_faces(&lamp_masks, casters, poses, &animated, &faces, 0);
+            let current = std::array::from_fn(|tile| {
+                (tile < 6).then(|| LampFace {
+                    clip_from_world: clips[tile],
+                    point: true,
+                    contents: scan.contents[tile],
+                })
+            });
+            history.plan(false, &current, &scan.animated)
+        };
+        let first = frame(&casters, &poses, &mut history);
+        assert!(first.draw[..6].iter().all(|d| *d));
+        let still = frame(&casters, &poses, &mut history);
+        assert_eq!(still.draw, [false; LAMP_FACES]);
+        // -Y holds the animated caster, so only it refreshes.
+        assert!((0..LAMP_FACES).all(|tile| still.refresh[tile] == (tile == 3)));
+        casters[0].bounds.center = [3., 0.5, 0.];
+        poses[0] = 3;
+        let moved = frame(&casters, &poses, &mut history);
+        assert!((0..LAMP_FACES).all(|tile| moved.draw[tile] == (tile == 0)));
     }
 }
