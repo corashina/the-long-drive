@@ -69,6 +69,9 @@ struct Row {
     receipt: UploadReceipt,
 }
 struct ShaderLoad {
+    /// Shaders that this one imports by path. The asset server loads those as dependencies,
+    /// so they must finish first.
+    imports: Vec<usize>,
     handle: Option<Handle<Shader>>,
     cpu: usize,
     staging: usize,
@@ -239,7 +242,8 @@ impl SourceFixedAssets {
             rows,
             shaders: SHADERS
                 .iter()
-                .map(|_| ShaderLoad {
+                .map(|path| ShaderLoad {
+                    imports: path_imports(path),
                     handle: None,
                     cpu: 0,
                     staging: 0,
@@ -874,24 +878,28 @@ impl SourceFixedAssets {
             visuals.gltfs.push((record.id, handle.clone()));
             self.roots[index].state.start_payload(handle);
         }
-        // Imported shader libraries must finish before their importing shaders start.
-        if let Some(index) = self.shaders.iter().position(|s| !s.done) {
-            if self.shaders[index].handle.is_none() {
-                let bound = shader_input(SHADERS[index])?;
-                let (cpu, staging) = (bound.cpu, bound.staging);
-                if crate::ownership::fixed::fixed_room(ledger, cpu, 0, staging, true)? {
-                    self.shaders[index].cpu = cpu;
-                    self.shaders[index].staging = staging;
-                    let mut next = self.allocation()?;
-                    next.jobs = checked_sum(&[next.jobs, 1])?;
-                    next.pending = checked_sum(&[next.pending, 1])?;
-                    next.staging = checked_sum(&[next.staging, staging])?;
-                    ledger.set_allocation(next.replace(*snapshot, ledger.allocation())?)?;
-                    *snapshot = next;
-                    self.shaders[index].handle = Some(server.load(SHADERS[index]));
-                }
+        // A shader starts when the shaders it imports by path are done.
+        for index in 0..self.shaders.len() {
+            let shader = &self.shaders[index];
+            if shader.handle.is_some() || shader.imports.iter().any(|&i| !self.shaders[i].done) {
+                continue;
             }
-        } else if !self.shaders_bound {
+            let bound = shader_input(SHADERS[index])?;
+            let (cpu, staging) = (bound.cpu, bound.staging);
+            if !crate::ownership::fixed::fixed_room(ledger, cpu, 0, staging, true)? {
+                break;
+            }
+            self.shaders[index].cpu = cpu;
+            self.shaders[index].staging = staging;
+            let mut next = self.allocation()?;
+            next.jobs = checked_sum(&[next.jobs, 1])?;
+            next.pending = checked_sum(&[next.pending, 1])?;
+            next.staging = checked_sum(&[next.staging, staging])?;
+            ledger.set_allocation(next.replace(*snapshot, ledger.allocation())?)?;
+            *snapshot = next;
+            self.shaders[index].handle = Some(server.load(SHADERS[index]));
+        }
+        if self.shaders.iter().all(|s| s.done) && !self.shaders_bound {
             let shader = |path: &str| {
                 self.shaders[SHADERS.iter().position(|p| *p == path).unwrap()]
                     .handle
@@ -1165,6 +1173,21 @@ fn complete_uploads(
     }
 }
 
+/// Fixed shaders that `path` imports with `#import "shaders/..."`.
+fn path_imports(path: &str) -> Vec<usize> {
+    let source = crate::reference::fixed_reservation::shader_source(path).unwrap();
+    source
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("#import \""))
+        .filter_map(|rest| rest.split('"').next())
+        .map(|import| {
+            SHADERS
+                .iter()
+                .position(|p| *p == import)
+                .expect("a path import names a fixed shader")
+        })
+        .collect()
+}
 fn shader_owned_bytes(shader: &Shader) -> Result<usize, ReferenceError> {
     use bevy::shader::{ShaderImport, Source};
     let source = match &shader.source {
