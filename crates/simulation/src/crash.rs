@@ -1,6 +1,7 @@
 //! Car crash rule: source `carscript.DamageStuff`, `HornHit` and `partscript.WouldFallOff`.
 use crate::interaction::wheels::WheelSlotId;
 use crate::reference::{CarCrashReference, ColliderId, CrashReference, ItemId};
+use crate::simulation::dials::{inverse_lerp, lerp};
 use crate::world::UnityRandom;
 use rapier3d::prelude::ColliderHandle;
 
@@ -178,18 +179,4 @@ pub fn damage(
         outcome.fall_off = Some((crash_lerp, count.max(0) as usize));
     }
     outcome
-}
-
-/// Source `Mathf.Lerp`: `t` clamps to 0..1.
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0.0, 1.0)
-}
-
-/// Source `Mathf.InverseLerp`: clamps to 0..1, 0 when `a == b`.
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.0
-    } else {
-        ((value - a) / (b - a)).clamp(0.0, 1.0)
-    }
 }

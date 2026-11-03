@@ -206,17 +206,6 @@ pub struct VehicleSnapshot {
     pub angular_velocity: [f32; 3],
 }
 
-impl VehicleSnapshot {
-    pub fn absolute_speed_kmh(&self) -> f32 {
-        self.linear_velocity
-            .iter()
-            .map(|v| v * v)
-            .sum::<f32>()
-            .sqrt()
-            * 3.6
-    }
-}
-
 pub struct PhysicsWorld {
     body_mass_override: Option<mass::BodyMassOverride>,
     /// Locked item mass on non-vehicle bodies. `set_body_mass` adds it.
@@ -290,9 +279,6 @@ impl PhysicsWorld {
             sleep_speed:
                 rapier3d::prelude::RigidBodyActivation::default_normalized_linear_threshold(),
         }
-    }
-    pub fn vehicle_count(&self) -> usize {
-        self.vehicles.len()
     }
     /// Vehicle keys in no fixed order.
     pub fn vehicle_keys(&self) -> impl Iterator<Item = &ObjectKey> {
@@ -651,24 +637,6 @@ impl PhysicsWorld {
             body.reset_torques(true);
         });
         self.refresh_queries();
-    }
-
-    pub fn insert_mesh_at(
-        &mut self,
-        vertices: &[[f32; 3]],
-        indices: &[[u32; 3]],
-        position: [f32; 3],
-    ) -> ColliderHandle {
-        let mesh = ColliderBuilder::trimesh(
-            vertices.iter().copied().map(Vector::from_array).collect(),
-            indices.to_vec(),
-        )
-        .expect("Static mesh must contain valid triangles")
-        .friction(0.8)
-        .translation(Vector::from_array(position));
-        let handle = self.insert_collider(mesh);
-        self.refresh_queries();
-        handle
     }
 
     /// Fallible source mesh publication leaves existing collision untouched on failure.
