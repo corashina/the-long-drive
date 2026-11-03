@@ -586,11 +586,6 @@ impl Humanoid {
         mirror_frame(&pose.model[index])
     }
 
-    /// Converted parent-local frame of rig node `index`.
-    pub fn converted_local(&self, pose: &HumanoidPose, index: usize) -> Frame {
-        mirror_frame(&pose.local[index])
-    }
-
     /// Converted pose of `newAiScript.head` under the Animator Transform.
     pub fn head(&self, pose: &HumanoidPose) -> Pose {
         let f = self.converted(pose, self.head);

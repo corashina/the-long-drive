@@ -117,7 +117,7 @@ fn model_pose(nodes: &[NodeRecord], root: NodeId, node: NodeId) -> Result<Pose, 
     for n in chain.iter().rev() {
         let t = &n.transform;
         pose.translation += pose.rotation * (scale * Vector::from_array(t.translation));
-        pose.rotation = pose.rotation * Rotation::from_array(t.rotation);
+        pose.rotation *= Rotation::from_array(t.rotation);
         scale *= Vector::from_array(t.scale);
     }
     Ok(pose)

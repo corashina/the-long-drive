@@ -165,9 +165,6 @@ impl ConditionStore {
             ConditionId(self.first_world + (index - self.records.len()) as u32)
         }
     }
-    pub fn is_world(&self, id: ConditionId) -> bool {
-        id.0 >= self.first_world
-    }
     /// Adds a world part condition. Set its children with `set_children` once they exist.
     pub fn add_world(
         &mut self,
@@ -265,10 +262,6 @@ impl ConditionStore {
     /// `partconditionscript.state` of an item.
     pub fn item_state(&self, item: ItemId) -> Option<u8> {
         self.items.get(&item).map(|id| self.get(*id).state)
-    }
-    /// The condition of item `item`.
-    pub fn item_condition(&self, item: ItemId) -> Option<ConditionId> {
-        self.items.get(&item).copied()
     }
     pub fn item_quality(&self, item: ItemId) -> Option<f32> {
         self.items.get(&item).map(|id| self.quality(*id))

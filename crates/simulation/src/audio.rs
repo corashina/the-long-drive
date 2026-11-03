@@ -1038,12 +1038,11 @@ impl AudioState {
                 }
                 signal.playing &= self.mechanism_sounds[i].remaining > 0. && signal.gain > 0.;
             }
-            if turn != self.mechanism_sounds[i].turn {
-                if let Some(id) =
+            if turn != self.mechanism_sounds[i].turn
+                && let Some(id) =
                     self.reference.mechanisms[self.mechanism_sounds[i].index].turn_binding
-                {
-                    self.emit(id, 1., self.game_seconds);
-                }
+            {
+                self.emit(id, 1., self.game_seconds);
             }
             self.mechanism_sounds[i].previous = current;
             self.mechanism_sounds[i].turn = turn;
@@ -1081,27 +1080,27 @@ impl AudioState {
             if !latch.sensed {
                 self.route_nodes[index] = None;
             }
-            if let Some(handle) = *id {
-                if let Some(sensor) = physics.rapier().colliders.get(handle) {
-                    for (other_handle, other) in physics
-                        .queries(QueryFilter {
-                            exclude_collider: Some(handle),
-                            exclude_rigid_body: sensor.parent(),
-                            groups: Some(sensor.collision_groups()),
-                            ..QueryFilter::default()
-                        })
-                        .intersect_shape(*sensor.position(), sensor.shape())
-                    {
-                        let id = ColliderId((other.user_data >> 64) as u32);
-                        self.route_nodes[index] = self.collider_nodes.get(&id).copied();
-                        latch.hits.clear();
-                        latch.hits.push(
-                            self.world_interiors
-                                .entry(other_handle)
-                                .or_else(|| self.colliders.get(&id).copied()),
-                        );
-                        latch.hit();
-                    }
+            if let Some(handle) = *id
+                && let Some(sensor) = physics.rapier().colliders.get(handle)
+            {
+                for (other_handle, other) in physics
+                    .queries(QueryFilter {
+                        exclude_collider: Some(handle),
+                        exclude_rigid_body: sensor.parent(),
+                        groups: Some(sensor.collision_groups()),
+                        ..QueryFilter::default()
+                    })
+                    .intersect_shape(*sensor.position(), sensor.shape())
+                {
+                    let id = ColliderId((other.user_data >> 64) as u32);
+                    self.route_nodes[index] = self.collider_nodes.get(&id).copied();
+                    latch.hits.clear();
+                    latch.hits.push(
+                        self.world_interiors
+                            .entry(other_handle)
+                            .or_else(|| self.colliders.get(&id).copied()),
+                    );
+                    latch.hit();
                 }
             }
         }
@@ -1349,21 +1348,20 @@ impl AudioState {
         if let Some(parent) = interior
             .parent
             .and_then(|id| self.reference.interiors.iter().position(|i| i.id == id))
+            && Some(parent) != caller
         {
-            if Some(parent) != caller {
-                let value = if interior.removable_doors {
-                    interior
-                        .parent_slot
-                        .map_or(1., |slot| self.slot(slot, area))
-                } else {
-                    interior
-                        .parent_door
-                        .as_ref()
-                        .map_or(1., |door| self.control(door, area))
-                };
-                total += self.interior_value(parent, area, stream, Some(index), depth + 1)
-                    * (2. * value).clamp(0., 1.);
-            }
+            let value = if interior.removable_doors {
+                interior
+                    .parent_slot
+                    .map_or(1., |slot| self.slot(slot, area))
+            } else {
+                interior
+                    .parent_door
+                    .as_ref()
+                    .map_or(1., |door| self.control(door, area))
+            };
+            total += self.interior_value(parent, area, stream, Some(index), depth + 1)
+                * (2. * value).clamp(0., 1.);
         }
         interior_transmission(
             total,
