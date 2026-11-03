@@ -1,4 +1,4 @@
-//! Camera-local Uber output and persistent noise/exposure bindings.
+//! Camera-local Uber output and persistent noise and exposure bindings.
 use super::{dither::DitherSequence, pipeline_failure};
 use crate::reference::postprocessing::PostprocessingRecord;
 use bevy::prelude::*;

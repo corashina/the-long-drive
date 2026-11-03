@@ -1,13 +1,13 @@
-//! Mirror skip rules and draw turns. Live mirrors take turns to draw; other slots keep their last image.
+//! Mirror skip rules and draw turns. Live mirrors take turns to draw. Other slots keep their last image.
 
-/// Most mirror slots drawn per frame.
+/// The maximum number of mirror slots that draw in one frame.
 const DRAWS_PER_FRAME: usize = 2;
 
 /// Source `MirrorsUpdate` skip rules: out of draw range, facing away from the camera, or off screen.
-/// `facing` is `dot(T.up, v)`: the source `Angle(T.up, v) < 90` test.
+/// `facing` is `dot(T.up, v)`, as in the source `Angle(T.up, v) < 90` test.
 pub(crate) fn skipped(far: f32, near: f32, facing: f32, visible: bool) -> bool {
-    // Near the max distance, far drops to the near plane:
-    // that camera has no frustum and fails the shadow fit. Treat it as out of range.
+    // Near the max distance, far drops to the near plane.
+    // Then that camera has no frustum and fails the shadow fit. Treat it as out of range.
     far <= near || facing <= 0. || !visible
 }
 
@@ -78,7 +78,7 @@ mod tests {
             pick_draws(live, none, &mut cursor),
             [true, false, false, false, true]
         );
-        // No live slot draws nothing.
+        // With no live slot, nothing draws.
         assert_eq!(pick_draws([false; 5], none, &mut cursor), [false; 5]);
     }
 }

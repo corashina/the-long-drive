@@ -31,7 +31,7 @@ pub enum SourceSurfaceStage {
     AfterTransparent,
 }
 
-/// Insert once when a view's targets are prepared. Replaced only on resize.
+/// Insert once when a view's targets are prepared. Only a resize replaces it.
 #[derive(Component)]
 pub struct SurfaceViewTargets(pub Arc<SourceViewTargets>);
 

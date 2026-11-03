@@ -15,7 +15,7 @@ struct CasterView {
 @group(1) @binding(1) var caster_dither: texture_3d<f32>;
 @group(1) @binding(2) var caster_dither_sampler: sampler;
 
-// Same typed material block and offsets as SourceSurface; only MainTex and scalar alpha controls are active.
+// It has the same typed material block and offsets as SourceSurface. Only MainTex and scalar alpha controls are active.
 struct CasterMaterial {
     color: vec4<f32>, emission: vec4<f32>, specular:vec4<f32>, factors: vec4<f32>, scales: vec4<f32>, flags: vec4<u32>, banks: array<vec4<u32>, 3>, layers:array<vec4<u32>,3>,
     uv: array<vec4<f32>, 9>, sampling: array<vec4<f32>, 9>, defaults: array<vec4<f32>, 9>,
@@ -81,7 +81,7 @@ fn fragment(input: CasterOutput) {
 #else
     let color_alpha = material.color.a;
 #endif
-    // Source player_model SHADOWCASTER: discard near the view camera, as in the surface.
+    // Source player_model SHADOWCASTER discards near the view camera, as in the surface.
     if material.flags.z == 3u && (material.flags.x & (1u << 12u)) == 0u && length(input.world_position - view.world_position) < caster_view.bias.w { discard; }
     if (material.flags.x & ((1u << 9u) | (1u << 8u))) == 0u { return; }
     var main_alpha = material.defaults[0].a;

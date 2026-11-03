@@ -1,4 +1,4 @@
-//! Source TAA: history resolve after the scene copy. Histogram, bloom and Uber read its output.
+//! Source TAA. The history resolve runs after the scene copy. Histogram, bloom and Uber read its output.
 use crate::presentation::render_targets::HDR_FORMAT;
 use crate::reference::postprocessing::TaaSettings;
 use bevy::prelude::*;

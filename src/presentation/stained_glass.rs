@@ -9,7 +9,7 @@ use bevy::render::{
 use bevy::{ecs as bevy_ecs, prelude::*};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-/// Feed normalized native fields. Material/pass values are target runtime identities.
+/// Feed normalized native fields. Material and pass values are target runtime identities.
 /// Selected materials47/48 have no instancing variant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GrabPassKey {
@@ -133,7 +133,7 @@ pub struct SourceGlassView {
     _sampler: Sampler,
     uniform: UniformBuffer<GlassViewUniform>,
     bind_group: BindGroup,
-    /// Source named `_GrabTexture`: captured once per view frame before the first distortion particle.
+    /// Source named `_GrabTexture`. The view captures it once per view frame before the first distortion particle.
     named: Texture,
     _named_sampled: TextureView,
     /// Placeholder camera depth for views whose depth is the transparent attachment.
@@ -180,7 +180,7 @@ impl SourceGlassView {
         let sampled = texture.create_view(&TextureViewDescriptor::default());
         let named = grab("source_named_grab");
         let named_sampled = named.create_view(&TextureViewDescriptor::default());
-        // Zero-initialized reverse-Z depth is the far plane: soft particles keep full alpha.
+        // Zero-initialized reverse-Z depth is the far plane, so soft particles keep full alpha.
         let depth_placeholder = camera_depth.is_none().then(|| {
             device.create_texture(&TextureDescriptor {
                 label: Some("source_particle_depth_placeholder"),
@@ -368,7 +368,7 @@ impl SourceGlassView {
         );
         Ok(())
     }
-    /// Release image validity at the source cleanup boundary; retain allocation.
+    /// Release image validity at the source cleanup boundary. Retain the allocation.
     pub fn cleanup(&self) {
         self.valid.store(false, Ordering::Release);
     }

@@ -1,5 +1,5 @@
 //! Static mesh draws of the camera pass run as one render bundle per view.
-//! A static draw is an unskinned mesh without morph targets. Its commands repeat each frame:
+//! A static draw is an unskinned mesh without morph targets. Its commands repeat each frame.
 //! GPU preprocessing writes its transform, so a moving mesh is static too.
 //! Bevy creates new mesh bind groups each frame. Static draws bind a model-only group that
 //! changes only with the instance buffer of its phase.
@@ -95,7 +95,7 @@ pub(crate) fn prepare_groups(
     }
 }
 
-/// True when the mesh pipeline of `mesh` uses the skinned mesh layout. Same test as Bevy.
+/// True when the mesh pipeline of `mesh` uses the skinned mesh layout. It is the same test as in Bevy.
 fn skinned_layout(mesh: &RenderMesh) -> bool {
     mesh.layout.0.contains(Mesh::ATTRIBUTE_JOINT_INDEX)
         && mesh.layout.0.contains(Mesh::ATTRIBUTE_JOINT_WEIGHT)
@@ -103,7 +103,7 @@ fn skinned_layout(mesh: &RenderMesh) -> bool {
 
 /// The mesh group of a source draw. Static draws bind the stable group, others the Bevy group.
 /// The pipeline takes the skinned layout from the mesh joints. The bind group takes it from a
-/// live skin. When they differ, the draw is skipped: a WebGPU validation error stops the game.
+/// live skin. When they differ, it skips the draw, because a WebGPU validation error stops the game.
 pub struct SetSourceMeshBindGroup<const I: usize>;
 impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetSourceMeshBindGroup<I> {
     type Param = (

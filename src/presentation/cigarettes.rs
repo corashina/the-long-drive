@@ -8,7 +8,7 @@ use crate::interaction::cigarettes::part_pose;
 use crate::reference::{ItemId, NodeId, Transform as SourceTransform};
 use bevy::prelude::*;
 
-/// Checked cigarette nodes: each part with its start and end local pose.
+/// Checked cigarette nodes. Each part has its start and end local pose.
 pub(crate) struct CigaretteNodes {
     parts: Vec<(NodeId, SourceTransform, SourceTransform)>,
     renderer: NodeId,
@@ -90,7 +90,7 @@ pub(crate) fn sync(
             error!("Cigarette ember emission: {error}");
         }
     }
-    // One ember light: the worn cigarette, then the held one, then any lit one.
+    // One ember light. It comes from the worn cigarette, then the held one, then any lit one.
     let Some(record) = ember_light(manifest) else {
         return;
     };

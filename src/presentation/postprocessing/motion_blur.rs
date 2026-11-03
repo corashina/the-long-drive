@@ -1,6 +1,7 @@
-//! Source PPv2 motion blur: velocity, tile max, neighbor max, reconstruction. After TAA, before histogram.
+//! Source PPv2 motion blur: velocity, tile max, neighbor max, reconstruction.
+//! It runs after TAA and before the histogram.
 //! Velocity, tiles and reconstruction run at half resolution. A depth-aware upsample writes the full-resolution output.
-//! Targets and bindings are allocated only at startup, physical resize, or a setting change.
+//! The pass allocates targets and bindings only at startup, physical resize, or a setting change.
 use crate::reference::postprocessing::MotionBlurSettings;
 use bevy::prelude::*;
 use bevy::render::{
@@ -258,7 +259,7 @@ impl MotionBlurPass {
             .iter()
             .all(|id| cache.get_render_pipeline(*id).is_some())
     }
-    /// `shutter` in degrees. None copies the source: no valid motion, or a screenshot frame.
+    /// `shutter` in degrees. None copies the source, for no valid motion or a screenshot frame.
     pub fn encode(
         &mut self,
         encoder: &mut CommandEncoder,

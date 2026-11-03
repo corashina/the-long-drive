@@ -404,7 +404,7 @@ fn encode_ao(
     if view.index != 0 || status.failure().is_some() {
         return;
     }
-    // Off: no AO passes. Opaque and transparent passes already resolved the color.
+    // With the setting off, no AO passes run. Opaque and transparent passes already resolved the color.
     if !input.ambient_occlusion {
         effects.audit.ao_frame = frame.frame;
         effects.audit.ao_token = frame.main_token;

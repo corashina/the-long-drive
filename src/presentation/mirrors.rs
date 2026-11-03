@@ -140,11 +140,11 @@ pub(crate) fn select(
     }
     candidates.sort_by(|a, b| a.distance.total_cmp(&b.distance));
     let globals = &world.mirrors;
-    // Past `maxDist` the draw distance is 0 and no mirror is live: the player is not in or near a car.
+    // Past `maxDist` the draw distance is 0 and no mirror is live, because the player is not in or near a car.
     let near = candidates
         .first()
         .is_some_and(|c| c.distance < globals.max_distance);
-    // Pass 1: the live mirrors and their views. Pass 2 gives new live mirrors free slots.
+    // Pass 1 finds the live mirrors and their views. Pass 2 gives new live mirrors free slots.
     let mut live: [Option<(usize, MirrorView)>; MIRROR_COUNT] = [None; MIRROR_COUNT];
     for (rank, candidate) in candidates.iter().enumerate().take(MIRROR_COUNT) {
         if !settings.mirrors || !near {

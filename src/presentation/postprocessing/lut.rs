@@ -260,7 +260,7 @@ impl LutPass {
             tonemapper: Tonemapper::Neutral,
         })
     }
-    /// Replace the grading and tonemapper. Each existing slice buffer takes a queue write; bake again after this.
+    /// Replace the grading and tonemapper. Each existing slice buffer takes a queue write. Bake again after this.
     pub fn set_grading(
         &mut self,
         device: &RenderDevice,

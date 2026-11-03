@@ -14,7 +14,7 @@ struct SourceLighting {
     counts: vec4<u32>,
 }
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> lamp_lighting: SourceLighting;
-// Cookie UV derivative by the chain rule. Callers take world derivatives before the lamp loop, in uniform control flow.
+// Computes the cookie UV derivative by the chain rule. Callers take world derivatives before the lamp loop, in uniform control flow.
 fn cookie_uv_gradient(lamp: SourceLight, local: vec4<f32>, world_gradient: vec4<f32>) -> vec2<f32> {
     let local_gradient = lamp.cookie_from_world * world_gradient;
     if lamp.direction_kind.w == 0.0 { return local_gradient.xy / lamp.cookie_size; }
@@ -29,7 +29,7 @@ fn cookie_uv_gradient(lamp: SourceLight, local: vec4<f32>, world_gradient: vec4<
 @group(#{MATERIAL_BIND_GROUP}) @binding(111) var attenuation_sampler: sampler;
 fn power5(v:f32)->f32 { let v2=v*v; return v2*v2*v; }
 
-// GLSL ES 3.00 has no findLSB. Input is a nonzero mask word.
+// GLSL ES 3.00 has no findLSB. The input is a nonzero mask word.
 fn object_first_light(mask: u32) -> u32 {
     var bits = mask;
     var index = 0u;

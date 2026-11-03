@@ -35,8 +35,8 @@ struct CasterBinding {
     uniform: UniformBuffer<CasterUniform>,
     binding: BindGroup,
 }
-/// Slots 0..3 are the four source cascades. Then 6 faces for each lamp slot; only the world view uses them.
-/// Each source view owns this component; queued views never overwrite another view's state.
+/// Slots 0..3 are the four source cascades. Then 6 faces for each lamp slot. Only the world view uses them.
+/// Each source view owns this component. Queued views never overwrite another view's state.
 #[derive(Component)]
 pub struct CasterViews {
     slots: [CasterBinding; super::lamp_shadows::TILES],
@@ -114,7 +114,7 @@ pub struct CasterPasses {
     /// Active caster pipelines by descriptor. Bases that differ only in surface state share one.
     active: Vec<(RenderPipelineDescriptor, CachedRenderPipelineId)>,
 }
-/// Surface-only defs. The caster shader and its imports do not read them.
+/// Shader defs that only the surface shader reads. The caster shader and its imports do not read them.
 fn surface_only(def: &ShaderDefVal) -> bool {
     let (ShaderDefVal::Bool(name, _) | ShaderDefVal::Int(name, _) | ShaderDefVal::UInt(name, _)) =
         def;
@@ -198,7 +198,7 @@ impl CasterPasses {
                 .filter_map(|(_, id)| *id)
                 .all(|id| cache.get_render_pipeline(id).is_some())
     }
-    /// Called during preparation. Descriptors are cloned only once per new source surface variant.
+    /// Called during preparation. It clones the descriptors only once for each new source surface variant.
     pub(crate) fn prepare(
         &mut self,
         cache: &PipelineCache,

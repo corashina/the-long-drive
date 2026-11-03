@@ -251,8 +251,8 @@ impl FoodInstance {
     }
 }
 
-/// Runtime food (turds, cut pieces) must not make a new material, mesh variant or pipeline:
-/// its first draw would be skipped. During loading, draw one far copy of every food glTF
+/// Runtime food (turds, cut pieces) must not make a new material, mesh variant or pipeline.
+/// The renderer would skip its first draw. During loading, draw one far copy of every food glTF
 /// with all parts shown, after the startup material pass. Runtime copies then reuse its
 /// cached mesh variants, materials and compiled pipelines.
 #[allow(clippy::too_many_arguments)]

@@ -676,13 +676,13 @@ fn read_input(
     };
     drive.link.send(command);
 }
-/// World camera of the last complete view snapshot. `None`: startup and load use the root camera.
+/// World camera of the last complete view snapshot. With `None`, startup and load use the root camera.
 fn world_snapshot<'a>(
     views: &'a presentation::view_frame::SourceViewFrame,
     epoch: &presentation::view_frame::SourceSceneEpoch,
     session: u64,
 ) -> Option<&'a presentation::view_frame::ViewSnapshot> {
-    // Preparation consumes one completed pose/FOV pair.
+    // Preparation consumes one completed pair of pose and FOV.
     let coherent = views.session == session
         && views.scene == epoch.0
         && views.views[..presentation::surface_views::WORLD_VIEWS]
@@ -935,7 +935,7 @@ fn fill(drive: &mut Drive, frame: &mut SimFrameResource) {
     frame.apply_changes();
     frame.index_particles();
 }
-/// Camera of `state`: the sleep camera, the seated view camera, else the player `view`.
+/// The camera of `state`. It is the sleep camera, the seated view camera, or else the player `view`.
 pub(crate) fn frame_camera(state: &StateBlock, view: VehiclePose) -> Transform {
     let pose = |row: PoseRow| presentation::transform(row.pose());
     if state.sleep_camera.flags & PoseRow::ACTIVE != 0 {

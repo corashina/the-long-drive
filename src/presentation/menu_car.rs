@@ -1,5 +1,5 @@
-//! Start menu car: a copy of the garage start car turns on a dark stage while the start menu is open.
-//! Port choice: the source menu shows a figure. This port shows the start car, as a showroom.
+//! The start menu car. A copy of the garage start car turns on a dark stage while the start menu is open.
+//! Port choice. The source menu shows a figure. This port shows the start car, as a showroom.
 //! The copy draws the authored surfaces with Bevy PBR, as the figure stages do. Source-only
 //! effects (the condition shader extension, plate text, mirror images) are not drawn.
 use super::figure_stage::StageCamera;
@@ -24,7 +24,7 @@ use std::f32::consts::{PI, TAU};
 const LAYER: usize = 33;
 /// 10 km below the world, away from the appearance preview stage.
 const STAGE: Vec3 = Vec3::new(1_000., -10_000., 0.);
-/// After every source camera.
+/// The stage camera draws after every source camera.
 const ORDER: isize = 101;
 /// One turn of the car.
 const TURN_SECONDS: f32 = 30.;
@@ -56,7 +56,7 @@ pub struct MenuCar {
     surfaces: Vec<CarSurface>,
 }
 
-/// Follow the browser start menu: copy the car once it is ready, turn it, despawn on close.
+/// Follow the browser start menu. Copy the car once it is ready, turn it, and despawn it on close.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn sync(
     mut commands: Commands,

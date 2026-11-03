@@ -57,7 +57,7 @@ pub struct MotionRows {
 }
 
 /// An unchanged transform keeps its model. Its previous model is therefore the stored one.
-/// A reset refreshes every model: transforms can change while motion is off.
+/// A reset refreshes every model, because transforms can change while motion is off.
 fn collect(
     mut commands: Commands,
     frame: Res<SourceViewFrame>,

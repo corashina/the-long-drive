@@ -1,10 +1,10 @@
 //! The "Antialiasing" display setting at page load.
-//! Pipelines are prepared once for the view sample count, so a change applies after a reload.
+//! The renderer prepares pipelines once for the view sample count, so a change applies after a reload.
 use bevy::{
     ecs as bevy_ecs, prelude::*, render as bevy_render, render::extract_resource::ExtractResource,
 };
 
-/// Read once at startup. It never changes while the game runs.
+/// The renderer reads it once at startup. It never changes while the game runs.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, ExtractResource)]
 pub enum Antialiasing {
     /// 4x MSAA and TAA.

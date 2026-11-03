@@ -1,5 +1,5 @@
 #import source_float_store::half4
-// Installed CopyStd pass1: preserve infinities; zero all RGBA when any sampled component is NaN.
+// Installed CopyStd pass1. Preserve infinities. Zero all RGBA when any sampled component is NaN.
 @group(0) @binding(0) var source_color: texture_2d<f32>;
 @group(0) @binding(1) var source_sampler: sampler;
 @vertex
@@ -20,7 +20,7 @@ fn copy_kill_nan(@builtin(position) position:vec4<f32>)->@location(0) vec4<f32>{
     return half4(color);
 }
 
-// Installed Hidden/BlitCopy: sample linear RGBA and let the sRGB display attachment encode RGB.
+// Installed Hidden/BlitCopy. Sample linear RGBA and let the sRGB display attachment encode RGB.
 @fragment
 fn display_copy(@builtin(position) position:vec4<f32>)->@location(0) vec4<f32>{
     // Native positive-texel stack blit maps screen top to source V=1.

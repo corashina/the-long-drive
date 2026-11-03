@@ -38,7 +38,7 @@ impl PipelineOwners {
             .get(&base)
             .and_then(|e| e.owner.clone())
     }
-    /// A held base: its companions belong to its preparation.
+    /// A held base. Its companions belong to its preparation.
     pub(crate) fn owned(&self, base: CachedRenderPipelineId) -> bool {
         self.owner(base).is_some()
     }

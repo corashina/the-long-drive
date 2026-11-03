@@ -1,4 +1,4 @@
-// GPU prop culling for one view. Pass 0 is the camera, passes 1-4 are the shadow cascades, 5-8 the lamp shadow slots.
+// GPU prop culling for one view. Pass 0 is the camera, passes 1-4 are the shadow cascades, and passes 5-8 are the lamp shadow slots.
 // A row that passes appends its index to the visible list of its batch in that pass.
 struct PropRow {
     world_x: vec4<f32>,
@@ -38,7 +38,7 @@ struct CullView {
     probe_center: array<vec4<f32>, 4>,
     probe_extents: array<vec4<f32>, 4>,
 }
-// Same layout as GpuLight and LightingUniform in lighting.rs.
+// It has the same layout as GpuLight and LightingUniform in lighting.rs.
 struct SourceLight {
     cookie_from_world: mat4x4<f32>,
     position_range: vec4<f32>,
@@ -65,7 +65,7 @@ struct SourceLighting {
 // Shadow split masks, one byte per row.
 @group(0) @binding(6) var<storage> masks: array<u32>;
 @group(0) @binding(7) var<uniform> lamp_lighting: SourceLighting;
-// Lamp mask and probe pair of each camera-visible entry. Same layout as object_lighting.rs.
+// Lamp mask and probe pair of each camera-visible entry. It has the same layout as in object_lighting.rs.
 @group(0) @binding(8) var<storage, read_write> lights: array<vec4<u32>>;
 
 const PASSES: u32 = 9u;
@@ -185,7 +185,7 @@ fn probe_blend(model: mat4x4<f32>, local_center: vec3<f32>, local_extents: vec3<
     let weight = select(volumes.x/(volumes.x+volumes.y), 1.0, slots.y < 0.0);
     return vec4(weight, 0.0, slots);
 }
-// Same packing as `pack` in object_lighting.rs. The material receiver mask of a row is its layer bit.
+// It uses the same packing as `pack` in object_lighting.rs. The material receiver mask of a row is its layer bit.
 fn row_object(row: PropRow) -> vec4<u32> {
     let model = transpose(mat4x4<f32>(row.world_x, row.world_y, row.world_z, vec4<f32>(0.0, 0.0, 0.0, 1.0)));
     let mask = object_light_mask(model, row.local_center, row.local_extents, 1u << (row.key & 31u));

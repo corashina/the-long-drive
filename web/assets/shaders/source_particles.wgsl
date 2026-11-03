@@ -42,7 +42,7 @@ struct Varyings {
 @fragment fn fragment(v:Varyings)->@location(0) vec4<f32> {
     if particles.glass.y>0. {
         // Installed FX/Glass/Stained BumpDistort as in source_glass.wgsl. UnpackNormal over DXT5nm AG.
-        // Blend Off: the grab replaces the destination. No vertex color and no fog.
+        // With Blend Off, the grab replaces the destination. No vertex color and no fog.
         let packed=textureSample(bump,bump_sampler,v.bump_uv);
         let normal=vec2(packed.r*packed.a,packed.g)*2.-1.;
         let offset=normal*particles.glass.x*particle_view.grab_texel_size.xy;

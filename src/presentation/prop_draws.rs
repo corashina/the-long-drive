@@ -1,5 +1,5 @@
 //! GPU prop rows in the render world: upload, cull per view, and indirect draws.
-//! Pass 0 is the camera. Passes 1-4 are the shadow cascades, 5-8 the lamp shadow slots.
+//! Pass 0 is the camera. Passes 1-4 are the shadow cascades, and passes 5-8 are the lamp shadow slots.
 use super::{
     caster::CasterPasses,
     lighting_assets::LightingRenderAssets,
@@ -52,7 +52,7 @@ const ARGS_BYTES: u64 = 20;
 const CULL_WORDS: usize = 64;
 /// One packed lamp mask and probe pair per camera-visible entry. See object_lighting.rs.
 const LIGHT_BYTES: u64 = 16;
-/// Visible rows per pass. Sixteen words per view.
+/// Visible rows per pass. Each view has sixteen words.
 const TOTAL_WORDS: usize = 16;
 /// More dirty ranges than this upload all rows. Fading rows give one range per few rows.
 const UPLOAD_RANGES: usize = 256;
@@ -186,7 +186,7 @@ struct Buffers {
     totals: Buffer,
     row_capacity: u32,
     batch_capacity: u32,
-    /// Entries of one visible list. A multiple of 64, so each list starts on 256 bytes.
+    /// Entries of one visible list. It is a multiple of 64, so each list starts on 256 bytes.
     stride: u32,
     args_region: u64,
     visible_region: u64,

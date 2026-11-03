@@ -15,10 +15,10 @@ use bevy::window::PrimaryWindow;
 const PREVIEW_LAYER: usize = 32;
 /// `camStuff` place: 10 km below the world origin.
 const STAGE: Vec3 = Vec3::new(0., -10_000., 0.);
-/// After every source camera.
+/// The preview camera draws after every source camera.
 const ORDER: isize = 100;
 const CLEAR: Color = Color::srgb(0.12, 0.12, 0.12);
-/// Port choice: the source preview takes the scene ambient light. The preview uses a fixed one.
+/// Port choice. The source preview takes the scene ambient light. The preview uses a fixed one.
 const AMBIENT: f32 = 0.25;
 
 #[derive(Resource, Default)]
@@ -32,7 +32,8 @@ impl StageOwner for OutfitPreview {
     }
 }
 
-/// Follow the browser appearance screen: spawn on open, place the viewport, dress on change, despawn on close.
+/// Follow the browser appearance screen. Spawn the stage on open and place the viewport.
+/// Dress the figure on change, and despawn the stage on close.
 pub(crate) fn sync(
     mut commands: Commands,
     reference: Res<RuntimeReference>,

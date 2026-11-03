@@ -13,7 +13,7 @@ use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::{ecs as bevy_ecs, prelude::*, render as bevy_render};
 
 /// Texels for a source bias of 1. The sun cascades scale their normal bias the same way.
-/// The value for lamps is an estimate: check acne and gaps in the final test pass.
+/// The value for lamps is an estimate. Check acne and gaps in the final test pass.
 const BIAS_TEXELS: f32 = 3.65;
 /// Source quality "High": point light faces of 512, spot lights of 1024.
 pub const FACE: u32 = 512;
@@ -76,7 +76,7 @@ impl Default for LampShadows {
     }
 }
 impl LampShadows {
-    /// Caster slot uniform of one lamp face. Caster bias is 0: the receiver applies it.
+    /// Caster slot uniform of one lamp face. Caster bias is 0, because the receiver applies it.
     pub fn caster(&self, slot: usize, face: usize, player_dist: f32) -> CasterUniform {
         let (view_from_world, clip_from_view) = self.views[slot][face];
         CasterUniform {
@@ -113,7 +113,7 @@ const POINT_FACES: [(Vec3, Vec3); 6] = [
     (Vec3::NEG_Z, Vec3::Y),
 ];
 
-/// After the lamp uniform and the view snapshot, before the caster masks.
+/// Runs after the lamp uniform and the view snapshot, and before the caster masks.
 pub(crate) fn select(
     reference: Res<RuntimeReference>,
     frame: Res<SourceViewFrame>,

@@ -280,7 +280,7 @@ extern "C" {
     /// Name label of a remote figure in canvas pixels. Negative: hidden.
     #[wasm_bindgen(js_namespace = window, js_name = gameRemoteLabel)]
     pub fn game_remote_label(slot: u32, x: f32, y: f32);
-    /// Voice position of a remote figure in listener space (`gameAudioListener`). `alive` false: it is gone.
+    /// Voice position of a remote figure in listener space (`gameAudioListener`). If `alive` is false, it is gone.
     #[wasm_bindgen(js_namespace = window, js_name = gameRemoteVoice)]
     pub fn game_remote_voice(slot: u32, x: f32, y: f32, z: f32, alive: bool);
     /// Fills the appearance preview rect: x, y, width and height in canvas fractions.
@@ -290,7 +290,7 @@ extern "C" {
     /// True while the start menu shows the start car stage.
     #[wasm_bindgen(js_namespace = window, js_name = gameMenuCar)]
     pub fn game_menu_car() -> bool;
-    /// Fills 4 pads × 8 axes and 4 pads × 32 button bits (`GamepadFrame`).
+    /// Fills 8 axes and 32 button bits for each of 4 pads (`GamepadFrame`).
     #[wasm_bindgen(js_namespace = window, js_name = gameGamepad)]
     pub fn game_gamepad(axes: &mut [f32], buttons: &mut [u32]);
     #[wasm_bindgen(js_namespace = window, js_name = gameBiome)]
@@ -302,7 +302,7 @@ extern "C" {
     /// Changed game option bits (1 peaceful, 2 survival), or none.
     #[wasm_bindgen(js_namespace = window, js_name = gameOptions)]
     pub fn game_options() -> Option<u32>;
-    /// `steer` to `handbrake` are the last `DrivingControls` (steer positive left).
+    /// `steer` to `handbrake` are the last `DrivingControls`. A positive steer is left.
     #[wasm_bindgen(js_namespace = window, js_name = gameDrivingState)]
     pub fn game_driving_state(
         gear: i32,

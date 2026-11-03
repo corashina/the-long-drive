@@ -1,4 +1,4 @@
-//! First-person player body: the two characters of the player prototype. The outfit chooses one.
+//! The first-person player body has the two characters of the player prototype. The outfit chooses one.
 //! Outfit model mode (`enabledCharacter`): 0 no body, 1 shadow only, 2 visible.
 //! The skin joints are children of `CharacterRoot` and take the `BodyState` pose. The GPU skins the meshes.
 //! Character 1 joints take the pose of the character 0 joint with the same name.
@@ -165,7 +165,7 @@ pub(super) fn character_nodes(
     )
 }
 
-/// `playermodeloutfitscript.Refresh`: show the chosen character and set the segment colors and materials.
+/// `playermodeloutfitscript.Refresh`. Show the chosen character and set the segment colors and materials.
 /// `camera_hidden` hides the chosen character from the camera but keeps its shadow.
 /// It runs once per outfit change, not per frame.
 pub(super) fn dress(
