@@ -173,17 +173,32 @@ pub(super) fn bind(
                 })
                 .collect::<Result<Vec<_>, _>>()
         };
+        // Each shape follows its node, so a door shape turns with its hinge.
         let shape_handles: Vec<_> = instance
             .colliders
             .iter()
-            .filter_map(|(_, handle)| {
+            .filter_map(|(source, handle)| {
                 let c = &physics.rapier().colliders[*handle];
                 let parent = c.parent()?;
-                (parent == body
-                    || attached.iter().any(|&(plate, target)| {
+                if parent != body
+                    && !attached.iter().any(|&(plate, target)| {
                         instance.bodies[target] == body && instance.bodies[plate] == parent
-                    }))
-                .then_some((ColliderId((c.user_data >> 64) as u32), *handle))
+                    })
+                {
+                    return None;
+                }
+                let node = prototype
+                    .colliders
+                    .iter()
+                    .find(|c| &c.source == source)?
+                    .node;
+                let node = content.nodes[node as usize];
+                Some(crate::interaction::parts::GeneratedShape {
+                    id: ColliderId((c.user_data >> 64) as u32),
+                    handle: *handle,
+                    node,
+                    node_pose: interaction.mechanisms.node_pose(node)?,
+                })
             })
             .collect();
         let rigid = &physics.rapier().bodies[body];
@@ -201,7 +216,7 @@ pub(super) fn bind(
                 part.fields,
                 "localRotationAfterMount",
             )?),
-            colliders: shape_handles.iter().map(|c| c.0).collect(),
+            colliders: shape_handles.iter().map(|c| c.id).collect(),
             linear_damping: rigid.linear_damping(),
             angular_damping: rigid.angular_damping(),
             enable_if_mounted: linked_nodes("enableIfMounted")?,
