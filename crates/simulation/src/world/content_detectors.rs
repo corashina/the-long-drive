@@ -2,6 +2,7 @@
 //! generated items.
 use super::WorldStream;
 use super::content_index::ContentSlot;
+use super::content_kinds::{BindContext, Bound, ContentKind, ContentKinds, KindBindings};
 use crate::electronics::{Electronics, Emp, NodeElectronics};
 use crate::interaction::items::ItemStore;
 use crate::interaction::{InteractionState, Knob};
@@ -49,16 +50,6 @@ pub struct DetectorBinding {
     /// The detector electronicsscript.
     electronics: Option<NodeElectronics>,
 }
-impl DetectorBinding {
-    pub fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.knobs.capacity() * std::mem::size_of::<ColliderId>()
-            + (self.rules.rescale.keys.capacity() + self.rules.range_curve.keys.capacity())
-                * std::mem::size_of::<CurveKey>()
-            + self.rules.tags.capacity() * std::mem::size_of::<crate::reference::ColliderTag>()
-            + self.hits.capacity() * std::mem::size_of::<(f32, u128)>()
-    }
-}
 
 /// An unweighted source AnimationCurve.
 fn curve<'a>(f: impl FieldAccess<'a>, name: &str) -> Result<TorqueCurve, ReferenceError> {
@@ -90,62 +81,6 @@ fn curve<'a>(f: impl FieldAccess<'a>, name: &str) -> Result<TorqueCurve, Referen
 }
 
 impl WorldStream {
-    pub(super) fn sync_detector_bindings(
-        &mut self,
-        items: &ItemStore,
-        interaction: &mut InteractionState,
-        physics: &mut PhysicsWorld,
-    ) -> Result<(), ReferenceError> {
-        let revision = (self.request.session, self.contents.active_revision());
-        if self.detector_scan == Some(revision) {
-            return Ok(());
-        }
-        let mut complete = true;
-        let mut i = 0;
-        while i < self.detector_bindings.len() {
-            let b = &mut self.detector_bindings[i];
-            if let Some(slot) = self
-                .contents
-                .active()
-                .iter()
-                .position(|c| c.content.placement.id == b.parent && c.item == Some(b.item))
-            {
-                b.slot = slot;
-                i += 1;
-            } else {
-                for knob in &b.knobs {
-                    interaction.remove_dial_knob(*knob);
-                }
-                self.detector_bindings.swap_remove(i);
-            }
-        }
-        for slot in 0..self.contents.active().len() {
-            let content = &self.contents.active()[slot];
-            let Some(item) = content.item else {
-                continue;
-            };
-            if self.detector_bindings.iter().any(|b| b.item == item) {
-                continue;
-            }
-            let root = &content.content.placement.prototype;
-            let Some(script) =
-                self.contents
-                    .rules
-                    .component(&self.reference, root, "metalDetectorScript")?
-            else {
-                continue;
-            };
-            if !content.restored || items.get(item).and_then(|i| i.body).is_none() {
-                complete = false;
-                continue;
-            }
-            let script = script.source.clone();
-            let binding = self.bind_detector(items, interaction, physics, slot, item, &script)?;
-            self.detector_bindings.push(binding);
-        }
-        self.detector_scan = complete.then_some(revision);
-        Ok(())
-    }
     fn bind_detector(
         &self,
         items: &ItemStore,
@@ -332,7 +267,9 @@ impl WorldStream {
     /// usablescript.Turn on the onOffButton. Returns false when the knob is not a switch.
     pub fn switch_detector(&mut self, knob: ColliderId, items: &mut ItemStore) -> bool {
         let Some(b) = self
-            .detector_bindings
+            .kinds
+            .detectors
+            .list
             .iter_mut()
             .find(|b| b.knobs.contains(&knob))
         else {
@@ -344,14 +281,16 @@ impl WorldStream {
     }
     /// The switch state saved with a detector item.
     pub(super) fn detector_value(&self, item: ItemId) -> Option<bool> {
-        self.detector_bindings
+        self.kinds
+            .detectors
+            .list
             .iter()
             .find(|b| b.item == item)
             .map(|b| b.detector.on)
     }
     /// EMPs jam each detector at its item position.
     pub fn expose_detectors(&mut self, emps: &[Emp], items: &ItemStore, dt: f32) {
-        for b in &mut self.detector_bindings {
+        for b in &mut self.kinds.detectors.list {
             let (Some(e), Some(item)) = (&mut b.electronics, items.get(b.item)) else {
                 continue;
             };
@@ -371,7 +310,7 @@ impl WorldStream {
         if !dt.is_finite() || dt < 0. {
             return;
         }
-        for b in &mut self.detector_bindings {
+        for b in &mut self.kinds.detectors.list {
             let Some(item) = items.get(b.item) else {
                 continue;
             };
@@ -430,7 +369,11 @@ impl WorldStream {
         }
     }
     pub fn detector(&self, parent: &GeneratedId) -> Option<&DetectorBinding> {
-        self.detector_bindings.iter().find(|b| &b.parent == parent)
+        self.kinds
+            .detectors
+            .list
+            .iter()
+            .find(|b| &b.parent == parent)
     }
 }
 
@@ -443,7 +386,7 @@ impl WorldStream {
         item: ItemId,
         items: &ItemStore,
     ) -> Option<(bool, f32, f32, Pose, ColliderId)> {
-        let b = self.detector_bindings.iter().find(|b| b.item == item)?;
+        let b = self.kinds.detectors.list.iter().find(|b| b.item == item)?;
         let transform = to_rapier(items.get(item)?.pose) * b.transform;
         Some((
             b.detector.on,
@@ -452,5 +395,62 @@ impl WorldStream {
             transform,
             *b.knobs.first()?,
         ))
+    }
+}
+
+impl Bound for DetectorBinding {
+    fn parent(&self) -> &GeneratedId {
+        &self.parent
+    }
+    fn item(&self) -> Option<ItemId> {
+        Some(self.item)
+    }
+    fn set_slot(&mut self, slot: usize) {
+        self.slot = slot;
+    }
+    fn heap_bytes(&self) -> usize {
+        crate::world::contents::identity_heap(&self.parent)
+            + self.knobs.capacity() * std::mem::size_of::<ColliderId>()
+            + (self.rules.rescale.keys.capacity() + self.rules.range_curve.keys.capacity())
+                * std::mem::size_of::<CurveKey>()
+            + self.rules.tags.capacity() * std::mem::size_of::<crate::reference::ColliderTag>()
+            + self.hits.capacity() * std::mem::size_of::<(f32, u128)>()
+    }
+}
+
+pub(super) struct DetectorKind;
+impl ContentKind for DetectorKind {
+    type Binding = DetectorBinding;
+    type Script = SourceId;
+    fn kind(kinds: &mut ContentKinds) -> &mut KindBindings<DetectorBinding> {
+        &mut kinds.detectors
+    }
+    fn script(
+        stream: &mut WorldStream,
+        _: &BindContext,
+        slot: usize,
+    ) -> Result<Option<SourceId>, ReferenceError> {
+        let root = &stream.contents.active()[slot].content.placement.prototype;
+        let rules = &stream.contents.rules;
+        Ok(rules
+            .component(&stream.reference, root, "metalDetectorScript")?
+            .map(|s| s.source.clone()))
+    }
+    fn bind(
+        stream: &mut WorldStream,
+        cx: &mut BindContext,
+        slot: usize,
+        item: Option<ItemId>,
+        script: SourceId,
+    ) -> Result<Option<DetectorBinding>, ReferenceError> {
+        let (items, physics) = (&*cx.items, &mut *cx.physics);
+        stream
+            .bind_detector(items, cx.interaction, physics, slot, item.unwrap(), &script)
+            .map(Some)
+    }
+    fn unbind(binding: &DetectorBinding, interaction: &mut InteractionState) {
+        for knob in &binding.knobs {
+            interaction.remove_dial_knob(*knob);
+        }
     }
 }

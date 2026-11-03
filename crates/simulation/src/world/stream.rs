@@ -252,6 +252,19 @@ struct RoadWork {
     canceled: bool,
 }
 
+/// Retained bytes of the stores that bindings grow.
+fn owned_binding_bytes(
+    items: &crate::interaction::items::ItemStore,
+    interaction: &crate::interaction::InteractionState,
+    wheels: &crate::interaction::wheels::WheelAssemblies,
+    physics: &PhysicsWorld,
+) -> usize {
+    items.retained_binding_bytes()
+        + interaction.retained_binding_bytes()
+        + wheels.retained_binding_bytes()
+        + (physics.query_storage_bytes() + physics.presentation_retained_bytes())
+}
+
 /// Source world publication and session ownership.
 pub struct WorldStream {
     required: super::required::RequiredSelection,
@@ -264,7 +277,7 @@ pub struct WorldStream {
     binding_objects: usize,
     binding_reserved: usize,
     lamp_bindings: Vec<content_lamps::LampBinding>,
-    dial_bindings: Vec<content_dials::DialBinding>,
+    kinds: content_kinds::ContentKinds,
     pub small_items: content_small_items::SmallItems,
     tools: content_tools::Tools,
     pub computers: content_computers::Computers,
@@ -272,52 +285,6 @@ pub struct WorldStream {
     /// Changed world conditions of this frame and the looks of one condition. Reused buffers.
     condition_changes: Vec<crate::reference::ConditionId>,
     condition_looks: Vec<super::NodeAppearance>,
-    /// Session and active revision whose dial items are all bound.
-    dial_scan: Option<(u64, u64)>,
-    level_bindings: Vec<content_levels::LevelBinding>,
-    /// Session and active revision whose spirit levels are all bound.
-    level_scan: Option<(u64, u64)>,
-    radio_bindings: Vec<content_radios::RadioBinding>,
-    /// Session and active revision whose radio items are all bound.
-    radio_scan: Option<(u64, u64)>,
-    /// Prototype radioscript lookups.
-    radio_scripts: Vec<(SourceId, Option<SourceId>)>,
-    music_box_bindings: Vec<content_musicboxes::MusicBoxBinding>,
-    /// Session and active revision whose music box items are all bound.
-    music_box_scan: Option<(u64, u64)>,
-    seat_bindings: Vec<content_seats::SeatBinding>,
-    /// Session and active revision whose seat items are all bound.
-    seat_scan: Option<(u64, u64)>,
-    /// Seats of world prototypes, read and checked on world load.
-    seat_prototypes: Vec<content_seats::PrototypeSeats>,
-    sled_bindings: Vec<content_sleds::SledBinding>,
-    /// Session and active revision whose sled items are all bound.
-    sled_scan: Option<(u64, u64)>,
-    /// Indices of world prototypes with a sled.
-    sled_prototypes: Vec<usize>,
-    trailer_bindings: Vec<content_trailers::TrailerBinding>,
-    /// Session and active revision whose trailers and hitch targets are all bound.
-    trailer_scan: Option<(u64, u64)>,
-    /// Contents whose hitch targets are registered, with their item.
-    hitch_owners: Vec<(crate::world::GeneratedId, crate::reference::ItemId)>,
-    /// Indices of world prototypes with a trailer or hitch targets.
-    trailer_prototypes: Vec<usize>,
-    follower_bindings: Vec<content_followers::FollowerBinding>,
-    /// Session and active revision whose followers are all bound.
-    follower_scan: Option<(u64, u64)>,
-    /// Indices of world prototypes with followers.
-    follower_prototypes: Vec<usize>,
-    electronics_bindings: Vec<content_electronics::ElectronicsBinding>,
-    /// Session and content revisions whose electronics are all bound.
-    electronics_scan: Option<(u64, u64)>,
-    detector_bindings: Vec<content_detectors::DetectorBinding>,
-    /// Session and active revision whose metal detectors are all bound.
-    detector_scan: Option<(u64, u64)>,
-    bus_door_bindings: Vec<content_busdoors::BusDoorBinding>,
-    /// Session and active revision whose bus doors are all bound.
-    bus_door_scan: Option<(u64, u64)>,
-    /// `busdoorscripts` and `dinamiccolliderforbus` sources by prototype.
-    bus_door_scripts: Vec<(SourceId, Option<SourceId>, Vec<SourceId>)>,
     // Membership and order only, independent of button animation.
     lamp_binding_revision: u64,
     seed: i32,
@@ -895,7 +862,7 @@ impl WorldStream {
             content_boxes::BoxReleases::new(reference.acquisition.r#box.source.clone());
         let structure_helpers =
             super::structure_helpers::StructureHelpers::new(world, &contents.rules)?;
-        let seat_prototypes = content_seats::world_seats(world, &contents.rules)?;
+        let kinds = content_kinds::ContentKinds::new(world, &contents.rules)?;
         let road_light = super::source_lights::SourceRoadLight::new(reference, seed)?;
         let cables = super::cables::CableRecipes::new(world, seed)?;
         if road_light
@@ -928,59 +895,13 @@ impl WorldStream {
             binding_objects: reference.items.len(),
             binding_reserved: 0,
             lamp_bindings: Vec::new(),
-            dial_bindings: Vec::new(),
+            kinds,
             small_items: content_small_items::SmallItems::new(reference),
             tools: content_tools::Tools::default(),
             computers: content_computers::Computers::default(),
             cobwebs: content_cobwebs::Cobwebs::new(reference),
             condition_changes: Vec::new(),
             condition_looks: Vec::new(),
-            dial_scan: None,
-            level_bindings: Vec::new(),
-            level_scan: None,
-            radio_bindings: Vec::new(),
-            radio_scan: None,
-            radio_scripts: Vec::new(),
-            music_box_bindings: Vec::new(),
-            music_box_scan: None,
-            seat_bindings: Vec::new(),
-            seat_scan: None,
-            seat_prototypes,
-            sled_bindings: Vec::new(),
-            sled_scan: None,
-            sled_prototypes: world
-                .prototypes
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| p.sled.is_some())
-                .map(|(i, _)| i)
-                .collect(),
-            trailer_bindings: Vec::new(),
-            trailer_scan: None,
-            hitch_owners: Vec::new(),
-            trailer_prototypes: world
-                .prototypes
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| p.trailer.is_some() || !p.hitches.is_empty())
-                .map(|(i, _)| i)
-                .collect(),
-            follower_bindings: Vec::new(),
-            follower_scan: None,
-            follower_prototypes: world
-                .prototypes
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| p.followers.is_some())
-                .map(|(i, _)| i)
-                .collect(),
-            detector_bindings: Vec::new(),
-            detector_scan: None,
-            electronics_bindings: Vec::new(),
-            electronics_scan: None,
-            bus_door_bindings: Vec::new(),
-            bus_door_scan: None,
-            bus_door_scripts: Vec::new(),
             lamp_binding_revision: 0,
             seed,
             date,
@@ -4588,6 +4509,50 @@ impl WorldStream {
         Ok(())
     }
 
+    /// Binds static controls, contents and every content kind, in sync order.
+    #[allow(clippy::too_many_arguments)]
+    fn sync_bindings(
+        &mut self,
+        reference: &ReferenceManifest,
+        items: &mut crate::interaction::items::ItemStore,
+        interaction: &mut crate::interaction::InteractionState,
+        physics: &mut PhysicsWorld,
+        wheels: &mut crate::interaction::wheels::WheelAssemblies,
+        vehicles: &mut std::collections::BTreeMap<
+            super::ObjectKey,
+            crate::starting_area::VehicleRuntime,
+        >,
+        powertrain: &mut crate::simulation::powertrain::PowertrainParts,
+    ) -> Result<(), ReferenceError> {
+        self.sync_static_controls(reference, items, interaction, physics, wheels)?;
+        self.sync_contents(
+            reference,
+            items,
+            interaction,
+            physics,
+            wheels,
+            vehicles,
+            powertrain,
+        )?;
+        self.sync_lamp_bindings(items, interaction, physics)?;
+        let cx = &mut content_kinds::BindContext {
+            reference,
+            items,
+            interaction,
+            physics,
+        };
+        self.sync_kind::<content_dials::DialKind>(cx)?;
+        self.sync_small_items(reference, cx.items, cx.interaction, cx.physics)?;
+        self.sync_tools(reference, cx.items, cx.interaction)?;
+        self.sync_cobwebs(reference, cx.interaction, cx.physics)?;
+        self.sync_condition_appearance(cx.items, cx.interaction)?;
+        self.sync_computers(reference, cx.items, cx.interaction, cx.physics)?;
+        self.sync_content_kinds(cx)?;
+        self.sync_moving_lamps(cx.items);
+        self.sync_generated_food(reference, cx.items, cx.physics);
+        Ok(())
+    }
+
     /// Call after publication and before movement or recovery. Repeated calls preserve stock and valves.
     #[allow(clippy::too_many_arguments)]
     pub fn sync_supplies(
@@ -4603,26 +4568,12 @@ impl WorldStream {
         >,
         powertrain: &mut crate::simulation::powertrain::PowertrainParts,
     ) -> Result<(), ReferenceError> {
-        let owned = items.retained_binding_bytes()
-            + interaction.retained_binding_bytes()
-            + wheels.retained_binding_bytes()
-            + (physics.query_storage_bytes() + physics.presentation_retained_bytes());
+        let owned = owned_binding_bytes(items, interaction, wheels, physics);
         let baseline = *self.binding_baseline.get_or_insert(owned);
         self.binding_bytes = owned.saturating_sub(baseline);
         self.binding_owner_bytes = owned;
         self.binding_objects = items.len();
-        if let Err(error) =
-            self.sync_static_controls(reference, items, interaction, physics, wheels)
-        {
-            self.binding_reserved = 0;
-            self.binding_owner_bytes = items.retained_binding_bytes()
-                + interaction.retained_binding_bytes()
-                + wheels.retained_binding_bytes()
-                + (physics.query_storage_bytes() + physics.presentation_retained_bytes());
-            self.binding_bytes = self.binding_owner_bytes.saturating_sub(baseline);
-            return Err(error);
-        }
-        if let Err(error) = self.sync_contents(
+        let bound = self.sync_bindings(
             reference,
             items,
             interaction,
@@ -4630,95 +4581,14 @@ impl WorldStream {
             wheels,
             vehicles,
             powertrain,
-        ) {
+        );
+        let owned = owned_binding_bytes(items, interaction, wheels, physics);
+        self.binding_bytes = owned.saturating_sub(baseline);
+        if let Err(error) = bound {
             self.binding_reserved = 0;
-            self.binding_owner_bytes = items.retained_binding_bytes()
-                + interaction.retained_binding_bytes()
-                + wheels.retained_binding_bytes()
-                + (physics.query_storage_bytes() + physics.presentation_retained_bytes());
-            self.binding_bytes = self.binding_owner_bytes.saturating_sub(baseline);
+            self.binding_owner_bytes = owned;
             return Err(error);
         }
-        if let Err(error) = self.sync_lamp_bindings(items, interaction, physics) {
-            self.binding_reserved = 0;
-            self.binding_owner_bytes = items.retained_binding_bytes()
-                + interaction.retained_binding_bytes()
-                + wheels.retained_binding_bytes()
-                + (physics.query_storage_bytes() + physics.presentation_retained_bytes());
-            self.binding_bytes = self.binding_owner_bytes.saturating_sub(baseline);
-            return Err(error);
-        }
-        if let Err(error) = self.sync_dial_bindings(&reference.ui, items, interaction, physics) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_small_items(reference, items, interaction, physics) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_tools(reference, items, interaction) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_cobwebs(reference, interaction, physics) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_condition_appearance(items, interaction) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_computers(reference, items, interaction, physics) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_level_bindings(&reference.small_items.spirit_level, items) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_radio_bindings(&reference.ui, items, interaction, physics) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_music_box_bindings(items, interaction, physics) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_electronics_bindings() {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_detector_bindings(items, interaction, physics) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_bus_door_bindings(interaction, physics) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_seat_bindings(items, interaction, physics) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_sled_bindings(items, physics) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_trailer_bindings(items, interaction, physics) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        if let Err(error) = self.sync_follower_bindings(items) {
-            self.binding_reserved = 0;
-            return Err(error);
-        }
-        self.sync_moving_lamps(items);
-        self.sync_generated_food(reference, items, physics);
-        self.binding_bytes = (items.retained_binding_bytes()
-            + interaction.retained_binding_bytes()
-            + wheels.retained_binding_bytes()
-            + (physics.query_storage_bytes() + physics.presentation_retained_bytes()))
-        .saturating_sub(baseline);
 
         for supply in &mut self.supplies {
             if supply.items.is_some() {
@@ -4808,10 +4678,7 @@ impl WorldStream {
             supply.items = Some((tank, cap));
         }
         physics.refresh_queries();
-        self.binding_owner_bytes = items.retained_binding_bytes()
-            + interaction.retained_binding_bytes()
-            + wheels.retained_binding_bytes()
-            + (physics.query_storage_bytes() + physics.presentation_retained_bytes());
+        self.binding_owner_bytes = owned_binding_bytes(items, interaction, wheels, physics);
         self.binding_bytes = self.binding_owner_bytes.saturating_sub(baseline);
         self.binding_objects = items.len();
         self.binding_reserved = 0;
@@ -5364,101 +5231,11 @@ impl WorldStream {
                     .iter()
                     .map(content_lamps::LampBinding::heap_bytes)
                     .sum::<usize>()
-                + self.dial_bindings.capacity() * std::mem::size_of::<content_dials::DialBinding>()
-                + self
-                    .dial_bindings
-                    .iter()
-                    .map(content_dials::DialBinding::heap_bytes)
-                    .sum::<usize>()
+                + self.kinds.heap_bytes()
                 + self.small_items.heap_bytes()
                 + self.computers.heap_bytes()
                 + self.cobwebs.heap_bytes()
-                + self.level_bindings.capacity()
-                    * std::mem::size_of::<content_levels::LevelBinding>()
-                + self
-                    .level_bindings
-                    .iter()
-                    .map(content_levels::LevelBinding::heap_bytes)
-                    .sum::<usize>()
-                + self.radio_bindings.capacity()
-                    * std::mem::size_of::<content_radios::RadioBinding>()
-                + self
-                    .radio_bindings
-                    .iter()
-                    .map(content_radios::RadioBinding::heap_bytes)
-                    .sum::<usize>()
-                + self.radio_scripts.capacity()
-                    * std::mem::size_of::<(SourceId, Option<SourceId>)>()
-                + self.music_box_bindings.capacity()
-                    * std::mem::size_of::<content_musicboxes::MusicBoxBinding>()
-                + self
-                    .music_box_bindings
-                    .iter()
-                    .map(content_musicboxes::MusicBoxBinding::heap_bytes)
-                    .sum::<usize>()
-                + self.seat_bindings.capacity() * std::mem::size_of::<content_seats::SeatBinding>()
-                + self
-                    .seat_bindings
-                    .iter()
-                    .map(content_seats::SeatBinding::heap_bytes)
-                    .sum::<usize>()
-                + self.seat_prototypes.capacity()
-                    * std::mem::size_of::<content_seats::PrototypeSeats>()
-                + content_seats::prototype_seats_heap(&self.seat_prototypes)
-                + self.sled_bindings.capacity() * std::mem::size_of::<content_sleds::SledBinding>()
-                + self
-                    .sled_bindings
-                    .iter()
-                    .map(content_sleds::SledBinding::heap_bytes)
-                    .sum::<usize>()
-                + self.sled_prototypes.capacity() * std::mem::size_of::<usize>()
-                + self.trailer_bindings.capacity()
-                    * std::mem::size_of::<content_trailers::TrailerBinding>()
-                + self
-                    .trailer_bindings
-                    .iter()
-                    .map(content_trailers::TrailerBinding::heap_bytes)
-                    .sum::<usize>()
-                + self.hitch_owners.capacity()
-                    * std::mem::size_of::<(crate::world::GeneratedId, crate::reference::ItemId)>()
-                + self
-                    .hitch_owners
-                    .iter()
-                    .map(|(id, _)| crate::world::contents::identity_heap(id))
-                    .sum::<usize>()
-                + self.trailer_prototypes.capacity() * std::mem::size_of::<usize>()
-                + self.follower_bindings.capacity()
-                    * std::mem::size_of::<content_followers::FollowerBinding>()
-                + self
-                    .follower_bindings
-                    .iter()
-                    .map(content_followers::FollowerBinding::heap_bytes)
-                    .sum::<usize>()
-                + self.follower_prototypes.capacity() * std::mem::size_of::<usize>()
                 + self.tools.heap_bytes()
-                + self.electronics_bindings.capacity()
-                    * std::mem::size_of::<content_electronics::ElectronicsBinding>()
-                + self
-                    .electronics_bindings
-                    .iter()
-                    .map(content_electronics::ElectronicsBinding::heap_bytes)
-                    .sum::<usize>()
-                + self.detector_bindings.capacity()
-                    * std::mem::size_of::<content_detectors::DetectorBinding>()
-                + self
-                    .detector_bindings
-                    .iter()
-                    .map(content_detectors::DetectorBinding::heap_bytes)
-                    .sum::<usize>()
-                + self.bus_door_bindings.capacity()
-                    * std::mem::size_of::<content_busdoors::BusDoorBinding>()
-                + self
-                    .bus_door_bindings
-                    .iter()
-                    .map(content_busdoors::BusDoorBinding::heap_bytes)
-                    .sum::<usize>()
-                + self.bus_door_scripts.capacity()
-                    * std::mem::size_of::<(SourceId, Option<SourceId>, Vec<SourceId>)>()
                 + self.contents.retained_bytes()
                 + self.props.retained_bytes()
                 + self.presentation.active_cpu
@@ -5750,6 +5527,8 @@ mod content_dials;
 mod content_electronics;
 #[path = "content_followers.rs"]
 pub mod content_followers;
+#[path = "content_kinds.rs"]
+mod content_kinds;
 #[path = "content_musicboxes.rs"]
 mod content_musicboxes;
 #[path = "content_radios.rs"]
