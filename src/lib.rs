@@ -33,6 +33,10 @@ mod selected_tests;
 mod shared_material_tests;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "presentation/mirror_turns.rs"]
+mod mirror_turns_tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "presentation/outfit.rs"]
 #[allow(dead_code)]
 mod outfit_tests;

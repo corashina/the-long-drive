@@ -1,5 +1,6 @@
 //! Source live car mirrors: `mainscript.MirrorsUpdate`, the "Mirrors" toggle and the
 //! "Mirror draw distance" setting. Each live mirror draws a surface view into its slot image.
+use super::mirror_turns::{pick_draws, skipped};
 use super::surface_views::{MIRROR_COUNT, MIRROR_EXTENT, MIRROR_START, SourceSurfaceView};
 use super::world::{instance_materials::InstanceMaterials, instances::SourceInstances};
 use bevy::camera::visibility::RenderLayers;
@@ -46,6 +47,10 @@ pub(crate) struct MirrorState {
     candidates: Vec<Candidate>,
     /// Instance root and renderer node of each slot.
     slots: [Option<(Entity, u32)>; MIRROR_COUNT],
+    /// The slot image shows its current mirror.
+    drawn: [bool; MIRROR_COUNT],
+    /// Next slot in the turn order.
+    cursor: usize,
     masks: [u32; MIRROR_COUNT],
 }
 
@@ -134,6 +139,8 @@ pub(crate) fn select(
     let MirrorState {
         candidates,
         slots,
+        drawn,
+        cursor,
         masks,
     } = &mut *state;
     candidates.clear();
@@ -158,10 +165,14 @@ pub(crate) fn select(
     }
     candidates.sort_by(|a, b| a.distance.total_cmp(&b.distance));
     let globals = &world.mirrors;
+    // Past `maxDist` the draw distance is 0 and no mirror is live: the player is not in or near a car.
+    let near = candidates
+        .first()
+        .is_some_and(|c| c.distance < globals.max_distance);
     // Pass 1: the live mirrors and their views. Pass 2 gives new live mirrors free slots.
     let mut live: [Option<(usize, MirrorView)>; MIRROR_COUNT] = [None; MIRROR_COUNT];
     for (rank, candidate) in candidates.iter().enumerate().take(MIRROR_COUNT) {
-        if !settings.on {
+        if !settings.on || !near {
             break;
         }
         let record = &world.prototypes[candidate.prototype];
@@ -195,9 +206,7 @@ pub(crate) fn select(
             .mirror_renderers(candidate.instance, mirror.renderer)
             .any(|entity| visibility.get(entity).is_ok_and(|v| v.get()));
         let far = settings.draw_distance * k;
-        // Angle(T.up, v) < 90 degrees. Near the max distance, far drops to the near plane:
-        // that camera has no frustum and fails the shadow fit. Treat it as out of range.
-        if far <= mirror.near || up.dot(reflected) <= 0. || !visible {
+        if skipped(far, mirror.near, up.dot(reflected), visible) {
             continue;
         }
         let pose = Transform::from_translation(position)
@@ -234,7 +243,18 @@ pub(crate) fn select(
             assigned[*rank] = Some(slot);
         }
     }
+    let mut live_slots = [false; MIRROR_COUNT];
+    let mut fresh = [false; MIRROR_COUNT];
+    for slot in 0..MIRROR_COUNT {
+        drawn[slot] &= next[slot].is_some() && next[slot] == slots[slot];
+        live_slots[slot] = next[slot].is_some();
+        fresh[slot] = live_slots[slot] && !drawn[slot];
+    }
     *slots = next;
+    let draw = pick_draws(live_slots, fresh, cursor);
+    for slot in 0..MIRROR_COUNT {
+        drawn[slot] |= draw[slot];
+    }
     let mut result = Ok(());
     for (rank, candidate) in candidates.iter().enumerate() {
         let mirror = &world.prototypes[candidate.prototype]
@@ -242,8 +262,15 @@ pub(crate) fn select(
             .as_ref()
             .unwrap()
             .mirrors[candidate.mirror];
-        let slot = assigned.get(rank).copied().flatten();
-        if let Some(slot) = slot {
+        // A slot without an image of its mirror shows the glass.
+        let slot = assigned
+            .get(rank)
+            .copied()
+            .flatten()
+            .filter(|slot| drawn[*slot]);
+        if let Some(slot) = slot
+            && draw[slot]
+        {
             frame.views[slot] = live[rank].map(|(_, view)| view);
         }
         let shown = slot.map(|slot| (&mirror.material.source, &frame.images[slot]));
