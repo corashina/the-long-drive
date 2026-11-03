@@ -553,14 +553,7 @@ impl StorageLocks {
         } else {
             0
         };
-        self.colliders.clear();
-        for handle in physics.rapier().bodies[body].colliders() {
-            if collider_item(physics.rapier().colliders[*handle].user_data)
-                .is_some_and(|id| id == item || items.descends(id, item))
-            {
-                self.colliders.push(*handle);
-            }
-        }
+        item_colliders(&mut self.colliders, body, item, items, physics);
         for &handle in &self.colliders {
             let world = body_pose * local_pose(physics, handle);
             physics.set_collider_parent(handle, Some(carrier));
@@ -676,14 +669,7 @@ impl StorageLocks {
         let velocity = physics.rapier().bodies[carrier].velocity_at_point(body_pose.translation);
         let angular = physics.rapier().bodies[carrier].angvel();
         self.add_mass(owner, carrier, -entry.mass, items, physics);
-        self.colliders.clear();
-        for handle in physics.rapier().bodies[carrier].colliders() {
-            if collider_item(physics.rapier().colliders[*handle].user_data)
-                .is_some_and(|id| id == item || items.descends(id, item))
-            {
-                self.colliders.push(*handle);
-            }
-        }
+        item_colliders(&mut self.colliders, carrier, item, items, physics);
         for &handle in &self.colliders {
             let world = carrier_pose * local_pose(physics, handle);
             physics.set_collider_parent(handle, Some(entry.body));
@@ -880,6 +866,26 @@ impl StorageLocks {
     }
 }
 /// Collider world poses update in the next query refresh. The parent pose is current.
+/// Fills `out` with the colliders of `body` that belong to `item` or its descendants.
+fn item_colliders(
+    out: &mut Vec<ColliderHandle>,
+    body: RigidBodyHandle,
+    item: ItemId,
+    items: &ItemStore,
+    physics: &PhysicsWorld,
+) {
+    out.clear();
+    out.extend(
+        physics.rapier().bodies[body]
+            .colliders()
+            .iter()
+            .copied()
+            .filter(|handle| {
+                collider_item(physics.rapier().colliders[*handle].user_data)
+                    .is_some_and(|id| id == item || items.descends(id, item))
+            }),
+    );
+}
 fn local_pose(physics: &PhysicsWorld, handle: ColliderHandle) -> Pose {
     physics.rapier().colliders[handle]
         .position_wrt_parent()
