@@ -143,6 +143,8 @@ pub struct PlateTextStatus {
     /// Root entities of the source instances of world car copies that show their plates.
     world: Vec<Entity>,
     material: Option<Handle<PlateTextMaterial>>,
+    /// Instance and plate revisions of the last scan that found no car copy without labels.
+    scanned: Option<(u64, u64, u64)>,
 }
 impl Default for PlateTextStatus {
     fn default() -> Self {
@@ -151,6 +153,7 @@ impl Default for PlateTextStatus {
             sample: None,
             world: Vec::new(),
             material: None,
+            scanned: None,
         }
     }
 }
@@ -426,14 +429,22 @@ fn world_labels(
     let Some(instances) = world.get_resource::<super::world::instances::SourceInstances>() else {
         return Ok(None);
     };
+    let sim = world.resource::<super::sim_frame::SimFrameResource>();
+    let plate_texts = &sim.plates;
+    // The scan reads every instance. It runs again only when instances or plate texts change.
+    let key = (
+        instances.revision(),
+        instances.shown_revision(),
+        sim.plate_revision,
+    );
+    if status.scanned == Some(key) {
+        return Ok(None);
+    }
     // Labels of a removed instance despawned with its hierarchy.
     if status.world.iter().any(|root| !instances.has_root(*root)) {
         status.world.retain(|root| instances.has_root(*root));
     }
     let reference = &world.resource::<RuntimeReference>().0;
-    let plate_texts = &world
-        .resource::<super::sim_frame::SimFrameResource>()
-        .plates;
     let Some(material) = status.material.clone() else {
         return Ok(None);
     };
@@ -452,6 +463,7 @@ fn world_labels(
                 Some((root, prototype, nodes, texts))
             })
     else {
+        status.scanned = Some(key);
         return Ok(None);
     };
     let record = &reference.plates;

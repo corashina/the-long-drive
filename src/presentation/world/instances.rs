@@ -247,6 +247,8 @@ pub struct SourceInstances {
     props: GpuProps,
     /// Changes when an instance is added or removed.
     revision: u64,
+    /// Changes when an instance becomes ready or visible.
+    shown_revision: u64,
     /// `RendererWorld::structure_membership` of the last full retirement pass.
     retire_key: Option<(u64, u64, u64)>,
     /// Indices of instances whose retirement started.
@@ -409,6 +411,10 @@ impl SourceInstances {
     /// Changes when an instance is added or removed.
     pub(crate) fn revision(&self) -> u64 {
         self.revision
+    }
+    /// Changes when an instance becomes ready or visible.
+    pub(crate) fn shown_revision(&self) -> u64 {
+        self.shown_revision
     }
     /// Prototype index of each instance.
     pub(crate) fn prototypes(&self) -> impl Iterator<Item = usize> + '_ {
@@ -1358,6 +1364,7 @@ impl SourceInstances {
                 ));
                 ledger.hand_over_claim(claim)?;
                 instance.ready = true;
+                self.shown_revision = self.shown_revision.wrapping_add(1);
                 instance.continuation = None;
                 instance.upload = None;
                 at -= 1;
@@ -1432,6 +1439,7 @@ impl SourceInstances {
                 commands.entity(instance.root).insert(Visibility::Inherited);
                 instance.visible = true;
                 instance.show_rows(&mut self.props);
+                self.shown_revision = self.shown_revision.wrapping_add(1);
             }
             let Some(view) = view else {
                 continue;
