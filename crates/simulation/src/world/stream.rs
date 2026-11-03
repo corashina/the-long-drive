@@ -111,7 +111,7 @@ struct PreparedSurface {
 }
 struct SelectedRoad {
     segment: RoadSegment,
-    light: Option<super::WorldLight>,
+    light: super::WorldLight,
     /// Pole rope poses toward the next segment pole.
     cable: Vec<super::NodeAppearance>,
 }
@@ -2555,8 +2555,7 @@ impl WorldStream {
             .lights
             .iter()
             .find(|l| l.biome.is_some() && l.id.unit[0] == index as i64);
-        let possible_light = existing.is_none_or(|i| self.selected_roads[i].light.is_some());
-        let new_light = usize::from(possible_light && old_light.is_none());
+        let new_light = usize::from(old_light.is_none());
         let old_poles = self
             .lights
             .iter()
@@ -2678,12 +2677,10 @@ impl WorldStream {
             .iter()
             .find(|r| r.segment.index == index)
             .unwrap();
-        if let Some(light) = &retained.light {
-            if !self.lights.iter().any(|l| l.id == light.id) {
-                self.lights.push(light.clone());
-            }
-            self.wanted_lights.push(index);
+        if !self.lights.iter().any(|l| l.id == retained.light.id) {
+            self.lights.push(retained.light.clone());
         }
+        self.wanted_lights.push(index);
         self.refresh_poles();
         if self.metrics().generated_objects > self.limits.objects {
             self.failure = Some(format!(
@@ -3195,7 +3192,7 @@ impl WorldStream {
                     self.accept_surface_renderer(request, key)?;
                 }
                 DiscardSurface(request, key) if request.session == session => {
-                    self.discard_surface_renderer(request, key)?;
+                    self.discard_surface_renderer(request, key);
                 }
                 AcceptStructure(request, id) if request.session == session => {
                     self.accept_structure_renderer(request, &id)?;
@@ -3273,24 +3270,19 @@ impl WorldStream {
     }
     /// The renderer dropped the prepared surface after its work drained.
     /// Work that the stream dropped before the reservation arrived is already rewound.
-    fn discard_surface_renderer(
-        &mut self,
-        request: WorldRequest,
-        key: SurfaceKey,
-    ) -> Result<(), ReferenceError> {
+    fn discard_surface_renderer(&mut self, request: WorldRequest, key: SurfaceKey) {
         if !self
             .ready
             .as_ref()
             .is_some_and(|w| same_request(w.request, request) && w.published.key == key)
         {
-            return Ok(());
+            return;
         }
         self.ready = None;
         if key.layer == WorldLayer::Road {
             self.road_worker.publication_ended(false);
         }
         self.rewind_road(key);
-        Ok(())
     }
     /// The renderer finished the prepared surface. Its work drained.
     /// The renderer repeats the fact until its frame shows the publication, so a repeat
@@ -4911,8 +4903,7 @@ impl WorldStream {
                 + self
                     .selected_roads
                     .iter()
-                    .filter_map(|r| r.light.as_ref())
-                    .map(super::WorldLight::heap_bytes)
+                    .map(|r| r.light.heap_bytes())
                     .sum::<usize>()
                 + self
                     .selected_roads

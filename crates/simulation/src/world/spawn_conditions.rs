@@ -129,9 +129,8 @@ impl SpawnEvaluation<'_> {
             let original = [start.min, start.max];
             let limits = match override_limits {
                 Some([0, 0]) if original == [0, 0] => [0, 4],
-                Some([0, 0]) => original,
+                Some([0, 0]) | None => original,
                 Some(v) => v,
-                None => original,
             };
             self.condition_random2(
                 parent,

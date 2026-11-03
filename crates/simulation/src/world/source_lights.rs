@@ -362,7 +362,7 @@ impl SourceRoadLight {
                 })
                 .sum::<usize>()
     }
-    pub fn place(&self, reference: &WorldReference, segment: &RoadSegment) -> Option<WorldLight> {
+    pub fn place(&self, reference: &WorldReference, segment: &RoadSegment) -> WorldLight {
         let recipe = &self.recipes[segment.biome as usize];
         let prototype = reference
             .prototypes
@@ -370,7 +370,7 @@ impl SourceRoadLight {
             .find(|p| p.source == reference.road.prototypes[segment.biome as usize])
             .unwrap();
         let pole = recipe.pole.frame(prototype, segment, self.seed);
-        Some(WorldLight {
+        WorldLight {
             id: GeneratedId {
                 layer: WorldLayer::Lamp,
                 generator: recipe.reference.generator_source.clone(),
@@ -394,7 +394,7 @@ impl SourceRoadLight {
             enabled: true,
             intensity: recipe.light.startup_intensity,
             node: None,
-        })
+        }
     }
 }
 /// Select all influencing source lights. Visibility and pole mesh distance do not reject light influence.
