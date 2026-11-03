@@ -64,6 +64,8 @@ pub struct WorldVehicleReference {
     pub effect_gains: EffectGains,
     /// Source `carscript.Transmission`. None: the car has no gear lever.
     pub lever: Option<LeverReference>,
+    /// Source `PedalsGas`, `PedalsBrake`, `PedalsClutch` and `PedalsHandBrake`.
+    pub control_pedals: Vec<ControlPedalReference>,
     /// Source `carscript.keySteerSensMultiplier`. Zero means no multiplier.
     pub key_steer_multiplier: f32,
     /// Source `carscript.speedBasedKeyboardSens`. Some: it replaces `key_steer_multiplier`.
@@ -88,6 +90,31 @@ pub struct WorldVehicleReference {
     /// Source `mirrorscript` live mirrors.
     pub mirrors: Vec<WorldMirrorReference>,
     pub audio: Option<CarAudioReference>,
+}
+
+/// The car input that moves a control pedal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PedalInput {
+    Gas,
+    Brake,
+    Clutch,
+    Handbrake,
+}
+
+/// Source `carscript.Pedal`. `UpdPedal` sets the local rotation, or the local position when
+/// `push`, to `input * amount` on one source axis. Amount is degrees, or meters when `push`.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ControlPedalReference {
+    pub input: PedalInput,
+    pub node: u32,
+    /// 0, 1 or 2: source x, y or z.
+    pub axis: u8,
+    pub amount: f32,
+    /// Source `lerp`: ease toward the target by `pedalLerp` each frame.
+    pub lerp: bool,
+    pub push: bool,
 }
 
 /// Source `carscript` balance values (`Balance()`). Angles are degrees.
@@ -551,6 +578,8 @@ pub struct CarAudioReference {
     pub horn: Option<HornReference>,
     /// `turnedRadioSOund` on `SSounds`: ignition and light switch.
     pub switch: Option<CarShotReference>,
+    /// `handbrakeSound` on `SValtoSound`.
+    pub handbrake: Option<CarShotReference>,
     pub boil: Option<CoolantBoilReference>,
     /// One entry per wheel, in wheel effect order.
     pub wheels: Vec<WheelSoundsReference>,
@@ -777,6 +806,13 @@ impl WorldVehicleReference {
                     && k.max_multiplier >= 0.,
             )?;
         }
+        check(
+            s,
+            "vehicle control pedals",
+            self.control_pedals
+                .iter()
+                .all(|p| b.node(p.node) && p.axis < 3 && p.amount.is_finite()),
+        )?;
         if let Some(lever) = &self.lever {
             check(
                 s,

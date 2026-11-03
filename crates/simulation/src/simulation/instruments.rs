@@ -17,6 +17,8 @@ pub struct InstrumentSample {
     /// Live `carscript.electronics` output.
     pub electronics_output: f32,
     pub headlights: u8,
+    /// Source `carscript.handbrake`.
+    pub handbrake: f32,
     pub distance_m: f64,
 }
 /// Gauge state of one car, for any needle, lamp and digit count. Lamp bits hold up to 32 lamps.
@@ -50,16 +52,17 @@ fn oil_lamp(limits: &GaugeLimits, s: &InstrumentSample) -> bool {
 pub fn lamp_bits(lamps: &[LampReference], limits: &GaugeLimits, s: &InstrumentSample) -> u32 {
     let mut bits = 0;
     for (i, l) in lamps.iter().enumerate() {
-        let on = match l.signal.as_str() {
-            "fuel" => s.local_ignition && s.fuel_liters < limits.low_fuel,
-            "oil" => oil_lamp(limits, s),
-            "battery" => s.local_ignition && s.rpm < limits.battery_test_rpm,
+        let on = |on: bool| if on { 1. } else { 0. };
+        let v = match l.signal.as_str() {
+            "fuel" => on(s.local_ignition && s.fuel_liters < limits.low_fuel),
+            "oil" => on(oil_lamp(limits, s)),
+            "battery" => on(s.local_ignition && s.rpm < limits.battery_test_rpm),
             "headlight2" => {
-                s.headlights == 2 && s.electronics_output > limits.electronics_off_threshold
+                on(s.headlights == 2 && s.electronics_output > limits.electronics_off_threshold)
             }
-            _ => false,
+            "handbrake" if s.local_ignition => s.handbrake,
+            _ => 0.,
         };
-        let v = if on { 1. } else { 0. };
         if v >= l.min_value && (v <= l.max_value || l.stay_on) {
             bits |= 1 << i;
         }
