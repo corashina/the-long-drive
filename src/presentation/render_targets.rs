@@ -223,6 +223,8 @@ pub struct SurfaceTargets {
     pub views: [std::sync::Arc<SourceViewTargets>; VIEW_COUNT],
     /// Lamp shadow atlas of the world view. Every view binds it.
     pub lamp_atlas: Target,
+    /// Static casters of each lamp face. The atlas face copies it, then animated casters draw.
+    pub lamp_static_atlas: Target,
     pub logical_bytes: u64,
 }
 impl SurfaceTargets {
@@ -270,6 +272,15 @@ impl SurfaceTargets {
             SHADOW_FORMAT,
             true,
         );
+        let lamp_static_atlas = Target::new(
+            device,
+            "source_lamp_shadow_static_atlas",
+            lamp.x,
+            lamp.y,
+            1,
+            SHADOW_FORMAT,
+            true,
+        );
         let logical_bytes = world.logical_bytes
             + capture.logical_bytes
             + mirror.logical_bytes
@@ -281,6 +292,7 @@ impl SurfaceTargets {
             mirror,
             views: views.try_into().ok().unwrap(),
             lamp_atlas,
+            lamp_static_atlas,
             logical_bytes,
         })
     }
@@ -312,8 +324,9 @@ impl SurfaceTargets {
     }
 }
 fn lamp_atlas_bytes() -> u64 {
+    // The atlas and its static copy.
     let lamp = super::lamp_shadows::ATLAS;
-    2 * u64::from(lamp.x) * u64::from(lamp.y)
+    2 * 2 * u64::from(lamp.x) * u64::from(lamp.y)
 }
 
 /// A scratch cube has fixed per-face render views and per-mip sample views.
