@@ -45,11 +45,6 @@ mod mirror_turns_tests;
 mod outfit_tests;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "presentation/menu_ik.rs"]
-#[allow(dead_code)]
-mod menu_ik_tests;
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "presentation/world/lod.rs"]
 #[allow(dead_code)]
 mod lod_tests;

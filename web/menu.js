@@ -7,6 +7,8 @@ export const ACTIONS={PAUSE:2,CONTINUE:4,RECOVER:16};
 const pendingText={save:'Saving...',load:'Loading...',loadLast:'Loading...',remove:'Deleting...',newGame:'Starting a new game...'};
 const resultText={join:'Joined the game.',save:'Save complete.',load:'Game loaded.',loadLast:'Game loaded.',remove:'Save deleted.',newGame:'New game ready.'};
 const SUBSCREENS=['settings','game-mode','saves','appearance','multiplayer'];
+// Appearance has its own preview, so the car stage hides there.
+const CAR_STATES=['start-menu','settings','game-mode','saves','multiplayer'];
 function operationError(error){
  const message=error?.message??String(error);
  if(message==='No saved game.')return 'No saved game is available.';
@@ -16,8 +18,8 @@ function operationError(error){
 }
 export class MenuState {
  constructor(){this.state='loading';this.readyFlag=false;this.started=false;this.actions=0;this.error='';this.status='';this.generation=0;this.pending=false;this.operation='';this.origin='start-menu';this.dead=false;this.deathComplete=false;}
- ready(){if(this.state==='error')return;this.readyFlag=true;this.state=this.started?'pause-menu':'start-menu';if(!this.status||this.status==='Loading the garage...')this.status='The garage is ready.';}
- loading(){if(this.state==='error')return;if(!this.operation)this.generation++;this.pending=Boolean(this.operation);this.readyFlag=false;this.actions=0;this.state='loading';this.error='';this.status=this.operation?pendingText[this.operation]:'Loading the garage...';}
+ ready(){if(this.state==='error')return;this.readyFlag=true;this.state=this.started?'pause-menu':'start-menu';}
+ loading(){if(this.state==='error')return;if(!this.operation)this.generation++;this.pending=Boolean(this.operation);this.readyFlag=false;this.actions=0;this.state='loading';this.error='';this.status=this.operation?pendingText[this.operation]:'';}
  fail(message){this.generation++;this.pending=false;this.operation='';this.readyFlag=false;this.state='error';this.error=message;this.status='';this.actions=this.started?ACTIONS.PAUSE:0;}
  pause(saveSession){if(this.operation&&this.operation!=='save'&&saveSession?.cancel()){this.generation++;this.pending=false;this.operation='';this.status='';this.error='';}if(!this.operation)this.generation++;this.pending=Boolean(this.operation);this.actions=this.started?ACTIONS.PAUSE:0;if(this.state==='error')return;if(SUBSCREENS.includes(this.state)){this.origin=this.started?'pause-menu':'start-menu';return;}this.state=this.readyFlag?(this.started?'pause-menu':'start-menu'):'loading';}
  settings(){if(this.pending)return;if(this.state!=='start-menu' && this.state!=='pause-menu')return;this.origin=this.state;this.state='settings';}
@@ -47,13 +49,14 @@ export class MenuState {
  }
 }
 export async function captureWithAudio(model,action,request,audio){const success=await model.capture(action,request,()=>audio?.unlock());if(!success)audio?.pause();return success;}
-export function createMenu({canvas,language,ui,clearInput,queueAction,saveSession,buildId,thumbnail=()=>null,sleeping=()=>false,seated=()=>false,guest=()=>false,slider,audio,bindings,defaultAssists,onPause,onNewGame,reloadNewGame=()=>false,autoNewGame=false,appearance,figure,settings,resets}) {
+export function createMenu({canvas,language,ui,clearInput,queueAction,saveSession,buildId,thumbnail=()=>null,sleeping=()=>false,seated=()=>false,guest=()=>false,slider,audio,bindings,defaultAssists,onPause,onNewGame,reloadNewGame=()=>false,autoNewGame=false,appearance,showCar,settings,resets}) {
  const model=new MenuState(),menu=document.querySelector('#menu'),settingsNode=document.querySelector('#settings-screen'),gameMode=document.querySelector('#game-mode-screen'),savesNode=document.querySelector('#save-screen'),appearanceNode=document.querySelector('#appearance-screen'),multiplayerNode=document.querySelector('#multiplayer-screen'),startLast=document.querySelector('#start-load-last');
  const initial=document.querySelector('#start-actions'),paused=document.querySelector('#pause-actions'),error=document.querySelector('#capture-error'),status=document.querySelector('#status');
  const art=document.querySelector('#menu-art'),frame=document.querySelector('#menu-frame'),hud=document.querySelector('#hud');
- const initialNodes=[['#new-game','start'],['#start-load','start'],['#start-load-last','start-controls'],['#start-settings','start-controls'],['#start-game-mode','start-controls'],['#start-appearance','start-controls'],['#start-multiplayer','start-controls']];
+ // The start menu buttons have their own layout (style.css). The pause menu takes the source layout.
+ const initialNodes=['#new-game','#start-load','#start-load-last','#start-settings','#start-game-mode','#start-appearance','#start-multiplayer'].map(selector=>[selector]);
  const pauseNodes=[['#resume','continue'],['#save','continue'],['#load','continue'],['#pause-new-game','restart'],['#recover','recover'],['#settings','controls'],['#pause-game-mode','controls'],['#appearance','controls'],['#multiplayer','controls']];
- const actionNodes=[...initialNodes,...pauseNodes],backNodes=['#back','#game-mode-back','#save-back','#appearance-back','#multiplayer-back'],nodes=[...actionNodes,...backNodes.filter(selector=>selector!=='#back').map(selector=>[selector,'back'])];
+ const actionNodes=[...initialNodes,...pauseNodes],backNodes=['#back','#game-mode-back','#save-back','#appearance-back','#multiplayer-back'],nodes=[...pauseNodes,...backNodes.filter(selector=>selector!=='#back').map(selector=>[selector,'back'])];
  let lastState='',lastError='',lastStatus='',lastTravel=-1,pendingDriving=0,canLast=false,startResult=null;
  const screen=createSaveScreen({settings,word:language.word,paint:()=>paint(),run:(operation,name)=>operate(operation,...(operation==='save'?[name,thumbnail()]:operation==='loadLast'?[buildId]:[name]))});
  const clutch=document.querySelector('#automatic-clutch'),gears=document.querySelector('#automatic-gears');
@@ -77,16 +80,13 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
   if(!narrow){
    const row=layoutBox(ui.layouts.continue,innerWidth,innerHeight),gap=Math.min(16,row.height*.25),top=innerHeight-16-pauseNodes.length*row.height-(pauseNodes.length-1)*gap;
    pauseNodes.forEach(([selector],index)=>Object.assign(document.querySelector(selector).style,{left:row.x+'px',top:(top+index*(row.height+gap))+'px',width:row.width+'px',height:row.height+'px'}));
-   const load=document.querySelector('#start-load'),start=layoutBox(ui.layouts.start,innerWidth,innerHeight);load.style.left=((innerWidth-start.width)/2)+'px';
-   // Port buttons stack above Settings. The source figure stands left of the center, so this column keeps it clear.
-   const column=layoutBox(ui.layouts['start-controls'],innerWidth,innerHeight),columnGap=Math.min(16,column.height*.25);
-   ['#start-game-mode','#start-appearance','#start-multiplayer','#start-load-last'].forEach((selector,index)=>Object.assign(document.querySelector(selector).style,{left:column.x+'px',top:(column.y-(index+1)*(column.height+columnGap))+'px'}));
   }
  }
  function paint(){
   const state=model.state;menu.hidden=state==='playing';settingsNode.hidden=state!=='settings';gameMode.hidden=state!=='game-mode';savesNode.hidden=state!=='saves';appearanceNode.hidden=state!=='appearance';multiplayerNode.hidden=state!=='multiplayer';initial.hidden=!['start-menu','error'].includes(state);menu.classList.toggle('covered',state==='loading');paused.hidden=state!=='pause-menu';
   if(hud&&state!=='playing')hud.hidden=true;
-  figure?.toggle(state==='start-menu');
+  // Port choice: the start menu shows the garage car on its own stage, not the source figure and art.
+  const car=!model.started&&CAR_STATES.includes(state);showCar?.(car);menu.classList.toggle('showroom',car);
   clutch.disabled=model.pending;gears.disabled=model.pending||!clutch.checked;
   slider.lock(model.pending||model.started||!(state==='start-menu'||state==='settings'&&model.origin==='start-menu'));
   if(state==='settings')settingsScreen.paint();else controlsScreen.cancel();
