@@ -361,10 +361,10 @@ impl PersistentWorld {
                 .sort_by_key(|r| matches!(r.key, Key::Source(_)));
             for record in &mut self.records {
                 // Attachment owners disable source bodies whose shapes moved to another root.
-                if let Key::Source(id) = record.key {
-                    if let Some(state) = &mut record.state {
-                        state.enabled = physics.rapier().bodies[area.bodies[&id]].is_enabled();
-                    }
+                if let Key::Source(id) = record.key
+                    && let Some(state) = &mut record.state
+                {
+                    state.enabled = physics.rapier().bodies[area.bodies[&id]].is_enabled();
                 }
                 if record.state.is_some() {
                     continue;
@@ -419,10 +419,9 @@ impl PersistentWorld {
                                 item.body.is_some() && item.body != Some(handle)
                             })
                         })
+                        && let Some(state) = &mut record.state
                     {
-                        if let Some(state) = &mut record.state {
-                            state.enabled = false;
-                        }
+                        state.enabled = false;
                     }
                 }
                 _ => (),
