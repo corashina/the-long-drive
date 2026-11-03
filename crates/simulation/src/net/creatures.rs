@@ -56,16 +56,16 @@ impl CreatureSync {
     }
 }
 
-/// Guest: one host rabbit. False when it is not a creature packet.
-pub fn receive(reference: &ReferenceManifest, packet: &[u8], runtime: &mut GarageRuntime) -> bool {
+/// Guest: one host rabbit.
+pub fn receive(reference: &ReferenceManifest, packet: &[u8], runtime: &mut GarageRuntime) {
     let Ok((slot, m)) = CreatureMessage::decode(packet) else {
-        return false;
+        return;
     };
     let finite = m.position.iter().all(|v| v.is_finite())
         && m.rotation.iter().chain(&m.velocity).all(|v| v.is_finite())
         && m.size.is_finite();
     if slot != 0 || !finite {
-        return true;
+        return;
     }
     let pose = Pose::from_parts(
         Vector::from_array(runtime.stream.origin.local(m.position)),
@@ -84,7 +84,6 @@ pub fn receive(reference: &ReferenceManifest, packet: &[u8], runtime: &mut Garag
         Vector::from_array(m.velocity),
         now,
     );
-    true
 }
 
 const _: () = assert!(message::HEADER + size_of::<CreatureMessage>() < RELIABLE as usize);

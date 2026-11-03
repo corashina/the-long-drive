@@ -2,7 +2,7 @@
 //! `usablescript.SyncMulti` (usable). The source sends at each change. The port reads the state each
 //! `SYNC_TIME` and sends what changed since it last sent or received it.
 use super::items::Out;
-use super::message::{FluidMessage, TankCapMessage, UsableMessage};
+use super::message::{FluidMessage, Message, TankCapMessage, UsableMessage};
 use super::objects::{NetKey, ObjectIndex};
 use crate::fluids::FluidEntry;
 use crate::reference::ItemId;
@@ -155,8 +155,26 @@ impl StateSync {
         }
     }
 
+    /// Source `FluidUpdate`, `TankCapUpdate` and `UsableUpd` of another peer.
+    pub fn receive(&mut self, runtime: &mut GarageRuntime, index: &ObjectIndex, packet: &[u8]) {
+        let item = |key| index.item(NetKey(key));
+        if let Ok((_, m)) = FluidMessage::decode(packet) {
+            if let Some(id) = item(m.key) {
+                self.got_fluid(runtime, id, &m);
+            }
+        } else if let Ok((_, m)) = TankCapMessage::decode(packet) {
+            if let Some(id) = item(m.key) {
+                self.got_valve(runtime, id, &m);
+            }
+        } else if let Ok((_, m)) = UsableMessage::decode(packet)
+            && let Some(id) = item(m.key)
+        {
+            self.got_usable(runtime, id, &m);
+        }
+    }
+
     /// Source `FluidUpdate` with `dontSync`.
-    pub fn got_fluid(&mut self, runtime: &mut GarageRuntime, item: ItemId, m: &FluidMessage) {
+    fn got_fluid(&mut self, runtime: &mut GarageRuntime, item: ItemId, m: &FluidMessage) {
         let Some(fluid) = Fluid::of_message(m) else {
             return;
         };
@@ -176,7 +194,7 @@ impl StateSync {
     }
 
     /// Source `TankCapUpdate`.
-    pub fn got_valve(&mut self, runtime: &mut GarageRuntime, item: ItemId, m: &TankCapMessage) {
+    fn got_valve(&mut self, runtime: &mut GarageRuntime, item: ItemId, m: &TankCapMessage) {
         if runtime
             .area
             .interaction
@@ -189,7 +207,7 @@ impl StateSync {
     }
 
     /// Source `UsableUpd`: `usablescript.UpdFromMulti`.
-    pub fn got_usable(&mut self, runtime: &mut GarageRuntime, item: ItemId, m: &UsableMessage) {
+    fn got_usable(&mut self, runtime: &mut GarageRuntime, item: ItemId, m: &UsableMessage) {
         let state = MechanismSnapshot {
             degrees: m.degrees,
             slide: m.slide,
