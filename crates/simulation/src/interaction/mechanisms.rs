@@ -443,10 +443,10 @@ impl MechanismState {
                 }
             }
             for f in &mut self.frames {
-                if let Some(parent) = &mut f.parent {
-                    if *parent > index {
-                        *parent -= 1;
-                    }
+                if let Some(parent) = &mut f.parent
+                    && *parent > index
+                {
+                    *parent -= 1;
                 }
             }
         }

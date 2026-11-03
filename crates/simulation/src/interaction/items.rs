@@ -1011,11 +1011,9 @@ impl ItemStore {
 
     pub fn bind_body(&mut self, id: BodyId, handle: RigidBodyHandle) {
         for (state, body) in self.states.iter_mut().zip(&self.body_ids) {
-            if *body == id {
-                if state.body != Some(handle) {
-                    state.body = Some(handle);
-                    self.membership_revision += 1;
-                }
+            if *body == id && state.body != Some(handle) {
+                state.body = Some(handle);
+                self.membership_revision += 1;
             }
         }
     }

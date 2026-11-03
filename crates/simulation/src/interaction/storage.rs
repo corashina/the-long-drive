@@ -272,9 +272,7 @@ impl StorageLocks {
                 .usables
                 .extend(record.usables.iter().filter_map(|node| usable_item(*node)));
             volume.slots.clear();
-            volume
-                .slots
-                .extend(record.slots.iter().filter_map(|source| slot(source)));
+            volume.slots.extend(record.slots.iter().filter_map(&slot));
             volume.frame = Frame::Owner {
                 local: root.inverse() * Pose::from_parts(center, record.rotation),
                 record: record_index as u16,

@@ -665,12 +665,8 @@ impl PartAttachments {
         items: &ItemStore,
         physics: &PhysicsWorld,
     ) -> Option<AimTarget> {
-        let Some(&index) = self.indices.get(&item) else {
-            return None;
-        };
-        let Some(state) = items.get(item) else {
-            return None;
-        };
+        let &index = self.indices.get(&item)?;
+        let state = items.get(item)?;
         let part = &self.parts[index];
         let center = to_rapier(state.pose).transform_point(part.scan_offset);
         let scale = if part.reference.scan_radius == 0. {

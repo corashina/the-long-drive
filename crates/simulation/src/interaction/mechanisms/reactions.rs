@@ -70,7 +70,7 @@ impl MechanismState {
 
     pub fn apply_reactions(&mut self, physics: &mut PhysicsWorld) {
         for control in &mut self.controls {
-            let pending = std::mem::replace(&mut control.pending_reactions, [None; 4]);
+            let pending = std::mem::take(&mut control.pending_reactions);
             if pending.iter().all(Option::is_none) {
                 continue;
             }
