@@ -1,4 +1,4 @@
-//! Network names of objects. Source `tosaveitemscript.idInSave`: every peer names one object the same way.
+//! Network names of objects. Source `tosaveitemscript.idInSave`. Every peer names one object the same way.
 use crate::interaction::items::ItemStore;
 use crate::reference::ItemId;
 use crate::starting_area::spawned::{SpawnedItem, SpawnedItems};
@@ -32,7 +32,7 @@ pub struct ObjectIndex {
     /// Runtime spawn keys, now and at the last rebuild.
     spawned: HashSet<NetKey>,
     previous_spawned: HashSet<NetKey>,
-    /// Runtime spawns that left since the last `take_gone`: a despawn deletes the item.
+    /// Runtime spawns that left since the last `take_gone`. A despawn deletes the item.
     gone: Vec<NetKey>,
 }
 

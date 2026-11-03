@@ -72,7 +72,7 @@ pub struct RadioBroadcasts {
     custom_gain: f32,
     holiday_ranges: [[u8; 4]; 2],
     calendar: [u8; 2],
-    /// Multiplayer guest: the host selects the clips (source `RADIO2`).
+    /// On a multiplayer guest, the host selects the clips (source `RADIO2`).
     remote: bool,
     /// A station took a new clip since the last `take_changed`.
     changed: bool,
@@ -286,7 +286,7 @@ impl RadioState {
             volume: self.volume,
         }
     }
-    /// save_radioscript restores controls only; stations pick fresh recordings.
+    /// save_radioscript restores controls only. Stations pick fresh recordings.
     pub fn restore_save(
         &mut self,
         saved: &crate::save::RadioSnapshot,
@@ -391,7 +391,7 @@ impl RadioBroadcasts {
     pub fn calendar(&mut self, month: u8, day: u8) {
         self.calendar = [month, day];
     }
-    /// mainscript.RADIO: every station advances once per step, heard or not.
+    /// mainscript.RADIO. Every station advances once per step, heard or not.
     pub fn advance(&mut self, game_seconds: f64) {
         if self.remote {
             return;

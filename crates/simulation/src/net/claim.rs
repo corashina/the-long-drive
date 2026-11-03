@@ -1,4 +1,4 @@
-//! Source `tosaveitemscript.Claim`: the peer that holds an item owns it and sends its state.
+//! Source `tosaveitemscript.Claim`. The peer that holds an item owns it and sends its state.
 use crate::reference::ItemId;
 use std::collections::{HashMap, HashSet};
 
@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 /// item whose seat the player sits in (a sled or a chair).
 pub const HELD: usize = 7;
 
-/// Source `tosaveitemscript.unClaim` real-time wait.
+/// The real-time wait of source `tosaveitemscript.unClaim`.
 pub const UNCLAIM_DELAY: f64 = 0.05;
 
 #[derive(Default)]
@@ -83,7 +83,7 @@ impl Claims {
         }
     }
 
-    /// A peer left: its claims end.
+    /// A peer left. Its claims end.
     pub fn leave(&mut self, slot: u8) {
         self.others.retain(|_, s| *s != slot);
     }

@@ -42,7 +42,7 @@ impl ConsumableSync {
             return;
         }
         self.timer = 0.;
-        // The first read of each item is the baseline: both peers start from one save.
+        // The first read of each item is the baseline. Both peers start from one save.
         for state in runtime.area.items.iter() {
             if let Some(food) = state.food.filter(|_| !state.removed)
                 && let Some(known) = self.foods.insert(state.id, food.bite)

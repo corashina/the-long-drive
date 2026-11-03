@@ -113,7 +113,7 @@ impl DrivetrainState {
             && automatic
             && let Some((engine, part)) = engine
         {
-            // AutoShift: direction and input inversion precede torque selection.
+            // In AutoShift, direction and input inversion come before torque selection.
             let direction =
                 if direction > -vehicle.auto_move_min && direction < vehicle.auto_move_min {
                     0.

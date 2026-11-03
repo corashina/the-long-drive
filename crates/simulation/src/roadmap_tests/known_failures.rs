@@ -31,7 +31,7 @@ fn tp_k5_s1_a_stored_save_starts_the_session_and_its_restore_finishes() {
     let mut loaded = load(&reference, &saved);
     seconds(&mut loaded, &reference, 1.);
     assert!(loaded.world_supported(), "the loaded world is ready");
-    // After a death: the pause menu Load opens the same stored save.
+    // After a death, the pause menu Load opens the same stored save.
     run.survival
         .damage_instant(&reference.survival, reference.survival.maximum.hp);
     frame(&mut run, &reference);
@@ -40,7 +40,7 @@ fn tp_k5_s1_a_stored_save_starts_the_session_and_its_restore_finishes() {
     assert!(!after.needs_output().dead && after.world_supported());
 }
 
-/// K3. Source `fpscontroller` use ray on a car door handle from outside: the aim takes the door
+/// K3. Source `fpscontroller` use ray on a car door handle from outside. The aim takes the door
 /// mechanism, the HUD shows the door action and E with the mouse opens the door.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -151,7 +151,7 @@ fn tp_k3_e_on_the_outside_door_handle_opens_the_door() {
             ..Default::default()
         },
     );
-    // Source `fpscontroller.UseUsable`: a held E drags the door with the mouse. The closed
+    // Source `fpscontroller.UseUsable`. A held E drags the door with the mouse. The closed
     // door turns one way only, so try both.
     for x in [6., -6.] {
         for _ in 0..30 {
@@ -210,7 +210,7 @@ fn tp_k6_an_open_hood_leaves_the_engine_caps_in_reach() {
             .resolve(&run.physics, view, &run.area.items);
         aim.use_target.map(|t| t.item)
     };
-    // The engine filler caps of the new car: the closed hood covers them from above.
+    // The engine filler caps of the new car. The closed hood covers them from above.
     let caps: Vec<_> = run.area.interaction.valves().map(|(cap, _)| cap).collect();
     let mut filler = None;
     for (handle, collider) in run.physics.rapier().colliders.iter() {
@@ -244,7 +244,7 @@ fn tp_k6_an_open_hood_leaves_the_engine_caps_in_reach() {
     );
 }
 
-/// K7. A seated player changes seat in the same car: the use ray from the driver head takes
+/// K7. A seated player changes seat in the same car. The use ray from the driver head takes
 /// another seat of the car, and the seat change keeps the player in the car.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -320,7 +320,7 @@ fn tp_k8_full_renderer_staging_does_not_stop_a_changing_held_item() {
     assert!(run.world_supported(), "the world stays ready");
 }
 
-/// K9. Source `fpscontroller` `Bbinoculars`: LMB with the binoculars in the hand looks through
+/// K9. Source `fpscontroller` `Bbinoculars`. LMB with the binoculars in the hand looks through
 /// them. The frame input route keeps LMB for the fixed step, and the frame state has the
 /// binocular camera.
 #[test]

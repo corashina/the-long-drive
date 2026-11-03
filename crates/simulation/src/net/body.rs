@@ -7,9 +7,9 @@ use rapier3d::prelude::{
     InteractionTestMode, RigidBodyBuilder, RigidBodyHandle, RigidBodyType, SharedShape,
 };
 
-/// Source `Start`: the colliders turn on 3 s after the figure shows.
+/// Source `Start`. The colliders turn on 3 s after the figure shows.
 const SPAWN_DELAY: f64 = 3.;
-/// Source `UpdCollider`: the colliders turn on 1 s after the figure stands up.
+/// Source `UpdCollider`. The colliders turn on 1 s after the figure stands up.
 const STAND_DELAY: f64 = 1.;
 /// Unity default material of the head colliders.
 const DEFAULT_FRICTION: f32 = 0.6;
@@ -133,7 +133,7 @@ impl RemoteBody {
             self.enable_at = now + STAND_DELAY;
         }
         if seated != self.seated {
-            // `massScript.RemoveRB` while seated: the colliders stop being a dynamic body.
+            // Source `massScript.RemoveRB` while seated. The colliders stop being a dynamic body.
             let kind = if seated {
                 RigidBodyType::KinematicPositionBased
             } else {

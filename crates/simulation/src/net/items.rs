@@ -1,4 +1,4 @@
-//! Source `tosaveitemscript.MultiUpd` and `snItemsync`: the owner sends item poses and velocity, the
+//! Source `tosaveitemscript.MultiUpd` and `snItemsync`. The owner sends item poses and velocity, and the
 //! other peers move their copy there.
 use super::claim::{ClaimChange, Claims};
 use super::inventory::InventorySync;
@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 pub const CHECK_INTERVAL: f32 = 1.;
 /// Source `MorePosUpd.moreCount`.
 const MORE_COUNT: u8 = 3;
-/// Source `snItemsync.syncMinPos`. The source keeps it unused; the port skips unmoved items.
+/// Source `snItemsync.syncMinPos`. The source keeps it unused. The port skips unmoved items.
 pub const SYNC_MIN_POS: f64 = 0.05;
 /// Source `snItemsync.syncMinRot`, in degrees.
 pub const SYNC_MIN_ROT: f32 = 1.;
@@ -42,7 +42,7 @@ pub struct ItemSync {
     /// The slot of this peer.
     pub slot: u8,
     timer: f32,
-    /// Source `MorePosUpd`: held items get more sends between checks.
+    /// Source `MorePosUpd`. Held items get more sends between checks.
     more: Vec<(ItemId, f32, u8)>,
     last: HashMap<ItemId, ([f64; 3], [f32; 4])>,
     removed: HashSet<ItemId>,
@@ -145,7 +145,7 @@ impl ItemSync {
         self.requested.extend(keys.iter().map(|k| NetKey(*k)));
     }
 
-    /// Host: applies kept states of items that bound. Guest: asks for their state.
+    /// The host applies the kept states of items that bound. A guest asks for their state.
     pub fn bound(
         &mut self,
         runtime: &mut GarageRuntime,
@@ -156,7 +156,7 @@ impl ItemSync {
         index.take_fresh(&mut self.fresh);
         index.take_gone(&mut self.gone);
         if host {
-            // Source `OnDestroy` of a despawned runtime spawn: the host sends the removal.
+            // Source `OnDestroy` of a despawned runtime spawn. The host sends the removal.
             for key in &self.gone {
                 message::push(self.slot, &RemoveMessage { key: key.0 }, out);
             }
@@ -190,7 +190,7 @@ impl ItemSync {
         }
     }
 
-    /// Claim changes, then the due poses. `host`: this peer is the host.
+    /// Sends the claim changes, then the due poses. `host`: this peer is the host.
     pub fn send(
         &mut self,
         runtime: &GarageRuntime,
@@ -206,7 +206,7 @@ impl ItemSync {
         };
         let interaction = &runtime.area.interaction;
         let slots = runtime.area.inventory.slots;
-        // Source: an item seat sends the world pose of its item.
+        // In the source, an item seat sends the world pose of its item.
         let seat = match runtime.area.player.seat_owner() {
             Some(SeatOwner::Item(key)) => runtime.area.items.resolve_key(key),
             _ => None,
@@ -236,7 +236,7 @@ impl ItemSync {
                         self.more.push((item, 0., MORE_COUNT));
                     }
                 }
-                // Source `DoClaim(false)`: `ForcePosUpd(sendPosIfHasParent: true)` first.
+                // Source `DoClaim(false)` sends `ForcePosUpd(sendPosIfHasParent: true)` first.
                 ClaimChange::Release(item) => {
                     if let Some(key) = index.key(item) {
                         self.send_pose(runtime, item, key, out);
@@ -292,7 +292,7 @@ impl ItemSync {
             let Some(key) = index.key(item.id) else {
                 continue;
             };
-            // Source `OnDestroy`: the host sends the removal.
+            // Source `OnDestroy`. The host sends the removal.
             if item.removed {
                 if host && self.removed.insert(item.id) {
                     out.push(&RemoveMessage { key: key.0 });
@@ -360,7 +360,7 @@ impl ItemSync {
     }
 }
 
-/// Source `UpdInWorld`: an item that this peer does not claim moves to the pose.
+/// Source `UpdInWorld`. An item that this peer does not claim moves to the pose.
 fn apply_pose(runtime: &mut GarageRuntime, claims: &Claims, item: ItemId, m: &ItemPoseMessage) {
     let Some(state) = runtime.area.items.get(item) else {
         return;
@@ -481,7 +481,7 @@ fn remove(runtime: &mut GarageRuntime, item: ItemId) {
     }
 }
 
-/// Source `PushLocal`: the owner applies the impulse of another player.
+/// Source `PushLocal`. The owner applies the impulse of another player.
 fn apply_push(runtime: &mut GarageRuntime, item: ItemId, m: &PushMessage) {
     let impulse = Vector::from_array(m.impulse);
     let local = Vector::from_array(m.point);

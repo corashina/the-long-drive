@@ -136,7 +136,7 @@ impl AxisSetting {
     }
 }
 
-/// Source keyboard ramp: `MoveTowards` for 0 and ±1 targets; other targets apply directly.
+/// Source keyboard ramp. It uses `MoveTowards` for 0 and ±1 targets. Other targets apply directly.
 fn ramp(value: &mut f32, target: f32, step: f32) {
     *value = if target == 0. || target.abs() == 1. {
         *value + (target - *value).clamp(-step, step)

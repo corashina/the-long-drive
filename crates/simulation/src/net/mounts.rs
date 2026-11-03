@@ -57,7 +57,7 @@ impl MountSync {
         }
         self.timer = 0.;
         read(runtime, &mut self.current);
-        // The first read is the baseline: both peers start from one save.
+        // The first read is the baseline. Both peers start from one save.
         if std::mem::replace(&mut self.started, true) {
             for (item, mount) in &self.current {
                 if self.known.get(item) != Some(mount)
@@ -118,7 +118,7 @@ impl MountSync {
             }
             runtime.area.items.mark_dirty(item);
         }
-        // A failed mount keeps the local state quiet: it does not send it back.
+        // A failed mount does not send the local state back.
         match mount_of(runtime, item) {
             Mount::Loose => self.known.remove(&item),
             mount => self.known.insert(item, mount),

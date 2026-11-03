@@ -21,7 +21,7 @@ pub fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
     }
 }
 
-/// Source digit wheel angle: units turn freely, higher places roll over with the units.
+/// Source digit wheel angle. The units turn freely, and higher places roll over with the units.
 pub fn digit_angle(values: &[f32], index: usize, continuous: bool, base: f32) -> f32 {
     let step = 360. / base;
     if index == 0 || continuous {
@@ -55,7 +55,7 @@ pub fn compass_north(forward: Vector, north: Vector) -> f32 {
     -signed_angle(flat, Vector::new(north.x, 0., north.z), Vector::Y)
 }
 
-/// `compassscript.GetNorthValue2`: a jammed compass points at the last EMP, then spins.
+/// `compassscript.GetNorthValue2`. A jammed compass points at the last EMP, then spins.
 /// `spin` keeps the source `jam` turn.
 pub fn compass_value(
     forward: Vector,

@@ -168,7 +168,7 @@ fn apply(
             Ok((format!("Moved to {found}."), json!(position)))
         }
         Action::Spawn { name, forward } if RABBITS.contains(&name.to_lowercase().as_str()) => {
-            // Source `nyulscript`: a rabbit above the evil size gets evil unless peaceful.
+            // Source `nyulscript`. A rabbit above the evil size gets evil unless peaceful.
             let size = if name.eq_ignore_ascii_case("rabbit") {
                 0.5
             } else {
@@ -275,7 +275,7 @@ fn place_player(
         body.set_position(to_rapier(pose), true);
         body.set_linvel(Vector::ZERO, true);
     });
-    // Cars that hold an area come along: the step waits until each active car's area is loaded.
+    // Cars that hold an area come along. The step waits until each active car's area is loaded.
     let held: Vec<_> = runtime
         .vehicles
         .keys()
@@ -554,7 +554,7 @@ fn take_in_hand(runtime: &mut GarageRuntime, item: ItemId) -> Result<bool, Strin
 }
 
 /// Spawns item `name` and puts it in the hand. A catalog item of a world prototype, such as the
-/// binoculars, is placed first and taken once the stream loads it: the reply then has `pending`.
+/// binoculars, is placed first and taken once the stream loads it. The reply then has `pending`.
 fn hand(
     runtime: &mut GarageRuntime,
     reference: &ReferenceManifest,
@@ -761,7 +761,7 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
     let player = runtime.area.player.body_pose(&runtime.physics).position;
     let near =
         |p: [f32; 3]| (0..3).map(|i| (p[i] - player[i]).powi(2)).sum::<f32>() <= radius * radius;
-    // The step waits while the player or an active car has a gap: the same 8 m test as the step.
+    // The step waits while the player or an active car has a gap. This is the same 8 m test as the step.
     let gap = |p: [f32; 3]| {
         let center = origin.absolute(p);
         let gap = runtime.stream.support_gap(crate::world::WorldBounds {

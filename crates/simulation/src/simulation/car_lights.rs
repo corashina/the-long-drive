@@ -168,8 +168,8 @@ impl CarLights {
         }
     }
 
-    /// One light step. `mounted` tells whether a part item is on the car; `door` reads
-    /// a cabin door usable value; `switch` reads a cabin switch turn state.
+    /// One light step. `mounted` tells whether a part item is on the car. `door` reads
+    /// a cabin door usable value. `switch` reads a cabin switch turn state.
     #[allow(clippy::too_many_arguments)]
     pub fn advance(
         &mut self,
@@ -286,7 +286,7 @@ impl CarLights {
         }
     }
 
-    /// `RefreshLights`: `output` is the `electronicsscript` output, 1 without electronics.
+    /// Source `RefreshLights`. `output` is the `electronicsscript` output, 1 without electronics.
     fn refresh_fade(&mut self, records: &[WorldLightReference], index: usize, output: f32) {
         let c = &self.controllers[index];
         let energy = c.state.energy() * output;

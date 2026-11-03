@@ -1,6 +1,6 @@
 //! The data that crosses between the simulation and the renderer.
 //! `SimFrame` goes out once per tick. `SimCommand` comes in once per rendered frame.
-//! Poses and state are Pod rows; rare changes are postcard encoded.
+//! Poses and state are Pod rows. Rare changes use postcard encoding.
 use crate::interaction::items::ItemLocation;
 use crate::lighting::{
     ControlPoseOutput, CycleOutput, LampMaterialOutput, LightOutput, NodeVisibilityOutput,
@@ -139,13 +139,13 @@ pub struct StateBlock {
     pub simulation_seconds: f64,
     /// Starting area origin in world space.
     pub origin: [f64; 3],
-    /// World stream origin: stream space is world space minus this offset.
+    /// World stream origin. Stream space is world space minus this offset.
     pub stream_origin: [f64; 3],
-    /// Day cycle active seconds.
+    /// Active seconds of the day cycle.
     pub cycle_elapsed_seconds: f64,
     /// World stream session.
     pub session: u64,
-    /// Required content selection revision.
+    /// Revision of the required content selection.
     pub selection_revision: u64,
     /// Interpolation from `SimFrame::previous` to `SimFrame::current`.
     pub alpha: f32,
@@ -155,7 +155,7 @@ pub struct StateBlock {
     pub fov_degrees: f32,
     /// Items stored in the inventory slots, as `ItemId + 1`. 0 is an empty slot.
     pub stored_items: [u32; 4],
-    /// Player body at the current pose; the renderer moves it with the camera interpolation.
+    /// Player body at the current pose. The renderer moves it with the camera interpolation.
     pub body_pose: PoseRow,
     /// `CharacterRoot` relative to the Player.
     pub body_root: PoseRow,
@@ -338,7 +338,7 @@ impl MouseLook {
 pub struct GlassesState {
     /// Index in `clothing.glasses_profiles`.
     pub profile: u32,
-    /// Source `disableLensFlare`: the sun flare is hidden.
+    /// Source `disableLensFlare`. The sun flare is hidden.
     pub hide_flare: bool,
 }
 
@@ -376,7 +376,7 @@ impl StateBlock {
     pub const GENERATION_READY: u32 = 1 << 7;
     /// The world supports the player and the required content is ready.
     pub const WORLD_READY: u32 = 1 << 8;
-    /// Source `otherView()`: the outside view, the drop cam or the map view shows.
+    /// Source `otherView()`. The outside view, the drop cam or the map view shows.
     pub const OTHER_VIEW: u32 = 1 << 9;
     /// The storage startup frames are done.
     pub const STORAGE_READY: u32 = 1 << 10;
@@ -386,7 +386,7 @@ impl StateBlock {
     pub const DROP_CAM: u32 = 1 << 14;
     /// The other view is the map view.
     pub const MAP_VIEW: u32 = 1 << 15;
-    /// fpscontroller `Bbinoculars`: the view camera is the binocular camera.
+    /// fpscontroller `Bbinoculars`. The view camera is the binocular camera.
     pub const BINOCULARS: u32 = 1 << 16;
 }
 
@@ -538,7 +538,7 @@ pub struct HudBlock {
     pub assists: u32,
     /// Steer, throttle, brake, clutch, handbrake.
     pub controls: [f32; 5],
-    /// Source `postprocesscontrol.h.root` body speed: the seat owner, else the player.
+    /// Body speed of source `postprocesscontrol.h.root`. The root is the seat owner, else the player.
     pub view_speed_kmh: f32,
 }
 
@@ -675,7 +675,7 @@ pub struct MaterialRow {
     pub source: u32,
 }
 
-/// State of one condition owner. Frames carry changed owners; the first frame carries all.
+/// State of one condition owner. Frames carry changed owners. The first frame carries all.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct ConditionRow {
@@ -713,7 +713,7 @@ impl ConditionRow {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct ItemRow {
-    /// Gib shrink scale; 1 for other items.
+    /// Gib shrink scale. It is 1 for other items.
     pub scale: f32,
     /// Food bite index.
     pub bite: u32,
@@ -741,7 +741,7 @@ pub struct PlaneRow {
     pub flags: u32,
 }
 impl PlaneRow {
-    /// fedoscript `seat.inUse`: the prefab `seatedObj` shows.
+    /// fedoscript `seat.inUse`. The prefab `seatedObj` shows.
     pub const SEATED: u32 = 1;
 }
 
@@ -814,7 +814,7 @@ pub struct DecalRow {
     pub scale: f32,
 }
 
-/// One live particle. Positions are relative to the stream origin (contrails: the sky anchor).
+/// One live particle. Positions are relative to the stream origin, or to the sky anchor for contrails.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct ParticleRow {
@@ -843,7 +843,7 @@ pub struct ParticleGroupRow {
     pub source: u32,
     pub start: u32,
     pub count: u32,
-    /// Rows come from a fluid contact: no age or sheet.
+    /// Rows come from a fluid contact. They have no age or sheet.
     pub fluid: u32,
 }
 
@@ -863,23 +863,23 @@ impl ParticleGroupRow {
     pub const COBWEB: u32 = 12;
     /// `mainscript.ParticleShootStart` (0) and `ParticleShootEnd` (1).
     pub const TRACER: u32 = 13;
-    /// `explosionscript.particle`; source is the explosion type.
+    /// `explosionscript.particle`. The source is the explosion type.
     pub const EXPLOSION: u32 = 14;
-    /// `mainscript.FoodParticles`; source is the food particle type.
+    /// `mainscript.FoodParticles`. The source is the food particle type.
     pub const FOOD: u32 = 15;
-    /// A loot tool: `a` is the item, `b` the `conditions.prototype_tools` index.
+    /// A loot tool. `a` is the item, `b` the `conditions.prototype_tools` index.
     pub const LOOT_TOOL: u32 = 16;
     /// fpscontroller `heatHaze`: the old particle heat haze.
     pub const HEAT_HAZE: u32 = 17;
-    /// A gib ParticleSystem: `a` is the item prototype, source is its gib particle.
+    /// A gib ParticleSystem. `a` is the item prototype, and the source is its gib particle.
     pub const GIB: u32 = 18;
     /// Car systems in `a`.
     pub const CAR_EXHAUST: u32 = 0;
-    /// Wheel effects: source is wheel * 8 + system (0 dust, 1.. grass).
+    /// Wheel effects. The source is wheel * 8 + system (0 dust, 1.. grass).
     pub const CAR_WHEEL: u32 = 1;
     /// Skid bursts: `tiresmoke` (0) or `tiresand` (1).
     pub const CAR_SKID: u32 = 2;
-    /// `carscript.CoolantSteam`; source 0.
+    /// `carscript.CoolantSteam`. The source is 0.
     pub const CAR_STEAM: u32 = 3;
 }
 
@@ -1055,7 +1055,7 @@ pub struct SimFrame {
 }
 
 impl SimFrame {
-    /// Removes the events: the renderer applies each frame once. The state stays.
+    /// Removes the events. The renderer applies each frame once. The state stays.
     pub fn clear_events(&mut self) {
         self.conditions.clear();
         self.audio.clear();
