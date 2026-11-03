@@ -304,7 +304,10 @@ pub fn queue(world: &mut World) {
                                 phases.remove(retained);
                             }
                             state.queued[index].clear();
-                            world.entity_mut(entity).insert(ShadowDrawState::default());
+                            world.entity_mut(entity).insert((
+                                ShadowDrawState::default(),
+                                shadow_phase::ShadowBundles::default(),
+                            ));
                         }
                         for &retained in tiles {
                             // Source views carry NoIndirectDrawing, so their work items are direct.
