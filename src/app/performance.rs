@@ -9,7 +9,8 @@ pub(super) fn publish(
     archetypes: &bevy::ecs::archetype::Archetypes,
 ) {
     let perf = &sim.frame.state.perf;
-    if !game_performance_frame(perf.physics_ms, drive.world_ms) {
+    let (update_ms, render_ms) = super::frame_cpu::last_ms();
+    if !game_performance_frame(perf.physics_ms, drive.world_ms, update_ms, render_ms) {
         return;
     }
     game_performance_counters(

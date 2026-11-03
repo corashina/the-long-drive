@@ -3,25 +3,26 @@ const WINDOW_MS=2000,CAPACITY=4096;
 export class FrameTimings {
  constructor(){
   this.times=new Float64Array(CAPACITY);this.intervals=new Float64Array(CAPACITY);
-  this.physics=new Float64Array(CAPACITY);this.world=new Float64Array(CAPACITY);this.reset();
+  this.physics=new Float64Array(CAPACITY);this.world=new Float64Array(CAPACITY);
+  this.update=new Float64Array(CAPACITY);this.render=new Float64Array(CAPACITY);this.reset();
  }
  reset(){this.head=0;this.count=0;this.previous=null;}
- sample(now,physics,world){
+ sample(now,physics,world,update,render){
   const previous=this.previous;this.previous=now;
   if(previous===null||now<=previous)return;
   const i=this.head;
-  this.times[i]=now;this.intervals[i]=now-previous;this.physics[i]=physics;this.world[i]=world;
+  this.times[i]=now;this.intervals[i]=now-previous;this.physics[i]=physics;this.world[i]=world;this.update[i]=update;this.render[i]=render;
   this.head=(i+1)%CAPACITY;this.count=Math.min(this.count+1,CAPACITY);
   while(this.count&&this.times[(this.head-this.count+CAPACITY)%CAPACITY]<now-WINDOW_MS)this.count--;
  }
  summary(){
   if(!this.count)return null;
-  let elapsed=0,worst=0,physics=0,world=0;
+  let elapsed=0,worst=0,physics=0,world=0,update=0,render=0;
   for(let n=0;n<this.count;n++){
    const i=(this.head-this.count+n+CAPACITY)%CAPACITY;
-   elapsed+=this.intervals[i];worst=Math.max(worst,this.intervals[i]);physics+=this.physics[i];world+=this.world[i];
+   elapsed+=this.intervals[i];worst=Math.max(worst,this.intervals[i]);physics+=this.physics[i];world+=this.world[i];update+=this.update[i];render+=this.render[i];
   }
-  return {fps:1000*this.count/elapsed,average:elapsed/this.count,worst,physics:physics/this.count,world:world/this.count};
+  return {fps:1000*this.count/elapsed,average:elapsed/this.count,worst,physics:physics/this.count,world:world/this.count,update:update/this.count,render:render/this.count};
  }
 }
 
@@ -53,9 +54,9 @@ export function createPerformance(readWasmBytes,readRender,readDrawDistance,read
  };
  window.addEventListener('keydown',key);document.addEventListener('visibilitychange',reset);
  return {
-  frame(now,physicsMs,worldMs){
+  frame(now,physicsMs,worldMs,updateMs,renderMs){
    if(stopped||document.hidden)return false;
-   timings.sample(now,physicsMs,worldMs);
+   timings.sample(now,physicsMs,worldMs,updateMs,renderMs);
    if(root.hidden||now-lastPaint<250)return false;
    lastPaint=now;return true;
   },
@@ -63,8 +64,9 @@ export function createPerformance(readWasmBytes,readRender,readDrawDistance,read
    const sample=timings.summary(),worker=readWorker();
    values.textContent=(sample?
     'FPS: '+sample.fps.toFixed(0)+'\nFrame avg / worst: '+ms(sample.average)+' / '+ms(sample.worst)+' ms'+
+    '\nMain CPU update / render avg: '+ms(sample.update)+' / '+ms(sample.render)+' ms'+
     '\nWorker physics / world CPU avg: '+ms(sample.physics)+' / '+ms(sample.world)+' ms':
-    'FPS: --\nFrame avg / worst: --\nWorker physics / world CPU avg: --')+
+    'FPS: --\nFrame avg / worst: --\nMain CPU update / render avg: --\nWorker physics / world CPU avg: --')+
     '\nWorker tick avg: '+(Number.isFinite(worker?.tickMs)?ms(worker.tickMs)+' ms':'--')+
     '\nDraw distance: '+readDrawDistance()+' m\nPhysics steps/frame: '+steps+'\nWheel contacts: '+wheelContacts+'\nBodies / colliders: '+bodies+' / '+colliders+
     '\nRoads / terrain tiles: '+roads+' / '+terrain+'\nActive generated objects: '+objects+'\nECS entities: '+entities+'\nJobs / queued work: '+jobs+' / '+pending+

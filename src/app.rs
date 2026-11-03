@@ -1,4 +1,5 @@
 pub(crate) use simulation::cpu_profile;
+mod frame_cpu;
 mod frame_limit;
 mod performance;
 pub(crate) mod save;
@@ -246,6 +247,7 @@ pub fn run(reference_json: &[u8], startup: &[u8]) -> Result<(), JsValue> {
                 }),
         )
         .add_plugins(presentation::readiness::install)
+        .add_plugins(frame_cpu::install)
         .add_plugins((
             presentation::lighting::SourceLightingPlugin,
             presentation::materials::SourceMaterialPlugin,
