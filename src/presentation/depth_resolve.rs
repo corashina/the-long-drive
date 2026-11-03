@@ -12,7 +12,6 @@ use bevy::render::{
     render_resource::{binding_types::*, *},
     renderer::{RenderContext, RenderDevice, ViewQuery},
 };
-use bevy::shader::ShaderCacheError;
 
 #[derive(Resource, Default)]
 pub struct DepthResolve {
@@ -98,14 +97,12 @@ fn prepare(
         }));
         return;
     };
-    match cache.get_render_pipeline_state(id) {
-        CachedPipelineState::Err(
-            ShaderCacheError::ShaderNotLoaded(_) | ShaderCacheError::ShaderImportNotYetAvailable,
-        ) => {}
-        CachedPipelineState::Err(error) => {
-            status.fail(format!("Source depth resolve pipeline: {error}"));
-        }
-        _ => {}
+    if let Some(error) = super::postprocessing::named_pipeline_failure(
+        &cache,
+        &[id],
+        "Source depth resolve pipeline",
+    ) {
+        status.fail(error);
     }
 }
 

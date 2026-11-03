@@ -263,16 +263,12 @@ pub(crate) fn prepare_clouds(
     antialiasing: Res<super::antialiasing::Antialiasing>,
 ) {
     if let Some(pass) = existing {
-        use bevy::shader::ShaderCacheError;
-        match cache.get_render_pipeline_state(pass.pipeline) {
-            CachedPipelineState::Err(
-                ShaderCacheError::ShaderNotLoaded(_)
-                | ShaderCacheError::ShaderImportNotYetAvailable,
-            ) => {}
-            CachedPipelineState::Err(error) => {
-                status.fail(format!("Source cloud pipeline: {error}"));
-            }
-            _ => {}
+        if let Some(error) = super::postprocessing::named_pipeline_failure(
+            &cache,
+            &[pass.pipeline],
+            "Source cloud pipeline",
+        ) {
+            status.fail(error);
         }
         return;
     }

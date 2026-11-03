@@ -180,16 +180,7 @@ impl AoUpsamplePass {
             .all(|&id| cache.get_render_pipeline(id).is_some())
     }
     pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        self.pipelines
-            .iter()
-            .find_map(|&id| match cache.get_render_pipeline_state(id) {
-                CachedPipelineState::Err(
-                    bevy::shader::ShaderCacheError::ShaderNotLoaded(_)
-                    | bevy::shader::ShaderCacheError::ShaderImportNotYetAvailable,
-                ) => None,
-                CachedPipelineState::Err(e) => Some(format!("Source AO upsample pipeline: {e}")),
-                _ => None,
-            })
+        super::named_pipeline_failure(cache, &self.pipelines, "Source AO upsample pipeline")
     }
     pub fn encode(&self, encoder: &mut CommandEncoder, cache: &PipelineCache) -> bool {
         if !self.ready(cache) {
