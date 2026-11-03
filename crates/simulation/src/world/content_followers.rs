@@ -2,9 +2,13 @@
 //! Bus02 and its trailers. Poses solve in the unscaled prototype root frame. Each write refreshes
 //! the descendants of the written node, so later followers read moved children, as in Unity.
 use super::WorldStream;
+use super::content_kinds::{
+    BindContext, Bound, ContentKind, ContentKinds, KindBindings, Ready, ready_unless_removed,
+};
 use crate::interaction::items::ItemStore;
 use crate::reference::{
-    FollowerReference, ReferenceError, Transform, WorldFollowersReference, WorldPrototypeReference,
+    FollowerReference, ItemId, ReferenceError, Transform, WorldFollowersReference,
+    WorldPrototypeReference,
 };
 use crate::vehicle::PhysicsWorld;
 use crate::world::GeneratedId;
@@ -269,78 +273,22 @@ pub struct FollowerBinding {
     poses: FollowerPoses,
 }
 
-impl FollowerBinding {
-    pub fn heap_bytes(&self) -> usize {
-        let p = &self.poses;
-        crate::world::contents::identity_heap(&self.parent)
-            + p.parents.capacity() * std::mem::size_of::<Option<usize>>()
-            + p.local.capacity() * std::mem::size_of::<Transform>()
-            + p.frames.capacity() * std::mem::size_of::<NodeFrame>()
-            + p.refresh.capacity() * std::mem::size_of::<usize>()
-            + p.writes.capacity() * std::mem::size_of::<(usize, std::ops::Range<usize>)>()
-            + p.spring_lengths.capacity() * std::mem::size_of::<f32>()
-            + p.wheel_positions.capacity() * std::mem::size_of::<Vector>()
-    }
-}
-
 impl WorldStream {
-    /// Binds the followers of active prototypes once their bodies exist.
-    pub(super) fn sync_follower_bindings(
-        &mut self,
-        items: &ItemStore,
-    ) -> Result<(), ReferenceError> {
-        let revision = (self.request.session, self.contents.active_revision());
-        if self.follower_scan == Some(revision) {
-            return Ok(());
-        }
-        let active = &self.contents.active();
-        self.follower_bindings
-            .retain(|b| active.iter().any(|c| c.content.placement.id == b.parent));
-        let mut complete = true;
-        for content in self.contents.active() {
-            let Some(index) = self.follower_prototypes.iter().copied().find(|&p| {
-                self.reference.prototypes[p].source == content.content.placement.prototype
-            }) else {
-                continue;
-            };
-            let parent = &content.content.placement.id;
-            if self.follower_bindings.iter().any(|b| &b.parent == parent) {
-                continue;
-            }
-            if !content.restored {
-                complete = false;
-                continue;
-            }
-            if content
-                .item
-                .and_then(|i| items.get(i))
-                .and_then(|i| i.body)
-                .is_none()
-            {
-                continue;
-            }
-            let prototype = &self.reference.prototypes[index];
-            let record = prototype.followers.as_ref().unwrap();
-            self.follower_bindings.push(FollowerBinding {
-                parent: parent.clone(),
-                key: ObjectKey::Generated(parent.clone()),
-                prototype: index,
-                poses: FollowerPoses::new(prototype, record),
-            });
-        }
-        self.follower_scan = complete.then_some(revision);
-        Ok(())
-    }
-
     /// Source Update of every follower. Run after the wheel steps.
     pub fn step_followers(&mut self, physics: &PhysicsWorld) {
-        for b in &mut self.follower_bindings {
+        for b in &mut self.kinds.followers.list {
             let record = self.reference.prototypes[b.prototype]
                 .followers
                 .as_ref()
                 .unwrap();
             let positions = &mut b.poses.wheel_positions;
-            if let Some(trailer) = self.trailer_bindings.iter().find(|t| t.parent == b.parent) {
+            if let Some(trailer) = self
+                .kinds
+                .trailers
+                .list
+                .iter()
+                .find(|t| t.parent == b.parent)
+            {
                 for (p, root) in positions.iter_mut().zip(trailer.graphic_positions()) {
                     *p = root;
                 }
@@ -362,10 +310,74 @@ impl WorldStream {
         parent: &GeneratedId,
     ) -> Option<impl Iterator<Item = (usize, Transform)> + '_> {
         let b = self
-            .follower_bindings
+            .kinds
+            .followers
+            .list
             .iter()
             .find(|b| &b.parent == parent)?;
         let record = self.reference.prototypes[b.prototype].followers.as_ref()?;
         Some(b.poses.rows(record))
+    }
+}
+
+impl Bound for FollowerBinding {
+    fn parent(&self) -> &GeneratedId {
+        &self.parent
+    }
+    fn item(&self) -> Option<ItemId> {
+        None
+    }
+    fn heap_bytes(&self) -> usize {
+        let p = &self.poses;
+        crate::world::contents::identity_heap(&self.parent)
+            + p.parents.capacity() * std::mem::size_of::<Option<usize>>()
+            + p.local.capacity() * std::mem::size_of::<Transform>()
+            + p.frames.capacity() * std::mem::size_of::<NodeFrame>()
+            + p.refresh.capacity() * std::mem::size_of::<usize>()
+            + p.writes.capacity() * std::mem::size_of::<(usize, std::ops::Range<usize>)>()
+            + p.spring_lengths.capacity() * std::mem::size_of::<f32>()
+            + p.wheel_positions.capacity() * std::mem::size_of::<Vector>()
+    }
+}
+
+pub(super) struct FollowerKind;
+impl ContentKind for FollowerKind {
+    type Binding = FollowerBinding;
+    /// The world prototype index.
+    type Script = usize;
+    const BY_ITEM: bool = false;
+    fn kind(kinds: &mut ContentKinds) -> &mut KindBindings<FollowerBinding> {
+        &mut kinds.followers
+    }
+    fn script(
+        stream: &mut WorldStream,
+        _: &BindContext,
+        slot: usize,
+    ) -> Result<Option<usize>, ReferenceError> {
+        let prototype = &stream.contents.active()[slot].content.placement.prototype;
+        let prototypes = &stream.reference.prototypes;
+        Ok((stream.kinds.follower_prototypes.iter())
+            .copied()
+            .find(|&p| &prototypes[p].source == prototype))
+    }
+    fn ready(stream: &WorldStream, items: &ItemStore, slot: usize) -> Ready {
+        ready_unless_removed(stream, items, slot)
+    }
+    fn bind(
+        stream: &mut WorldStream,
+        _: &mut BindContext,
+        slot: usize,
+        _: Option<ItemId>,
+        index: usize,
+    ) -> Result<Option<FollowerBinding>, ReferenceError> {
+        let parent = &stream.contents.active()[slot].content.placement.id;
+        let prototype = &stream.reference.prototypes[index];
+        let record = prototype.followers.as_ref().unwrap();
+        Ok(Some(FollowerBinding {
+            parent: parent.clone(),
+            key: ObjectKey::Generated(parent.clone()),
+            prototype: index,
+            poses: FollowerPoses::new(prototype, record),
+        }))
     }
 }
