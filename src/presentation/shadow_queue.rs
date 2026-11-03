@@ -540,6 +540,7 @@ pub fn install(app: &mut App) {
         .add_systems(
             PostUpdate,
             super::shadow_scene::prepare_scene
+                .after(bevy::asset::AssetEventSystems)
                 .after(VisibilitySystems::CheckVisibility)
                 .before(VisibilitySystems::MarkNewlyHiddenEntitiesInvisible),
         )
