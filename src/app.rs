@@ -295,7 +295,7 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
             presentation::figure_stage::FigureStagePlugin,
         ))
         .init_resource::<presentation::outfit_preview::OutfitPreview>()
-        .init_resource::<presentation::menu_figure::MenuFigure>()
+        .init_resource::<presentation::menu_car::MenuCar>()
         .init_resource::<presentation::world::SourceWorldVisuals>()
         .init_resource::<presentation::world::instances::SourceInstances>()
         .init_resource::<presentation::computer::ComputerScreens>()
@@ -340,7 +340,7 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
                     presentation::remote_players::sync,
                     presentation::ragdoll::sync,
                     presentation::outfit_preview::sync,
-                    presentation::menu_figure::sync,
+                    presentation::menu_car::sync,
                     presentation::sky_traffic::sync,
                     presentation::creatures::sync,
                     presentation::humans::sync,

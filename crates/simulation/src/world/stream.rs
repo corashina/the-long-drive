@@ -140,6 +140,9 @@ fn owned_binding_bytes(
 }
 
 /// Source world publication and session ownership.
+/// Startup group of the loose start house items (source `StartSpawnItems`).
+const START_ITEMS: &str = "StartSpawnItems";
+
 pub struct WorldStream {
     required: super::required::RequiredSelection,
     static_controls: Vec<super::contents::ContentInstance>,
@@ -1638,8 +1641,8 @@ impl WorldStream {
         self.startup_candidates.clear();
     }
 
-    /// The startup entries with a prototype become fixed placements. Of the start cars, only
-    /// the picked one spawns. The exported pose is the raw
+    /// The startup entries with a prototype become fixed placements. StartSpawnItems copies always
+    /// spawn. A start car group entry spawns only for the picked group: its car and spare wheel. The exported pose is the raw
     /// scene pose; the startup root offsets of its Transform chain move it onto the terrain.
     fn startup_placements(
         &self,
@@ -1650,7 +1653,7 @@ impl WorldStream {
             let Some(prototype) = &entry.prototype else {
                 continue;
             };
-            if entry.start_car && entry.group != self.start_car.field() {
+            if entry.group != START_ITEMS && entry.group != self.start_car.field() {
                 continue;
             }
             let offset = startup.chain_offset(&self.reference, &entry.source)?;
@@ -2259,14 +2262,13 @@ impl WorldStream {
         if self.change_revision != self.changes.revision() || self.change_bounds != Some(bounds) {
             self.replay_indices.clear();
             for bounds in bounds {
+                // Selection only lists records. Each replay root waits for its own room
+                // below, so only a reservation that can never fit fails here. Staging
+                // room is transient: the spray bottle changes its count every frame.
                 let (count, bytes) = self.changes.query_reservation(bounds);
                 if count > self.limits.objects
-                    || bytes.saturating_mul(4) > self.available_staging_bytes()
-                    || self
-                        .metrics()
-                        .active_cpu_bytes
-                        .saturating_add(bytes.saturating_mul(4))
-                        > self.limits.active_cpu
+                    || bytes.saturating_mul(4) > self.ledger.staging_limit()
+                    || bytes.saturating_mul(4) > self.limits.active_cpu
                 {
                     self.failure =
                         Some("Changed destination selection exceeds staging admission".into());
@@ -2322,12 +2324,14 @@ impl WorldStream {
             }
             let descriptor_bytes = super::contents::placement_heap(origin)
                 + usize::from(self.replay_roots.capacity() == 0) * std::mem::size_of::<Placement>();
-            if descriptor_bytes > self.available_staging_bytes()
-                || self
-                    .metrics()
-                    .active_cpu_bytes
-                    .saturating_add(descriptor_bytes)
-                    > self.limits.active_cpu
+            if !self.ledger.wait_for_room(
+                descriptor_bytes <= self.available_staging_bytes(),
+                Reclaim::STAGING,
+            ) || self
+                .metrics()
+                .active_cpu_bytes
+                .saturating_add(descriptor_bytes)
+                > self.limits.active_cpu
             {
                 return;
             }
