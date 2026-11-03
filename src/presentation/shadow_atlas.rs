@@ -317,9 +317,9 @@ fn draw_casters<'w>(
         .lock()
         .unwrap()
         .draw(world.resource(), target, pass, |pass| {
-            phase.render_filtered(pass, world, entity, |e| draws.contains(e))
+            phase.render_filtered(pass, world, entity, |e| draws.contains(e), Some)
         })?
-        .and_then(|_| phase.render_filtered(pass, world, entity, |e| !draws.contains(e)))
+        .and_then(|_| phase.render_filtered(pass, world, entity, |e| !draws.contains(e), Some))
         .map_err(|error| format!("{error:?}"))
 }
 pub(crate) fn render_atlas(

@@ -141,6 +141,8 @@ fn cull_layout() -> BindGroupLayoutDescriptor {
 struct BatchPipelines {
     base: Option<CachedRenderPipelineId>,
     partner: Option<CachedRenderPipelineId>,
+    /// Depth prepass and Equal pipelines.
+    prepass: Option<[CachedRenderPipelineId; 2]>,
     caster: Option<CachedRenderPipelineId>,
 }
 struct Specialization {
@@ -164,8 +166,9 @@ struct ViewState {
     mask_slots: Vec<u32>,
     /// Draw attempts and issued draws in this frame.
     draws: [AtomicU32; 2],
-    /// Draws of the camera, then of each caster slot. Batches change rarely, so the same bundle runs each frame.
-    bundles: [Mutex<DrawBundle>; 1 + super::lamp_shadows::TILES],
+    /// Draws of the camera, the camera depth prepass, then each caster slot.
+    /// Batches change rarely, so the same bundle runs each frame.
+    bundles: [Mutex<DrawBundle>; 2 + super::lamp_shadows::TILES],
 }
 /// Batch draw data from the mesh allocator.
 #[derive(Clone, Copy, PartialEq)]
@@ -670,6 +673,7 @@ impl PropDraws {
             view.pipelines[batch] = BatchPipelines {
                 base: Some(base),
                 partner: surface.partner(base),
+                prepass: surface.prepass(base),
                 caster: casters.pipeline(base),
             };
         }
@@ -988,7 +992,9 @@ pub(crate) fn draw_camera<'w>(
     entity: Entity,
     index: usize,
     samples: u32,
+    draw: super::surface_graph::OpaqueDraw,
 ) -> (u32, u32) {
+    use super::surface_graph::OpaqueDraw;
     let draws = world.resource::<PropDraws>();
     let Some(buffers) = &draws.buffers else {
         return (0, 0);
@@ -1001,11 +1007,12 @@ pub(crate) fn draw_camera<'w>(
     let offset = world.get::<ViewUniformOffset>(entity);
     let lighting = world.get::<super::source_lighting::SourceViewLighting>(entity);
     let target = BundleTarget {
-        color: Some(HDR_FORMAT),
+        color: (draw != OpaqueDraw::Depth).then_some(HDR_FORMAT),
         depth: DEPTH_FORMAT,
         samples,
     };
-    let counts = state.bundles[0].lock().unwrap().draw(
+    let bundle = usize::from(draw == OpaqueDraw::Depth);
+    let counts = state.bundles[bundle].lock().unwrap().draw(
         world.resource::<RenderDevice>(),
         target,
         pass,
@@ -1017,7 +1024,15 @@ pub(crate) fn draw_camera<'w>(
                 }
                 let pipelines = state.pipelines.get(batch).copied().unwrap_or_default();
                 let template = draws.templates.get(batch).copied().flatten();
-                let ids = std::iter::once(pipelines.base).chain(pipelines.partner.map(Some));
+                let first = match (draw, pipelines.prepass) {
+                    (OpaqueDraw::Single, _) | (OpaqueDraw::Equal, None) => pipelines.base,
+                    (OpaqueDraw::Equal, Some([_, equal])) => Some(equal),
+                    (OpaqueDraw::Depth, Some([depth, _])) => Some(depth),
+                    // The opaque pass draws this batch with its own depth test.
+                    (OpaqueDraw::Depth, None) => continue,
+                };
+                let partner = (draw != OpaqueDraw::Depth).then_some(pipelines.partner);
+                let ids = std::iter::once(first).chain(partner.flatten().map(Some));
                 for id in ids {
                     counts.0 += 1;
                     let pipeline = id.and_then(|id| cache.get_render_pipeline(id));
@@ -1065,6 +1080,13 @@ pub(crate) fn draw_camera<'w>(
             counts
         },
     );
+    if draw == OpaqueDraw::Depth {
+        // F3 counts the shaded draws only.
+        return counts.unwrap_or_else(|error| {
+            world.resource::<RendererStateHandle>().fail(error);
+            (0, 0)
+        });
+    }
     bundle_counts(world, state, counts)
 }
 /// Caster draws of each batch with rows in this caster mask bit, after the caster phase.
@@ -1094,7 +1116,7 @@ pub(crate) fn draw_cascade<'w>(
         depth: SHADOW_FORMAT,
         samples: 1,
     };
-    let counts = state.bundles[1 + tile].lock().unwrap().draw(
+    let counts = state.bundles[2 + tile].lock().unwrap().draw(
         world.resource::<RenderDevice>(),
         target,
         pass,

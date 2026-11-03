@@ -225,6 +225,7 @@ impl CasterPasses {
             let world_shader = flag(&fragment.shader_defs, "SOURCE_WORLD") == Some(true);
             if flag(&fragment.shader_defs, "SOURCE_SURFACE") != Some(true) && !world_shader
                 || flag(&fragment.shader_defs, "SOURCE_FORWARD_ADD") == Some(true)
+                || flag(&fragment.shader_defs, super::surface_pass::PREPASS) == Some(true)
             {
                 continue;
             }

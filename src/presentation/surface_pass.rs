@@ -1,4 +1,5 @@
 //! Cached source ForwardBase and ForwardAdd pipelines. Transparent dispatch uses source pass order.
+//! An opaque base also gets a depth prepass pipeline and an Equal pipeline for the world view.
 use super::readiness::RendererStateHandle;
 use bevy::ecs::{
     query::ROQueryItem,
@@ -29,7 +30,8 @@ pub fn last_skip(cache: &PipelineCache) -> String {
         1 => "no pass partner",
         2 => "base pipeline",
         3 => "additive pipeline",
-        _ => "additive partner",
+        4 => "additive partner",
+        _ => "prepass pipeline",
     };
     let id = (value & 0xffff_ffff) as usize;
     let state = match cache.get_render_pipeline_state(CachedRenderPipelineId::new(id)) {
@@ -41,10 +43,25 @@ pub fn last_skip(cache: &PipelineCache) -> String {
     format!("{reason} {id} {state}")
 }
 
+/// The companion pipelines of one base.
+#[derive(Clone, Copy, Default)]
+struct Companions {
+    /// ForwardAdd.
+    add: Option<CachedRenderPipelineId>,
+    /// Depth prepass, then the opaque draw with Equal depth and no depth write. World view only.
+    prepass: Option<[CachedRenderPipelineId; 2]>,
+}
+impl Companions {
+    fn ids(self) -> impl Iterator<Item = CachedRenderPipelineId> {
+        self.add
+            .into_iter()
+            .chain(self.prepass.into_iter().flatten())
+    }
+}
 #[derive(Resource, Default)]
 pub struct SurfacePasses {
     inspected: usize,
-    partners: HashMap<CachedRenderPipelineId, Option<CachedRenderPipelineId>>,
+    partners: HashMap<CachedRenderPipelineId, Companions>,
 }
 impl SurfacePasses {
     pub fn revisit(&mut self, id: CachedRenderPipelineId) {
@@ -55,33 +72,42 @@ impl SurfacePasses {
         base: CachedRenderPipelineId,
         cache: &PipelineCache,
     ) -> Option<Result<bool, String>> {
-        self.partners.get(&base).map(|partner| {
-            let Some(id) = partner else {
-                return Ok(true);
-            };
-            match cache.get_render_pipeline_state(*id) {
-                CachedPipelineState::Ok(_) => Ok(true),
-                CachedPipelineState::Err(
-                    ShaderCacheError::ShaderNotLoaded(_)
-                    | ShaderCacheError::ShaderImportNotYetAvailable,
-                ) => Ok(false),
-                CachedPipelineState::Err(error) => {
-                    Err(format!("Source additive pipeline: {error}"))
+        self.partners.get(&base).map(|companions| {
+            let mut ready = true;
+            for id in companions.ids() {
+                match cache.get_render_pipeline_state(id) {
+                    CachedPipelineState::Ok(_) => {}
+                    CachedPipelineState::Err(
+                        ShaderCacheError::ShaderNotLoaded(_)
+                        | ShaderCacheError::ShaderImportNotYetAvailable,
+                    ) => ready = false,
+                    CachedPipelineState::Err(error) => {
+                        return Err(format!("Source surface companion pipeline: {error}"));
+                    }
+                    _ => ready = false,
                 }
-                _ => Ok(false),
             }
+            Ok(ready)
         })
     }
     /// The additive pipeline of an inspected base.
     pub fn partner(&self, base: CachedRenderPipelineId) -> Option<CachedRenderPipelineId> {
-        self.partners.get(&base).copied().flatten()
+        self.partners
+            .get(&base)
+            .and_then(|companions| companions.add)
+    }
+    /// The depth prepass and Equal pipelines of an inspected opaque base.
+    pub fn prepass(&self, base: CachedRenderPipelineId) -> Option<[CachedRenderPipelineId; 2]> {
+        self.partners
+            .get(&base)
+            .and_then(|companions| companions.prepass)
     }
     pub fn counts(&self) -> (usize, usize) {
         (
             self.partners.len(),
             self.partners
                 .values()
-                .filter(|value| value.is_some())
+                .filter(|value| value.add.is_some())
                 .count(),
         )
     }
@@ -97,9 +123,10 @@ impl SurfacePasses {
                 .partners
                 .iter()
                 .filter(|(base, _)| !owners.base_isolated(**base))
-                .all(|(base, add)| {
-                    cache.get_render_pipeline(*base).is_some()
-                        && add.is_none_or(|id| cache.get_render_pipeline(id).is_some())
+                .all(|(base, companions)| {
+                    std::iter::once(*base)
+                        .chain(companions.ids())
+                        .all(|id| cache.get_render_pipeline(id).is_some())
                 })
     }
 }
@@ -143,69 +170,47 @@ pub(crate) fn prepare_surface_passes(
         };
         if !flag(&fragment.shader_defs, "SOURCE_SURFACE")
             || flag(&fragment.shader_defs, "SOURCE_FORWARD_ADD")
+            || flag(&fragment.shader_defs, PREPASS)
         {
             continue;
         }
         let base = CachedRenderPipelineId::new(index);
-        // Installed Unlit/Color and stained glass have no ForwardAdd pass. Single-pass surfaces include it.
-        let partner = if flag(&fragment.shader_defs, "SOURCE_STANDARD")
-            && !flag(&fragment.shader_defs, "SOURCE_FORWARD_ONE")
-        {
-            match owners.queue_companion(&cache, base, || {
-                let mut add = descriptor.clone();
-                add.label = Some("source_surface_add".into());
-                add.vertex.shader_defs.extend([
-                    ShaderDefVal::Bool("SOURCE_FORWARD_ADD".into(), true),
-                    ShaderDefVal::Bool("SOURCE_LAMPS".into(), true),
-                ]);
-                let fragment = add.fragment.as_mut().unwrap();
-                fragment.shader_defs.retain(
-                |value| !matches!(value,ShaderDefVal::Bool(name,_) if name == "SOURCE_REPLACEMENT"),
-            );
-                fragment.shader_defs.extend([
-                    ShaderDefVal::Bool("SOURCE_FORWARD_ADD".into(), true),
-                    ShaderDefVal::Bool("SOURCE_LAMPS".into(), true),
-                ]);
-                for target in fragment.targets.iter_mut().flatten() {
-                    let source = target
-                        .blend
-                        .map_or(BlendFactor::One, |blend| blend.color.src_factor);
-                    let blend = BlendComponent {
-                        src_factor: source,
-                        dst_factor: BlendFactor::One,
-                        operation: BlendOperation::Add,
-                    };
-                    target.blend = Some(BlendState {
-                        color: blend,
-                        alpha: blend,
-                    });
-                    target.write_mask = ColorWrites::ALL;
-                }
-                add.primitive.cull_mode = Some(Face::Back);
-                let depth = add.depth_stencil.as_mut().expect("source surface depth");
-                depth.depth_write_enabled = Some(false);
-                depth.depth_compare = Some(CompareFunction::GreaterEqual);
-                Some(*add)
-            }) {
-                Ok(id) => id,
-                Err(error) => {
+        let queue = |build: &dyn Fn() -> RenderPipelineDescriptor| {
+            owners
+                .queue_companion(&cache, base, || Some(build()))
+                .map_err(|error| {
                     if !owners.fail(base, error.0.clone()) {
                         status.fail(error.0);
                     }
-                    continue;
-                }
-            }
-        } else {
-            None
+                })
         };
-        passes.partners.insert(base, partner);
+        let mut companions = Companions::default();
+        // Installed Unlit/Color and stained glass have no ForwardAdd pass. Single-pass surfaces include it.
+        if flag(&fragment.shader_defs, "SOURCE_STANDARD")
+            && !flag(&fragment.shader_defs, "SOURCE_FORWARD_ONE")
+        {
+            let Ok(add) = queue(&|| additive(descriptor)) else {
+                continue;
+            };
+            companions.add = add;
+        }
+        if prepass_base(descriptor, &fragment.shader_defs) {
+            let Ok(depth) = queue(&|| depth_prepass(descriptor)) else {
+                continue;
+            };
+            let Ok(equal) = queue(&|| equal_depth(descriptor)) else {
+                continue;
+            };
+            companions.prepass = depth.zip(equal).map(|(depth, equal)| [depth, equal]);
+        }
+        passes.partners.insert(base, companions);
     }
-    for (base, add) in passes
+    for (base, companions) in passes
         .partners
         .iter()
         .filter(|(base, _)| !owners.base_isolated(**base))
     {
-        for id in std::iter::once(*base).chain(*add) {
+        for id in std::iter::once(*base).chain(companions.ids()) {
             match cache.get_render_pipeline_state(id) {
                 CachedPipelineState::Err(
                     ShaderCacheError::ShaderNotLoaded(_)
@@ -214,7 +219,7 @@ pub(crate) fn prepare_surface_passes(
                 CachedPipelineState::Err(error) => {
                     status.fail(format!(
                         "Source surface {} pipeline: {error}",
-                        if id == *base { "base" } else { "additive" }
+                        if id == *base { "base" } else { "companion" }
                     ));
                     return;
                 }
@@ -222,6 +227,79 @@ pub(crate) fn prepare_surface_passes(
             }
         }
     }
+}
+fn additive(base: &RenderPipelineDescriptor) -> RenderPipelineDescriptor {
+    let mut add = base.clone();
+    add.label = Some("source_surface_add".into());
+    add.vertex.shader_defs.extend([
+        ShaderDefVal::Bool("SOURCE_FORWARD_ADD".into(), true),
+        ShaderDefVal::Bool("SOURCE_LAMPS".into(), true),
+    ]);
+    let fragment = add.fragment.as_mut().unwrap();
+    fragment.shader_defs.retain(
+        |value| !matches!(value,ShaderDefVal::Bool(name,_) if name == "SOURCE_REPLACEMENT"),
+    );
+    fragment.shader_defs.extend([
+        ShaderDefVal::Bool("SOURCE_FORWARD_ADD".into(), true),
+        ShaderDefVal::Bool("SOURCE_LAMPS".into(), true),
+    ]);
+    for target in fragment.targets.iter_mut().flatten() {
+        let source = target
+            .blend
+            .map_or(BlendFactor::One, |blend| blend.color.src_factor);
+        let blend = BlendComponent {
+            src_factor: source,
+            dst_factor: BlendFactor::One,
+            operation: BlendOperation::Add,
+        };
+        target.blend = Some(BlendState {
+            color: blend,
+            alpha: blend,
+        });
+        target.write_mask = ColorWrites::ALL;
+    }
+    add.primitive.cull_mode = Some(Face::Back);
+    let depth = add.depth_stencil.as_mut().expect("source surface depth");
+    depth.depth_write_enabled = Some(false);
+    depth.depth_compare = Some(CompareFunction::GreaterEqual);
+    add
+}
+/// Marks the prepass companions. Inspections skip them as bases.
+pub(crate) const PREPASS: &str = "SOURCE_PREPASS";
+/// An opaque surface that writes the nearest depth. Its world view draws use the depth prepass.
+fn prepass_base(base: &RenderPipelineDescriptor, defs: &[ShaderDefVal]) -> bool {
+    flag(defs, "SOURCE_REPLACEMENT")
+        && !flag(defs, "SOURCE_TRANSPARENT")
+        && !base.multisample.alpha_to_coverage_enabled
+        && base.depth_stencil.as_ref().is_some_and(|depth| {
+            depth.depth_write_enabled == Some(true)
+                && depth.depth_compare == Some(CompareFunction::GreaterEqual)
+        })
+}
+/// Same vertex stage and defs. The `depth` fragment runs only the discards of the surface fragment.
+fn depth_prepass(base: &RenderPipelineDescriptor) -> RenderPipelineDescriptor {
+    let mut depth = base.clone();
+    depth.label = Some("source_surface_depth".into());
+    let fragment = depth.fragment.as_mut().unwrap();
+    fragment.entry_point = Some("depth".into());
+    fragment.targets.clear();
+    fragment
+        .shader_defs
+        .push(ShaderDefVal::Bool(PREPASS.into(), true));
+    depth
+}
+/// The opaque draw after the prepass: each pixel shades once.
+fn equal_depth(base: &RenderPipelineDescriptor) -> RenderPipelineDescriptor {
+    let mut equal = base.clone();
+    equal.label = Some("source_surface_equal".into());
+    let fragment = equal.fragment.as_mut().unwrap();
+    fragment
+        .shader_defs
+        .push(ShaderDefVal::Bool(PREPASS.into(), true));
+    let depth = equal.depth_stencil.as_mut().expect("source surface depth");
+    depth.depth_write_enabled = Some(false);
+    depth.depth_compare = Some(CompareFunction::Equal);
+    equal
 }
 /// Prevent a partial pair while its additive pipeline is still being prepared.
 pub struct SourcePairReady;
@@ -237,15 +315,71 @@ impl<P: CachedRenderPipelinePhaseItem> RenderCommand<P> for SourcePairReady {
         _: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let base = item.cached_pipeline();
-        let Some(add) = passes.partners.get(&base) else {
+        let Some(companions) = passes.partners.get(&base) else {
             return skip(1, base);
         };
         if cache.get_render_pipeline(base).is_none() {
             return skip(2, base);
         }
-        if let Some(id) = add.filter(|id| cache.get_render_pipeline(*id).is_none()) {
+        if let Some(id) = companions
+            .add
+            .filter(|id| cache.get_render_pipeline(*id).is_none())
+        {
             return skip(3, id);
         }
+        if let Some(id) = companions
+            .prepass
+            .into_iter()
+            .flatten()
+            .find(|id| cache.get_render_pipeline(*id).is_none())
+        {
+            return skip(5, id);
+        }
+        RenderCommandResult::Success
+    }
+}
+/// The depth prepass pipeline. A base without one draws nothing in the prepass.
+pub struct SetSourceDepthPipeline;
+impl<P: CachedRenderPipelinePhaseItem> RenderCommand<P> for SetSourceDepthPipeline {
+    type Param = (SRes<SurfacePasses>, SRes<PipelineCache>);
+    type ViewQuery = ();
+    type ItemQuery = ();
+    fn render<'w>(
+        item: &P,
+        _: ROQueryItem<Self::ViewQuery>,
+        _: Option<()>,
+        (passes, cache): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let Some(pipeline) = passes
+            .prepass(item.cached_pipeline())
+            .and_then(|[depth, _]| cache.into_inner().get_render_pipeline(depth))
+        else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_render_pipeline(pipeline);
+        RenderCommandResult::Success
+    }
+}
+/// The Equal pipeline after the prepass, else the base pipeline.
+pub struct SetSourceEqualPipeline;
+impl<P: CachedRenderPipelinePhaseItem> RenderCommand<P> for SetSourceEqualPipeline {
+    type Param = (SRes<SurfacePasses>, SRes<PipelineCache>);
+    type ViewQuery = ();
+    type ItemQuery = ();
+    fn render<'w>(
+        item: &P,
+        _: ROQueryItem<Self::ViewQuery>,
+        _: Option<()>,
+        (passes, cache): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let base = item.cached_pipeline();
+        let id = passes.prepass(base).map_or(base, |[_, equal]| equal);
+        let Some(pipeline) = cache.into_inner().get_render_pipeline(id) else {
+            return skip(5, id);
+        };
+        pass.set_render_pipeline(pipeline);
         RenderCommandResult::Success
     }
 }
@@ -261,11 +395,11 @@ impl<P: CachedRenderPipelinePhaseItem> RenderCommand<P> for SetSourceAdditivePip
         (passes, cache): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let Some(Some(id)) = passes.partners.get(&item.cached_pipeline()) else {
+        let Some(id) = passes.partner(item.cached_pipeline()) else {
             return skip(4, item.cached_pipeline());
         };
-        let Some(pipeline) = cache.into_inner().get_render_pipeline(*id) else {
-            return skip(3, *id);
+        let Some(pipeline) = cache.into_inner().get_render_pipeline(id) else {
+            return skip(3, id);
         };
         pass.set_render_pipeline(pipeline);
         RenderCommandResult::Success

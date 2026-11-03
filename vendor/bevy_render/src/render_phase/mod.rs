@@ -1062,17 +1062,19 @@ where
         world: &'w World,
         view: Entity,
     ) -> Result<(), DrawError> {
-        self.render_filtered(render_pass, world, view, |_| true)
+        self.render_filtered(render_pass, world, view, |_| true, Some)
     }
 
     /// Encodes the GPU commands of the items whose entity passes `filter`.
     /// A batch passes when its representative entity passes.
+    /// `draw` maps the draw function of each item. `None` skips the item.
     pub fn render_filtered<'w>(
         &self,
         render_pass: &mut TrackedRenderPass<'w>,
         world: &'w World,
         view: Entity,
         filter: impl Fn(MainEntity) -> bool,
+        draw: impl Fn(DrawFunctionId) -> Option<DrawFunctionId>,
     ) -> Result<(), DrawError> {
         {
             let draw_functions = world.resource::<DrawFunctions<BPI>>();
@@ -1082,9 +1084,9 @@ where
             // locks.
         }
 
-        self.render_batchable_meshes(render_pass, world, view, &filter)?;
-        self.render_unbatchable_meshes(render_pass, world, view, &filter)?;
-        self.render_non_meshes(render_pass, world, view, &filter)?;
+        self.render_batchable_meshes(render_pass, world, view, &filter, &draw)?;
+        self.render_unbatchable_meshes(render_pass, world, view, &filter, &draw)?;
+        self.render_non_meshes(render_pass, world, view, &filter, &draw)?;
 
         Ok(())
     }
@@ -1096,6 +1098,7 @@ where
         world: &'w World,
         view: Entity,
         filter: &impl Fn(MainEntity) -> bool,
+        draw: &impl Fn(DrawFunctionId) -> Option<DrawFunctionId>,
     ) -> Result<(), DrawError> {
         let draw_functions = world.resource::<DrawFunctions<BPI>>();
         let mut draw_functions = draw_functions.write();
@@ -1129,7 +1132,7 @@ where
 
                         // Fetch the draw function.
                         let Some(draw_function) =
-                            draw_functions.get_mut(binned_phase_item.draw_function())
+                            draw(binned_phase_item.draw_function()).and_then(|id| draw_functions.get_mut(id))
                         else {
                             continue;
                         };
@@ -1156,7 +1159,7 @@ where
 
                     // Fetch the draw function.
                     let Some(draw_function) =
-                        draw_functions.get_mut(binned_phase_item.draw_function())
+                        draw(binned_phase_item.draw_function()).and_then(|id| draw_functions.get_mut(id))
                     else {
                         continue;
                     };
@@ -1208,7 +1211,7 @@ where
 
                     // Fetch the draw function.
                     let Some(draw_function) =
-                        draw_functions.get_mut(binned_phase_item.draw_function())
+                        draw(binned_phase_item.draw_function()).and_then(|id| draw_functions.get_mut(id))
                     else {
                         continue;
                     };
@@ -1228,6 +1231,7 @@ where
         world: &'w World,
         view: Entity,
         filter: &impl Fn(MainEntity) -> bool,
+        draw: &impl Fn(DrawFunctionId) -> Option<DrawFunctionId>,
     ) -> Result<(), DrawError> {
         let draw_functions = world.resource::<DrawFunctions<BPI>>();
         let mut draw_functions = draw_functions.write();
@@ -1278,7 +1282,7 @@ where
                 );
 
                 // Fetch the draw function.
-                let Some(draw_function) = draw_functions.get_mut(binned_phase_item.draw_function())
+                let Some(draw_function) = draw(binned_phase_item.draw_function()).and_then(|id| draw_functions.get_mut(id))
                 else {
                     continue;
                 };
@@ -1298,6 +1302,7 @@ where
         world: &'w World,
         view: Entity,
         filter: &impl Fn(MainEntity) -> bool,
+        draw: &impl Fn(DrawFunctionId) -> Option<DrawFunctionId>,
     ) -> Result<(), DrawError> {
         let draw_functions = world.resource::<DrawFunctions<BPI>>();
         let mut draw_functions = draw_functions.write();
@@ -1317,7 +1322,7 @@ where
                     PhaseItemExtraIndex::None,
                 );
 
-                let Some(draw_function) = draw_functions.get_mut(binned_phase_item.draw_function())
+                let Some(draw_function) = draw(binned_phase_item.draw_function()).and_then(|id| draw_functions.get_mut(id))
                 else {
                     continue;
                 };

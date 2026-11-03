@@ -7,7 +7,10 @@ use super::{
 use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Transparent3d};
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::render::{
-    render_phase::{ViewBinnedRenderPhases, ViewSortedRenderPhases},
+    render_phase::{
+        BinnedRenderPhase, DrawFunctionId, DrawFunctions, PhaseItem, TrackedRenderPass,
+        ViewBinnedRenderPhases, ViewSortedRenderPhases,
+    },
     render_resource::*,
     renderer::{RenderContext, ViewQuery},
     view::ExtractedView,
@@ -143,6 +146,42 @@ fn opaque(
         return;
     };
     let targets = &targets.0;
+    let depth = targets.multisample_depth.as_ref().unwrap_or(&targets.depth);
+    let depth_attachment = |load| RenderPassDepthStencilAttachment {
+        view: &depth.attachment,
+        depth_ops: Some(Operations {
+            load,
+            store: StoreOp::Store,
+        }),
+        stencil_ops: None,
+    };
+    // The world view writes opaque depth first. Then each opaque pixel shades once.
+    // Probe faces and mirrors keep one pass.
+    let world_view = source.index < super::surface_views::WORLD_VIEWS;
+    if world_view {
+        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+            label: Some("source_opaque_depth"),
+            color_attachments: &[],
+            depth_stencil_attachment: Some(depth_attachment(LoadOp::Clear(0.))),
+            ..default()
+        });
+        let bundle = &world.resource::<super::static_draws::StaticBundles>().depth[source.index];
+        if !draw_opaque(
+            world,
+            &mut pass,
+            entity,
+            source.index,
+            opaque,
+            masked,
+            bundle,
+            None,
+            targets.colors.samples,
+            OpaqueDraw::Depth,
+            &status,
+        ) {
+            return;
+        }
+    }
     let colors = [Some(RenderPassColorAttachment {
         view: targets.colors.attachment(),
         depth_slice: None,
@@ -152,60 +191,129 @@ fn opaque(
             store: StoreOp::Store,
         },
     })];
-    let depth = targets.multisample_depth.as_ref().unwrap_or(&targets.depth);
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("source_opaque"),
         color_attachments: &colors,
-        depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-            view: &depth.attachment,
-            depth_ops: Some(Operations {
-                load: LoadOp::Clear(0.),
-                store: StoreOp::Store,
-            }),
-            stencil_ops: None,
-        }),
+        depth_stencil_attachment: Some(depth_attachment(if world_view {
+            LoadOp::Load
+        } else {
+            LoadOp::Clear(0.)
+        })),
         ..default()
     });
-    // Static draws run as one bundle, the others directly.
+    let bundle = &world.resource::<super::static_draws::StaticBundles>().views[source.index];
+    draw_opaque(
+        world,
+        &mut pass,
+        entity,
+        source.index,
+        opaque,
+        masked,
+        bundle,
+        Some(super::render_targets::HDR_FORMAT),
+        targets.colors.samples,
+        if world_view {
+            OpaqueDraw::Equal
+        } else {
+            OpaqueDraw::Single
+        },
+        &status,
+    );
+}
+
+/// How a view draws its opaque phases.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum OpaqueDraw {
+    /// One pass with the base pipelines.
+    Single,
+    /// The depth prepass. Only bases with a prepass pipeline draw.
+    Depth,
+    /// The shaded pass after the prepass. Bases with a prepass pipeline compare Equal.
+    Equal,
+}
+/// The draw function of a phase item in this draw. `None` skips the item.
+struct DrawMap {
+    material: DrawFunctionId,
+    target: Option<DrawFunctionId>,
+}
+impl DrawMap {
+    fn new<P: PhaseItem>(world: &World, draw: OpaqueDraw) -> Self {
+        let functions = world.resource::<DrawFunctions<P>>().read();
+        let material = functions.id::<super::source_lighting::DrawSourceMaterial>();
+        let target = match draw {
+            OpaqueDraw::Single => Some(material),
+            OpaqueDraw::Depth => Some(functions.id::<super::source_lighting::DrawSourceDepth>()),
+            OpaqueDraw::Equal => Some(functions.id::<super::source_lighting::DrawSourceEqual>()),
+        };
+        Self { material, target }
+    }
+    fn map(&self, id: DrawFunctionId, draw: OpaqueDraw) -> Option<DrawFunctionId> {
+        if id == self.material {
+            self.target
+        } else {
+            // Terrain, grass and impostors keep one pass with their own depth test.
+            (draw != OpaqueDraw::Depth).then_some(id)
+        }
+    }
+}
+/// Draw the opaque phases and GPU props of one view. Static draws run as one bundle.
+/// Returns false after a failure.
+#[allow(clippy::too_many_arguments)]
+fn draw_opaque<'w>(
+    world: &'w World,
+    pass: &mut TrackedRenderPass<'w>,
+    entity: Entity,
+    index: usize,
+    opaque: &BinnedRenderPhase<Opaque3d>,
+    masked: &BinnedRenderPhase<AlphaMask3d>,
+    bundle: &std::sync::Mutex<super::render_bundles::DrawBundle>,
+    color: Option<TextureFormat>,
+    samples: u32,
+    draw: OpaqueDraw,
+    status: &RendererStateHandle,
+) -> bool {
+    let opaque_map = DrawMap::new::<Opaque3d>(world, draw);
+    let masked_map = DrawMap::new::<AlphaMask3d>(world, draw);
+    let opaque_draw = |id| opaque_map.map(id, draw);
+    let masked_draw = |id| masked_map.map(id, draw);
     let draws = super::static_draws::StaticDraws::new(world);
     let target = super::render_bundles::BundleTarget {
-        color: Some(super::render_targets::HDR_FORMAT),
+        color,
         depth: super::render_targets::DEPTH_FORMAT,
-        samples: targets.colors.samples,
+        samples,
     };
-    let result = world.resource::<super::static_draws::StaticBundles>().0[source.index]
+    let result = bundle
         .lock()
         .unwrap()
-        .draw(world.resource(), target, &mut pass, |pass| {
+        .draw(world.resource(), target, pass, |pass| {
             opaque
-                .render_filtered(pass, world, entity, |e| draws.contains(e))
-                .and_then(|_| masked.render_filtered(pass, world, entity, |e| draws.contains(e)))
+                .render_filtered(pass, world, entity, |e| draws.contains(e), opaque_draw)
+                .and_then(|_| {
+                    masked.render_filtered(pass, world, entity, |e| draws.contains(e), masked_draw)
+                })
         });
     let result = match result {
         Ok(result) => result,
         Err(error) => {
             status.fail(format!("Source static opaque bundle: {error}"));
-            return;
+            return false;
         }
     }
-    .and_then(|_| opaque.render_filtered(&mut pass, world, entity, |e| !draws.contains(e)))
-    .and_then(|_| masked.render_filtered(&mut pass, world, entity, |e| !draws.contains(e)));
+    .and_then(|_| opaque.render_filtered(pass, world, entity, |e| !draws.contains(e), opaque_draw))
+    .and_then(|_| masked.render_filtered(pass, world, entity, |e| !draws.contains(e), masked_draw));
     if let Err(error) = result {
         status.fail(format!("Source opaque draw: {error:?}"));
-        return;
+        return false;
     }
-    let (attempted, issued) = super::prop_draws::draw_camera(
-        world,
-        &mut pass,
-        entity,
-        source.index,
-        targets.colors.samples,
-    );
+    let (attempted, issued) =
+        super::prop_draws::draw_camera(world, pass, entity, index, samples, draw);
     if attempted != issued {
         status.fail(format!(
             "Source GPU prop draw skipped in view {entity:?}: {issued}/{attempted}"
         ));
+        return false;
     }
+    true
 }
 fn transparent(
     world: &World,
