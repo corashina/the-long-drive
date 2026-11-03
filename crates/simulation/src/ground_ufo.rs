@@ -1,6 +1,6 @@
 //! Source `fedospawnscript` on the Player and the `fedoscript` UFO that it spawns.
 //! The UFO is a dynamic body without gravity and with frozen rotation. The AI follows the road
-//! above the terrain and chases the player. A seated player flies it. Not saved.
+//! above the terrain and chases the player. A seated player flies it. Saves do not keep it.
 //! Source +Z is port -Z.
 use crate::creatures::stimuli::Stimulus;
 use crate::interaction::InteractionState;
@@ -12,6 +12,7 @@ use crate::reference::{
     CreaturesReference, GroundUfoReference, ItemId, ReferenceError, SkyReference, StimulusSource,
     UfoRole,
 };
+use crate::simulation::dials::{inverse_lerp, lerp};
 use crate::sky_traffic::Plane;
 use crate::vehicle::{PhysicsWorld, VehiclePose, collider_builder};
 use crate::weather::StormRandom;
@@ -55,7 +56,7 @@ pub struct UfoControlTarget {
     pub control: UfoControl,
 }
 
-/// Source `inputscript` values that `PlayerInput` reads. Port steer is positive left.
+/// Source `inputscript` values that `PlayerInput` reads. A positive port steer turns left.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct UfoPilot {
     pub throttle: f32,
@@ -176,7 +177,7 @@ impl Ufo {
         world
             .physics
             .edit_body(self.body, |b| b.set_linvel(velocity, true));
-        // rot.Rotate: the rotor colliders turn with the rotor.
+        // rot.Rotate. The rotor colliders turn with the rotor.
         for c in self.colliders.iter().filter(|c| c.spin) {
             let pose = Pose::from_rotation(spin) * c.base;
             world
@@ -220,7 +221,7 @@ impl Ufo {
         alive
     }
 
-    /// Source `PlayerInput`. The rotation is identity: source forward is port -Z.
+    /// Source `PlayerInput`. The rotation is identity, because source forward is port -Z.
     fn player_input(&mut self, position: [f64; 3], p: UfoPilot) {
         let d = f64::from(INPUT_DISTANCE);
         let mut target = position;
@@ -297,7 +298,7 @@ impl GroundUfos {
 
     /// Source `fedospawnscript.Update` and each `fedoscript.Update`. Run before the physics
     /// step. `seated` is the UFO of the player seat and the pilot input. `spawns` is false on a
-    /// guest: the source spawns only on the server. `road` gives the road point under an
+    /// guest, because the source spawns only on the server. `road` gives the road point under an
     /// absolute position at a height above the base terrain. `now` turns the rotor colliders.
     #[allow(clippy::too_many_arguments)]
     pub fn advance(
@@ -550,17 +551,4 @@ fn night(random: &mut StormRandom, r: &GroundUfoReference) -> i32 {
 
 fn distance(a: [f64; 3], b: [f64; 3]) -> f64 {
     (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f64>().sqrt()
-}
-
-/// Unity `Mathf.InverseLerp`.
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.
-    } else {
-        ((value - a) / (b - a)).clamp(0., 1.)
-    }
-}
-
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
 }

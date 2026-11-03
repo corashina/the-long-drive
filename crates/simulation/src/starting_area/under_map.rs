@@ -1,6 +1,6 @@
-//! Source `visszarako` rescue: bodies that fell through the ground return above it.
-//! Source PhysX terrain pushes bodies up from below. Rapier terrain does not, so every
-//! body is checked, not only the player and the cars.
+//! Source `visszarako` rescue. Bodies that fell through the ground return above it.
+//! Source PhysX terrain pushes bodies up from below. Rapier terrain does not, so the rescue
+//! checks every body, not only the player and the cars.
 use super::recovery::{RecoveryTransport, transport_prepared};
 use super::*;
 use crate::interaction::items::ItemLocation;

@@ -12,7 +12,7 @@ LOCKED, FREE = 0, 2  # ConfigurableJointMotion
 
 
 def check_joint(fields):
-    """tubescript chains are ball joints: linear motion locked, angular motion free, unbreakable."""
+    """tubescript chains are ball joints. Linear motion is locked, angular motion is free, and the joints do not break."""
     if any(fields[f] != LOCKED for f in LINEAR) or any(fields[f] != FREE for f in ANGULAR):
         raise ValueError('Hose joint motion differs')
     if math.isfinite(fields['m_BreakForce']) or math.isfinite(fields['m_BreakTorque']):

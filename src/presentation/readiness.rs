@@ -149,10 +149,10 @@ pub(crate) fn observe_main_readiness(
             return;
         }
     }
-    if let Some(materials) = materials {
-        if let super::materials::RenderingState::Failed(error) = &materials.state {
-            state.fail(error.clone());
-        }
+    if let Some(materials) = materials
+        && let super::materials::RenderingState::Failed(error) = &materials.state
+    {
+        state.fail(error.clone());
     }
 }
 pub(crate) fn install(app: &mut App) {

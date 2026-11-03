@@ -1,6 +1,6 @@
 // Source startup lighting. Binding order matches SourceViewLighting.
 #define_import_path source_view_lighting
-// Installed Hidden/Internal-ScreenSpaceShadows blobs46/60, sampled at the fragment instead of a screen pass.
+// Installed Hidden/Internal-ScreenSpaceShadows blobs 46 and 60, sampled at the fragment instead of a screen pass.
 struct SunShadow {
     world_to_shadow: array<mat4x4<f32>, 4>,
     spheres: array<vec4<f32>, 4>,
@@ -44,39 +44,9 @@ struct LightingUniform {
 @group(1) @binding(5) var shadow_atlas: texture_depth_2d;
 @group(1) @binding(6) var shadow_compare: sampler_comparison;
 @group(1) @binding(7) var lamp_atlas: texture_depth_2d;
+// Lamp mask and probe pair of each entity, by MeshTag. object_lighting.rs has the layout.
+@group(1) @binding(8) var<storage> object_lighting: array<vec4<u32>>;
 
-// Unity BlendProbes with equal importance: the two slots with the largest box overlap.
-// One probe takes full weight. Two share it by overlap volume.
-// Returns x=first weight, z=first slot, w=second slot or -1. x=0 without a probe.
-// Renderer extents retain the recovered native Vector3f::epsilon clamp.
-fn probe_blend(model: mat4x4<f32>, center_usage: vec4<f32>, extents_flags: vec4<f32>) -> vec4<f32> {
-    if center_usage.w == 0.0 { return vec4(0.0, 0.0, 0.0, -1.0); }
-    let center = (model * vec4(center_usage.xyz,1.0)).xyz;
-    let extents = max(abs(model[0].xyz)*extents_flags.x
-        + abs(model[1].xyz)*extents_flags.y + abs(model[2].xyz)*extents_flags.z,
-        vec3(9.999999747378752e-06));
-    var volumes = vec2(0.0);
-    var slots = vec2(-1.0);
-    for (var slot = 0; slot < 4; slot++) {
-        let probe_center = lighting.probe_center[slot];
-        let probe_extents = lighting.probe_extents[slot];
-        if probe_extents.w == 0.0 { continue; }
-        let minimum = max(center-extents, probe_center.xyz-probe_extents.xyz);
-        let maximum = min(center+extents, probe_center.xyz+probe_extents.xyz);
-        let size = max(maximum-minimum, vec3(0.0));
-        let volume = size.x*size.y*size.z;
-        if volume > volumes.x {
-            volumes = vec2(volume, volumes.x);
-            slots = vec2(f32(slot), slots.x);
-        } else if volume > volumes.y {
-            volumes.y = volume;
-            slots.y = f32(slot);
-        }
-    }
-    if slots.x < 0.0 { return vec4(0.0, 0.0, 0.0, -1.0); }
-    let weight = select(volumes.x/(volumes.x+volumes.y), 1.0, slots.y < 0.0);
-    return vec4(weight, 0.0, slots);
-}
 fn diffuse_sh(normal: vec3<f32>) -> vec3<f32> {
     // ShadeSH9 in source world axes. Flat startup SH has only the constant term.
     let n=vec4(normal.x,normal.y,-normal.z,1.0);
@@ -88,7 +58,7 @@ fn diffuse_sh(normal: vec3<f32>) -> vec3<f32> {
 fn indirect_specular(specular: vec3<f32>,one_minus_reflectivity: f32,smoothness: f32,
     normal: vec3<f32>,view: vec3<f32>,occlusion: f32,probes: vec4<f32>) -> vec3<f32> {
     let reflected=reflect(-view,normal);
-    // Native face storage retains source axes; target world coordinates reflect Z.
+    // Native face storage retains source axes. Target world coordinates reflect Z.
     let source_ray=vec3(reflected.x,reflected.y,-reflected.z);
     let perceptual=1.0-smoothness;
     let level=(perceptual*(1.7-0.7*perceptual))*6.0;
@@ -151,7 +121,7 @@ fn filtered_shadow(coord: vec3<f32>) -> f32 {
     }
     return result;
 }
-// Sphere cascades. The installed operation order starts with cascade1, then adds cascade0,2,3.
+// Sphere cascades. The installed operation order starts with cascade 1, then adds cascades 0, 2 and 3.
 fn sun_shadow_visibility(world_position: vec3<f32>) -> f32 {
     if(lighting.sun_shadow.params.w==0.) { return 1.; }
     let world = vec4<f32>(world_position,1.);
@@ -171,13 +141,16 @@ fn sun_shadow_visibility(world_position: vec3<f32>) -> f32 {
 fn direct_attenuation(world_position: vec3<f32>,view_depth: f32,receive_shadows: bool) -> f32 {
     let cookie_uv=(lighting.cookie_from_world*vec4(world_position,1.0)).xy;
     let cookie=textureSample(sun_cookie,sun_cookie_sampler,cookie_uv).a;
-    let shadow=sun_shadow_visibility(world_position);
     let sphere_distance=distance(world_position,lighting.shadow_fade_center.xyz);
     let distance=mix(view_depth,sphere_distance,lighting.shadow_fade_center.w);
     let fade=clamp(distance*lighting.shadow_fade.z+lighting.shadow_fade.w,0.0,1.0);
+    // The result is not used when the surface ignores shadows or the fade is full.
+    // Compare samples are valid in non-uniform control flow.
+    var shadow=1.0;
+    if(receive_shadows && fade<1.0) { shadow=sun_shadow_visibility(world_position); }
     return cookie*select(1.0,mix(shadow,1.0,fade),receive_shadows);
 }
-// The shadow of one lamp. `slot` is the lamp mask.z: 0 has no shadow.
+// The shadow of one lamp. `slot` is the lamp mask.z, and 0 has no shadow.
 // The receiver takes the bias: an offset along its normal and to the lamp, in texels of the face.
 fn lamp_shadow(slot: u32, light_position: vec3<f32>, world_position: vec3<f32>, normal: vec3<f32>,
     view_depth: f32, receive_shadows: bool) -> f32 {

@@ -36,7 +36,7 @@ use world::WorldSync;
 
 /// Source `snTempPlayerSync.syncTime`.
 pub const SYNC_TIME: f32 = 0.15;
-/// Source `snl` default and the port cap.
+/// The source `snl` default. It is also the port cap.
 pub const MAX_PLAYERS: usize = 8;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -103,7 +103,7 @@ impl Net {
         }
     }
     /// Marks `runtime` for the role before each step, also the first after a load. Source
-    /// `isServerOrNoMulti`: a guest spawns no rabbits or weeds. Guest spawn serials start at
+    /// `isServerOrNoMulti`. A guest spawns no rabbits or weeds. Guest spawn serials start at
     /// `slot << 24`, so a host spawn never takes the serial of a guest spawn.
     pub fn prepare(&self, runtime: &mut GarageRuntime) {
         runtime.net_guest = self.role == NetRole::Guest;
@@ -150,7 +150,7 @@ impl Net {
         std::mem::swap(out, &mut self.outbox);
     }
 
-    /// One rendered frame: reads the inbox, shares the cars, sends the local player when due and
+    /// Runs one rendered frame. It reads the inbox, shares the cars, sends the local player when due and
     /// poses the remotes. `alpha`: the render interpolation between the last two steps.
     pub fn fill(
         &mut self,
@@ -285,7 +285,7 @@ impl Net {
                 .extend((0..body.joint_count()).map(|i| PoseRow::new(body.joint_local(i), 0)));
         }
         self.inventory.follow(runtime, &self.figures, real_dt);
-        // Source `UpdItemParent`: a figure ignores the items its player holds.
+        // Source `UpdItemParent`. A figure ignores the items its player holds.
         for remote in &mut self.remotes {
             if let Some(c) = &mut remote.collision {
                 self.inventory
@@ -347,6 +347,7 @@ impl Net {
                 message::PART_SLOT => self.mounts.receive(runtime, index, packet),
                 message::CAR_FLOATS
                 | message::CAR_HANDBRAKE
+                | message::CAR_LAMPS
                 | message::CAR_GEAR
                 | message::CAR_IGNITION => {
                     self.cars.receive(reference, runtime, self.clock, packet)

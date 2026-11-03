@@ -1,6 +1,6 @@
 //! Flat prop entities. An instance spawns entities only for dynamic glTF nodes.
 //! Renderers of static nodes attach to the nearest dynamic ancestor with a baked matrix.
-use bevy::math::{DMat4, Mat4, Vec3};
+use bevy::math::{DMat4, Mat3, Mat4, Quat, Vec3};
 use bevy::transform::components::Transform;
 
 /// Per prototype glTF node plan. Built once per loaded prototype.
@@ -102,8 +102,40 @@ fn uniform(local: Mat4) -> bool {
 pub fn anchor_local(parent: Option<(DMat4, DMat4)>, local: Transform) -> Transform {
     match parent {
         Some((anchor, parent)) => {
-            Transform::from_matrix((anchor.inverse() * parent).as_mat4() * local.to_matrix())
+            matrix_transform((anchor.inverse() * parent).as_mat4() * local.to_matrix())
         }
         None => local,
+    }
+}
+/// `Transform::from_matrix` that stays finite when an axis has zero scale.
+/// Source nodes can have zero scale, such as a hidden UI Canvas. Its rotation then comes from the other axes.
+pub fn matrix_transform(m: Mat4) -> Transform {
+    let transform = Transform::from_matrix(m);
+    if transform.rotation.is_finite() {
+        return transform;
+    }
+    let axes = [m.x_axis, m.y_axis, m.z_axis].map(|a| a.truncate());
+    let scale = Vec3::from_array(axes.map(Vec3::length));
+    let unit = axes.map(|a| a.try_normalize());
+    let basis = match unit {
+        [Some(x), Some(y), _] => Some((x, y)),
+        [Some(x), None, Some(z)] => Some((x, z.cross(x))),
+        [None, Some(y), Some(z)] => Some((y.cross(z), y)),
+        [Some(x), None, None] => Some((x, x.any_orthonormal_vector())),
+        [None, Some(y), None] => Some((y.any_orthonormal_vector().cross(y), y)),
+        [None, None, Some(z)] => {
+            let x = z.any_orthonormal_vector();
+            Some((x, z.cross(x)))
+        }
+        [None, None, None] => None,
+    };
+    let rotation = basis.map_or(Quat::IDENTITY, |(x, y)| {
+        let y = (y - x * x.dot(y)).normalize();
+        Quat::from_mat3(&Mat3::from_cols(x, y, x.cross(y)))
+    });
+    Transform {
+        translation: m.w_axis.truncate(),
+        rotation,
+        scale,
     }
 }

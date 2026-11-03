@@ -102,12 +102,4 @@ impl<T: Clone> SharedMaterials<T> {
         self.entries.capacity() * (std::mem::size_of::<(SharedMaterialKey, (T, usize))>() + 1)
             + self.heap_bytes
     }
-    pub fn reset(&mut self) {
-        assert!(
-            self.entries.is_empty(),
-            "Scene bindings must retire before their cache"
-        );
-        self.entries = HashMap::new();
-        self.heap_bytes = 0;
-    }
 }

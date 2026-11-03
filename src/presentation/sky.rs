@@ -40,7 +40,7 @@ pub struct SkyState {
     pub spawned: bool,
     pub clouds_bound: [bool; 2],
     pub materials: Vec<Handle<SkyMaterial>>,
-    /// Source `mainscript.disableSunFlare`: the worn lens hides `sunFlare`.
+    /// Source `mainscript.disableSunFlare`. The worn lens hides `sunFlare`.
     pub hide_flare: bool,
 }
 impl SkyState {

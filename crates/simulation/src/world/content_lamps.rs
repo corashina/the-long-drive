@@ -81,7 +81,7 @@ impl WorldStream {
             let next = self
                 .contents
                 .lamp_states()
-                .filter(|(parent, source, _)| {
+                .find(|(parent, source, _)| {
                     !self
                         .lamp_bindings
                         .iter()
@@ -90,7 +90,6 @@ impl WorldStream {
                             || self.portable_lamp_item(parent).is_some())
                         && self.bindings_ready(parent)
                 })
-                .next()
                 .cloned();
             let Some((parent, source, on)) = next else {
                 break;
@@ -274,7 +273,7 @@ impl WorldStream {
                                 collider.node as usize,
                                 appearance,
                             ),
-                    )
+                    );
                 });
             }
             binding.collision_dirty = false;
@@ -462,7 +461,7 @@ impl WorldStream {
             Some((b.parent.child_seed(&b.source, 0), on, broken))
         })
     }
-    /// Source `UpdFlashlight`: the lamp control with seed `seed` takes `on` and the `broken` bits.
+    /// Source `UpdFlashlight`. The lamp control with seed `seed` takes `on` and the `broken` bits.
     /// False if no control has the seed.
     pub fn set_generated_lamp(
         &mut self,
@@ -488,7 +487,7 @@ impl WorldStream {
         }
         Ok(true)
     }
-    /// Source flashlightscript.Break: sets the lamps in `lamps` of a structure control broken
+    /// Source flashlightscript.Break. Sets the lamps in `lamps` of a structure control broken
     /// and refreshes their nodes and lights. Bit i is `Lamps[i]`.
     pub(super) fn break_generated_lamps(
         &mut self,

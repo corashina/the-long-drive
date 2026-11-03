@@ -100,11 +100,7 @@ impl Default for WorldTextures {
 }
 impl WorldTextures {
     #[cfg(target_arch = "wasm32")]
-    pub(crate) fn startup_audit(
-        &self,
-        _images: &Assets<Image>,
-        _server: &AssetServer,
-    ) -> serde_json::Value {
+    pub(crate) fn startup_audit(&self) -> serde_json::Value {
         let queue = self.uploads.lock().unwrap();
         serde_json::json!({
             "session": self.session,
@@ -125,48 +121,6 @@ impl WorldTextures {
     pub fn cancel(&mut self) {
         self.cancelled = true;
         self.uploads.lock().unwrap().ownership.cancel(self.session);
-    }
-    pub fn drain_ready(
-        &mut self,
-        server: &AssetServer,
-        batches: &mut Assets<SourceTextureBatch>,
-    ) -> bool {
-        let _ = self.reap(server, batches);
-        !self
-            .uploads
-            .lock()
-            .unwrap()
-            .jobs
-            .iter()
-            .flatten()
-            .any(|j| j.identity.session == self.session)
-    }
-    pub fn release_all(&mut self, images: &mut Assets<Image>) {
-        for a in self.arrays.drain(..).flatten() {
-            if Arc::strong_count(&a.owner) == 1 {
-                if let Some(h) = a.image {
-                    self.uploaded.lock().unwrap().remove(&h.id());
-                    images.remove(h.id());
-                }
-            }
-        }
-        self.materials.clear();
-        self.gpu_reserved = 0;
-    }
-
-    pub fn settled(&self) -> bool {
-        self.arrays
-            .iter()
-            .flatten()
-            .all(|a| !a.failed && a.image.is_some() && a.next_layer == a.layers.len())
-            && !self
-                .uploads
-                .lock()
-                .unwrap()
-                .jobs
-                .iter()
-                .flatten()
-                .any(|j| j.identity.session == self.session)
     }
 
     pub(crate) fn measurement_images(&self) -> impl Iterator<Item = AssetId<Image>> + '_ {
@@ -431,7 +385,8 @@ impl WorldTextures {
         let mut queue = self.uploads.lock().unwrap();
         queue.poll(server, batches);
         let mut failure = None;
-        // Owners in order. A later owner cannot advance array progress before an earlier one.
+        // The owners are in order. A later owner cannot advance array progress before an
+        // earlier one.
         let identities = queue.ownership.slots.map(|o| o.map(|o| o.identity));
         for identity in identities
             .into_iter()
@@ -776,12 +731,7 @@ impl WorldTextures {
             })
         })
     }
-    pub fn retirable(
-        &self,
-        material: &SourceId,
-        _images: &Assets<Image>,
-        _server: &AssetServer,
-    ) -> bool {
+    pub fn retirable(&self, material: &SourceId) -> bool {
         let queue = self.uploads.lock().unwrap();
         self.materials.get(material).is_none_or(|m| {
             m.arrays.iter().all(|&i| {
@@ -800,9 +750,8 @@ impl WorldTextures {
         &mut self,
         material: &SourceId,
         images: &mut Assets<Image>,
-        server: &AssetServer,
     ) -> Result<(), ReferenceError> {
-        if !self.retirable(material, images, server) {
+        if !self.retirable(material) {
             return Err(ReferenceError(
                 "Source texture retirement still has pending work".into(),
             ));

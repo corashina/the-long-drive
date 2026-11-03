@@ -1,5 +1,5 @@
 """Resolve source meterscript gauges: the built-in car meters and gauge parts."""
-from .source import key,source_id,vector
+from .source import key,source_id
 
 def recover_material_switch(source, owner, fields, node, asset, material_indices):
     pointer = fields['R']

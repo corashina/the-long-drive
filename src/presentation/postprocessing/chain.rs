@@ -46,7 +46,7 @@ pub struct PostShaders {
     pub taa: Handle<Shader>,
     pub motion_blur: Handle<Shader>,
 }
-/// Passes that read the main motion target. Present when antialiasing or motion blur is on.
+/// Passes that read the main motion target. They are present when antialiasing or motion blur is on.
 pub struct MotionInputs<'a> {
     pub taa: Option<crate::reference::postprocessing::TaaSettings>,
     pub blur: Option<crate::reference::postprocessing::MotionBlurSettings>,
@@ -511,7 +511,7 @@ impl SourcePostChain {
         self.main.ldr_baked = None;
         self.main.ldr_pending = None;
     }
-    /// Noise index, exposure output/initialized.
+    /// Noise index, then the exposure output and initialized values.
     pub fn history(&self) -> [u32; 3] {
         let exposure = self.main.exposure.history();
         [self.uber.noise_index(), exposure[0], exposure[1]]
@@ -671,7 +671,7 @@ impl SourcePostChain {
             self.main.ldr.encode(encoder, cache, index);
             self.main.ldr_pending = Some(index);
         }
-        // The heat haze at weight 0 samples texel centers: the same image. Then it does not run.
+        // The heat haze at weight 0 samples texel centers and gives the same image. So it does not run.
         let haze = frame
             .heat_haze
             .map(|temperature| self.haze.weight(temperature))

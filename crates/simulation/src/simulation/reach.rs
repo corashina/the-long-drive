@@ -2,7 +2,7 @@
 //! car the player drives and send each move to the player body.
 use crate::reference::VehicleReach;
 
-/// Source `carscript.legDelay`: private, so always its default.
+/// Source `carscript.legDelay`. It is private, so it always has its default value.
 const LEG_DELAY: f32 = 0.2;
 
 /// A reach target node.
@@ -105,7 +105,7 @@ pub fn ignition(
     }
 }
 
-/// carscript.Update: the horn sounds.
+/// carscript.Update when the horn sounds.
 pub fn horn(reach: &VehicleReach) -> Option<ReachMove> {
     reach.horn.map(|n| hand(ReachNode::Car(n)))
 }

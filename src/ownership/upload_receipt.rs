@@ -7,7 +7,7 @@ use std::sync::{
 const RECEIPT_STATE: u8 = 3;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 const STOPPED: u8 = 4;
-/// Shared by material forks, CPU accounting, and the render queue callback.
+/// Material forks, CPU accounting, and the render queue callback share it.
 #[derive(Clone, Default)]
 pub struct UploadReceipt(Arc<AtomicU8>);
 

@@ -51,7 +51,7 @@ impl SpawnEvaluation<'_> {
                 path_id: 64919,
             };
             let main = self.rules.get(self.reference, &main)?;
-            let target = link(&main.fields, "randomFlyerPrefab")?;
+            let target = link(main.fields, "randomFlyerPrefab")?;
             for i in 0..count {
                 let sphere = self.random.on_unit_sphere();
                 let radius = self.random.range(
@@ -81,7 +81,7 @@ impl SpawnEvaluation<'_> {
                         .component(self.reference, target, "tosaveitemscript")?
                 {
                     self.start_save(&child, save, 0)?;
-                    // The bat is a world item: publish it as content.
+                    // The bat is a world item. Publish it as content.
                     self.push(SpawnedContent {
                         inputs: super::spawn_state::SpawnInitialization::default(),
                         placement: child.clone(),

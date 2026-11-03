@@ -205,7 +205,7 @@ impl Rows<'_> {
             }));
         self.frame.particle_groups.push(group);
     }
-    /// `particles` are in `space`: the system simulates in its owner space.
+    /// `particles` are in `space`. The system simulates in its owner space.
     fn local(
         &mut self,
         mut group: ParticleGroupRow,

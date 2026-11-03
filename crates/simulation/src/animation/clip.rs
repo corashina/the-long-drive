@@ -21,7 +21,7 @@ pub fn sample_clip(clip: &MotionClip, time: f32, mut out: impl FnMut(u32, LocalP
     for track in &clip.tracks {
         let [x, y, z, w] = sample_track(track, time);
         let part = match track.attribute {
-            // Source parent-local values: z negates.
+            // Source values are parent-local, and their z negates.
             1 => LocalPart::Position(Vector::new(x, y, -z)),
             2 => LocalPart::Rotation(Rotation::from_xyzw(-x, -y, z, w).normalize()),
             3 => LocalPart::Scale(Vector::new(x, y, z)),

@@ -108,10 +108,9 @@ pub(crate) fn prepare_step_for_views(
         .ready
         .as_ref()
         .is_some_and(|w| !same_request(w.request, stream.request))
+        && let Some((request, key)) = surface_claim.take()
     {
-        if let Some((request, key)) = surface_claim.take() {
-            stream.discard_surface_renderer(request, key).unwrap();
-        }
+        stream.discard_surface_renderer(request, key);
     }
     stream.select_required(required_views);
     let sources: Vec<_> = reference
@@ -173,7 +172,7 @@ pub(crate) fn prepare_step_for_views(
             &mut run.powertrain,
         )
         .unwrap();
-    // As `advance_world`: capture, then far contents retire.
+    // As in `advance_world`, capture first. Then far contents retire.
     stream.capture_changes(
         reference,
         &mut run.area.items,
@@ -207,7 +206,7 @@ pub(crate) fn prepare_ready(run: &mut GarageRuntime, reference: &ReferenceManife
                     key.layer != WorldLayer::Road
                         || !run.stream.required.roads.contains(&(key.unit[0] as u32))
                 );
-                run.stream.discard_surface_renderer(request, key).unwrap();
+                run.stream.discard_surface_renderer(request, key);
             }
             return;
         }
@@ -232,7 +231,7 @@ pub(crate) fn start_vehicle(run: &mut GarageRuntime) {
     run.vehicle = Some(key);
 }
 
-/// A new game with the required world ready and the start car as `run.vehicle`. Not started.
+/// A new game with the required world ready and the start car as `run.vehicle`. It is not started.
 pub(crate) fn ready(reference: &ReferenceManifest) -> GarageRuntime {
     let mut run = GarageRuntime::new_default(reference).unwrap();
     prepare_ready(&mut run, reference);
@@ -335,7 +334,7 @@ pub(crate) fn save(run: &GarageRuntime, reference: &ReferenceManifest) -> SaveSn
     serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap()
 }
 
-/// A runtime from `saved`. The restore is not done yet: call `restore`.
+/// A runtime from `saved`. The restore is not done yet. Call `restore`.
 pub(crate) fn open(reference: &ReferenceManifest, saved: &SaveSnapshot) -> GarageRuntime {
     GarageRuntime::from_save(
         reference,

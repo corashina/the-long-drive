@@ -1,6 +1,7 @@
 //! ParticleSystems of a gib prefab. Source `breakablescript.Break` instantiates the gib, and each
 //! system plays its burst and its duration of emission once. As explosion particles, one shared
-//! system per gib particle emits all of these particles at the break. Gib particles are not saved.
+//! system per gib particle emits all of these particles at the break. Saves do not keep gib
+//! particles.
 use crate::particles::{ParticleOutput, ParticleState};
 use crate::reference::ItemPrototype;
 use crate::vehicle::PhysicsWorld;

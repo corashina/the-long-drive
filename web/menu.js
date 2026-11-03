@@ -4,6 +4,7 @@ import {createControlsScreen} from './controls-screen.js';
 import {canLoadLast} from './save-session.js';
 export const ACTIONS={PAUSE:2,CONTINUE:4,RECOVER:16};
 const pendingText={save:'Saving...',load:'Loading...',loadLast:'Loading...',remove:'Deleting...',newGame:'Starting a new game...'};
+// Result texts confirm a menu action. They clear when play continues.
 const resultText={join:'Joined the game.',save:'Save complete.',load:'Game loaded.',loadLast:'Game loaded.',remove:'Save deleted.',newGame:'New game ready.'};
 const SUBSCREENS=['settings','game-mode','saves','appearance','multiplayer'];
 // Appearance has its own preview, so the car stage hides there.
@@ -42,7 +43,7 @@ export class MenuState {
  async capture(action,request,unlock){
   if(this.deathComplete || !this.readyFlag || !this.started || this.pending || this.state!=='pause-menu')return false;
   const token=++this.generation;this.pending=true;this.error='';
-  try {try{unlock?.();}catch{}await request();if(token!==this.generation)return false;this.actions=action;this.state='playing';return true;}
+  try {try{unlock?.();}catch{}await request();if(token!==this.generation)return false;this.actions=action;this.state='playing';this.status='';return true;}
   catch(error){if(token===this.generation){this.error='Mouse capture failed. '+error.message+' Select Continue to try again.';this.state='pause-menu';}return false;}
   finally {if(token===this.generation)this.pending=false;}
  }
@@ -50,7 +51,7 @@ export class MenuState {
 export async function captureWithAudio(model,action,request,audio){const success=await model.capture(action,request,()=>audio?.unlock());if(!success)audio?.pause();return success;}
 export function createMenu({canvas,language,ui,clearInput,queueAction,saveSession,buildId,thumbnail=()=>null,sleeping=()=>false,seated=()=>false,guest=()=>false,slider,audio,bindings,defaultAssists,onPause,onNewGame,reloadNewGame=()=>false,autoNewGame=false,appearance,showCar,settings,resets}) {
  const model=new MenuState(),menu=document.querySelector('#menu'),settingsNode=document.querySelector('#settings-screen'),gameMode=document.querySelector('#game-mode-screen'),savesNode=document.querySelector('#save-screen'),appearanceNode=document.querySelector('#appearance-screen'),multiplayerNode=document.querySelector('#multiplayer-screen'),startLast=document.querySelector('#start-load-last');
- const initial=document.querySelector('#start-actions'),paused=document.querySelector('#pause-actions'),error=document.querySelector('#capture-error'),status=document.querySelector('#status');
+ const initial=document.querySelector('#start-actions'),paused=document.querySelector('#pause-actions'),error=document.querySelector('#capture-error'),status=document.querySelector('#status'),distance=document.querySelector('#session-distance'),distanceLabel=document.querySelector('#session-distance-label'),distanceValue=document.querySelector('#session-distance-value');
  const art=document.querySelector('#menu-art'),frame=document.querySelector('#menu-frame'),hud=document.querySelector('#hud');
  // The menus have their own layout (style.css), not the source sprites.
  const initialNodes=['#new-game','#start-load','#start-load-last','#start-settings','#start-game-mode','#start-appearance','#start-multiplayer'];
@@ -75,7 +76,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  language.listen(()=>{lastTravel=-1;});
  function resize(){menu.classList.toggle('narrow',innerWidth<800);}
  function paint(){
-  const state=model.state;menu.hidden=state==='playing';settingsNode.hidden=state!=='settings';gameMode.hidden=state!=='game-mode';savesNode.hidden=state!=='saves';appearanceNode.hidden=state!=='appearance';multiplayerNode.hidden=state!=='multiplayer';initial.hidden=!['start-menu','error'].includes(state);menu.classList.toggle('covered',state==='loading');paused.hidden=state!=='pause-menu';
+  const state=model.state;menu.hidden=state==='playing';settingsNode.hidden=state!=='settings';gameMode.hidden=state!=='game-mode';savesNode.hidden=state!=='saves';appearanceNode.hidden=state!=='appearance';multiplayerNode.hidden=state!=='multiplayer';initial.hidden=!['start-menu','error'].includes(state);menu.classList.toggle('covered',state==='loading');paused.hidden=state!=='pause-menu';distance.hidden=paused.hidden;
   if(hud&&state!=='playing')hud.hidden=true;
   // Port choice: the start menu shows the garage car on its own stage, not the source figure and art.
   const car=!model.started&&CAR_STATES.includes(state);showCar?.(car);menu.classList.toggle('showroom',car);
@@ -85,8 +86,10 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
   for(const selector of actionNodes)document.querySelector(selector).disabled=!model.readyFlag||model.pending;
   document.querySelector('#recover').disabled ||= model.dead;
   document.querySelector('#resume').disabled ||= model.deathComplete;
-  // Source guests have no save: the host world is the one world.
-  for(const id of ['#save','#load','#pause-new-game'])document.querySelector(id).hidden=guest();
+  // Source guests have no save. The host world is the one world.
+  for(const id of ['#save','#load'])document.querySelector(id).hidden=guest();
+  // The player already started, so the pause menu offers New game only after death.
+  document.querySelector('#pause-new-game').hidden=guest()||!model.dead;
   startLast.hidden=!canLast;
   if(state==='saves')screen.paint(!model.readyFlag||model.pending);
   error.hidden=!model.error;if(lastError!==model.error){error.textContent=model.error;lastError=model.error;}
@@ -112,7 +115,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  }
  async function operate(operation,...args){if(operation==='newGame'&&model.readyFlag&&!model.pending&&reloadNewGame(model.started)){model.status=pendingText.newGame;paint();return;}audio?.pause();clearInput();const pending=model.run(operation,saveSession,...args);paint();if(await pending&&operation==='newGame')onNewGame?.();flush();if(operation==='save'||operation==='remove')await refresh();paint();}
  function openSaves(){model.saves();if(model.state!=='saves')return;screen.open({inMenu:!model.started,dead:model.dead,sleeping:sleeping(),seated:seated()});paint();refresh();}
- // Continue enters fullscreen, where Keyboard Lock keeps Ctrl+W (crouch + forward) in the game. Request pointer lock first: fullscreen takes the click.
+ // Continue enters fullscreen, where Keyboard Lock keeps Ctrl+W (crouch + forward) in the game. Request pointer lock first, because fullscreen takes the click.
  // The settings Exit button keeps the game in a window for this page load.
  let windowed=false;
  async function capture(){clearInput();const pending=captureWithAudio(model,ACTIONS.CONTINUE,async()=>{canvas.focus();const lock=canvas.requestPointerLock();if(!windowed&&!document.fullscreenElement&&document.fullscreenEnabled)document.querySelector('main').requestFullscreen().catch(()=>{});await lock;if(document.pointerLockElement!==canvas)throw Error('The browser did not capture the mouse.');},audio);paint();const success=await pending;if(!success && document.pointerLockElement===canvas)document.exitPointerLock();flush();paint();}
@@ -135,5 +138,5 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  document.addEventListener('pointerlockchange',()=>{if(document.pointerLockElement!==canvas && model.state==='playing')pause();});
  window.addEventListener('blur',pause);document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
  window.addEventListener('resize',resize);resize();paint();
- return {model,drivingState,paint,started(error,operation){startResult={error,operation};},takeDrivingAssists(){const request=pendingDriving;pendingDriving=0;return request;},survival(dead,due){if(dead===model.dead&&due===model.deathComplete)return;model.dead=dead;model.deathComplete=due;if(due){pause();model.status='You died. Select New game or Load.';queueMicrotask(()=>document.querySelector('#pause-new-game').focus({preventScroll:true}));}paint();},loading(){pendingDriving=0;audio?.pause();clearInput();model.loading();if(document.pointerLockElement===canvas)document.exitPointerLock();paint();},async ready(){model.ready();paint();await refresh();if(startResult){if(startResult.error)model.error=operationError(startResult.error);else model.status=resultText[startResult.operation];startResult=null;paint();}if(autoNewGame){autoNewGame=false;await operate('newGame');}},sync(started,stopped,travelM){model.started=started;if(stopped && started && model.state==='playing'){onPause?.();model.pause();paint();}const km=Math.round(travelM/10)/100;if(lastTravel!==km){document.querySelector('#session-distance').textContent=language.word('mdistancedriven')+': '+km.toFixed(2)+' '+language.word('mkm');lastTravel=km;}},fail(message){saveSession.cancel();clearInput();model.fail(message);if(document.pointerLockElement===canvas)document.exitPointerLock();flush();paint();},dispose(){window.removeEventListener('resize',resize);}};
+ return {model,drivingState,paint,started(error,operation){startResult={error,operation};},takeDrivingAssists(){const request=pendingDriving;pendingDriving=0;return request;},survival(dead,due){if(dead===model.dead&&due===model.deathComplete)return;model.dead=dead;model.deathComplete=due;if(due){pause();model.status='You died. Select New game or Load.';queueMicrotask(()=>document.querySelector('#pause-new-game').focus({preventScroll:true}));}paint();},loading(){pendingDriving=0;audio?.pause();clearInput();model.loading();if(document.pointerLockElement===canvas)document.exitPointerLock();paint();},async ready(){model.ready();paint();await refresh();if(startResult){if(startResult.error)model.error=operationError(startResult.error);else model.status=resultText[startResult.operation];startResult=null;paint();}if(autoNewGame){autoNewGame=false;await operate('newGame');}},sync(started,stopped,travelM){model.started=started;if(stopped && started && model.state==='playing'){onPause?.();model.pause();paint();}const km=Math.round(travelM/10)/100;if(lastTravel!==km){distanceLabel.textContent=language.word('mdistancedriven');distanceValue.textContent=km.toFixed(2)+' '+language.word('mkm');lastTravel=km;}},fail(message){saveSession.cancel();clearInput();model.fail(message);if(document.pointerLockElement===canvas)document.exitPointerLock();flush();paint();},dispose(){window.removeEventListener('resize',resize);}};
 }

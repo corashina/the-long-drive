@@ -312,7 +312,7 @@ impl WorldStream {
             }
         }
     }
-    /// The saved state of a bound loot tool: None at its spawn state. None when `item` has no tool.
+    /// The saved state of a bound loot tool. It is None at its spawn state and None when `item` has no tool.
     pub(super) fn tool_value(
         &self,
         item: ItemId,

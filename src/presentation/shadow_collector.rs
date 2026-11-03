@@ -69,13 +69,7 @@ fn prepare(
         return;
     };
     let light = &assets.record.lights[0];
-    let rotation = scene.sun;
-    let h = |v: Vec3| Vec3::new(v.x, v.y, -v.z);
-    let basis = [
-        h(rotation * Vec3::X),
-        h(rotation * Vec3::Y),
-        h(rotation * -Vec3::Z),
-    ];
+    let basis = super::shadow_queue::light_basis(scene.sun);
     for (entity, view, targets, cadence, mut previous) in &mut views {
         let Some(snapshot) = frame.views[view.index] else {
             continue;
@@ -90,11 +84,12 @@ fn prepare(
             atlas_size: targets.0.atlas_size,
             primary: view.index == 0,
         };
-        if let Some(old) = previous.as_deref_mut() {
-            if Arc::ptr_eq(&old.targets, &targets.0) && old.key == key {
-                old.prepared_frame = frame.frame;
-                continue;
-            }
+        if let Some(old) = previous.as_deref_mut()
+            && Arc::ptr_eq(&old.targets, &targets.0)
+            && old.key == key
+        {
+            old.prepared_frame = frame.frame;
+            continue;
         }
         let stale = previous
             .as_deref()
@@ -121,8 +116,8 @@ fn prepare(
                     continue;
                 }
                 let clip = super::shadow_queue::cascade_projection(cascade, basis).0;
-                // Clip to this top-left atlas tile. Projection flip and world conversion
-                // are already in clip and must not be applied again.
+                // Clip to this top-left atlas tile. `clip` already holds the projection flip
+                // and the world conversion. Do not apply them again.
                 let offset = Vec2::new(
                     (index & 1) as f32 * 0.5 + 0.25,
                     (index >> 1) as f32 * 0.5 + 0.25,

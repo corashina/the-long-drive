@@ -1,17 +1,19 @@
-//! Start menu car: a copy of the garage start car turns on a dark stage while the start menu is open.
-//! Port choice: the source menu shows a figure. This port shows the start car, as a showroom.
+//! The start menu car. A copy of the garage start car turns on a dark stage while the start menu is open.
+//! Port choice. The source menu shows a figure. This port shows the start car, as a showroom.
 //! The copy draws the authored surfaces with Bevy PBR, as the figure stages do. Source-only
 //! effects (the condition shader extension, plate text, mirror images) are not drawn.
 use super::figure_stage::StageCamera;
 use super::materials::SourceMaterial;
 use super::materials::specular::SpecularMaterial;
 use super::world::instances::{CarMaterial, CarSurface, CarTarget, SourceInstances};
+use super::world::node_plan::matrix_transform;
 use crate::app::RuntimeReference;
 use bevy::asset::UntypedAssetId;
 use bevy::camera::primitives::MeshAabb;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{CameraOutputMode, ClearColorConfig, Exposure};
 use bevy::ecs as bevy_ecs;
+use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use bevy::render::view::NoIndirectDrawing;
 use bevy::window::PrimaryWindow;
@@ -22,7 +24,7 @@ use std::f32::consts::{PI, TAU};
 const LAYER: usize = 33;
 /// 10 km below the world, away from the appearance preview stage.
 const STAGE: Vec3 = Vec3::new(1_000., -10_000., 0.);
-/// After every source camera.
+/// The stage camera draws after every source camera.
 const ORDER: isize = 101;
 /// One turn of the car.
 const TURN_SECONDS: f32 = 30.;
@@ -34,12 +36,14 @@ const PITCH: f32 = 9. * PI / 180.;
 const MARGIN: f32 = 1.2;
 /// The car sits this fraction of the half view height above the middle, clear of the buttons.
 const LIFT: f32 = 0.22;
-/// Backdrop and floor (sRGB). The floor away from the lights reads as the backdrop.
+/// Backdrop and floor (sRGB). Fog turns the far floor into the backdrop, so no floor edge shows.
 const BACKDROP: Color = Color::srgb(0.035, 0.033, 0.031);
 const FLOOR: Color = Color::srgb(0.16, 0.15, 0.14);
 /// With `ev100` 0, Bevy multiplies light by 1 / 1.2. These factors make an intensity of 1 give
 /// albedo times 1 at 1 m, as in the figure stages.
 const LIGHT_SCALE: f32 = PI * 1.2;
+/// Half size of the floor. The fog is full well before its edge.
+const FLOOR_SIZE: f32 = 500.;
 
 #[derive(Resource, Default)]
 pub struct MenuCar {
@@ -52,7 +56,7 @@ pub struct MenuCar {
     surfaces: Vec<CarSurface>,
 }
 
-/// Follow the browser start menu: copy the car once it is ready, turn it, despawn on close.
+/// Follow the browser start menu. Copy the car once it is ready, turn it, and despawn it on close.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn sync(
     mut commands: Commands,
@@ -67,7 +71,9 @@ pub(crate) fn sync(
     globals: Query<&GlobalTransform>,
     parents: Query<&ChildOf>,
     inherited: Query<&InheritedVisibility>,
+    skins: Query<&SkinnedMesh>,
     mut transforms: Query<&mut Transform>,
+    mut fogs: Query<&mut DistanceFog>,
     mut car: ResMut<MenuCar>,
 ) {
     if !crate::browser::game_menu_car() {
@@ -87,8 +93,12 @@ pub(crate) fn sync(
             return;
         };
         let aspect = window.width().max(1.) / window.height().max(1.);
-        if let Ok(mut transform) = transforms.get_mut(camera) {
-            transform.set_if_neq(view(car.size, aspect));
+        let pose = view(car.size, aspect);
+        if let Ok(mut transform) = transforms.get_mut(camera)
+            && transform.set_if_neq(pose)
+            && let Ok(mut current) = fogs.get_mut(camera)
+        {
+            current.falloff = fog(&pose, car.size);
         }
         return;
     }
@@ -105,6 +115,9 @@ pub(crate) fn sync(
         HashMap::<(UntypedAssetId, Option<[u32; 4]>), Handle<StandardMaterial>>::new();
     let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for surface in surfaces.iter() {
+        // A skinned surface draws from its joints. The copy gets joints at the same pose
+        // relative to the surface, so it draws the current pose on the stage.
+        let mut skin = None;
         let (world, color) = match surface.target {
             CarTarget::Entity(entity) => {
                 // LOD hides the renderer itself. The node chain above it says whether the part is on.
@@ -118,6 +131,18 @@ pub(crate) fn sync(
                 };
                 if !on {
                     continue;
+                }
+                if let Ok(skinned) = skins.get(entity) {
+                    let inverse = global.affine().inverse();
+                    let Some(joints) = skinned
+                        .joints
+                        .iter()
+                        .map(|joint| globals.get(*joint).ok().map(|g| inverse * g.affine()))
+                        .collect::<Option<Vec<_>>>()
+                    else {
+                        continue;
+                    };
+                    skin = Some((skinned.inverse_bindposes.clone(), joints));
                 }
                 (global.affine(), None)
             }
@@ -150,7 +175,7 @@ pub(crate) fn sync(
                 max = max.max(point);
             }
         }
-        copies.push((surface.mesh.clone(), local, material));
+        copies.push((surface.mesh.clone(), local, material, skin));
     }
     if copies.is_empty() || min.x > max.x {
         error!("Menu car: the start car has no drawn surfaces");
@@ -182,20 +207,36 @@ pub(crate) fn sync(
             ChildOf(turntable),
         ))
         .id();
-    for (mesh, local, material) in copies {
-        commands.spawn((
-            Mesh3d(mesh),
-            MeshMaterial3d(material),
-            Transform::from_matrix(Mat4::from(local)),
-            Visibility::Inherited,
-            layer.clone(),
-            ChildOf(body),
-        ));
+    for (mesh, local, material, skin) in copies {
+        let copy = commands
+            .spawn((
+                Mesh3d(mesh),
+                MeshMaterial3d(material),
+                matrix_transform(Mat4::from(local)),
+                Visibility::Inherited,
+                layer.clone(),
+                ChildOf(body),
+            ))
+            .id();
+        if let Some((inverse_bindposes, joints)) = skin {
+            let joints = joints
+                .into_iter()
+                .map(|pose| {
+                    commands
+                        .spawn((matrix_transform(Mat4::from(pose)), ChildOf(copy)))
+                        .id()
+                })
+                .collect();
+            commands.entity(copy).insert(SkinnedMesh {
+                inverse_bindposes,
+                joints,
+            });
+        }
     }
     let extent = max - min;
     car.size = Vec2::new(extent.xz().length() * 0.5, extent.y);
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(60.)))),
+        Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(FLOOR_SIZE)))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: FLOOR,
             perceptual_roughness: 0.85,
@@ -222,13 +263,18 @@ pub(crate) fn sync(
             Projection::Perspective(PerspectiveProjection {
                 fov: FOV,
                 near: 0.1,
-                far: 200.,
+                far: FLOOR_SIZE * 2.,
                 ..default()
             }),
             bevy::core_pipeline::tonemapping::Tonemapping::None,
             Msaa::Off,
             NoIndirectDrawing,
             Exposure { ev100: 0. },
+            DistanceFog {
+                color: BACKDROP,
+                falloff: fog(&view(car.size, 16. / 9.), car.size),
+                ..default()
+            },
             AmbientLight {
                 color: Color::srgb(0.3, 0.3, 0.32),
                 brightness: 0.25 * 1.2,
@@ -274,6 +320,15 @@ fn view(size: Vec2, aspect: f32) -> Transform {
     let target = middle - Vec3::Y * distance * half_v.tan() * LIFT;
     let position = middle + Vec3::new(0., PITCH.sin(), PITCH.cos()) * distance;
     Transform::from_translation(position).looking_at(target, Vec3::Y)
+}
+
+/// Fog from behind the car to three times that distance. The floor fades into the backdrop.
+fn fog(camera: &Transform, size: Vec2) -> FogFalloff {
+    let start = camera.translation.length() + size.x;
+    FogFalloff::Linear {
+        start,
+        end: start * 3.,
+    }
 }
 
 /// A key light, a fill light, a rim light and a pool of light on the floor.

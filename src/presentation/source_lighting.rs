@@ -31,7 +31,7 @@ use std::{
     },
 };
 
-/// Same layout as source_lighting.wgsl. Source constants are uploaded without unit conversion.
+/// It has the same layout as source_lighting.wgsl. The renderer uploads source constants without unit conversion.
 #[derive(Clone, Copy, Debug, PartialEq, ShaderType)]
 pub struct LightingUniform {
     pub ambient_sh: [Vec4; 7],
@@ -53,7 +53,7 @@ pub struct LightingUniform {
 }
 
 /// Layout specialization happens only when a pipeline is prepared.
-/// Task5 uses a distinct glass layout; it cannot append a seventeenth texture.
+/// Task5 uses a distinct glass layout. It cannot append a seventeenth texture.
 pub fn surface_lighting_layout() -> BindGroupLayoutDescriptor {
     BindGroupLayoutDescriptor::new(
         "source_view_lighting",
@@ -68,6 +68,8 @@ pub fn surface_lighting_layout() -> BindGroupLayoutDescriptor {
                 texture_depth_2d(),
                 sampler(SamplerBindingType::Comparison),
                 texture_depth_2d(),
+                // Object lamp masks and probe pairs by MeshTag. See object_lighting.rs.
+                storage_buffer_read_only_sized(false, None).visibility(ShaderStages::VERTEX),
             ),
         ),
     )
@@ -78,6 +80,8 @@ pub fn surface_lighting_layout() -> BindGroupLayoutDescriptor {
 pub struct SourceViewLighting {
     uniform: UniformBuffer<LightingUniform>,
     bind_group: BindGroup,
+    /// Generation of the object buffer in the bind group.
+    objects: u32,
     draw_epoch: AtomicU32,
     draw_counts: [AtomicU32; 4],
     instance_counts: [AtomicU32; 4],
@@ -92,11 +96,35 @@ impl SourceViewLighting {
         probe: (&TextureView, &Sampler),
         shadow: (&TextureView, &Sampler),
         lamp_atlas: &TextureView,
+        objects: &super::object_lighting::ObjectLightingGpu,
     ) -> Self {
         let mut uniform = UniformBuffer::from(value);
         uniform.set_label(Some("source_view_lighting_uniform"));
         uniform.write_buffer(device, queue);
-        let bind_group = device.create_bind_group(
+        let bind_group = Self::bind(
+            device, cache, &uniform, cookie, probe, shadow, lamp_atlas, objects,
+        );
+        Self {
+            uniform,
+            bind_group,
+            objects: objects.generation,
+            draw_epoch: AtomicU32::new(0),
+            draw_counts: std::array::from_fn(|_| AtomicU32::new(0)),
+            instance_counts: std::array::from_fn(|_| AtomicU32::new(0)),
+        }
+    }
+
+    fn bind(
+        device: &RenderDevice,
+        cache: &PipelineCache,
+        uniform: &UniformBuffer<LightingUniform>,
+        cookie: (&TextureView, &Sampler),
+        probe: (&TextureView, &Sampler),
+        shadow: (&TextureView, &Sampler),
+        lamp_atlas: &TextureView,
+        objects: &super::object_lighting::ObjectLightingGpu,
+    ) -> BindGroup {
+        device.create_bind_group(
             "source_view_lighting",
             &cache.get_bind_group_layout(&surface_lighting_layout()),
             &BindGroupEntries::sequential((
@@ -108,15 +136,35 @@ impl SourceViewLighting {
                 shadow.0,
                 shadow.1,
                 lamp_atlas,
+                objects.buffer.as_entire_binding(),
             )),
-        );
-        Self {
-            uniform,
-            bind_group,
-            draw_epoch: AtomicU32::new(0),
-            draw_counts: std::array::from_fn(|_| AtomicU32::new(0)),
-            instance_counts: std::array::from_fn(|_| AtomicU32::new(0)),
+        )
+    }
+    /// Bind a grown object buffer. Other bindings do not change.
+    pub fn rebind(
+        &mut self,
+        device: &RenderDevice,
+        cache: &PipelineCache,
+        cookie: (&TextureView, &Sampler),
+        probe: (&TextureView, &Sampler),
+        shadow: (&TextureView, &Sampler),
+        lamp_atlas: &TextureView,
+        objects: &super::object_lighting::ObjectLightingGpu,
+    ) {
+        if self.objects == objects.generation {
+            return;
         }
+        self.bind_group = Self::bind(
+            device,
+            cache,
+            &self.uniform,
+            cookie,
+            probe,
+            shadow,
+            lamp_atlas,
+            objects,
+        );
+        self.objects = objects.generation;
     }
 
     pub fn bind_group(&self) -> &BindGroup {
@@ -129,7 +177,7 @@ impl SourceViewLighting {
         }
         self.draw_epoch.fetch_add(1, Ordering::Relaxed);
     }
-    /// Epoch, base attempts/successes, additive attempts/successes.
+    /// Epoch, base attempts and successes, additive attempts and successes.
     pub fn instances(&self) -> [u32; 4] {
         self.instance_counts
             .each_ref()
@@ -212,6 +260,33 @@ pub(crate) type DrawSourceMaterial = (
     SourceDrawMark<true, false>,
     DrawMesh,
     SourceDrawMark<true, true>,
+);
+
+/// World view opaque draws after the depth prepass. The base draw compares Equal.
+pub(crate) type DrawSourceEqual = (
+    SourceDrawMark<false, false>,
+    super::surface_pass::SourcePairReady,
+    super::surface_pass::SetSourceEqualPipeline,
+    SetSourceViewCamera,
+    SetSourceViewLighting,
+    super::static_draws::SetSourceMeshBindGroup<2>,
+    bevy::pbr::SetMaterialBindGroup<3>,
+    DrawMesh,
+    SourceDrawMark<false, true>,
+    super::surface_pass::SetSourceAdditivePipeline,
+    SourceDrawMark<true, false>,
+    DrawMesh,
+    SourceDrawMark<true, true>,
+);
+/// World view depth prepass draws. A base without a prepass pipeline draws nothing.
+pub(crate) type DrawSourceDepth = (
+    super::surface_pass::SourcePairReady,
+    super::surface_pass::SetSourceDepthPipeline,
+    SetSourceViewCamera,
+    SetSourceViewLighting,
+    super::static_draws::SetSourceMeshBindGroup<2>,
+    bevy::pbr::SetMaterialBindGroup<3>,
+    DrawMesh,
 );
 
 /// Transparent passes are dispatched separately through the source comparator.
@@ -358,6 +433,10 @@ impl Plugin for SourceLightingPlugin {
                 .add_render_command::<Transparent3d, DrawSourceWorld>()
                 .add_render_command::<Opaque3d, DrawSourceMaterial>()
                 .add_render_command::<AlphaMask3d, DrawSourceMaterial>()
+                .add_render_command::<Opaque3d, DrawSourceEqual>()
+                .add_render_command::<AlphaMask3d, DrawSourceEqual>()
+                .add_render_command::<Opaque3d, DrawSourceDepth>()
+                .add_render_command::<AlphaMask3d, DrawSourceDepth>()
                 .add_render_command::<Transmissive3d, DrawSourceMaterial>()
                 .add_render_command::<Transparent3d, DrawSourceBase>()
                 .add_render_command::<Transparent3d, DrawSourcePlate>()
@@ -491,7 +570,7 @@ fn prepare_source_draws(
     }
 }
 
-/// Source mesh shaders use Bevy camera/global buffers and perform their own lighting.
+/// Source mesh shaders use Bevy camera and global buffers and perform their own lighting.
 /// This layout has no sampled textures or samplers.
 pub fn source_camera_layout() -> BindGroupLayoutDescriptor {
     use bevy::render::{globals::GlobalsUniform, view::ViewUniform};

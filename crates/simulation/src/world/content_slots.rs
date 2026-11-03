@@ -119,11 +119,10 @@ pub(super) fn bind(
         };
         if let (Some(item), Some(cover)) =
             (item, optional(part.fields, "cover_CantCraftIfCovered")?)
+            && let Some(slot) = content.slots.iter().find(|s| &s.source == cover)
         {
-            if let Some(slot) = content.slots.iter().find(|s| &s.source == cover) {
-                interaction.parts.set_generated_cover(item, slot.slot);
-                wheels.set_generated_cover(item, slot.slot);
-            }
+            interaction.parts.set_generated_cover(item, slot.slot);
+            wheels.set_generated_cover(item, slot.slot);
         }
     }
     Ok(())

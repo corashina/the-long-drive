@@ -89,7 +89,7 @@ pub struct DofPass {
     half: [Target; 2],
     /// TAA `motionBlending`. None without TAA.
     motion_blending: Option<f32>,
-    /// History written this frame. The other one is read.
+    /// The history that this frame writes. The frame reads the other one.
     write: usize,
     reset: bool,
     pending: bool,

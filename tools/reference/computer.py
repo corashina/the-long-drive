@@ -85,7 +85,7 @@ def recover_computer(source, manifest) -> dict:
     record,prototype,reader,d,node,link=owner(source,manifest,DISPLAY)
     renderer=link(d,'R','MeshRenderer');node(renderer)
     on,off=[link(d,f,'Material') for f in ('defMaterial','OffMaterial')]
-    # R shows defMaterial. OffMaterial is the same material without _EMISSION: off is a black emission.
+    # R shows defMaterial. OffMaterial is the same material without _EMISSION. Off is a black emission.
     if [key(source.resolve(renderer,m)) for m in source.read(renderer)['m_Materials']]!=[key(on)]:raise ValueError(f'{key(renderer)} does not show defMaterial')
     od,fd=source.read(on),source.read(off)
     keywords=[set(m.get('m_ValidKeywords',m.get('m_ShaderKeywords','').split())) for m in (od,fd)]
@@ -101,7 +101,7 @@ def bake_glyphs(rects, alpha, scale, ascent, advance, convert_case):
     """Text glyph quads of a bitmap font at `scale`, sampled bilinear at pixel centers (Unity UI Text).
 
     `rects` maps a character to its legacy CharacterInfo (uv, vert, flipped). `alpha` is the font texture
-    alpha, rows top-down. A cell origin is the line top-left; y grows down. Returns cell size, offset, coverage."""
+    alpha, rows top-down. A cell origin is the line top-left, and y grows down. Return the cell size, offset and coverage."""
     height,tex_w=len(alpha),len(alpha[0])
     def sample(u,v):
         x,y=u*tex_w-.5,v*height-.5
@@ -120,7 +120,7 @@ def bake_glyphs(rects, alpha, scale, ascent, advance, convert_case):
         if r['advance']!=advance:raise ValueError('Font is not monospace')
         uv,vert=r['uv'],r['vert']
         u0,v0,u1,v1=uv['x'],uv['y'],uv['x']+uv['width'],uv['y']+uv['height']
-        # CharacterInfo: bottom-left is (uv.x, uv.y); a flipped glyph swaps the bottom-right and top-left uvs.
+        # In CharacterInfo, bottom-left is (uv.x, uv.y). A flipped glyph swaps the bottom-right and top-left uvs.
         bl=(u0,v0)
         br,tl=((u0,v1),(u1,v0)) if r['flipped'] else ((u1,v0),(u0,v1))
         x0,x1=vert['x']*scale,(vert['x']+vert['width'])*scale
@@ -157,7 +157,7 @@ def _corners(d):
 
 
 def _stretched(source, transform):
-    """A child rect at its anchors: no offsets, so the pivot does not matter."""
+    """A child rect at its anchors. It has no offsets, so the pivot does not matter."""
     d=source.read(transform)
     if any(d['m_SizeDelta'][c] or d['m_AnchoredPosition'][c] or d['m_LocalScale'][c]!=1 for c in 'xy'):
         raise ValueError(f'{key(transform)} rect is not stretched')

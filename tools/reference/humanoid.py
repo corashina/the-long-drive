@@ -2,7 +2,6 @@
 `ThirdPersonAnimatorController` states that `newAiAnim` drives, and the clip muscle tracks.
 Poses stay in the source (left-handed) space under the Animator Transform. Angles are in radians."""
 import json
-import math
 from .library.reader import checked
 from .source import key, source_id
 
@@ -134,7 +133,7 @@ def controller_core(controller):
         if len(positions) != len(children) or any(n['m_ChildIndices'] or n['m_Mirror'] or n['m_CycleOffset']
                 or not n['m_Duration'] > 0 for n in children):
             raise ValueError('Human Animator blend children')
-        # The leaf `m_Duration` scales the clip duration: it is 1 / `timeScale`.
+        # The leaf `m_Duration` scales the clip duration. It is 1 / `timeScale`.
         return [{'slot': n['m_ClipID'], 'position': [p['x'], p['y']], 'speed': 1. / n['m_Duration']}
             for n, p in zip(children, positions)]
     def fade(state, target, event, mode):

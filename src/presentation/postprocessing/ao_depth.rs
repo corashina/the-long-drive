@@ -242,18 +242,7 @@ impl AoDepthPass {
             .all(|&id| cache.get_render_pipeline(id).is_some())
     }
     pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        self.pipelines
-            .iter()
-            .find_map(|&id| match cache.get_render_pipeline_state(id) {
-                CachedPipelineState::Err(
-                    bevy::shader::ShaderCacheError::ShaderNotLoaded(_)
-                    | bevy::shader::ShaderCacheError::ShaderImportNotYetAvailable,
-                ) => None,
-                CachedPipelineState::Err(error) => {
-                    Some(format!("Source AO depth pipeline: {error}"))
-                }
-                _ => None,
-            })
+        super::named_pipeline_failure(cache, &self.pipelines, "Source AO depth pipeline")
     }
     pub fn encode(
         &mut self,

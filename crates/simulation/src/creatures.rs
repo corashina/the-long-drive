@@ -46,7 +46,7 @@ const PLACE_INTERVAL: f64 = 1.;
 const IGNORED_HIT_LAYERS: [u32; 2] = [15, 17];
 /// `SetBasedOnSize` calls `GetEvil(natural: true)` above this size.
 const EVIL_SIZE: f32 = 0.75;
-/// `empscript.makeRabbitsEvil`: the electronics output below this calls `GetEvil(natural: false)`.
+/// `empscript.makeRabbitsEvil`. An electronics output below this calls `GetEvil(natural: false)`.
 const GREEN_OUTPUT: f32 = 0.2;
 
 /// The rabbit is big enough to get evil.
@@ -70,7 +70,8 @@ pub struct StepInput<'a> {
     /// Squared horizontal distance from a local point to the nearest source important object.
     pub important: &'a dyn Fn(Vector) -> f32,
     pub distances: PlaceDistances,
-    /// Source `aispawn.SpawnRoutine` runs only when `isServerOrNoMulti`: false on a multiplayer guest.
+    /// Source `aispawn.SpawnRoutine` runs only when `isServerOrNoMulti`, which is false on a
+    /// multiplayer guest.
     pub spawns: bool,
     /// Live `empscript`s, advanced this step.
     pub emps: &'a [Emp],
@@ -114,7 +115,7 @@ pub struct Sound {
 
 pub struct Creatures {
     rig: Rig,
-    /// Per live collider: it sits under a ragdoll bone.
+    /// Per live collider, whether it sits under a ragdoll bone.
     bones: Vec<bool>,
     /// Per live collider: the `breakchilds` index of `damage.children`.
     children: Vec<Option<usize>>,
@@ -326,7 +327,7 @@ impl Creatures {
         true
     }
 
-    /// `aiscript.Die`: `SetRagdol(true)` replaces the live body with the bones. The bones take
+    /// `aiscript.Die`. `SetRagdol(true)` replaces the live body with the bones. The bones take
     /// the animated pose and the live velocity. Returns the rabbit position.
     pub fn ragdoll(
         &mut self,
@@ -447,7 +448,7 @@ impl Creatures {
         self.humans.rebase(shift);
     }
 
-    /// One fixed step: the spawner, then each live rabbit sets its body velocity and rotation.
+    /// One fixed step. The spawner runs, then each live rabbit sets its body velocity and rotation.
     pub fn step(&mut self, r: &RabbitReference, physics: &mut PhysicsWorld, input: &StepInput) {
         let now = input.now;
         let origin = *input.origin;
@@ -578,7 +579,7 @@ impl Creatures {
     }
 
     /// `electronicsscript.Update` of each rabbit, then `empscript.Update` on its colliders.
-    /// `makeRabbitsEvil`: an output below 0.2 calls `GetEvil(natural: false)`.
+    /// `makeRabbitsEvil`. An output below 0.2 calls `GetEvil(natural: false)`.
     /// `SetRagdol(true)` disables the anim colliders, so a dead rabbit keeps only the others.
     fn jam_rabbits(
         &mut self,
@@ -618,8 +619,8 @@ impl Creatures {
         }
     }
 
-    /// `playerdeathtriggerscript.OnTriggerStay` on other rabbits: `TryBreak(damageBreakable * dt)`
-    /// for each of their colliders in the trigger.
+    /// `playerdeathtriggerscript.OnTriggerStay` on other rabbits. It calls
+    /// `TryBreak(damageBreakable * dt)` for each of their colliders in the trigger.
     fn attack_rabbits(&mut self, r: &RabbitReference, physics: &PhysicsWorld, dt: f32) {
         let rules = &r.damage.rules;
         let damage = r.evil.trigger.damage_breakable * dt;
@@ -828,7 +829,7 @@ impl Creatures {
         true
     }
 
-    /// `itemPlaceRemoveScript.RemoveItems`: each rabbit that `remove` selects by its local root
+    /// `itemPlaceRemoveScript.RemoveItems`. Each rabbit that `remove` selects by its local root
     /// position goes to the far rabbits. The caller releases the bone items and bodies in
     /// `bones`.
     pub fn unload(
@@ -942,7 +943,7 @@ fn shot_effect(
     }
 }
 
-/// `aiscript.Update`: a velocity change above `limit` in one step kills the rabbit.
+/// `aiscript.Update`. A velocity change above `limit` in one step kills the rabbit.
 fn accelerated(limit: f32, velocity: Vector, last: Vector) -> bool {
     limit > 0. && (velocity - last).length_squared() > limit * limit
 }

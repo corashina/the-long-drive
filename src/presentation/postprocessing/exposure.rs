@@ -132,7 +132,7 @@ impl ExposurePass {
     pub fn ready(&self, cache: &PipelineCache) -> bool {
         cache.get_render_pipeline(self.pipeline).is_some()
     }
-    /// Preallocate downstream bind groups for both views; select output_index without rebuilding them.
+    /// Preallocate downstream bind groups for both views. Select output_index without rebuilding them.
     pub fn views(&self) -> [&TextureView; 2] {
         [&self.views[0], &self.views[1]]
     }

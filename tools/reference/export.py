@@ -400,22 +400,22 @@ def _export_selected(source, output: Path, library, snapshot) -> None:
     from .particles import recover_food_particles
     manifest['survival']['food_particles'] = recover_food_particles(source, output)
     from .guns import recover_guns
-    # Before audio and UI: gun clips join source.item_clips, crosshair icons join the UI sprites.
+    # Run before audio and UI. Gun clips join source.item_clips, and crosshair icons join the UI sprites.
     manifest['guns'] = recover_guns(source, manifest, output)
     from .explosions import recover_explosions
-    # Before audio: explosion and ear ring clips join source.item_clips.
+    # Run before audio. Explosion and ear ring clips join source.item_clips.
     manifest['explosions'] = recover_explosions(source, manifest, output)
     from .crash import recover_crash
     manifest['crash'] = recover_crash(source, manifest, output)
     from .breakables import recover_breakables, recover_gib_constants
-    # Before audio: breakable clips join source.item_clips.
+    # Run before audio. Breakable clips join source.item_clips.
     manifest['breakables'] = recover_breakables(source, manifest)
     manifest['gib_constants'] = recover_gib_constants(source)
-    # PhysicsManager: PhysX puts a body to sleep below this mass-normalized kinetic energy.
+    # The PhysicsManager value. PhysX puts a body to sleep below this mass-normalized kinetic energy.
     physics=source.get('globalgamemanagers',10)
     if physics.type.name!='PhysicsManager':raise ValueError('globalgamemanagers 10 is not PhysicsManager')
     manifest['physics']={'source':source_id(physics),'sleep_threshold':source.read(physics)['m_SleepThreshold']}
-    # Before audio: the rabbit die clips get clip ids there.
+    # Run before audio. The rabbit die clips get clip ids there.
     manifest['creatures'] = recover_creatures(source, manifest, output)
     from .wheel_effects import recover_skid
     manifest['skid'] = recover_skid(source, output)

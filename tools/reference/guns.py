@@ -2,7 +2,7 @@
 
 Vectors (positions, Euler angles, axes) keep source Unity local axes. Nodes are world prototype nodes.
 """
-from .source import key, source_id, vector
+from .source import id_key, key, source_id, vector
 from .survival import managed_evidence
 from .particles import particle, relative_pose
 from .small_items import animation_curve, ammo
@@ -10,7 +10,7 @@ from .lighting import rgba, sky_material
 from .gltf import convert_point
 
 MAIN=('level1',64919)
-# mainscript static arrays. They are not serialized; managed evidence checks them.
+# mainscript static arrays. They are not serialized. Managed evidence checks them.
 AMMO_MASS=[0.0005,0.0102,0.,0.,0.01,0.,0.006]
 AMMO_VELOCITY=[300.,376.4,0.,0.,641.3,0.,365.]
 EVIDENCE=[
@@ -25,10 +25,6 @@ WEAPON_FIELDS=('prototype source pickup ammo kind condition max_condition_weakne
     'trigger_triggers use_conditional_trigger_triggers conditional_trigger_triggers fr sounds crosshair explode_stuffs explode_chance hithole')
 CLIP_FIELDS={'one_shot':'OneShotClip','false_shot':'FalseShotClip','hit_sand':'ShotHitSand','hit_concrete':'ShotHitConcrete',
     'hit_flesh':'ShotHitFlesh','hit_glass':'ShotHitGlass'}
-
-
-def _order(identity):
-    return identity['file'],identity['path_id']
 
 
 def _node(source, reader):
@@ -161,7 +157,7 @@ def recover_guns(source, manifest, output) -> dict:
     for name,field in (('start','ParticleShootStart'),('end','ParticleShootEnd')):
         system=source.resolve(main,d[field])
         if system is None or system.type.name!='ParticleSystem':raise ValueError(f'mainscript {field} is not ParticleSystem')
-        # ShootStart/ShootEnd move the shared system and call Emit(1); emission does not run.
+        # ShootStart/ShootEnd move the shared system and call Emit(1). Emission does not run.
         tracer[name]=particle(source,system,f'gun_tracer_{name}',0.,output)
     decals=[_decal(source,source.resolve(main,p),output) for p in d['ShootDecals']]
     # Every world prototype node with a weaponscript is a gun.
@@ -172,7 +168,7 @@ def recover_guns(source, manifest, output) -> dict:
                 if c.type.name!='MonoBehaviour' or source.class_name(c)!='weaponscript':continue
                 try:weapons.append(_weapon(source,p['source'],c))
                 except (ValueError,KeyError) as error:raise ValueError(f'Gun {key(c)}: {error}') from error
-    weapons.sort(key=lambda w:(_order(w['prototype']),_order(w['source'])))
+    weapons.sort(key=lambda w:(id_key(w['prototype']),id_key(w['source'])))
     print(f"Exported guns: {', '.join(str(w['source']['path_id']) for w in weapons)}; {len(decals)} decals",flush=True)
     return {'source':source_id(main),'ammo_mass':AMMO_MASS,'ammo_velocity':AMMO_VELOCITY,'tracer':tracer,'decals':decals,'weapons':weapons}
 

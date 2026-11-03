@@ -20,7 +20,7 @@ def recover_followers(source, hierarchy, mapping, vehicle, trailer):
     """Followers in hierarchy order and the `wheelgraphicsscript.T` node of each wheel, or None.
 
     Wheels follow the vehicle or trailer wheel order. Every Transform link that an enabled branch
-    reads must be set: Unity would stop the script with a null reference.
+    reads must be set. Otherwise Unity stops the script with a null reference.
     """
     found = [c for n in hierarchy for c in n['components']
         if c.type.name == 'MonoBehaviour' and source.class_name(c) in FOLLOWERS]

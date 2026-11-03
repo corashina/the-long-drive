@@ -178,7 +178,7 @@ pub struct FrameInput {
 }
 
 impl FrameInput {
-    /// Source `otherView()`: head look, lean, zoom, recenter, use, pickup and get-out do not run.
+    /// Source `otherView()`. Head look, lean, zoom, recenter, use, pickup and get-out do not run.
     /// Releases stay, so a held action can end.
     pub fn without_view_input(mut self) -> Self {
         const VIEW_KEYS: u32 = keys::USE
@@ -238,7 +238,7 @@ impl FrameInput {
         self.typing.merge(&frame.typing);
     }
 
-    /// Retain active skipped input, cancel blocked skipped input, or consume a frame.
+    /// Retains active skipped input, cancels blocked skipped input, or consumes a frame.
     pub fn take_frame(&mut self, skip_elapsed: &mut bool, blocked: bool) -> Option<Self> {
         if std::mem::take(skip_elapsed) {
             if blocked {
@@ -267,6 +267,12 @@ impl FrameInput {
 
     pub fn clear(&mut self) {
         *self = Self::default();
+    }
+    /// Removes `mask` from the held, pressed and released keys.
+    pub fn drop_keys(&mut self, mask: u32) {
+        self.held &= !mask;
+        self.pressed &= !mask;
+        self.released &= !mask;
     }
 }
 

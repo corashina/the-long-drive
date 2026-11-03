@@ -5,17 +5,19 @@
 //! Port choices, from the avatar data, not from Unity code:
 //! - A bone rotation is `preQ * SwingTwist(sign * angles) * inverse(postQ)`. A muscle `m` gives
 //!   `m * max` for `m >= 0`, else `-m * min`. Swing turns about (0, y, z), twist about x.
-//! - The body keeps no root motion (`applyRootMotion` is off): the root follows the body on the
+//! - The body keeps no root motion (`applyRootMotion` is off). The root follows the body on the
 //!   ground plane and turns with its yaw plus `m_OrientationOffsetY`. A baked yaw keeps the clip
 //!   start yaw. A baked ground position moves the body from the clip start position. A height
-//!   that is not baked keeps the clip start height. Feet and original height
-//!   bases are not told apart.
+//!   that is not baked keeps the clip start height. The port does not tell feet
+//!   and original height bases apart.
 //! - `m_Mirror` swaps the left and right muscles and negates the midline left-right and twist
 //!   muscles, `RootT.x`, and the `RootQ` yaw and roll.
-//! - The body rotation spans the upper arms and upper legs: right from the left to the right
-//!   side, up from the legs to the arms. The body position is the mass center of the bone
-//!   middles. The hips move so that the body takes its clip pose. Both match `m_RootX` within 1 cm.
-//! - Feet take the clip muscles. The clip foot IK goals are not used. Twist is not redistributed.
+//! - The body rotation spans the upper arms and upper legs. Its right axis points from the
+//!   left side to the right side, and its up axis from the legs to the arms. The body position
+//!   is the mass center of the bone middles. The hips move so that the body takes its clip
+//!   pose. Both match `m_RootX` within 1 cm.
+//! - Feet take the clip muscles. The port does not use the clip foot IK goals or redistribute
+//!   twist.
 //! - Hand IK is a two-bone solve that keeps the bend plane and the hand rotation.
 //!   Look-at turns the neck and the head half each, up to 90 degrees (`clampWeight` 0.5).
 use super::clip::sample_track;
@@ -176,7 +178,7 @@ const NECK: usize = 10;
 const HEAD: usize = 11;
 /// Upper arm, forearm and hand of the left and right arm.
 const ARMS: [[usize; 3]; 2] = [[14, 16, 18], [15, 17, 19]];
-/// `SetLookAtWeight(1)` gives `clampWeight` 0.5: half of the 180 degree range.
+/// `SetLookAtWeight(1)` gives `clampWeight` 0.5, which is half of the 180 degree range.
 const LOOK_CLAMP: f32 = std::f32::consts::FRAC_PI_2;
 
 /// Converted space and source space differ by a Z mirror. The map is its own inverse.
@@ -586,11 +588,6 @@ impl Humanoid {
         mirror_frame(&pose.model[index])
     }
 
-    /// Converted parent-local frame of rig node `index`.
-    pub fn converted_local(&self, pose: &HumanoidPose, index: usize) -> Frame {
-        mirror_frame(&pose.local[index])
-    }
-
     /// Converted pose of `newAiScript.head` under the Animator Transform.
     pub fn head(&self, pose: &HumanoidPose) -> Pose {
         let f = self.converted(pose, self.head);
@@ -684,7 +681,8 @@ impl Humanoid {
                 hand.weight = move_towards(hand.weight, 0., dt * self.hand_down);
             }
         }
-        // State machine: `Crouch` true leaves `Grounded`, false leaves `Crouching`.
+        // In the state machine, a true `Crouch` leaves `Grounded`.
+        // A false `Crouch` leaves `Crouching`.
         let point = [pose.turn, pose.forward];
         cartesian_weights(&self.states[pose.state], point, &mut pose.weights);
         let length = self.state_length(pose.state, &pose.weights);
@@ -791,7 +789,7 @@ impl Humanoid {
         self.forward_kinematics(pose);
     }
 
-    /// `SetLookAtPosition` with weight 1: the neck and the head turn toward `target`.
+    /// `SetLookAtPosition` with weight 1. The neck and the head turn toward `target`.
     fn look_at(&self, pose: &mut HumanoidPose, target: Vector) {
         let head = self.bones[HEAD].unwrap().node;
         let neck = self.bones[NECK].unwrap().node;

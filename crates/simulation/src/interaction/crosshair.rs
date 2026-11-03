@@ -38,7 +38,7 @@ impl Crosshair {
     pub const MMB_SPRITE_SHIFT: u32 = 16;
 }
 
-/// `weight_m2` is the source `weightM2`: 1 when nothing is carried.
+/// `weight_m2` is the source `weightM2`. It is 1 when the player carries nothing.
 pub fn crosshair(a: &ActionAvailability, carrying: bool, weapon: bool, weight_m2: f32) -> u32 {
     let has = |bits: u32| a.actions.0 & bits != 0;
     let usable = matches!(

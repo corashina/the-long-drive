@@ -11,15 +11,12 @@ KEY_NAMES = {'LeftControl':'ControlLeft', 'RightControl':'ControlRight', 'LeftSh
     'LeftAlt':'AltLeft', 'RightAlt':'AltRight', 'UpArrow':'ArrowUp', 'DownArrow':'ArrowDown', 'LeftArrow':'ArrowLeft',
     'RightArrow':'ArrowRight', 'KeypadPlus':'NumpadAdd', 'KeypadMinus':'NumpadSubtract', 'Space':'Space', 'Tab':'Tab',
     'CapsLock':'CapsLock', 'Backspace':'Backspace'}
-# Port default keys that differ from InitDefault. Ctrl+W (crouch + forward) closes a browser tab, so crouch is C.
-# Camera leaves C for O, a letter InitDefault does not use.
-PORT_KEYS = {'duck':['KeyC',None,None], 'camera':['KeyO',None,None]}
 # oneKey.Set(axis, invert) mouse axes, named like oneKey.GetName.
 MOUSE_AXES = ('Mouse X', 'Mouse Y', 'Mouse ScrollWheel')
 
 
 def key_code(name):
-    """Unity KeyCode name to the browser KeyboardEvent.code (mouse buttons stay Mouse0-2)."""
+    """Map a Unity KeyCode name to the browser KeyboardEvent.code. Mouse buttons stay Mouse0-2."""
     if re.fullmatch(r'[A-Z]',name):return 'Key'+name
     if match:=re.fullmatch(r'Alpha(\d)',name):return 'Digit'+match[1]
     if match:=re.fullmatch(r'Keypad(\d)',name):return 'Numpad'+match[1]
@@ -133,7 +130,7 @@ MOUSE_DRIVE_LINES = ['currentMouseSteer = Mathf.Clamp(currentMouseSteer + Input.
 
 
 def slider_range(source, settings_reader, settings, tab, index):
-    """slidersettingscript value range: clamp to minValue..maxValue, then GetValue multiplies."""
+    """Apply the slidersettingscript value range. Clamp to minValue..maxValue, then GetValue multiplies."""
     reader = source.resolve(settings_reader, settings[tab]['sliders'][index])
     if reader is None:raise ValueError(f'Unresolved {tab} slider: {index}')
     value = source.read(reader)
@@ -206,7 +203,7 @@ def recover_bindings(text, defaults):
                 if axis not in MOUSE_AXES:raise ValueError(f'Unmapped input axis: {axis}')
                 slots.append(('-' if invert=='true' else '')+axis)
         evidence.append({'source_input':name,'index':index,'keys':slots})
-        if name not in LEFT_OUT:bindings.append({'action':name,'keys':PORT_KEYS.get(name,slots)})
+        if name not in LEFT_OUT:bindings.append({'action':name,'keys':slots})
     if keys:raise ValueError('Input default outside the enum')
     return bindings, evidence
 
@@ -247,7 +244,7 @@ def wheel_graphics(source, nodes, road):
 
 
 def recover_driving(source):
-    """Resolve the shared driving controls; fail on missing records or links."""
+    """Resolve the shared driving controls. Fail on missing records or links."""
     bodies, methods, minimum, text = checked_methods(source)
     constants = lever_constants(text)
     drive = bodies['public void DriveStuff()']

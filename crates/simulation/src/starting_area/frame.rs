@@ -149,7 +149,7 @@ impl GarageRuntime {
             look: crate::boundary::LookBlock::default(),
             perf: self.perf_block(),
         };
-        // fpscontroller LateUpdate: the camera moves to the binocular `CamR` with its FOV.
+        // In fpscontroller LateUpdate, the camera moves to the binocular `CamR` with its FOV.
         if let Some(b) = area.interaction.binoculars.active()
             && let Some(item) = area.items.get(b.item)
         {
@@ -190,7 +190,7 @@ impl GarageRuntime {
         frame.decals.clear();
         frame.decals.extend(self.area.interaction.decals.rows());
         self.fill_conditions(reference, frame);
-        self.fill_structures(reference, frame);
+        self.fill_structures(reference, alpha, frame);
         self.fill_hud(reference, frame);
         self.fill_audio(reference, alpha, self.render_input, &mut frame.audio);
         frame.budgets.clear();

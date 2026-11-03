@@ -10,6 +10,8 @@ pub const BODY: u8 = 13;
 pub const CAR_FLOATS: u8 = 25;
 /// Source `msgType.carhandbrake`.
 pub const CAR_HANDBRAKE: u8 = 26;
+/// Source `msgType.carlamps`.
+pub const CAR_LAMPS: u8 = 27;
 /// Source `msgType.cargears`.
 pub const CAR_GEAR: u8 = 28;
 /// Source `msgType.carignition`.
@@ -58,24 +60,24 @@ pub const CLAIM: u8 = 18;
 pub const VELOCITY: u8 = 19;
 /// Source `msgType.removeItem`.
 pub const REMOVE: u8 = 48;
-/// Port only. The source sends an AI as a save item (`itemPosUpd`); port rabbits are no items.
+/// Port only. The source sends an AI as a save item (`itemPosUpd`). Port rabbits are not items.
 pub const CREATURE: u8 = 64;
 pub const HEADER: usize = 2;
-/// Outbox length prefix bit: `web/net.js` sends the packet on the reliable connection.
+/// Outbox length prefix bit. With it, `web/net.js` sends the packet on the reliable connection.
 pub const RELIABLE: u16 = 0x8000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NetError;
 
 /// Source `SPlayerPosUpd`. A player in a car seat sends its pose relative to the car chassis.
-/// A player in an item seat sends its world pose: item keys come with shared items.
+/// A player in an item seat sends its world pose. Item keys come with shared items.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct PoseMessage {
     /// Player Transform in world space, or in the car chassis space with `IN_CAR`.
     /// World space does not change with origin shifts.
     pub position: [f64; 3],
-    /// Source sends euler angles. The port sends a quaternion.
+    /// The source sends euler angles. The port sends a quaternion.
     pub rotation: [f32; 4],
     /// Source `duckValue`.
     pub duck: f32,
@@ -94,7 +96,7 @@ impl PoseMessage {
 }
 
 /// Source `SCarFloats`: the driver controls. Each peer adds them to its copy of the car.
-/// Source sends it reliable. It goes each frame, so the port lets it drop.
+/// The source sends it reliably. It goes each frame, so the port lets it drop.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct CarFloatsMessage {
@@ -115,6 +117,16 @@ pub struct CarFloatsMessage {
 pub struct CarHandbrakeMessage {
     pub car: u64,
     pub handbrake: f32,
+    pub pad: u32,
+}
+
+/// Source `carlamps` layout: the car and `lampak`. Port addition. The source sends it nowhere and
+/// `CarUpdateLamps` does nothing, so peers saw other headlight modes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct CarLampsMessage {
+    pub car: u64,
+    pub headlights: u32,
     pub pad: u32,
 }
 
@@ -171,7 +183,7 @@ pub struct SoundMessage {
 }
 
 /// Source `SRadioChannel`: the clip of each station, in reference station order. FM and AM share one list.
-/// One entry is the source clip index (talk index, or talk count plus music index; -1 for none) and the clip time.
+/// One entry is the source clip index (talk index, or talk count plus music index, or -1 for none) and the clip time.
 pub struct RadioChannelMessage;
 
 impl RadioChannelMessage {
@@ -236,13 +248,13 @@ pub struct ItemPoseMessage {
     /// Item pose in world space. It does not change with origin shifts.
     pub position: [f64; 3],
     pub rotation: [f32; 4],
-    /// Source `category` and `prefabId`: a runtime spawn has its item prototype index plus 1, its
-    /// serial and its pickup index. Zero for other items.
+    /// Source `category` and `prefabId`. A runtime spawn has its item prototype index plus 1, its
+    /// serial and its pickup index. They are zero for other items.
     pub spawn: [u32; 3],
     pub pad: u32,
 }
 
-/// Source `SRequestData`: a guest asks the host for the state of items that bound.
+/// Source `SRequestData`. A guest asks the host for the state of items that bound.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
 pub struct RequestMessage {
@@ -422,7 +434,7 @@ pub struct WeaponMessage {
     pub has_mag: u32,
 }
 
-/// Source `SPush`: a player pushed an item that another peer owns.
+/// Source `SPush`. A player pushed an item that another peer owns.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct PushMessage {
@@ -433,7 +445,7 @@ pub struct PushMessage {
     pub point: [f32; 3],
 }
 
-/// Source `SBroke`: a guest asks the host to break an item.
+/// Source `SBroke`. A guest asks the host to break an item.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct BrokeMessage {
@@ -509,6 +521,10 @@ impl Message for CarFloatsMessage {
 }
 impl Message for CarHandbrakeMessage {
     const TYPE: u8 = CAR_HANDBRAKE;
+    const RELIABLE: bool = true;
+}
+impl Message for CarLampsMessage {
+    const TYPE: u8 = CAR_LAMPS;
     const RELIABLE: bool = true;
 }
 impl Message for CarGearMessage {

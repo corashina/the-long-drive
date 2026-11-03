@@ -100,7 +100,7 @@ impl StateSync {
                 continue;
             };
             let now = Fluid::of(fluid.entries());
-            // The first read is the baseline: both peers start from one save.
+            // The first read is the baseline. Both peers start from one save.
             if let Some(known) = self.fluids.insert(state.id, now)
                 && known.differs(&now)
                 && let Some(key) = index.key(state.id)

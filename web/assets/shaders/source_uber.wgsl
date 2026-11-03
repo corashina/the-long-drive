@@ -1,5 +1,5 @@
 #import source_float_store::{half4, source_max, source_sat}
-// Installed Uber4653 (main HDR), Uber4641 (main LDR) and Uber4251 (far/foreground), Linear project.
+// Installed Uber4653 (main HDR), Uber4641 (main LDR) and Uber4251 (far and foreground), Linear project.
 struct Params { extent: vec4<f32>, noise: vec4<f32>, bloom: vec4<f32>, tint: vec4<f32>, dirt: vec4<f32>, grading: vec4<f32>, vignette: vec4<f32>,
  // Binocular lens: _Distortion_Amount, _Distortion_CenterScale, then CA amount, binoculars, distortion.
  distortion: vec4<f32>, distortion_center: vec4<f32>, lens: vec4<f32>, strip: vec4<f32> }

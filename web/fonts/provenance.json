@@ -1,6 +1,18 @@
-{
-  "family": "Liberation Sans",
-  "version": "2.1.5",
-  "origin": "https://github.com/liberationfonts/liberation-fonts/releases/tag/2.1.5",
-  "sha256": "76d04c18ea243f426b7de1f3ad208e927008f961dc5945e5aad352d0dfde8ee8"
-}
+[
+  {
+    "family": "Liberation Sans",
+    "version": "2.1.5",
+    "origin": "https://github.com/liberationfonts/liberation-fonts/releases/tag/2.1.5",
+    "sha256": "76d04c18ea243f426b7de1f3ad208e927008f961dc5945e5aad352d0dfde8ee8"
+  },
+  {
+    "family": "Overpass",
+    "version": "@fontsource-variable/overpass 5.3.0 (wght 100-900)",
+    "origin": "https://registry.npmjs.org/@fontsource-variable/overpass/-/overpass-5.3.0.tgz",
+    "files": {
+      "Overpass-latin.woff2": "29217ef8adef5f6c059feb461bdb029348205fc233dc9b6ca8604b0d068ac086",
+      "Overpass-latin-ext.woff2": "0a1c9727f08b91252c19bd4ca36caf98162455f33c0adcac935606b5d8d11938",
+      "Overpass-cyrillic.woff2": "77b83f0f4040e0084bb4a21929439052aab64f444c10b69fcce352faa6a9c539"
+    }
+  }
+]

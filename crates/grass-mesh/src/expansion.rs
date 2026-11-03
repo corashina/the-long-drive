@@ -11,7 +11,7 @@ struct PatchPlan {
 pub struct GrassMeshData {
     pub anchors: Vec<[f32; 3]>,
     pub uvs: Vec<[f32; 2]>,
-    /// Fraction along blade, side, source domain smoothing, distance thin scale.
+    /// The fraction along the blade, the side, the source domain smoothing and the distance thin scale.
     pub blades: Vec<[f32; 4]>,
     pub patches: Vec<u32>,
     pub indices: Vec<u32>,
@@ -124,8 +124,7 @@ impl GrassExpansion {
         Ok(GrassAllocation {
             vertices: self.vertices,
             indices: self.indices,
-            scratch_bytes: std::mem::size_of::<Self>()
-                + self.plans.capacity() * std::mem::size_of::<PatchPlan>(),
+            scratch_bytes: self.scratch_bytes(),
             output_bytes: geometry,
             gpu_bytes: geometry,
         })
@@ -251,7 +250,7 @@ impl GrassExpansion {
             }
             if step < segments {
                 let a = start + step * 2;
-                // Source triangle strip, with one source-to-runtime winding reflection.
+                // This is the source triangle strip, with one source-to-runtime winding reflection.
                 self.output
                     .indices
                     .extend_from_slice(&[a, a + 2, a + 1, a + 2, a + 3, a + 1]);
@@ -260,9 +259,11 @@ impl GrassExpansion {
     }
     pub fn finish(self) -> (GrassView, GrassMeshData, usize) {
         assert!(self.phase == Phase::Complete, "Grass output is incomplete");
-        let scratch =
-            std::mem::size_of::<Self>() + self.plans.capacity() * std::mem::size_of::<PatchPlan>();
+        let scratch = self.scratch_bytes();
         (self.view, self.output, scratch)
+    }
+    fn scratch_bytes(&self) -> usize {
+        std::mem::size_of::<Self>() + self.plans.capacity() * std::mem::size_of::<PatchPlan>()
     }
     pub fn retained_bytes(&self) -> usize {
         self.plans.capacity() * std::mem::size_of::<PatchPlan>() + self.output.retained_bytes()

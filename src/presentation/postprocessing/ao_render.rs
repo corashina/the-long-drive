@@ -42,7 +42,8 @@ impl AoRenderPass {
         {
             return Err("Source AO requires a sampled R8 render attachment".into());
         }
-        // MultiScaleVO constructor, installed binary32 radicands. No serialized radius is used.
+        // The MultiScaleVO constructor values, as installed binary32 radicands.
+        // The port uses no serialized radius.
         let sample_thickness = [
             0.9599999785423279_f32,
             0.8399999737739563,
@@ -150,14 +151,7 @@ impl AoRenderPass {
         cache.get_render_pipeline(self.pipeline).is_some()
     }
     pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        match cache.get_render_pipeline_state(self.pipeline) {
-            CachedPipelineState::Err(
-                bevy::shader::ShaderCacheError::ShaderNotLoaded(_)
-                | bevy::shader::ShaderCacheError::ShaderImportNotYetAvailable,
-            ) => None,
-            CachedPipelineState::Err(e) => Some(format!("Source AO interleaved pipeline: {e}")),
-            _ => None,
-        }
+        super::named_pipeline_failure(cache, &[self.pipeline], "Source AO interleaved pipeline")
     }
     pub fn encode(
         &mut self,

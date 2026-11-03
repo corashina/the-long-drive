@@ -100,7 +100,7 @@ def recover_small_items(source, manifest, output) -> dict:
         rate=source.read(system)['EmissionModule']['rateOverTime']['scalar']
         return particle(source,system,role,rate,output,root)
     holder=link(d,'ammo','MonoBehaviour');hd=source.read(holder)
-    # noPerShow ends ReloadFromInventory: a bottle refills only from an aimed bottle.
+    # noPerShow ends ReloadFromInventory. A bottle refills only from an aimed bottle.
     if not hd['noPerShow'] or hd['isMag'] or hd['w']['m_PathID']:
         raise ValueError(f'{key(holder)} reload path differs')
     spray_bottle={**record,'ammo':ammo(source,holder),'can_pour':bool(hd['canPour']),'pour_time':hd['pourTime'],

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createNet,ROLE,STATUS,PREFIX,TIMEOUT_MS,TICK_MS,RELIABLE} from '../../web/net.js';
 import {joinPackets} from '../../web/simulation.js';
 
-// A PeerJS stand-in: peers meet in one in-memory broker. Messages pass at once.
+// A PeerJS stand-in. Peers meet in one in-memory broker. Messages pass at once.
 function broker(){
  const peers=new Map(),muted=new Set();let next=0;
  const handlers=()=>{const h={};return {h,on:(e,fn)=>{(h[e]??=[]).push(fn);},fire:(e,...a)=>(h[e]??[]).forEach(fn=>fn(...a))};};
@@ -25,7 +25,7 @@ function broker(){
    queueMicrotask(()=>{target.fire('connection',theirs);mine.fire('open');});
    return mine;
   }
-  // A media call: the callee answers, then the caller stream arrives at the callee.
+  // A media call. The callee answers, then the caller stream arrives at the callee.
   call(id,stream,{metadata}={}){
    const target=peers.get(id),a=handlers(),b=handlers();
    const mine={...a,peer:id,metadata,close(){if(this.open){this.open=false;mine.fire('close');theirs.fire('close');}},open:true};
@@ -90,7 +90,7 @@ test('a silent guest times out and the others see it leave',async()=>{
  b.net.join({code,name:'B'});
  for(let i=0;i<10;i++)await tick();
  a.net.ready();b.net.ready();
- // Guest A goes silent: its first peer id sends nothing more.
+ // Guest A goes silent. Its first peer id sends nothing more.
  muted.add([...peers.keys()].find(id=>!id.startsWith(PREFIX)));
  while(clock.t<=TIMEOUT_MS){clock.t+=TICK_MS/2;b.run();host.run();}
  assert.deepEqual(host.events.leaves,[1]);

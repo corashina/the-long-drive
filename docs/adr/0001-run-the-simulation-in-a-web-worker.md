@@ -42,6 +42,6 @@ The simulation runs in its own Web Worker. The main thread only renders.
 
 ## Rejected options
 
-- One thread for simulation and rendering: physics and logic take frame time from rendering.
-- Bevy multithreading in the browser: it needs `SharedArrayBuffer` and cross-origin isolation, and Bevy WASM threading is not stable.
-- `SharedArrayBuffer` ring buffers between the threads: more complex, and transfer of changed rows is fast enough.
+- One thread for simulation and rendering. Physics and logic take frame time from rendering.
+- Bevy multithreading in the browser. It needs `SharedArrayBuffer` and cross-origin isolation, and Bevy WASM threading is not stable.
+- `SharedArrayBuffer` ring buffers between the threads. They add complexity, and transfer of changed rows is fast enough.

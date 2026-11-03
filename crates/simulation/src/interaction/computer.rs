@@ -87,7 +87,7 @@ pub fn note_pitch(semitone: u8) -> f32 {
 #[derive(Clone, Debug)]
 pub struct Computer {
     pub on: bool,
-    /// Use(input) was called: the computer reads the keyboard while the player types.
+    /// Use(input) ran. The computer reads the keyboard while the player types.
     pub used: bool,
     x_size: i32,
     y_size: i32,
@@ -373,7 +373,7 @@ impl Computer {
             self.revision = self.revision.wrapping_add(1);
         }
     }
-    /// execute: only lines that contain "print" write their text after the fifth byte.
+    /// execute. Only lines that contain "print" write their text after the fifth byte.
     fn execute(&mut self, line: &[u8]) {
         if line.windows(5).any(|w| w == b"print") {
             self.write_ln(&line[5..]);

@@ -23,7 +23,7 @@ fn parts(t: &Transform) -> (Vector, Rotation) {
 /// Unity `Mathf.InverseLerp`.
 
 impl LeverState {
-    /// At rest on `gear`.
+    /// The lever at rest on `gear`.
     pub fn rest(reference: &LeverReference, gear: usize) -> Self {
         let (translation, rotation) = parts(&reference.gears[gear].pos);
         Self {

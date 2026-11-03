@@ -10,8 +10,8 @@ use super::{
     AssetId, AssetRecord, AssetUsage, ColliderGeometry, EngineGlobals, EnginePartReference,
     GaugePartReference, LibraryProvenance, NodeId, PrototypeBounds, RadiatorPartReference,
     ReferenceError, ReferenceManifest, SourceHash, SourceId, Transform, WorldFollowersReference,
-    WorldHitchReference, WorldTrailerReference, WorldVehicleReference, finite, hash, require,
-    transform,
+    WorldHitchReference, WorldTrailerReference, WorldVehicleReference, field, finite, hash,
+    require, source_valid, transform,
 };
 pub use grass::*;
 pub use initial_materials::*;
@@ -33,7 +33,7 @@ pub struct WorldReference {
     pub vehicle_globals: EngineGlobals,
     pub initialization: WorldInitialization,
     pub generation_frame: Transform,
-    /// Rotation of `mainscript.magneticField`; compasses point along its forward.
+    /// Rotation of `mainscript.magneticField`. Compasses point along its forward.
     pub magnetic_field: [f32; 4],
     /// mainscript.lightTurnOffValue: electronics output that powers radios and lamps.
     pub electronics_cutoff: f32,
@@ -503,7 +503,7 @@ impl TriggerRole {
     }
 }
 /// Preserve caller fields and explicit null selections without unresolved Unity pointers.
-/// The JSON form is plain: see `fields.rs`.
+/// The JSON form is plain. See `fields.rs`.
 #[derive(Clone, Debug)]
 pub enum WorldValue {
     Empty,
@@ -542,7 +542,7 @@ pub struct WorldStartupReference {
     pub prototype: Option<SourceId>,
     /// A start car candidate.
     pub start_car: bool,
-    /// Scene start fields of prefab conditions. Start cars start worn; their prefabs start new.
+    /// Scene start fields of prefab conditions. Start cars start worn. Their prefabs start new.
     pub conditions: Vec<WorldStartCondition>,
     /// Scene fluids of prefab tanks that differ from the prefab.
     pub tanks: Vec<WorldStartTank>,
@@ -860,12 +860,6 @@ impl WorldReference {
         Ok(())
     }
 }
-fn source_valid(source: &SourceId, hashes: &[SourceHash]) -> bool {
-    source.path_id != 0 && hashes.iter().any(|h| h.file == source.file)
-}
-fn field(source: &SourceId, name: &str) -> String {
-    format!("{}:{} {name}", source.file, source.path_id)
-}
 fn values_valid(value: &WorldValue, receipts: &HashSet<&SourceId>) -> bool {
     match value {
         WorldValue::Number(n) => n.is_finite(),
@@ -1095,9 +1089,8 @@ impl WorldReference {
             &self.collision_rules.source,
             &["PhysicsManager"],
         )?;
-        let rows = match collision.fields.get("m_LayerCollisionMatrix") {
-            Some(WorldValue::Array(rows)) => rows,
-            _ => return Err(ReferenceError("Missing source collision matrix".into())),
+        let Some(WorldValue::Array(rows)) = collision.fields.get("m_LayerCollisionMatrix") else {
+            return Err(ReferenceError("Missing source collision matrix".into()));
         };
         require(rows.len() == 32 && rows.iter().zip(self.collision_rules.layers).all(|(value, row)|
             matches!(value, WorldValue::Integer(value) if *value == row as i64))
@@ -1616,7 +1609,7 @@ impl WorldReference {
                         == c.categories
                             .as_ref()
                             .or(c.items.as_ref())
-                            .map_or(0, |a| a.len()),
+                            .map_or(0, Vec::len),
                     &label,
                 )?;
             }
@@ -1826,7 +1819,7 @@ impl WorldReference {
                     && c.role_valid(),
                 &f,
             )?;
-            // Port addition: the handbrake lever usable is a convex trigger on the lever MeshFilter.
+            // The port adds the handbrake lever usable as a convex trigger on the lever MeshFilter.
             let lever = c.trigger
                 && c.role.is_none()
                 && matches!(c.geometry, Some(ColliderGeometry::Convex { .. }));
@@ -2121,12 +2114,12 @@ pub struct WorldRenderTarget {
     pub offset: [f32; 2],
 }
 
-/// Source inputs are immutable after decoding; retain no deserializer growth slack.
+/// Source inputs are immutable after decoding. Retain no deserializer growth slack.
 /// World prototypes with a source lookup built at load.
 #[derive(Clone, Debug, Default)]
 pub struct WorldPrototypes {
     list: Vec<WorldPrototypeReference>,
-    /// Prototype indices sorted by source; the first of equal sources leads.
+    /// Prototype indices sorted by source. The first of equal sources leads.
     order: Vec<u32>,
 }
 impl WorldPrototypes {

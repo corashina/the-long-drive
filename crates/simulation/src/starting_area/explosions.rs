@@ -10,7 +10,7 @@ use crate::world::ObjectKey;
 use rapier3d::math::Vector;
 use rapier3d::prelude::ColliderHandle;
 
-/// An imported item on the body of a portable tank: an exploded tank removes it.
+/// An imported item on the body of a portable tank. An exploded tank removes it.
 pub fn explosive_imported(reference: &ReferenceManifest, item: ItemId) -> bool {
     let body = |id: ItemId| reference.items.iter().find(|i| i.id == id).map(|i| i.body);
     let Some(own) = body(item) else {
@@ -112,8 +112,8 @@ impl GarageRuntime {
             .blast(kind, factor, 0., at, Some(tint));
         self.trigger(root, blast);
     }
-    /// Queues the blast. `Destroy` and `removeFromMemory`: the item leaves the player and the
-    /// world, and the removal is saved.
+    /// Queues the blast. In `Destroy` and `removeFromMemory`, the item leaves the player and the
+    /// world, and the save keeps the removal.
     fn trigger(&mut self, root: ItemId, blast: Blast) {
         let area = &mut self.area;
         if !area.interaction.explosions.trigger(root, blast) {
@@ -180,7 +180,7 @@ impl GarageRuntime {
             );
             let parent = self.physics.rapier().colliders[collider].parent();
             if parent.is_some() && parent == player {
-                // fpscontrollerholder is on one collider: the strongest player collider counts.
+                // fpscontrollerholder is on one collider. The strongest player collider counts.
                 heard = Some(heard.map_or(power, |p| p.max(power)));
                 continue;
             }
@@ -192,7 +192,7 @@ impl GarageRuntime {
         if let Some(power) = heard {
             self.hear_blast(reference, power, blast.position);
         }
-        // Source: each body with `carscript` gets `DamageStuff(power * 5)` at its body position.
+        // In the source, each body with `carscript` gets `DamageStuff(power * 5)` at its body position.
         let mut vehicles = std::mem::take(&mut self.vehicles);
         for i in 0..self.area.interaction.explosions.bodies().len() {
             let body = self.area.interaction.explosions.bodies()[i];

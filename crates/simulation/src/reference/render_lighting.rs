@@ -121,9 +121,6 @@ impl WorldProbeReference {
             && self.mip_extents == shared.mip_extents
     }
 }
-pub(super) fn valid_source(source: &SourceId) -> bool {
-    !source.file.is_empty() && source.path_id != 0
-}
 pub(super) fn valid_pose(pose: &Transform) -> bool {
     finite(&pose.translation)
         && finite(&pose.rotation)
@@ -138,10 +135,7 @@ impl LightRecord {
         textures: &HashSet<SourceId>,
     ) -> Result<(), ReferenceError> {
         let label = format!("light {}:{}", self.source.file, self.source.path_id);
-        require(
-            valid_source(&self.source) && valid_pose(&self.world_pose),
-            &label,
-        )?;
+        require(self.source.is_set() && valid_pose(&self.world_pose), &label)?;
         require(
             self.node
                 .is_none_or(|id| nodes.iter().any(|node| node.id == id)),
@@ -169,7 +163,7 @@ impl LightRecord {
         require(
             self.cookie
                 .as_ref()
-                .is_none_or(|id| valid_source(id) && (!self.enabled || textures.contains(id)))
+                .is_none_or(|id| id.is_set() && (!self.enabled || textures.contains(id)))
                 && self.cookie_size.is_finite()
                 && self.cookie_size > 0.,
             &format!("{label}: cookie"),
@@ -192,7 +186,7 @@ impl LightRecord {
 impl ProbeRecord {
     pub fn validate(&self) -> Result<(), ReferenceError> {
         let label = format!("probe {}:{}", self.source.file, self.source.path_id);
-        require(valid_source(&self.source), &format!("{label}: source"))?;
+        require(self.source.is_set(), &format!("{label}: source"))?;
         require(
             self.bounds_size == [6., 2.5, 6.]
                 && self.importance == 1
@@ -247,7 +241,7 @@ pub struct RendererRecord {
 impl RendererRecord {
     pub fn validate(&self) -> Result<(), ReferenceError> {
         require(
-            valid_source(&self.source)
+            self.source.is_set()
                 && finite(&self.bounds_center)
                 && finite(&self.bounds_extents)
                 && self.bounds_extents.iter().all(|v| *v >= 0.)
@@ -272,30 +266,10 @@ impl RendererRecord {
             "template shadow source mode",
         )
     }
-    /// Two constant vertex attributes. Flags are small integers, exactly represented by f32.
-    pub fn attributes(&self) -> [[f32; 4]; 2] {
-        [
-            [
-                self.bounds_center[0],
-                self.bounds_center[1],
-                self.bounds_center[2],
-                f32::from(self.reflection_probe_usage),
-            ],
-            [
-                self.bounds_extents[0],
-                self.bounds_extents[1],
-                self.bounds_extents[2],
-                f32::from(
-                    u8::from(self.cast_shadows != 0)
-                        | ((self.receive_shadows as u8) << 1)
-                        | (self.motion_vectors << 2),
-                ),
-            ],
-        ]
-    }
-    /// Include every shader-visible field when caching startup mesh variants.
-    pub fn mesh_variant_key(&self) -> [u32; 8] {
-        let attributes = self.attributes();
-        std::array::from_fn(|i| attributes[i / 4][i % 4].to_bits())
+    /// Shader flags: cast, receive << 1, motion vectors << 2.
+    pub fn shader_flags(&self) -> u32 {
+        u32::from(self.cast_shadows != 0)
+            | (u32::from(self.receive_shadows) << 1)
+            | (u32::from(self.motion_vectors) << 2)
     }
 }

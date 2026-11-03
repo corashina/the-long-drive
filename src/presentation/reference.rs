@@ -58,24 +58,11 @@ pub(crate) fn source_gltf_settings(settings: &mut GltfLoaderSettings) {
     });
 }
 
-pub fn load(commands: &mut Commands, _server: &AssetServer, reference: &ReferenceManifest) {
+pub fn load(commands: &mut Commands, reference: &ReferenceManifest) {
     let count = reference
         .assets
         .iter()
-        .filter(|a| {
-            matches!(
-                a.usage,
-                AssetUsage::UniqueScene
-                    | AssetUsage::RoadLampPrototype
-                    | AssetUsage::SkyPrototype
-                    | AssetUsage::FoodPrototype
-                    | AssetUsage::ItemPrototype
-                    | AssetUsage::PlayerPrototype
-                    | AssetUsage::RagdollPrototype
-                    | AssetUsage::SkyTraffic
-                    | AssetUsage::CreaturePrototype
-            )
-        })
+        .filter(|a| super::fixed_assets::scene_root(a.usage))
         .count();
     commands.insert_resource(ReferenceVisuals {
         expected_instances: reference.expected_instances(),
@@ -472,8 +459,8 @@ pub(crate) fn sync_inventory(
     }
 }
 
-/// Source home `buildingscript.FStart`: aims the home cable ropes the simulation picked.
-/// No pole in range: the root stays hidden.
+/// Source home `buildingscript.FStart`. It aims the home cable ropes that the simulation picked.
+/// With no pole in range, the root stays hidden.
 pub(crate) fn sync_home_cable(
     reference: Res<crate::app::RuntimeReference>,
     mut sim: ResMut<super::sim_frame::SimFrameResource>,
@@ -504,7 +491,7 @@ pub(crate) fn sync_home_cable(
             transform.rotation = Quat::from_array(aim.rotation);
             transform.scale = Vec3::new(x, y, aim.scale_z);
         }
-        // Source `SetActive(true)` on the root: show every node from the rope up to the root.
+        // Source `SetActive(true)` on the root. Show every node from the rope up to the root.
         let mut current = Some(aim.node);
         while let Some(id) = current {
             if let Ok((_, mut visibility)) = nodes.get_mut(visuals.nodes[&id]) {

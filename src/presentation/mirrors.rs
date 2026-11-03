@@ -6,6 +6,7 @@ use super::world::{instance_materials::InstanceMaterials, instances::SourceInsta
 use bevy::camera::visibility::RenderLayers;
 use bevy::render::extract_resource::ExtractResource;
 use bevy::{ecs as bevy_ecs, prelude::*, render as bevy_render};
+use simulation::simulation::dials::inverse_lerp;
 
 /// One mirror camera of this frame.
 #[derive(Clone, Copy)]
@@ -76,15 +77,6 @@ pub(crate) fn slot_images(images: &mut Assets<Image>) -> Vec<Handle<Image>> {
         .collect()
 }
 
-/// Source `Mathf.InverseLerp`.
-fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.
-    } else {
-        ((value - a) / (b - a)).clamp(0., 1.)
-    }
-}
-
 /// Source `MirrorsUpdate`. Runs after transform propagation, before the view snapshot.
 /// The source skips it while the cursor is free. The port keeps the mirrors live in menus.
 #[allow(clippy::too_many_arguments)]
@@ -148,11 +140,11 @@ pub(crate) fn select(
     }
     candidates.sort_by(|a, b| a.distance.total_cmp(&b.distance));
     let globals = &world.mirrors;
-    // Past `maxDist` the draw distance is 0 and no mirror is live: the player is not in or near a car.
+    // Past `maxDist` the draw distance is 0 and no mirror is live, because the player is not in or near a car.
     let near = candidates
         .first()
         .is_some_and(|c| c.distance < globals.max_distance);
-    // Pass 1: the live mirrors and their views. Pass 2 gives new live mirrors free slots.
+    // Pass 1 finds the live mirrors and their views. Pass 2 gives new live mirrors free slots.
     let mut live: [Option<(usize, MirrorView)>; MIRROR_COUNT] = [None; MIRROR_COUNT];
     for (rank, candidate) in candidates.iter().enumerate().take(MIRROR_COUNT) {
         if !settings.mirrors || !near {

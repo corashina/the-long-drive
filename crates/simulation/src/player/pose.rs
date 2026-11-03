@@ -1,4 +1,4 @@
-//! Retained source frames; full body animation belongs to the later pose task.
+//! Retained source frames. Full body animation is in `player::body`.
 use crate::{
     interaction::{
         InteractionState,
@@ -71,7 +71,7 @@ impl PlayerPoseState {
             frames,
         })
     }
-    /// `weaponhandlingscript`: the animator drives RH. `None` returns it to `defRH`,
+    /// `weaponhandlingscript`. The animator drives RH. `None` returns it to `defRH`,
     /// which has the source RH pose.
     pub fn set_hand(&mut self, local: Option<VehiclePose>) {
         self.frames.get_mut(&self.hand).unwrap().0 = match local {

@@ -1,5 +1,4 @@
 """Bake original collider points into converted body-local meters."""
-import math
 from .gltf import convert_point, convert_rotation, transform_point
 from .source import vector
 

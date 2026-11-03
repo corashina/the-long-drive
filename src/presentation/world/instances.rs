@@ -4,7 +4,7 @@ use super::{
     grass_jobs::GrassJobs,
     instance_materials::{InstanceMaterial, InstanceMaterials, RendererMaterial, ready},
     lod::{LodInstance, LodOwner, LodSchedule, LodTable},
-    node_plan::{NodePlan, anchor_local},
+    node_plan::{NodePlan, anchor_local, matrix_transform},
     pipelines::{PipelineTicket, WorldPipelines},
     prototype_loader::SourceGltf,
     prototypes::SourcePrototypes,
@@ -88,12 +88,14 @@ struct Renderer {
     ticket: Option<PipelineTicket>,
     /// A changed condition material that waits for its pipelines.
     pending: Option<MaterialVariant>,
+    /// Source layer. The world camera draws only the layers in its culling mask.
+    layer: u8,
     shadow: bool,
     lod_state: Option<(bool, f32)>,
     // The static node chain of the renderer is active. Spawned nodes carry their own visibility.
     active: bool,
     settings: Option<GrassSettings>,
-    /// The genie lamp renderer: a private material that takes the lamp emission.
+    /// The genie lamp renderer. It has a private material that takes the lamp emission.
     emissive: bool,
     /// The renderer node is an enabled Grass displacement writer.
     writer: bool,
@@ -161,7 +163,7 @@ pub(crate) enum CarMaterial {
 pub(crate) enum CarTarget {
     /// The renderer entity. Its `GlobalTransform` and parent visibility apply.
     Entity(Entity),
-    /// A GPU prop row: world matrix in the render-origin frame and linear surface color.
+    /// A GPU prop row, with its world matrix in the render-origin frame and linear surface color.
     Row { world: Mat4, color: Vec4 },
 }
 struct Instance {
@@ -183,7 +185,7 @@ struct Instance {
     // Nearest spawned ancestor of each glTF node. `None` is the root.
     anchors: Vec<Option<u32>>,
     active_nodes: Vec<bool>,
-    // Local render frame; retain double precision across distant rebases.
+    // Local render frame. Retain double precision across distant rebases.
     worlds: Vec<DMat4>,
     // Frozen source frame for procedural color, wind, and Grass inputs only.
     source_worlds: Vec<Mat4>,
@@ -253,7 +255,7 @@ impl LodOwner for Instance {
 pub struct SourceInstances {
     instances: Vec<Instance>,
     pending: Option<Placement>,
-    /// Where the pending owner waits, and since which frame. Startup audit only.
+    /// Where the pending owner waits, and since which frame. Only the startup audit reads it.
     owner_stage: (&'static str, u64),
     prepare_calls: u64,
     bindings_dirty: bool,
@@ -362,7 +364,7 @@ impl SourceInstances {
     }
     /// Ready visible instances with `mirrorscript` renderers: instance index, root entity,
     /// prototype index and node entities by glTF node.
-    /// Only prototypes with vehicle mirrors have mirror renderers: other instances skip the
+    /// Only prototypes with vehicle mirrors have mirror renderers. Other instances skip the
     /// renderer walk.
     pub(crate) fn mirror_cars<'a>(
         &'a self,
@@ -385,7 +387,7 @@ impl SourceInstances {
     }
     /// The ready start car: a Startup layer vehicle. Writes the active surfaces of the car and
     /// of its slot parts (ids with the car id as prefix) to `out` and returns the car root.
-    /// None while the car or one of its parts is not ready. Mirror glass is left out.
+    /// Returns None while the car or one of its parts is not ready. Mirror glass is left out.
     pub(crate) fn start_car(
         &self,
         prototypes: &crate::reference::WorldPrototypes,
@@ -410,7 +412,12 @@ impl SourceInstances {
             if !shown(instance) {
                 return None;
             }
-            for renderer in instance.renderers.iter().filter(|r| r.active && !r.mirror) {
+            // Only what the world camera draws: the cars hold boxes on culled layers.
+            for renderer in instance.renderers.iter().filter(|r| {
+                r.active
+                    && !r.mirror
+                    && crate::presentation::camera::WORLD_MASK & (1 << r.layer) != 0
+            }) {
                 let material = match &renderer.binding.visible {
                     InstanceMaterial::Primary(h) => CarMaterial::Primary(h.clone()),
                     InstanceMaterial::Specular(h) => CarMaterial::Specular(h.clone()),
@@ -451,7 +458,7 @@ impl SourceInstances {
             .filter(move |r| r.mirror && r.node == node as usize && r.visible())
             .filter_map(Renderer::entity)
     }
-    /// `mirror.Turn`: the renderers of prototype node `node` in instance `index` show `material`
+    /// `mirror.Turn`. The renderers of prototype node `node` in instance `index` show `material`
     /// with `image`, or with None the glass.
     pub(crate) fn show_mirror(
         &mut self,
@@ -502,32 +509,6 @@ impl SourceInstances {
     }
     pub fn roots(&self) -> impl Iterator<Item = Entity> + '_ {
         self.instances.iter().map(|i| i.root)
-    }
-    pub fn release_all(&mut self, commands: &mut Commands, materials: &mut InstanceMaterials) {
-        for instance in self.instances.drain(..) {
-            commands.entity(instance.root).despawn();
-            for renderer in instance.renderers {
-                materials.release(renderer.binding);
-                for variant in renderer.variants.into_iter().chain(renderer.pending) {
-                    materials.release(variant.binding);
-                }
-            }
-        }
-        materials.cache.generated.reset();
-        self.props.clear();
-        self.pending = None;
-        self.bindings_dirty = true;
-        self.slot_instances.clear();
-        self.selection.reset(0);
-        self.lods.reset();
-        self.origin = None;
-        self.revision = self.revision.wrapping_add(1);
-        self.retire_key = None;
-        self.retiring.clear();
-        self.not_ready.clear();
-        self.writer_instances.clear();
-        self.writers_dirty = true;
-        self.cache_bytes = self.measure_cache_bytes();
     }
 
     fn rebase(&mut self, origin: crate::world::WorldOrigin, commands: &mut Commands) {
@@ -794,10 +775,7 @@ impl SourceInstances {
                             ledger.claim_structure(request, placement.id.clone());
                         let root_pose = local_root(placement, stream.origin);
                         let root = commands
-                            .spawn((
-                                Transform::from_matrix(root_pose.as_mat4()),
-                                Visibility::Hidden,
-                            ))
+                            .spawn((matrix_transform(root_pose.as_mat4()), Visibility::Hidden))
                             .id();
                         let mut owned_bindings = Vec::with_capacity(primitives);
                         let mut owned_rows = Vec::new();
@@ -867,7 +845,7 @@ impl SourceInstances {
                                 nodes[node] = Some(
                                     commands
                                         .spawn((
-                                            Transform::from_matrix(flat.rest[node]),
+                                            matrix_transform(flat.rest[node]),
                                             if visible {
                                                 Visibility::Inherited
                                             } else {
@@ -1067,6 +1045,9 @@ impl SourceInstances {
                                                 fade: 1.0,
                                                 color,
                                                 source_position,
+                                                renderer: super::gpu_props::RowRenderer::new(
+                                                    record,
+                                                ),
                                                 batch: 0,
                                             },
                                         );
@@ -1075,7 +1056,7 @@ impl SourceInstances {
                                         renderers.push(Renderer {
                                             material_source,
                                             rebind,
-                                            // The row color already holds it; the first view rewrites the same value.
+                                            // The row color already holds it. The first view rewrites the same value.
                                             color: None,
                                             variants: Vec::new(),
                                             node: source_index,
@@ -1091,6 +1072,7 @@ impl SourceInstances {
                                             pending: None,
                                             lod_state: None,
                                             active: active_nodes[source_index],
+                                            layer: source_node.layer,
                                             shadow: shadow != 0,
                                             settings: None,
                                             emissive: false,
@@ -1113,7 +1095,7 @@ impl SourceInstances {
                                         None => (
                                             flat.anchors[node.index as usize]
                                                 .map_or(root, |a| nodes[a as usize].unwrap()),
-                                            Transform::from_matrix(flat.rest[node.index as usize]),
+                                            matrix_transform(flat.rest[node.index as usize]),
                                         ),
                                     };
                                     let chain_active = nodes[node.index as usize].is_some()
@@ -1302,6 +1284,7 @@ impl SourceInstances {
                                         pending: None,
                                         lod_state: None,
                                         active: chain_active,
+                                        layer: source_node.layer,
                                         shadow: shadow != 0,
                                         settings,
                                         emissive,
@@ -1613,8 +1596,7 @@ impl SourceInstances {
                             instance.source_worlds[index] = source_world;
                             let anchor = instance.anchor_world(index, origin);
                             if let Ok(mut transform) = transforms.get_mut(instance.entity(index)?) {
-                                *transform =
-                                    Transform::from_matrix((anchor.inverse() * world).as_mat4());
+                                *transform = matrix_transform((anchor.inverse() * world).as_mat4());
                             }
                         }
                     }
@@ -1637,9 +1619,8 @@ impl SourceInstances {
                         );
                         let anchor = instance.anchor_world(index, origin);
                         if let Ok(mut transform) = transforms.get_mut(instance.entity(index)?) {
-                            transform.set_if_neq(Transform::from_matrix(
-                                (anchor.inverse() * world).as_mat4(),
-                            ));
+                            transform
+                                .set_if_neq(matrix_transform((anchor.inverse() * world).as_mat4()));
                         }
                     }
                 }
@@ -1649,7 +1630,8 @@ impl SourceInstances {
                     materials.emission(&mut renderer.binding, view.lamp, None)?;
                 }
             }
-            // displayscript.Upd: on shows defMaterial with the computer output as _EmissionMap.
+            // displayscript.Upd. When on, it shows defMaterial with the computer output as
+            // _EmissionMap.
             if view.flags & StructureRow::DISPLAY != 0 {
                 let color = if view.flags & StructureRow::DISPLAY_ON != 0 {
                     reference.computer.display.emission
@@ -1719,7 +1701,7 @@ impl SourceInstances {
                     self.lods.queue(&mut instance.lod, instance_index);
                 }
             }
-            // partconditionscript renderers: a changed state binds its material on change.
+            // partconditionscript renderers. A changed state binds its material on change.
             let mut material_pending = false;
             for renderer in &mut instance.renderers {
                 let Some(rebind) = renderer.rebind.as_deref() else {
@@ -1998,7 +1980,7 @@ impl SourceInstances {
                 }
             }
         }
-        // Descending order: `swap_remove` on this list only moves a visited entry.
+        // Visit in descending order, so `swap_remove` on this list only moves a visited entry.
         self.retiring.sort_unstable();
         let mut at = self.retiring.len();
         while at > 0 {
@@ -2086,7 +2068,7 @@ fn override_local(
     if rotation.is_none() && scale.is_none() {
         return local;
     }
-    let mut transform = Transform::from_matrix(local);
+    let mut transform = matrix_transform(local);
     if let Some(rotation) = rotation {
         transform.rotation = Quat::from_array(rotation);
     }

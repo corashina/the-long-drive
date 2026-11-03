@@ -12,7 +12,7 @@ fn body_position(run: &GarageRuntime) -> Vector {
     Vector::from_array(run.area.player.body_pose(&run.physics).position)
 }
 
-/// MP2. The host shares its save (`saveSession.share`), and the guest starts from it: the guest
+/// MP2. The host shares its save (`saveSession.share`), and the guest starts from it. The guest
 /// stands where the host stood, and a seated host puts the guest in the same seat.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -21,7 +21,7 @@ fn tp_mp2_the_guest_starts_where_the_host_stood_and_in_its_seat() {
     settle(&mut run, &reference);
     let mut guest = save_load(&run, &reference);
     frame(&mut guest, &reference);
-    // The loaded origin sits at the player: compare absolute positions.
+    // The loaded origin is at the player, so compare absolute positions.
     let absolute = |run: &GarageRuntime| {
         let p = run.stream.origin.absolute(body_position(run).to_array());
         Vector::new(p[0] as f32, p[1] as f32, p[2] as f32)
@@ -44,7 +44,7 @@ fn tp_mp2_the_guest_starts_where_the_host_stood_and_in_its_seat() {
     );
 }
 
-/// MP3. Source `snTempPlayerSync` and `SPlayerAnim`: the host sends its pose, duck value and body
+/// MP3. Source `snTempPlayerSync` and `SPlayerAnim`. The host sends its pose, duck value and body
 /// targets. The guest figure stands at the host, and ducks and looks up with it.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -127,7 +127,7 @@ fn exchange(
 }
 
 /// MP4. Source `SCarFloats`, `SCarHandbrake`, `SCarGear`, `SCarIgnition` and `SPlayerPosUpd`
-/// sitting: the guest drives the start car. The host copy takes its gas, handbrake, gear and
+/// sitting. The guest drives the start car. The host copy takes its gas, handbrake, gear and
 /// ignition, and the guest figure sits in the host copy of the car.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -179,7 +179,7 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
         (figure - Vector::new(at.x, at.y, at.z)).length() < 3.,
         "the guest figure sits in the host copy"
     );
-    // The seated guest AutoShift would pick its own gear: the guest shifts by hand.
+    // The seated guest AutoShift would pick its own gear, so the guest shifts by hand.
     guest.driving_assists = crate::reference::DrivingAssists {
         automatic_clutch: false,
         automatic_gears: false,
@@ -203,7 +203,7 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
     let car = &host.vehicles[&key];
     assert_eq!((car.handbrake, car.ignition.ignition), want);
     assert_eq!(car.drivetrain.gear(), gear, "the host copy shifts");
-    // No echo: the host sends no reliable car state back.
+    // There is no echo. The host sends no reliable car state back.
     let mut packets = Vec::new();
     host_net.fill(&reference, &mut host, FIXED_DT, 1., &mut seen);
     host_net.take_outbox(&mut packets);
@@ -215,7 +215,7 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
     }
 }
 
-/// MP5 (M01). Source `mpplayerscript`: the figure of the other player turns solid 3 s after it
+/// MP5 (M01). Source `mpplayerscript`. The figure of the other player turns solid 3 s after it
 /// shows, on layer 0. A ray with the player capsule layers then hits its body at the figure.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -249,7 +249,7 @@ fn tp_mp5_the_other_figure_turns_solid_after_3_s() {
     let at = body.position(&guest_run.physics);
     let capsule = &reference.player.posture;
     let handle = body.handle;
-    // The guest starts where the host stood: skip its own body.
+    // The guest starts where the host stood, so skip its own body.
     let own = guest_run.area.player.body_handle();
     let filter = |_, c: &rapier3d::prelude::Collider| {
         c.is_enabled()
@@ -270,7 +270,7 @@ fn tp_mp5_the_other_figure_turns_solid_after_3_s() {
     );
 }
 
-/// MP M04a. Source `SendStartStuff`, `RTime`, `RadioChannelMultiplayerUpd` and `SSound`: when a guest
+/// MP M04a. Source `SendStartStuff`, `RTime`, `RadioChannelMultiplayerUpd` and `SSound`. When a guest
 /// joins, the host sends its clock and its radio stations. The guest takes them. A host burp plays at
 /// the host position on the guest.
 #[test]
@@ -423,7 +423,7 @@ fn loose_item(run: &GarageRuntime) -> ItemId {
         .id
 }
 
-/// M03. Source `MultiUpd` and `UpdInWorld`: the host owns unclaimed items and sends their pose each
+/// M03. Source `MultiUpd` and `UpdInWorld`. The host owns unclaimed items and sends their pose each
 /// second. An item that the host moves moves on the guest.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -449,8 +449,8 @@ fn tp_m03_a_host_item_moves_on_the_guest() {
     );
 }
 
-/// M03. Source `Claim` and `UpdInventory`: a guest pickup claims the item, so the host does not send
-/// it, and the host copy rides on the guest. The drop sends the last pose, then the release, and the
+/// M03. Source `Claim` and `UpdInventory`. A guest pickup claims the item, so the host does not send
+/// it, and the host copy moves with the guest. The drop sends the last pose, then the release, and the
 /// host owns the loose item again.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -460,11 +460,11 @@ fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
     let mut guest = save_load(&run, &reference);
     let mut pair = Pair::new();
     pair.run(&reference, &mut run, &mut guest, 0.5);
-    // The nearest loose item can be one that the hand cannot carry: take a light garage item.
+    // The nearest loose item can be one that the hand cannot carry, so take a light garage item.
     let copy = find(&guest, "OilCan");
     let item = same(&guest, &run, copy);
-    // The host figure of the guest moves after source `readyToMove` (1 s), and a held item rides
-    // on it at `smoothMoveSpeed`. The guest walks to the item first, so the figure is there.
+    // The host figure of the guest moves after source `readyToMove` (1 s), and a held item moves
+    // with it at `smoothMoveSpeed`. The guest walks to the item first, so the figure is there.
     let point = guest.area.items.get(copy).unwrap().pose.position;
     stand_near(&mut guest, &reference, point, 1.);
     pair.run(&reference, &mut run, &mut guest, 1.);
@@ -519,7 +519,7 @@ fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
     );
 }
 
-/// M03. Source `UpdOrSpawnItem`: a runtime spawn of the host appears on the guest with the same
+/// M03. Source `UpdOrSpawnItem`. A runtime spawn of the host appears on the guest with the same
 /// serial, where the host has it.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -529,7 +529,7 @@ fn tp_m03_a_host_spawn_appears_on_the_guest() {
     let mut guest = save_load(&run, &reference);
     let mut pair = Pair::new();
     pair.run(&reference, &mut run, &mut guest, 0.5);
-    // A metal shovel where both players stood. They sit in the car first: a spawn in a player
+    // A metal shovel where both players stood. They sit in the car first, because a spawn in a player
     // capsule is thrown out and can break before the host sends it.
     let shovel = weapon(&reference, &["shovel"]);
     let prototype = reference
@@ -565,7 +565,7 @@ fn tp_m03_a_host_spawn_appears_on_the_guest() {
     assert!(apart(absolute(&run, ids[0]), absolute(&guest, copy)) < 0.2);
 }
 
-/// M03. Source `STank` and `FluidUpdate`: a fluid change on the host reaches the guest copy, and
+/// M03. Source `STank` and `FluidUpdate`. A fluid change on the host reaches the guest copy, and
 /// the guest does not send it back.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -607,7 +607,7 @@ fn tp_m03_a_host_fluid_change_reaches_the_guest() {
     assert!((host.total() - liters).abs() < 1e-3, "no echo");
 }
 
-/// M03. Source `PartSlotUnCraft` and `PartSlotCraft`: a part that comes off the host car comes off
+/// M03. Source `PartSlotUnCraft` and `PartSlotCraft`. A part that comes off the host car comes off
 /// the guest car, and goes back on.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -656,7 +656,7 @@ fn tp_m03_a_host_part_comes_off_and_goes_on_at_the_guest() {
     );
 }
 
-/// M03. Source `SPartCondition` and `SFlashlight`: rust on the host shows on the guest, and a
+/// M03. Source `SPartCondition` and `SFlashlight`. Rust on the host shows on the guest, and a
 /// garage light switch on the host switches on the guest.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -698,7 +698,7 @@ fn tp_m03_host_rust_and_light_switch_reach_the_guest() {
     );
 }
 
-/// M03. Source `SFood`: a bite that the host takes shows on the guest.
+/// M03. Source `SFood`. A bite that the host takes shows on the guest.
 #[test]
 #[ignore = "requires the installed source export"]
 fn tp_m03_a_host_bite_reaches_the_guest() {
@@ -725,7 +725,7 @@ fn tp_m03_a_host_bite_reaches_the_guest() {
     assert_eq!(guest.area.items.get(copy).unwrap().food.unwrap().bite, bite);
 }
 
-/// MP M04c. Source `aispawn.SpawnRoutine` (`isServerOrNoMulti`) and the item pose of an AI: the
+/// MP M04c. Source `aispawn.SpawnRoutine` (`isServerOrNoMulti`) and the item pose of an AI. The
 /// guest spawns no rabbits of its own, and a rabbit that the host spawns appears on the guest with
 /// the host id and follows the host pose.
 #[test]

@@ -126,41 +126,30 @@ impl SaveSnapshot {
         self.validate_mechanisms(reference, &ids)?;
         self.validate_lighting(reference, &ids)?;
         validate_weather(&reference.weather, &self.weather)?;
+        let rabbit_bones = reference.creatures.rabbit.ragdoll.bodies.len();
         for rabbit in &self.rabbits {
             absolute(&rabbit.pose)?;
+            let bones = if rabbit.alive { 0 } else { rabbit_bones };
             data(
-                unit(rabbit.size)
-                    && rabbit.shoot_health.is_finite()
-                    && rabbit.bones.len()
-                        == if rabbit.alive {
-                            0
-                        } else {
-                            reference.creatures.rabbit.ragdoll.bodies.len()
-                        },
+                unit(rabbit.size) && rabbit.shoot_health.is_finite() && rabbit.bones.len() == bones,
                 "Rabbit state",
             )?;
             for bone in &rabbit.bones {
                 absolute(bone)?;
             }
         }
+        let human_bones = reference.creatures.human.ragdoll.bodies.len();
         for (i, human) in self.humans.iter().enumerate() {
             absolute(&human.pose)?;
+            let bones = if human.died { human_bones } else { 0 };
             data(
-                [
+                finite(&[
                     human.voice_pitch,
                     human.patrol_time,
                     human.health,
                     human.shoot_health,
                     human.explosion_health,
-                ]
-                .iter()
-                .all(|v| v.is_finite())
-                    && human.bones.len()
-                        == if human.died {
-                            reference.creatures.human.ragdoll.bodies.len()
-                        } else {
-                            0
-                        }
+                ]) && human.bones.len() == bones
                     && !self.humans[..i].iter().any(|h| h.key == human.key),
                 "Human state",
             )?;
@@ -246,11 +235,11 @@ impl SaveSnapshot {
         Ok(())
     }
 
-    fn validate_attachments<'a>(
+    fn validate_attachments(
         &self,
         reference: &ReferenceManifest,
         ids: &IdentityMap,
-        items: &HashMap<r::ItemId, &'a ItemSnapshot>,
+        items: &HashMap<r::ItemId, &ItemSnapshot>,
     ) -> Result<HashMap<r::ItemId, r::ItemId>, SaveError> {
         let mut parents = HashMap::new();
         let mut part_slots = HashMap::new();
@@ -302,8 +291,7 @@ impl SaveSnapshot {
         )?;
         for (&id, item) in items {
             let source_item = reference.items.iter().find(|i| i.id == id).unwrap();
-            let detachable = reference.parts.iter().any(|part| part.item == id)
-                || reference.wheel_parts.iter().any(|part| part.item == id);
+            let detachable = assembly_root(reference, id);
             // A destroyed item (an exploded can and its cap) leaves its owner.
             if let Some(owner) = source_item
                 .attached_to
@@ -438,6 +426,12 @@ impl SaveSnapshot {
             .values()
             .filter(|item| item.location == ItemLocationSave::Held)
             .collect();
+        let near_player = |position: &[f64; 3]| {
+            position
+                .iter()
+                .zip(p.pose.position)
+                .all(|(a, b)| (*a - b).abs() <= f64::from(crate::world::REBASE_LIMIT))
+        };
         match &p.carry {
             Some(carry) => {
                 if let InstanceId::Generated { id } = &carry.item {
@@ -452,15 +446,7 @@ impl SaveSnapshot {
                         state.held && state.attachment.is_none(),
                         "Generated carry ownership",
                     )?;
-                    data(
-                        state
-                            .pose
-                            .position
-                            .iter()
-                            .zip(p.pose.position)
-                            .all(|(a, b)| (*a - b).abs() <= f64::from(crate::world::REBASE_LIMIT)),
-                        "Held relative position",
-                    )?;
+                    data(near_player(&state.pose.position), "Held relative position")?;
                     data(bounded_local(&carry.offset), "Carry offset")?;
                     quaternion(&carry.rotation)?;
                     local(&carry.local_grip)?;
@@ -471,50 +457,38 @@ impl SaveSnapshot {
                     held.len() == 1 && held[0].instance == carry.item,
                     "Held item ownership",
                 )?;
-                let pickup = reference
-                    .items
-                    .iter()
-                    .find(|i| i.id == id)
-                    .unwrap()
-                    .pickup
-                    .as_ref();
+                let source_item = reference.items.iter().find(|i| i.id == id).unwrap();
                 links(
-                    pickup.is_some_and(|rule| {
+                    source_item.pickup.as_ref().is_some_and(|rule| {
                         !rule.cant_pickup && !(p.seat.is_some() && rule.cant_pickup_while_seated)
                     }),
                     "Item cannot be held",
                 )?;
                 data(
-                    items[&id]
-                        .pose
-                        .position
-                        .iter()
-                        .zip(p.pose.position)
-                        .all(|(a, b)| (*a - b).abs() <= f64::from(crate::world::REBASE_LIMIT)),
+                    near_player(&items[&id].pose.position),
                     "Held relative position",
                 )?;
-                let source_item = reference.items.iter().find(|i| i.id == id).unwrap();
-                let assembly = reference.parts.iter().any(|p| p.item == id)
-                    || reference.wheel_parts.iter().any(|p| p.item == id);
-                let body_position = if assembly {
-                    self.bodies.iter().find(|b|matches!(&b.identity,BodyIdentity::Assembly {root} if *root==carry.item)).map(|b|b.pose.position)
+                let body_position = if assembly_root(reference, id) {
+                    self.bodies
+                        .iter()
+                        .find(|b| {
+                            matches!(&b.identity, BodyIdentity::Assembly { root } if *root == carry.item)
+                        })
+                        .map(|b| b.pose.position)
                 } else {
                     let source = reference
                         .bodies
                         .iter()
                         .find(|b| b.id == source_item.body)
                         .unwrap();
-                    Some(self.bodies.iter().find(|b|matches!(&b.identity,BodyIdentity::Source {source:key} if *key==SourceKey::from(&source.source))).map_or(source.pose.translation.map(f64::from),|b|b.pose.position))
+                    let key = SourceKey::from(&source.source);
+                    let saved = self.bodies.iter().find(|b| {
+                        matches!(&b.identity, BodyIdentity::Source { source } if *source == key)
+                    });
+                    Some(saved.map_or(source.pose.translation.map(f64::from), |b| b.pose.position))
                 };
-                links(body_position.is_some(), "Missing held body")?;
-                data(
-                    body_position
-                        .unwrap()
-                        .iter()
-                        .zip(p.pose.position)
-                        .all(|(a, b)| (*a - b).abs() <= f64::from(crate::world::REBASE_LIMIT)),
-                    "Held body relative position",
-                )?;
+                let body_position = body_position.ok_or_else(|| invalid("Missing held body"))?;
+                data(near_player(&body_position), "Held body relative position")?;
                 data(bounded_local(&carry.offset), "Carry offset")?;
                 quaternion(&carry.rotation)?;
                 local(&carry.local_grip)?;
@@ -587,11 +561,7 @@ impl SaveSnapshot {
                         continue;
                     }
                     let id = ids.item(item)?;
-                    let rule = reference
-                        .items
-                        .iter()
-                        .find(|i| i.id == id)
-                        .and_then(|i| i.pickup.as_ref());
+                    let rule = pickup_rule(reference, id);
                     links(
                         rule.is_some_and(|p| slot_of(&p.source) == Some(slot))
                             && !items[&id].removed
@@ -662,11 +632,7 @@ impl SaveSnapshot {
                     members.insert(id, slot as u8).is_none(),
                     "Duplicate inventory member",
                 )?;
-                let rule = reference
-                    .items
-                    .iter()
-                    .find(|i| i.id == id)
-                    .and_then(|i| i.pickup.as_ref());
+                let rule = pickup_rule(reference, id);
                 links(
                     rule.is_some_and(|p| p.can_inventory && !p.cant_pickup) && !items[&id].removed,
                     "Item cannot enter inventory",
@@ -715,11 +681,7 @@ impl SaveSnapshot {
             }
         }
         if let Some(id) = equipped {
-            let rule = reference
-                .items
-                .iter()
-                .find(|i| i.id == id)
-                .and_then(|i| i.pickup.as_ref());
+            let rule = pickup_rule(reference, id);
             links(
                 rule.is_some_and(|p| p.can_hold_right_hand && !p.cant_pickup)
                     && !items[&id].removed
@@ -765,21 +727,8 @@ impl SaveSnapshot {
                 }
                 BodyIdentity::Assembly { root } => {
                     let id = ids.item(root)?;
-                    links(
-                        reference.parts.iter().any(|p| p.item == id)
-                            || reference.wheel_parts.iter().any(|p| p.item == id),
-                        "Unknown assembly root",
-                    )?;
-                    links(
-                        matches!(
-                            items[&id].location,
-                            ItemLocationSave::World
-                                | ItemLocationSave::Held
-                                | ItemLocationSave::Stored { .. }
-                                | ItemLocationSave::Equipped
-                        ),
-                        "Assembly root is attached",
-                    )?;
+                    links(assembly_root(reference, id), "Unknown assembly root")?;
+                    links(detached(&items[&id].location), "Assembly root is attached")?;
                     assemblies.insert(id);
                 }
             }
@@ -790,13 +739,7 @@ impl SaveSnapshot {
             .map(|p| p.item)
             .chain(reference.wheel_parts.iter().map(|p| p.item))
         {
-            if matches!(
-                items[&part].location,
-                ItemLocationSave::World
-                    | ItemLocationSave::Held
-                    | ItemLocationSave::Stored { .. }
-                    | ItemLocationSave::Equipped
-            ) {
+            if detached(&items[&part].location) {
                 links(assemblies.contains(&part), "Missing detached assembly body")?;
             }
         }
@@ -1088,6 +1031,28 @@ fn tire_fits(reference: &ReferenceManifest, rim: r::ItemId, tire: r::ItemId) -> 
             &tire_part.part_types,
         )
 }
+fn pickup_rule(reference: &ReferenceManifest, id: r::ItemId) -> Option<&r::PickupReference> {
+    reference
+        .items
+        .iter()
+        .find(|i| i.id == id)
+        .and_then(|i| i.pickup.as_ref())
+}
+/// The item is the root of a part or wheel assembly.
+fn assembly_root(reference: &ReferenceManifest, id: r::ItemId) -> bool {
+    reference.parts.iter().any(|p| p.item == id)
+        || reference.wheel_parts.iter().any(|p| p.item == id)
+}
+/// The item is in the world or with the player, not in a slot or on an owner.
+fn detached(location: &ItemLocationSave) -> bool {
+    matches!(
+        location,
+        ItemLocationSave::World
+            | ItemLocationSave::Held
+            | ItemLocationSave::Stored { .. }
+            | ItemLocationSave::Equipped
+    )
+}
 fn invalid(detail: &str) -> SaveError {
     SaveError::InvalidLinks(detail.into())
 }
@@ -1102,7 +1067,7 @@ fn data(valid: bool, detail: &str) -> Result<(), SaveError> {
     }
 }
 
-// Browser Date.toISOString emits UTC, with optional fractional seconds accepted here.
+// Browser Date.toISOString emits UTC. This parser accepts optional fractional seconds.
 fn timestamp(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() < 20

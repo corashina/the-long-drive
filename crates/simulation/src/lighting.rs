@@ -1,5 +1,6 @@
 //! Source cycle outputs retain Unity units.
 use crate::reference::{CycleReference, GradientReference};
+use crate::simulation::dials::{inverse_lerp, lerp};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CyclePhase {
@@ -17,7 +18,7 @@ pub struct CloudOutput {
     pub speed: f32,
 }
 
-/// Clear-weather source signals. Angles use Unity Euler degrees; colors retain source channels.
+/// Clear-weather source signals. Angles use Unity Euler degrees. Colors retain source channels.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CycleOutput {
     pub phase: CyclePhase,
@@ -134,7 +135,7 @@ impl CycleState {
         {
             return;
         }
-        // Source rotates stars before replacing tekerve for this fixed update.
+        // The source rotates stars before replacing tekerve for this fixed update.
         self.star_rotation = (self.star_rotation + star_step) % 360.;
         self.previous_cycle_extra = advance.cycle_extra;
         self.cloud_coordinate += cloud_step;
@@ -162,7 +163,8 @@ impl CycleState {
         };
     }
 
-    /// Sandbox and multiplayer guest (source `RTime`): jumps to `seconds` of the source cycle.
+    /// Jumps to `seconds` of the source cycle for the sandbox and a multiplayer guest (source
+    /// `RTime`).
     /// The next advance evaluates it.
     pub fn set_cycle_seconds(&mut self, seconds: f64) {
         self.cycle_seconds = seconds;
@@ -570,16 +572,6 @@ fn evaluate(
     }
 }
 
-pub(crate) fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0., 1.)
-}
-pub(crate) fn inverse_lerp(a: f32, b: f32, value: f32) -> f32 {
-    if a == b {
-        0.
-    } else {
-        ((value - a) / (b - a)).clamp(0., 1.)
-    }
-}
 fn color_lerp(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
     std::array::from_fn(|i| lerp(a[i], b[i], t))
 }
@@ -713,7 +705,7 @@ impl HeadlightState {
             state_count: reference.states.len(),
         }
     }
-    /// Source `headlightscript` with its part removed: dark, and lit again from state 0.
+    /// Source `headlightscript` with its part removed. It is dark, and lights again from state 0.
     pub fn unmount(&mut self) {
         self.current_state = 0;
         self.refreshed_state = 0;
@@ -1073,37 +1065,36 @@ impl LightingState {
             return;
         }
         for (index, control) in reference.controllers.iter().enumerate() {
-            if control.kind == crate::reference::LightControllerKind::Switch {
-                if let Some(motion) = self.pose_progress[index] {
-                    let progress = match motion {
-                        SwitchMotion::Initial => 0.,
-                        SwitchMotion::Moving(progress) => progress + dt * 25.,
-                    };
-                    if progress >= 1. {
-                        let target =
-                            usize::from(self.controllers[index].on ^ control.reverse_switch);
-                        for pose in &control.animated_poses {
-                            let out = self.poses.iter_mut().find(|o| o.node == pose.node).unwrap();
-                            out.local_pose.translation = pose.states[target].translation;
-                            out.local_pose.rotation = pose.states[target].rotation;
-                        }
-                        self.pose_progress[index] = None;
-                        continue;
-                    }
+            if control.kind == crate::reference::LightControllerKind::Switch
+                && let Some(motion) = self.pose_progress[index]
+            {
+                let progress = match motion {
+                    SwitchMotion::Initial => 0.,
+                    SwitchMotion::Moving(progress) => progress + dt * 25.,
+                };
+                if progress >= 1. {
                     let target = usize::from(self.controllers[index].on ^ control.reverse_switch);
                     for pose in &control.animated_poses {
                         let out = self.poses.iter_mut().find(|o| o.node == pose.node).unwrap();
-                        let next = pose.states[target];
-                        for i in 0..3 {
-                            out.local_pose.translation[i] =
-                                lerp(out.local_pose.translation[i], next.translation[i], progress);
-                        }
-                        let a = rapier3d::math::Rotation::from_array(out.local_pose.rotation);
-                        let b = rapier3d::math::Rotation::from_array(next.rotation);
-                        out.local_pose.rotation = a.lerp(b, progress).normalize().to_array();
+                        out.local_pose.translation = pose.states[target].translation;
+                        out.local_pose.rotation = pose.states[target].rotation;
                     }
-                    self.pose_progress[index] = Some(SwitchMotion::Moving(progress));
+                    self.pose_progress[index] = None;
+                    continue;
                 }
+                let target = usize::from(self.controllers[index].on ^ control.reverse_switch);
+                for pose in &control.animated_poses {
+                    let out = self.poses.iter_mut().find(|o| o.node == pose.node).unwrap();
+                    let next = pose.states[target];
+                    for i in 0..3 {
+                        out.local_pose.translation[i] =
+                            lerp(out.local_pose.translation[i], next.translation[i], progress);
+                    }
+                    let a = rapier3d::math::Rotation::from_array(out.local_pose.rotation);
+                    let b = rapier3d::math::Rotation::from_array(next.rotation);
+                    out.local_pose.rotation = a.lerp(b, progress).normalize().to_array();
+                }
+                self.pose_progress[index] = Some(SwitchMotion::Moving(progress));
             }
         }
     }

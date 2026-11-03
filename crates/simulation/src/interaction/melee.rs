@@ -29,9 +29,9 @@ const SAND_LAYER: u32 = 17;
 const GLASS_LAYER: u32 = 23;
 /// Particle index in `MELEE_HIT_PARTICLES` order for each hit type. Glass has none.
 const HIT_PARTICLE: [Option<usize>; 6] = [Some(0), Some(1), Some(2), Some(3), Some(4), None];
-/// `weaponhandlingscript`: the swing sound waits `0.1 / speed` seconds.
+/// `weaponhandlingscript`. The swing sound waits `0.1 / speed` seconds.
 const SWING_SOUND_DELAY: f32 = 0.1;
-/// `meleeweaponscript`: the hit sound waits 0.125 s after the swing starts.
+/// `meleeweaponscript`. The hit sound waits 0.125 s after the swing starts.
 const HIT_SOUND_DELAY: f32 = 0.125;
 const OVERLAP_CAPACITY: usize = 32;
 
@@ -321,7 +321,7 @@ impl MeleeState {
         } else if !self.started_attack {
             self.attack_type = 0;
         }
-        // meleeweaponscript.Update: the grips move to the pose of the attack type.
+        // meleeweaponscript.Update. The grips move to the pose of the attack type.
         for (side, poses) in weapon.hand_poses.iter().enumerate() {
             if let Some(target) = poses.get(self.attack_type) {
                 let grip = &mut self.grips[side];
@@ -369,7 +369,7 @@ impl MeleeState {
             &mut self.started_attack,
         );
         let m = &mut self.motions[self.weapons[w].motion];
-        // animationEventScript: OnStateEnter is AttackStart, OnStateExit is AttackEnd.
+        // animationEventScript. OnStateEnter is AttackStart, OnStateExit is AttackEnd.
         m.controller.advance(&m.motion, dt, |event| match event {
             StateEvent::Enter(_) => {
                 *attacking += 1;
@@ -384,7 +384,7 @@ impl MeleeState {
             }
         });
     }
-    /// The weapon left the hand or changed: the animator is off and RH returns to `defRH`.
+    /// The weapon left the hand or changed. The animator is off and RH returns to `defRH`.
     fn leave(&mut self) {
         let Some(w) = self.current.take() else {
             return;
@@ -607,13 +607,13 @@ fn weapon_index<'a>(
     pickups.position(|p| p == pickup)
 }
 
-/// The original swaps `runtimeAnimatorController` to the held weapon's controller: the
+/// The original swaps `runtimeAnimatorController` to the held weapon's controller. The
 /// animator of a weapon that leaves the hand or changes restarts.
 fn resets(current: Option<usize>, held: Option<usize>) -> bool {
     current.is_some() && current != held
 }
 
-/// Source `Quaternion.LookRotation(dir, up)` in converted space: source +Z is -Z.
+/// Source `Quaternion.LookRotation(dir, up)` in converted space. Source +Z is -Z.
 pub fn look_rotation(direction: Vector) -> Rotation {
     let back = -direction.normalize();
     let right = Vector::Y.cross(back).try_normalize().unwrap_or(Vector::X);

@@ -69,7 +69,7 @@ impl DitherSequence {
         self.seeds[a] = value;
         self.next = a;
         self.next_pair = b;
-        // Exact installed double literal; source then converts each NextDouble to float.
+        // This is the exact installed double literal. The source then converts each NextDouble to float.
         (f64::from(value) * f64::from_bits(0x3e00000000200000)) as f32
     }
     pub fn render(&mut self, extent: [u32; 2]) -> (usize, [f32; 4]) {

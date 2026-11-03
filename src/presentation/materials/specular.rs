@@ -45,6 +45,9 @@ impl SpecularMaterial {
     pub fn use_gpu_props(&mut self) {
         self.gpu_props = true;
     }
+    pub fn receiver_mask(&self) -> u32 {
+        self.receiver_mask
+    }
     /// Linear color.
     pub fn color(&self) -> Vec4 {
         self.uniform.color
@@ -132,7 +135,8 @@ impl SpecularMaterial {
             .ok_or_else(|| ReferenceError("Missing specular _MainTex_ST".into()))?;
         uniform.uv = [Vec4::from_array(uv); 9];
         uniform.defaults[1] = Vec4::new(0.5, 0.5, 1., 1.);
-        // Checked shader's null emission default is white; its source emission color is zero.
+        // The null emission default of the checked shader is white.
+        // Its source emission color is zero.
         if uniform.emission.truncate() != Vec3::ZERO {
             return Err(ReferenceError(
                 "Unresolved nonzero null specular emission".into(),
@@ -232,9 +236,6 @@ impl Material for SpecularMaterial {
                 attributes.push(attribute.at_shader_location(location as u32));
             }
         }
-        attributes.push(crate::presentation::renderers::SOURCE_BOUNDS_CENTER.at_shader_location(8));
-        attributes
-            .push(crate::presentation::renderers::SOURCE_BOUNDS_EXTENTS.at_shader_location(9));
         descriptor.vertex.buffers = vec![layout.0.get_layout(&attributes)?];
         if let Some(depth) = &mut descriptor.depth_stencil {
             depth.format = crate::presentation::render_targets::DEPTH_FORMAT;
@@ -255,6 +256,8 @@ impl Material for SpecularMaterial {
                 .push(ShaderDefVal::Bool("SOURCE_GPU_PROPS".into(), true));
         }
         if let Some(fragment) = &mut descriptor.fragment {
+            // source_surface.wgsl also has the `depth` prepass entry. WebGPU needs a named entry.
+            fragment.entry_point = Some("fragment".into());
             fragment.shader_defs.extend([
                 ShaderDefVal::Bool("SOURCE_SURFACE".into(), true),
                 ShaderDefVal::Bool("SOURCE_STANDARD".into(), true),
@@ -271,7 +274,7 @@ impl Material for SpecularMaterial {
     }
 }
 impl AsBindGroup for SpecularMaterial {
-    /// Reflected transform and GPU prop rows.
+    /// Flags for a reflected transform and for GPU prop rows.
     type Data = (bool, bool);
     type Param = (
         <SourceReceiver as AsBindGroup>::Param,

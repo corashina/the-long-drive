@@ -54,7 +54,7 @@ pub(crate) fn sync(
     let manifest = &reference.0;
     let r = &manifest.creatures.human;
     let humans = &mut *humans;
-    // A rig error is logged once and stops the human visuals.
+    // The renderer logs a rig error once and stops the human visuals.
     let rig = humans.rig.get_or_insert_with(|| {
         Rig::rest(&manifest.nodes, r.root)
             .inspect_err(|error| error!("Human rig: {error}"))

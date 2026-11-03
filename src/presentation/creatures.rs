@@ -87,7 +87,7 @@ pub(crate) fn sync(
     let manifest = &reference.0;
     let r = &manifest.creatures.rabbit;
     let creatures = &mut *creatures;
-    // A rig error is logged once and stops the rabbit visuals.
+    // The renderer logs a rig error once and stops the rabbit visuals.
     let rig = creatures.rig.get_or_insert_with(|| {
         Rig::new(&manifest.nodes, r.root, &r.animator)
             .inspect_err(|error| error!("Rabbit rig: {error}"))

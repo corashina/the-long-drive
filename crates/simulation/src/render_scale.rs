@@ -94,13 +94,13 @@ mod tests {
         // One slow window does not change the scale.
         assert_eq!(auto.window(20., budget).percent(), 100);
         assert_eq!(auto.window(20., budget).percent(), 85);
-        // The settling window is ignored.
+        // The step ignores the settling window.
         assert_eq!(auto.window(30., budget).percent(), 85);
         for _ in 0..20 {
             auto.window(30., budget);
         }
         assert_eq!(auto.scale().percent(), 50);
-        // Under budget but too close for a raise: hold, no flip.
+        // The time is under budget but too close for a raise. Hold the scale so it does not flip.
         for _ in 0..10 {
             assert_eq!(auto.window(10., budget).percent(), 50);
         }

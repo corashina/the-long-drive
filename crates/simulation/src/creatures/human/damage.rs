@@ -9,7 +9,7 @@ use rapier3d::prelude::ColliderHandle;
 
 /// `breakablescript.OnCollisionEnter` of an AI ignores colliders on these layers.
 const IGNORED_HIT_LAYERS: [u32; 2] = [15, 17];
-/// `DamageFrom`: the target moves this far from the body toward the hit.
+/// `DamageFrom`. The target moves this far from the body toward the hit.
 const DAMAGE_FROM_DISTANCE: f32 = 5.;
 
 /// Per live collider: `GetComponentInParent<breakchilds>` as an index in `breakable.children`.
@@ -36,7 +36,7 @@ pub(super) fn children(r: &HumanReference, nodes: &[NodeRecord]) -> Vec<Option<u
         .collect()
 }
 
-/// `DamageFrom`: `sleeping = false`; the target goes `5` m from the body along `direction`.
+/// `DamageFrom` sets `sleeping = false`. The target goes `5` m from the body along `direction`.
 fn damage_from(physics: &PhysicsWorld, human: &mut Human, direction: Vector) {
     human.sleeping = false;
     let position = physics.rapier().bodies[human.body].translation();
@@ -139,7 +139,7 @@ impl Humans {
         }
         for pair in physics.trigger_enters() {
             for (k, own) in pair.iter().enumerate() {
-                // `c.attachedRigidbody`: a static collider does not break the human.
+                // `c.attachedRigidbody`. A static collider does not break the human.
                 let Some(other) = rapier
                     .colliders
                     .get(pair[1 - k])

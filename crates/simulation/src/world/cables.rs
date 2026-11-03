@@ -1,5 +1,7 @@
 //! Source power cable math: rope aim, pole selection and cable recipes.
-use super::source_lights::{RoadPole, object_node, record, road_controller, transform_node};
+use super::source_lights::{
+    RoadPole, object_node, record, road_controller, road_prototype, transform_node,
+};
 use super::spawn_rules::{array, link, optional, value_link};
 use super::{AbsolutePose, NodeAppearance, Placement, RoadIndex, RoadSegment, WorldBounds};
 use crate::reference::{
@@ -19,7 +21,7 @@ pub struct NodePose {
     pub scale: [f32; 3],
 }
 
-/// Source `ropeScript.Connect`: LookAt the target, localScale z = distance / 100.
+/// Source `ropeScript.Connect`. The rope looks at the target and sets localScale z to distance / 100.
 /// Port forward is -Z and up is +Y. Returns the local rotation and scale z.
 pub fn aim(rope: [f64; 3], parent_rotation: Rotation, target: [f64; 3]) -> ([f32; 4], f32) {
     let delta = [0, 1, 2].map(|i| target[i] - rope[i]);
@@ -41,7 +43,7 @@ pub fn aim(rope: [f64; 3], parent_rotation: Rotation, target: [f64; 3]) -> ([f32
 }
 
 /// Source `roadGenScript.CheckCableConnections`.
-/// A pole with target 0 under 200 m and nearer than the best distance is kept.
+/// The search keeps a pole with target 0 under 200 m and nearer than the best distance.
 /// Its nearest target distance becomes the best distance.
 pub fn nearest_target<'a>(
     rope0: [f64; 3],
@@ -202,7 +204,7 @@ impl BuildingCable {
         self.world(&self.ropes[0], pose, scale).0
     }
     /// Source `ropeScript.Connect(target, k)` after `CheckCableConnections`.
-    /// No target: no output, the root stays inactive.
+    /// With no target, there is no output and the root stays inactive.
     pub fn connect(
         &self,
         pose: AbsolutePose,
@@ -259,17 +261,6 @@ fn prototype<'a>(
 fn ropes_bytes(ropes: &Vec<Rope>) -> usize {
     ropes.capacity() * std::mem::size_of::<Rope>()
         + ropes.iter().map(|r| r.node.file.capacity()).sum::<usize>()
-}
-fn road_prototype<'a>(
-    world: &'a WorldReference,
-    segment: &RoadSegment,
-) -> &'a WorldPrototypeReference {
-    let source = &world.road.prototypes[segment.biome as usize];
-    world
-        .prototypes
-        .iter()
-        .find(|p| &p.source == source)
-        .unwrap()
 }
 impl CableRecipes {
     pub fn new(world: &WorldReference, seed: i32) -> Result<Self, ReferenceError> {
@@ -408,7 +399,7 @@ impl PoleSearch {
     pub fn rope0(&self) -> Option<[f64; 3]> {
         self.rope0
     }
-    /// Source `CheckCableConnections` reads the roads that exist at `FStart`: use the prepared prefix.
+    /// Source `CheckCableConnections` reads the roads that exist at `FStart`. Use the prepared prefix.
     pub fn start(&mut self, roads: &RoadIndex, rope0: [f64; 3]) {
         assert_eq!(
             roads.segments_in(range(rope0), roads.coverage(), &mut self.segments),

@@ -35,8 +35,8 @@ struct CasterBinding {
     uniform: UniformBuffer<CasterUniform>,
     binding: BindGroup,
 }
-/// Slots 0..3 are the four source cascades. Then 6 faces for each lamp slot; only the world view uses them.
-/// Each source view owns this component; queued views never overwrite another view's state.
+/// Slots 0..3 are the four source cascades. Then 6 faces for each lamp slot. Only the world view uses them.
+/// Each source view owns this component. Queued views never overwrite another view's state.
 #[derive(Component)]
 pub struct CasterViews {
     slots: [CasterBinding; super::lamp_shadows::TILES],
@@ -114,7 +114,7 @@ pub struct CasterPasses {
     /// Active caster pipelines by descriptor. Bases that differ only in surface state share one.
     active: Vec<(RenderPipelineDescriptor, CachedRenderPipelineId)>,
 }
-/// Surface-only defs. The caster shader and its imports do not read them.
+/// Shader defs that only the surface shader reads. The caster shader and its imports do not read them.
 fn surface_only(def: &ShaderDefVal) -> bool {
     let (ShaderDefVal::Bool(name, _) | ShaderDefVal::Int(name, _) | ShaderDefVal::UInt(name, _)) =
         def;
@@ -198,7 +198,7 @@ impl CasterPasses {
                 .filter_map(|(_, id)| *id)
                 .all(|id| cache.get_render_pipeline(id).is_some())
     }
-    /// Called during preparation. Descriptors are cloned only once per new source surface variant.
+    /// Called during preparation. It clones the descriptors only once for each new source surface variant.
     pub(crate) fn prepare(
         &mut self,
         cache: &PipelineCache,
@@ -225,6 +225,7 @@ impl CasterPasses {
             let world_shader = flag(&fragment.shader_defs, "SOURCE_WORLD") == Some(true);
             if flag(&fragment.shader_defs, "SOURCE_SURFACE") != Some(true) && !world_shader
                 || flag(&fragment.shader_defs, "SOURCE_FORWARD_ADD") == Some(true)
+                || flag(&fragment.shader_defs, super::surface_pass::PREPASS) == Some(true)
             {
                 continue;
             }
@@ -261,7 +262,16 @@ impl CasterPasses {
                 &mut descriptor.vertex.shader_defs,
                 &mut fragment.shader_defs,
             ] {
-                defs.retain(|v|!matches!(v,ShaderDefVal::Bool(n,_)if n=="SOURCE_SURFACE"||n=="SOURCE_FORWARD_ADD"||n=="SOURCE_FORWARD_ONE"||n=="SOURCE_LAMPS"||n=="SOURCE_WORLD"));
+                defs.retain(|v| {
+                    !matches!(v, ShaderDefVal::Bool(n, _) if matches!(
+                        n.as_str(),
+                        "SOURCE_SURFACE"
+                            | "SOURCE_FORWARD_ADD"
+                            | "SOURCE_FORWARD_ONE"
+                            | "SOURCE_LAMPS"
+                            | "SOURCE_WORLD"
+                    ))
+                });
                 defs.retain(|v| !surface_only(v));
                 defs.push(ShaderDefVal::Bool("SOURCE_CASTER".into(), true));
                 if world_shader {

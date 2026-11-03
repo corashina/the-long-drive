@@ -111,7 +111,7 @@ impl WorldStream {
             })
         };
         let axis = |f: Fields, names: [&str; 3]| -> Result<usize, ReferenceError> {
-            // Source checks X, then Y, then Z; none falls back to X.
+            // Source checks X, then Y, then Z. If none matches, it falls back to X.
             for (i, n) in names.iter().enumerate() {
                 if flag(f, n)? {
                     return Ok(i);
@@ -295,7 +295,7 @@ impl WorldStream {
         items.mark_dirty(b.item);
         true
     }
-    /// The tuned value saved with a dial item; None at the source default.
+    /// The tuned value saved with a dial item. It is None at the source default.
     pub(super) fn dial_value(&self, item: ItemId) -> Option<Option<f32>> {
         self.kinds
             .dials
@@ -314,7 +314,7 @@ impl WorldStream {
                 .expose(emps, Vector::from_array(item.pose.position), e.layer, dt);
         }
     }
-    /// compassscript, clockscript, meterscript, mutatoscript and forgoszamlap updates.
+    /// Runs the compassscript, clockscript, meterscript, mutatoscript and forgoszamlap updates.
     pub fn advance_dials(&mut self, dt: f32, cycle_fraction: f32, items: &ItemStore) {
         if !dt.is_finite() || dt < 0. {
             return;

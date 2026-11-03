@@ -1,4 +1,4 @@
-//! Dedicated source layer18 draw pass, before the camera passes.
+//! The dedicated source layer18 draw pass. It runs before the camera passes.
 use super::displacement::{GrassCamera, GrassFrameUniform, GrassGpu, GrassGpuData};
 use bevy::{
     core_pipeline::schedule::RootNonCameraView,
@@ -101,7 +101,6 @@ fn spawn_pass(mut commands: Commands) {
 }
 fn init(
     mut commands: Commands,
-    _device: Res<RenderDevice>,
     cache: Res<PipelineCache>,
     shaders: Res<crate::presentation::fixed_assets::AdmittedShaders>,
     pass: Option<Res<WriterPass>>,
@@ -208,14 +207,14 @@ fn extract_one(
         pass.active = false;
         return;
     }
-    if !gpu.0.contains_key(&input.session) {
-        let created = GrassGpuData::new(&device);
+    if let std::collections::hash_map::Entry::Vacant(entry) = gpu.0.entry(input.session) {
+        let created = GrassGpuData::new(device);
         pass.frame_group = Some(device.create_bind_group(
             "Grass displacement camera",
             &pass.frame_layout,
             &BindGroupEntries::single(created.uniform.as_entire_binding()),
         ));
-        gpu.0.insert(input.session, created);
+        entry.insert(created);
     }
     let gpu = gpu.0.get(&input.session).expect("admitted Grass target");
     pass.status = Arc::clone(&input.status);
@@ -233,7 +232,7 @@ fn extract_one(
     }
     pass.active = input.frame.is_some();
     if let Some(frame) = input.frame {
-        gpu.update(&queue, frame);
+        gpu.update(queue, frame);
     }
     pass.writers
         .retain(|entity, _| input.writers.iter().any(|writer| writer.entity == *entity));
@@ -403,13 +402,6 @@ impl GrassWriters {
             "status": format!("{:?}", *self.status.lock().unwrap()),
             "ready": self.ready().ok(),
         })
-    }
-    pub fn release_all(&mut self) {
-        self.writers.clear();
-        self.pending.clear();
-        self.allocations.clear();
-        self.admitted = false;
-        self.frame = None;
     }
     pub fn drained(&self) -> bool {
         !self.pending_gpu.load(Ordering::Acquire)

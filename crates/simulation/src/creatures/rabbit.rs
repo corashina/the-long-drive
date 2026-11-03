@@ -46,7 +46,7 @@ impl Size {
             rot_speed: lerp(z.rot_speed, size),
         }
     }
-    /// `SetMass`: the loop writes `RB.mass` for each bone, so the live body keeps one share.
+    /// `SetMass`. The loop writes `RB.mass` for each bone, so the live body keeps one share.
     pub fn live_mass(&self, r: &RabbitReference) -> f32 {
         self.mass / r.ragdoll.bodies.len() as f32
     }
@@ -69,7 +69,7 @@ pub enum Death {
     Shot,
     /// `breakablescript.OnCollisionEnter`.
     Hit,
-    /// `aiscript.Update`: the velocity changed above `accelerationDeath` in one step.
+    /// `aiscript.Update`. The velocity changed above `accelerationDeath` in one step.
     Speed,
     /// The `PlayerDeathTrigger` of an evil rabbit.
     Bite,
@@ -78,7 +78,7 @@ pub enum Death {
 pub struct Rabbit {
     /// Runtime id for frame rows.
     pub id: u32,
-    /// The live body. Invalid once the bones replace it.
+    /// The live body. It is invalid once the bones replace it.
     pub body: RigidBodyHandle,
     pub size: Size,
     /// `breakablescript.health` and `shootHealth`.
@@ -98,7 +98,8 @@ pub struct Rabbit {
     pub alive: bool,
     /// What killed the rabbit in this session. Saves do not keep it.
     pub death: Option<Death>,
-    /// `itemPlaceRemoveScript`: kinematic beyond `itemFreezeDist` until `itemUnFreezeDist`.
+    /// `itemPlaceRemoveScript`. The body is kinematic beyond `itemFreezeDist` until
+    /// `itemUnFreezeDist`.
     pub frozen: bool,
     /// False while frozen or while the world has no collision around the rabbit. The body is off.
     pub active: bool,
@@ -122,7 +123,7 @@ impl Rabbit {
 }
 
 /// Inserts the live body at `pose` with the anim colliders at their rig rest frames.
-/// Bone colliders sit on kinematic bones in the source: they take no contact forces here.
+/// Bone colliders sit on kinematic bones in the source. They take no contact forces here.
 /// The attack trigger starts off. Returns the body, the anim colliders and the trigger.
 pub fn insert_body(
     r: &RabbitReference,

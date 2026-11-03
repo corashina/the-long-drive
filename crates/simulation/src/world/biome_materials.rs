@@ -1,7 +1,7 @@
-//! Source `materialChangeScript`: a renderer under the script takes the biome material of its set.
+//! Source `materialChangeScript`. A renderer under the script takes the biome material of its set.
 use crate::reference::{SourceId, WorldBiomeMaterialSet, WorldPrototypeReference};
 
-/// Desert material to winter and grass materials, sorted by desert material.
+/// Maps each desert material to its winter and grass materials, sorted by desert material.
 pub struct BiomeMaterials(Vec<(SourceId, [Option<SourceId>; 2])>);
 impl BiomeMaterials {
     pub fn new(sets: &[WorldBiomeMaterialSet]) -> Self {

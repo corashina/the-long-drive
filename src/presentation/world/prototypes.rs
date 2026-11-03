@@ -60,64 +60,6 @@ impl Plugin for SourcePrototypePlugin {
     }
 }
 impl SourcePrototypes {
-    pub fn cancel(&mut self) {
-        for e in &mut self.entries {
-            e.retired = true;
-        }
-    }
-    pub fn drain_ready(
-        &mut self,
-        server: &AssetServer,
-        assets: &Assets<SourceGltf>,
-        plans: &Assets<SourcePlan>,
-    ) -> bool {
-        for e in &mut self.entries {
-            let terminal = match &e.state {
-                State::PlanLoading(job) => super::preflight::plan_terminal(server, plans, job),
-                State::Loading { asset, .. } => {
-                    assets.contains(asset.id())
-                        || matches!(server.load_state(asset.id()), LoadState::Failed(_))
-                }
-                _ => true,
-            };
-            if !e.state.can_retire(terminal) {
-                return false;
-            }
-        }
-        true
-    }
-    pub fn release_all(
-        self,
-        assets: &mut Assets<SourceGltf>,
-        _plans: &mut Assets<SourcePlan>,
-        meshes: &mut Assets<Mesh>,
-        skins: &mut Assets<SkinnedMeshInverseBindposes>,
-    ) {
-        for e in self.entries {
-            let asset = match e.state {
-                State::Ready(loaded) if Arc::strong_count(&loaded) == 1 => {
-                    Some(loaded.asset.clone())
-                }
-                State::Loading { asset, .. } => Some(asset),
-                _ => None,
-            };
-            if let Some(asset) = asset.and_then(|h| assets.remove(h.id())) {
-                for m in asset.meshes {
-                    meshes.remove(m.id());
-                }
-                for s in asset.inverse_bindposes {
-                    skins.remove(s.id());
-                }
-            }
-        }
-    }
-
-    pub fn settled(&self) -> bool {
-        self.entries
-            .iter()
-            .all(|e| matches!(e.state, State::Ready(_)))
-    }
-
     pub fn request(
         &mut self,
         stream: &RendererWorld,
@@ -546,7 +488,7 @@ impl SourcePrototypes {
                             "Source primitive count changed after preflight".into(),
                         ));
                     }
-                    // Keep both main-world data and render extraction/upload copies charged.
+                    // Keep both main-world data and render extraction and upload copies charged.
                     let cpu = loaded.mesh_bytes * 2
                         + loaded.skin_bytes * 2
                         + retained_plan_bytes(plan)
@@ -587,14 +529,14 @@ impl SourcePrototypes {
                 State::Loading { asset, .. } => Some(asset),
                 _ => None,
             };
-            if let Some(handle) = asset {
-                if let Some(asset) = assets.remove(handle.id()) {
-                    for mesh in asset.meshes {
-                        meshes.remove(mesh.id());
-                    }
-                    for skin in asset.inverse_bindposes {
-                        skins.remove(skin.id());
-                    }
+            if let Some(handle) = asset
+                && let Some(asset) = assets.remove(handle.id())
+            {
+                for mesh in asset.meshes {
+                    meshes.remove(mesh.id());
+                }
+                for skin in asset.inverse_bindposes {
+                    skins.remove(skin.id());
                 }
             }
         }

@@ -78,7 +78,7 @@ pub fn step_surface_bits(surface: Option<crate::reference::StepSurface>) -> u128
 }
 /// Collider user data bits 35 to 38 hold the source tag code. 0 is none.
 pub const TAG_SHIFT: u32 = 35;
-pub const TAG_MASK: u128 = 0b1111 << TAG_SHIFT;
+const TAG_MASK: u128 = 0b1111 << TAG_SHIFT;
 pub fn tag_bits(tag: Option<crate::reference::ColliderTag>) -> u128 {
     tag.map_or(0, |t| (t as u128 + 1) << TAG_SHIFT)
 }
@@ -120,7 +120,7 @@ impl HitCollector {
         std::mem::swap(out, &mut *hits);
     }
     /// Moves the recorded sensor intersections into `out` without allocation.
-    pub fn take_enters(&self, out: &mut Vec<[ColliderHandle; 2]>) {
+    fn take_enters(&self, out: &mut Vec<[ColliderHandle; 2]>) {
         let mut enters = self.enters.lock().unwrap();
         out.clear();
         std::mem::swap(out, &mut *enters);
@@ -206,17 +206,6 @@ pub struct VehicleSnapshot {
     pub angular_velocity: [f32; 3],
 }
 
-impl VehicleSnapshot {
-    pub fn absolute_speed_kmh(&self) -> f32 {
-        self.linear_velocity
-            .iter()
-            .map(|v| v * v)
-            .sum::<f32>()
-            .sqrt()
-            * 3.6
-    }
-}
-
 pub struct PhysicsWorld {
     body_mass_override: Option<mass::BodyMassOverride>,
     /// Locked item mass on non-vehicle bodies. `set_body_mass` adds it.
@@ -270,36 +259,15 @@ impl PhysicsWorld {
     /// A world with no vehicles and no gravity.
     #[cfg(test)]
     pub fn empty_for_tests() -> Self {
-        let mut physics = rapier3d::prelude::PhysicsWorld::new();
-        physics.integration_parameters.dt = FIXED_DT;
-        physics.gravity = Vector::ZERO;
-        Self {
-            body_mass_override: None,
-            body_cargo: Vec::new(),
-            center_of_mass: Vec::new(),
-            inactive_bodies: Default::default(),
-            physics,
-            query_bounds: QueryBounds::default(),
-            presentation_bodies: Default::default(),
-            chassis: Vec::new(),
-            vehicles: HashMap::new(),
-            hit_collector: Default::default(),
-            hits: Vec::new(),
-            trigger_enters: Vec::new(),
-            ignored: Default::default(),
-            sleep_speed:
-                rapier3d::prelude::RigidBodyActivation::default_normalized_linear_threshold(),
-        }
-    }
-    pub fn vehicle_count(&self) -> usize {
-        self.vehicles.len()
+        let mut physics = Self::empty(0, 0);
+        physics.physics.gravity = Vector::ZERO;
+        physics
     }
     /// Vehicle keys in no fixed order.
     pub fn vehicle_keys(&self) -> impl Iterator<Item = &ObjectKey> {
         self.vehicles.keys()
     }
 
-    /// Returns the vehicle whose chassis is `body`.
     /// Maximum steer angle of the vehicle on chassis `body`, in radians.
     pub fn max_steer(&self, body: RigidBodyHandle) -> Option<f32> {
         self.vehicles
@@ -307,6 +275,7 @@ impl PhysicsWorld {
             .find(|vehicle| vehicle.chassis == body)
             .map(|vehicle| vehicle.max_steer)
     }
+    /// Returns the vehicle whose chassis is `body`.
     pub fn vehicle_of(&self, body: RigidBodyHandle) -> Option<&ObjectKey> {
         if !self.chassis.contains(&body) {
             return None;
@@ -450,8 +419,11 @@ impl PhysicsWorld {
             self.query_bounds.mark_simulated_body(body);
             self.presentation_bodies.mark(body);
         }
+        self.presentation_bodies
+            .begin_step(&self.physics.bodies, self.physics.islands.active_bodies());
         self.physics
             .step_with_events(&self.ignored, &self.hit_collector);
+        self.presentation_bodies.end_step(&self.physics.bodies);
         self.hit_collector.take(&mut self.hits);
         self.hit_collector.take_enters(&mut self.trigger_enters);
         for body in self.physics.islands.active_bodies() {
@@ -500,7 +472,7 @@ impl PhysicsWorld {
         self.vehicle(key).driven_wheel_count()
     }
 
-    /// Sets the vehicle mass without locked cargo. The cargo mass is added.
+    /// Sets the vehicle mass without locked cargo. It adds the cargo mass.
     pub fn set_vehicle_mass(&mut self, key: &ObjectKey, mass_kg: f32) {
         let vehicle = self.vehicle(key);
         let (chassis, mass_kg) = (vehicle.chassis, mass_kg + vehicle.cargo_mass);
@@ -534,12 +506,8 @@ impl PhysicsWorld {
             index,
             wheel::resolve_profile(&vehicle.rules[index], &vehicle.slip, assembly),
         );
-        self.query_bounds.mark_body(vehicle.chassis);
-        let body = &mut self.physics.bodies[vehicle.chassis];
-        let before = BodyPresentationState::capture(body);
-        body.wake_up(true);
-        self.presentation_bodies
-            .mark_if_changed(vehicle.chassis, before, body);
+        let chassis = vehicle.chassis;
+        self.edit_body(chassis, |body| body.wake_up(true));
     }
 
     pub fn rapier(&self) -> &rapier3d::prelude::PhysicsWorld {
@@ -650,24 +618,6 @@ impl PhysicsWorld {
         self.refresh_queries();
     }
 
-    pub fn insert_mesh_at(
-        &mut self,
-        vertices: &[[f32; 3]],
-        indices: &[[u32; 3]],
-        position: [f32; 3],
-    ) -> ColliderHandle {
-        let mesh = ColliderBuilder::trimesh(
-            vertices.iter().copied().map(Vector::from_array).collect(),
-            indices.to_vec(),
-        )
-        .expect("Static mesh must contain valid triangles")
-        .friction(0.8)
-        .translation(Vector::from_array(position));
-        let handle = self.insert_collider(mesh);
-        self.refresh_queries();
-        handle
-    }
-
     /// Fallible source mesh publication leaves existing collision untouched on failure.
     /// `grid` is the tile size when the surface is a regular terrain grid
     /// (`terrain::regular_grid`). Such a surface becomes a heightfield, else a triangle mesh.
@@ -761,6 +711,7 @@ impl PhysicsWorld {
 
     pub fn rebase(&mut self, shift: [f32; 3]) {
         let shift = Vector::from_array(shift);
+        self.presentation_bodies.rebase(shift);
         for (handle, body) in self.physics.bodies.iter_mut() {
             if self.inactive_bodies.contains(&handle) {
                 continue;
@@ -797,7 +748,7 @@ impl PhysicsWorld {
     }
 }
 
-/// Wheel ray rule: never the own body, and of vehicle colliders only chassis.
+/// Wheel ray rule. The ray never hits its own body, and of vehicle colliders it hits only chassis.
 fn wheel_ground(
     own: RigidBodyHandle,
     chassis: &[RigidBodyHandle],

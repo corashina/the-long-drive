@@ -219,7 +219,7 @@ impl CigaretteState {
         self.ember.update(&r.ember, dt);
         ate
     }
-    /// `UpdParts`: part poses lerp from end to start by hp.
+    /// `UpdParts`. Part poses lerp from end to start by hp.
     pub fn part_blend(&self) -> f32 {
         self.hp
     }

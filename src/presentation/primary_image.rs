@@ -153,7 +153,7 @@ impl AssetLoader for SourcePrimaryImageLoader {
             if index == 0 {
                 bytes.reserve_exact(byte_count);
             }
-            // Taking drops the decoded capacity; the retained base Image keeps no pixel allocation.
+            // Taking drops the decoded capacity. The retained base Image keeps no pixel allocation.
             bytes.extend_from_slice(&image.data.take().expect("checked mip bytes"));
             if index == 0 {
                 assembled = Some(image);

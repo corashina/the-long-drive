@@ -10,7 +10,6 @@ pub const HUMAN_BONES: usize = 55;
 pub const MUSCLES: usize = 95;
 /// Humanoid clip attributes: `RootT` 7..10, `RootQ` 10..14, muscles 42..137.
 pub const ROOT_T: u32 = 7;
-pub const ROOT_Q: u32 = 10;
 pub const FIRST_MUSCLE: u32 = 42;
 
 /// Avatar `m_AxesArray` entry of one human bone.
@@ -58,7 +57,7 @@ pub struct HumanoidClip {
     /// `m_Mirror` and `m_CycleOffset`.
     pub mirror: bool,
     pub cycle_offset: f32,
-    /// `m_LoopBlendOrientation`, `m_LoopBlendPositionXZ` and `m_LoopBlendPositionY`: bake the yaw,
+    /// `m_LoopBlendOrientation`, `m_LoopBlendPositionXZ` and `m_LoopBlendPositionY`. They bake the yaw,
     /// the ground position and the height into the pose.
     pub bake_orientation: bool,
     pub bake_position: bool,
@@ -84,7 +83,7 @@ pub struct HumanoidReference {
     pub root: NodeId,
     /// `HUMAN_BONES` entries in Mecanim order. Missing bones are null.
     pub bones: Vec<Option<HumanoidBone>>,
-    /// `m_Human.m_Scale`: `RootT` is in units of it.
+    /// `m_Human.m_Scale`. `RootT` is in units of it.
     pub scale: f32,
     /// `m_HumanBoneMass` of the 25 body bones.
     pub masses: Vec<f32>,

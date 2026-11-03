@@ -5,7 +5,7 @@ use crate::reference::ReferenceManifest;
 use crate::starting_area::GarageRuntime;
 use rapier3d::math::{Pose, Rotation, Vector};
 
-/// Source `tosaveitemscript` sync check interval.
+/// The sync check interval of source `tosaveitemscript`.
 pub const POSE_INTERVAL: f32 = 1.;
 
 #[derive(Default)]
@@ -16,7 +16,7 @@ pub struct CreatureSync {
 }
 
 impl CreatureSync {
-    /// Host: every rabbit each `POSE_INTERVAL`, and each new death at once.
+    /// The host sends every rabbit each `POSE_INTERVAL`, and each new death at once.
     pub fn send(&mut self, slot: u8, runtime: &GarageRuntime, dt: f32, out: &mut Vec<u8>) {
         self.timer += dt;
         let due = self.timer >= POSE_INTERVAL;

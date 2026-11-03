@@ -45,7 +45,7 @@ impl BoxReleases {
     fn release_of(&self, id: &GeneratedId) -> Option<&BoxRelease> {
         self.released.iter().find(|r| self.content_of(&r.id, id))
     }
-    /// Source spawned flag: content of an intact box does not publish.
+    /// Source spawned flag. The content of an intact box does not publish.
     pub fn withheld(&self, id: &GeneratedId) -> bool {
         self.is_content(id) && self.release_of(id).is_none()
     }
@@ -143,7 +143,7 @@ impl WorldStream {
         });
         self.boxes.changes = Some(self.changes.revision());
     }
-    /// mountStuff.Unstore: a broken box releases its content at its current pose.
+    /// mountStuff.Unstore. A broken box releases its content at its current pose.
     /// Run before `remove_broken_item`. A box releases once.
     pub(super) fn break_box(&mut self, item: ItemId, items: &ItemStore) {
         let Some(state) = items.get(item) else {

@@ -34,14 +34,14 @@ pub struct Human {
     pub id: u32,
     /// The world placement. It is the save identity.
     pub key: ObjectKey,
-    /// The live root body. Invalid after `Die`.
+    /// The live root body. It is invalid after `Die`.
     pub body: RigidBodyHandle,
     pub died: bool,
     pub sleeping: bool,
-    /// Source `first`: `Update` wakes a sleeping human.
+    /// Source `first`. `Update` wakes a sleeping human.
     pub first: bool,
     pub voice_pitch: f32,
-    /// Source `patrolCurrentTime`, set by `NewPatrolTime`.
+    /// Source `patrolCurrentTime`, which `NewPatrolTime` sets.
     pub patrol_time: f32,
     /// Source `target` position.
     pub target: Vector,
@@ -95,7 +95,7 @@ pub struct Humans {
 }
 
 /// Pose of `node` under the prefab `root`, from the rest transforms. Parent scales move the
-/// children; the pose itself has no scale.
+/// children. The pose itself has no scale.
 fn model_pose(nodes: &[NodeRecord], root: NodeId, node: NodeId) -> Result<Pose, ReferenceError> {
     let find = |id: NodeId| {
         nodes
@@ -117,7 +117,7 @@ fn model_pose(nodes: &[NodeRecord], root: NodeId, node: NodeId) -> Result<Pose, 
     for n in chain.iter().rev() {
         let t = &n.transform;
         pose.translation += pose.rotation * (scale * Vector::from_array(t.translation));
-        pose.rotation = pose.rotation * Rotation::from_array(t.rotation);
+        pose.rotation *= Rotation::from_array(t.rotation);
         scale *= Vector::from_array(t.scale);
     }
     Ok(pose)
@@ -476,7 +476,7 @@ impl Humans {
         }
     }
 
-    /// `Die`: `SetRagdol(true)` replaces the live body with the bones, at the rest pose and
+    /// `Die`. `SetRagdol(true)` replaces the live body with the bones, at the rest pose and
     /// the live velocity. `poses` gives saved bone poses instead.
     pub fn die(
         &mut self,
@@ -522,7 +522,7 @@ impl Humans {
         Ok(&human.bones)
     }
 
-    /// Spawns a saved human: Instantiate at the saved pose, then `save_newai.SetTosave`.
+    /// Spawns a saved human. It instantiates at the saved pose, then calls `save_newai.SetTosave`.
     /// The caller calls `die` for a saved dead human.
     pub fn restore(
         &mut self,
@@ -561,7 +561,7 @@ impl Humans {
             .collect()
     }
 
-    /// `itemPlaceRemoveScript.RemoveItems`: each human that `remove` selects by its local root
+    /// `itemPlaceRemoveScript.RemoveItems`. Each human that `remove` selects by its local root
     /// position goes to the far humans. The caller releases the bone items and bodies in `bones`.
     pub fn unload(
         &mut self,
@@ -644,7 +644,7 @@ fn snapshot(physics: &PhysicsWorld, origin: &WorldOrigin, h: &Human) -> HumanSna
         rotation: pose.rotation.to_array(),
     };
     let pose = if h.died {
-        // The prefab root stays where `Die` left it; the first bone stands in for it.
+        // The prefab root stays where `Die` left it. The pose of the first bone replaces it.
         root_pose(physics, h)
     } else {
         *physics.rapier().bodies[h.body].position()

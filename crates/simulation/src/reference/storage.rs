@@ -1,5 +1,5 @@
 //! Checked source `mountStuff` storage volumes, policy, and item flags.
-use super::{ItemId, ReferenceError, ReferenceManifest, SourceId, require};
+use super::{ItemId, ReferenceError, ReferenceManifest, SourceId, finite, require};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -35,7 +35,7 @@ pub struct PrototypeVolumeReference {
     /// Box rotation in the prototype root frame.
     pub rotation: [f32; 4],
     pub storage_type: u8,
-    /// Source `onlyManual`: `Upd` returns early, so the periodic scan skips this volume.
+    /// Source `onlyManual`. `Upd` returns early, so the periodic scan skips this volume.
     pub only_manual: bool,
     /// Gate `usablescript` sources. Each is a world mechanism of the same prototype.
     pub usables: Vec<SourceId>,
@@ -102,9 +102,9 @@ impl StorageRecord {
                             record.source == *slot && record.class_name == "partslotscript"
                         })
                     })
-                    && volume.center.iter().all(|value| value.is_finite())
+                    && finite(&volume.center)
                     && positive(&volume.half_extents)
-                    && volume.rotation.iter().all(|value| value.is_finite()),
+                    && finite(&volume.rotation),
                 "storage prototype volume",
             )?;
         }

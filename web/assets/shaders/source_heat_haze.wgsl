@@ -1,5 +1,5 @@
 // Installed Custom/heathazeshader fragment (blob 2), exact DXBC order.
-// Unity image-effect UV starts at the bottom. `unity_uv` is that UV; the targets here start at the top.
+// Unity image-effect UV starts at the bottom. `unity_uv` is that UV. The targets here start at the top.
 struct Params {
     extent: vec4<f32>,
     up_offset_scale: vec4<f32>,

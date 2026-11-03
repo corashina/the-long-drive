@@ -75,7 +75,7 @@ pub struct SmallItems {
     /// fpscontroller.lastReloadTime.
     last_reload: f64,
     /// `ItemPrompt` bits of the bottle refill.
-    refill_prompt: u8,
+    refill_prompt: u16,
 }
 /// Player input of the bottle refill (fpscontroller RayStuff).
 #[derive(Clone, Copy, Debug, Default)]
@@ -435,7 +435,7 @@ impl WorldStream {
             emission: crate::interaction::genie_lamp::output(r, value).emission,
         })
     }
-    /// spricniscript.Pressing for a held bottle. Returns false when the item is no bottle.
+    /// spricniscript.Pressing for a held bottle. Returns false when the item is not a bottle.
     pub fn press_spray(
         &mut self,
         owner: ToolOwner,
@@ -618,7 +618,7 @@ impl WorldStream {
             }
         }
     }
-    /// Source ammoscript.CanReload: `to` takes from another bottle of its type.
+    /// Source ammoscript.CanReload. True when `to` can take from another bottle of its type.
     fn can_refill(&self, to: ItemId, from: ItemId) -> bool {
         let ammo = |id| {
             self.small_items
@@ -701,10 +701,10 @@ impl WorldStream {
         }
         self.small_items.last_reload = last;
     }
-    pub fn refill_prompt(&self) -> u8 {
+    pub fn refill_prompt(&self) -> u16 {
         self.small_items.refill_prompt
     }
-    /// Saved spray ammo and lamp value; None at the spawn value.
+    /// Saved spray ammo and lamp value. They are None at the spawn value.
     pub(super) fn small_item_values(&self, item: ItemId) -> Option<(Option<f32>, Option<f32>)> {
         if let Some(b) = self.small_items.sprays.iter().find(|b| b.item == item) {
             return Some(((b.ammo.count != b.initial).then_some(b.ammo.count), None));

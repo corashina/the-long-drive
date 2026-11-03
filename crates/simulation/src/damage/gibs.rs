@@ -1,6 +1,6 @@
 //! Source gibscript and scaleDestroyScript on spawned gib items.
 //! Start scatters the children of a main gib. Then a gib goes by time or by player distance.
-//! The caller despawns the items in `removed`. Gibs are not saved.
+//! The caller despawns the items in `removed`. Saves do not keep gibs.
 use crate::interaction::items::ItemStore;
 use crate::reference::{GibConstants, ItemId, ItemPrototype, NodeId, ReferenceManifest};
 use crate::simulation::dials::unity_euler;

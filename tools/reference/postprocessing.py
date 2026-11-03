@@ -45,7 +45,7 @@ def recover_grading(settings):
 
 
 def recover_taa(controls):
-    # pplayermelle.Start -> TurnOn overwrites the layer's serialized settings.
+    # pplayermelle.Start calls TurnOn, which overwrites the layer's serialized settings.
     return {target: controls[source] for target, source in (
         ('jitter_spread', 'AntialiasingJitterSpread'),
         ('stationary_blending', 'AntialiasingStationaryBlending'),
@@ -335,7 +335,7 @@ def recover_glasses_profiles(source,manifest,output):
     return profiles
 
 
-# fpscontroller.DeadV. mainscript.Died enables it; Update sets weight = InverseLerp(0, 14, t - deathTime).
+# fpscontroller.DeadV. mainscript.Died enables it. Update sets weight = InverseLerp(0, 14, t - deathTime).
 MAIN_VOLUME_MASK = 2097408
 
 

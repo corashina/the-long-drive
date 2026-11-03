@@ -129,9 +129,8 @@ impl SpawnEvaluation<'_> {
             let original = [start.min, start.max];
             let limits = match override_limits {
                 Some([0, 0]) if original == [0, 0] => [0, 4],
-                Some([0, 0]) => original,
+                Some([0, 0]) | None => original,
                 Some(v) => v,
-                None => original,
             };
             self.condition_random2(
                 parent,
@@ -160,10 +159,11 @@ impl SpawnEvaluation<'_> {
             .get((selected - 1).clamp(0, rows.len().saturating_sub(1) as i32) as usize)
             .ok_or_else(|| ReferenceError("Source SetRandom has no types".into()))?;
         let kind = text(fields(row)?, "tipus")?;
-        if let Some(colors) = self.condition_colors(record, &kind)? {
-            if colors.is_empty() && !flag(record.fields, "dontSetRandomColorTo1")? {
-                self.initialization.conditions[i].color = [1.; 4];
-            }
+        if let Some(colors) = self.condition_colors(record, kind)?
+            && colors.is_empty()
+            && !flag(record.fields, "dontSetRandomColorTo1")?
+        {
+            self.initialization.conditions[i].color = [1.; 4];
         }
         Ok(())
     }

@@ -1,4 +1,4 @@
-//! Source `lightdither`: Perlin dithers set the intensity of one light each frame.
+//! Source `lightdither`. Perlin dithers set the intensity of one light each frame.
 use crate::reference::LightDitherReference;
 use crate::simulation::dials::inverse_lerp;
 use crate::world::unity_random::UnityRandom;

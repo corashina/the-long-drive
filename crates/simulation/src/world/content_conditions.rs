@@ -49,7 +49,7 @@ pub(super) fn bind(
         let node = node_of(&input.source)?.ok_or_else(|| invalid("node outside its prototype"))?;
         let [state, state2, state3] = input.states;
         let permission = integer(f, "RepairProperty")?;
-        // Source states above 4 are valid: `MatList` rows (an air freshener has 8).
+        // Source states above 4 are valid `MatList` rows. An air freshener has 8.
         if u8::try_from(state).is_err() || state2 < 0 || state3 < 0 || permission < 0 {
             return Err(invalid("state"));
         }

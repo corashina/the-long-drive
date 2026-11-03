@@ -7,7 +7,7 @@ MAP_FIELDS = dict(time_add='mapCamViewTimeAdd', min_height='mapCamViewMinHeight'
 
 
 def recover_car_camera(source, player_reader, player, main):
-    """The rig is CarCamParent -> CarCamRot -> CarCamMov -> CarCam. Only CarCam has a local offset (-z)."""
+    """The rig chain is CarCamParent, CarCamRot, CarCamMov and CarCam, from parent to child. Only CarCam has a local offset (-z)."""
     rig = [source.resolve(player_reader, player[field]) for field in RIG_FIELDS]
     data = [source.read(reader) for reader in rig]
     for i, (reader, value) in enumerate(zip(rig, data)):

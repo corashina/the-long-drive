@@ -12,7 +12,7 @@ pub(super) struct FeedbackStamp {
     context: u32,
     light_control: u32,
     lmb_use: bool,
-    prompts: u8,
+    prompts: u16,
     computer: u8,
     item: Option<ItemId>,
     opening: Option<OpeningId>,

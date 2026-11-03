@@ -48,7 +48,7 @@ fn from_to(from: Vector, to: Vector) -> Rotation {
     Rotation::from_rotation_arc(from, to)
 }
 
-/// `Start` data. Bones are re-parented to the owner, so they are siblings.
+/// `Start` data. `Start` re-parents the bones to the owner, so they are siblings.
 #[derive(Clone, Debug)]
 pub struct IkChain {
     /// `chainLength`. `bones` has one more entry: the end bone.

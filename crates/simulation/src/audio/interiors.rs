@@ -137,7 +137,7 @@ impl WorldInteriors {
         let r = &prototype.interiors[e.interior];
         // A door that is not bound yet counts as open.
         let value = |d| door(&e.placement, prototype, d).unwrap_or(1.);
-        // Door slots have no part binding yet: each counts as an empty, open slot.
+        // Door slots have no part binding yet. Each counts as an empty, open slot.
         let mut total = r.door_slots.len() as f32;
         for (d, &invert) in r.doors.iter().zip(&r.invert_doors) {
             let v = value(d);

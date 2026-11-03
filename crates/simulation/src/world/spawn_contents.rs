@@ -8,14 +8,14 @@ pub struct SpawnedContent {
     pub inputs: super::spawn_state::SpawnInitialization,
     pub placement: Placement,
     pub appearance: Vec<super::NodeAppearance>,
-    /// Road pole cable of a road building. Stream input; `bake_cables` copies it to `appearance`.
+    /// Road pole cable of a road building. It is stream input. `bake_cables` copies it to `appearance`.
     pub cable: Vec<super::NodeAppearance>,
     pub lights: Vec<super::WorldLight>,
     pub fluid: Option<crate::fluids::FluidContainer>,
     pub tanks: Vec<(SourceId, crate::fluids::FluidContainer)>,
     pub buried: bool,
     pub distance_offset: [f32; 3],
-    /// RandomSpawned ammoscript count; None keeps the prefab count.
+    /// RandomSpawned ammoscript count. None keeps the prefab count.
     pub ammo: Option<f32>,
 }
 impl SpawnedContent {
@@ -269,7 +269,7 @@ impl<'a> SpawnEvaluation<'a> {
             self.rules
                 .component(self.reference, target, "newRandomStuffSpawnScript")?
         {
-            self.spawn(&child, &spawner.source, None)?;
+            self.spawn(&child, spawner.source, None)?;
         } else {
             let mut nested = Vec::new();
             self.rules.children(
@@ -286,7 +286,7 @@ impl<'a> SpawnEvaluation<'a> {
                 self.rules
                     .component(self.reference, target, "childunparent")?
             {
-                link(&unparent.fields, "g")?
+                link(unparent.fields, "g")?
             } else {
                 target
             };

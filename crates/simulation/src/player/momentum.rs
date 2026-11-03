@@ -62,7 +62,7 @@ impl Momentum {
         self.max_speed = self.max_speed.min(self.takeoff);
         self.velocity = clamp(self.velocity + horizontal(push), self.max_speed, interior);
     }
-    /// Source `speedWhenJumped`, set on each grounded step.
+    /// Source `speedWhenJumped`. Each grounded step sets it.
     pub(super) fn grounded(&mut self, speed: f32) {
         self.takeoff = speed;
     }

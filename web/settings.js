@@ -58,7 +58,10 @@ export function playerSettings(v,index){
   inventory_gear_keys:actionName(v.inputs[index.inventory1])===actionName(v.inputs[index.gear1])});
 }
 // Source `Application.targetFrameRate`: the limit while the mouse is captured, else 30. 0 is no limit.
-export function frameLimit(v,playing){return playing?(v.BEnableFpsLimit?Math.trunc(v.FFPSLimit):0):30;}
+export function frameLimit(v,playing){
+ if(!playing)return 30;
+ return v.BEnableFpsLimit?Math.trunc(v.FFPSLimit):0;
+}
 // Rust takes the settings and the frame limit with `window.gamePlayerSettings()` and `window.gameFrameLimit()` at start and after each change.
 export function installSettingsBridge(target,settings,playing,index){
  let pending=true,limit=-1;

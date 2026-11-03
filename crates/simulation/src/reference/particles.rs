@@ -429,7 +429,7 @@ fn validate_shape(
     check: &impl Fn(bool, &str) -> Result<(), ReferenceError>,
     scalar: &impl Fn(&str) -> Result<f32, ReferenceError>,
 ) -> Result<(), ReferenceError> {
-    // Checked storm and coolant steam systems use a hemisphere (2), food bites a sphere (0).
+    // Checked storm and coolant steam systems use a hemisphere (2). Food bites use a sphere (0).
     // Other selected systems use a cone (4).
     let shape = if p.role.starts_with("storm_") || p.role.starts_with("coolant_steam_") {
         2.

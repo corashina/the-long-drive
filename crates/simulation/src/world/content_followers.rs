@@ -43,7 +43,7 @@ fn vector(v: [f32; 3]) -> Vector {
     Vector::from_array(v)
 }
 
-/// Unity Quaternion.LookRotation(direction, up) in the converted frame: local -Z faces `direction`.
+/// Unity Quaternion.LookRotation(direction, up) in the converted frame. Local -Z faces `direction`.
 fn look_rotation(direction: Vector) -> Rotation {
     let back = -direction.normalize_or_zero();
     if back == Vector::ZERO {
@@ -72,7 +72,7 @@ impl FollowerPoses {
         for node in writes_nodes {
             let node = node as usize;
             let start = refresh.len();
-            // Node order is hierarchy order: a descendant comes after its parent.
+            // Node order is hierarchy order. A descendant comes after its parent.
             for n in node + 1..parents.len() {
                 let mut p = parents[n];
                 while let Some(i) = p {

@@ -1,5 +1,5 @@
-// Multiplayer peers of source `sns` and `snl`. PeerJS runs on the page thread: Chrome has no WebRTC in workers.
-// Star like the source: guests talk only to the host. The host forwards guest messages to the other guests.
+// Multiplayer peers of source `sns` and `snl`. PeerJS runs on the page thread, because Chrome has no WebRTC in workers.
+// The peers form a star like the source. Guests talk only to the host. The host forwards guest messages to the other guests.
 // Each guest has a `reliable` connection for the session messages and the save, and a `pose` connection for
 // the simulation packets. A packet is the type byte, the sender slot byte, then a body that only Rust reads.
 // Bit `RELIABLE` of an outbound packet length sends the packet on `reliable` as `{t:'sim',data}`, like source `EP2PSendReliable`.
@@ -22,7 +22,7 @@ export function chatText(text){
 }
 
 // `Peer`: the PeerJS class. `capture()`: the host save record as a string.
-// Voice (source `SVoice`, host forwards): each peer sends its microphone in a PeerJS media call. A guest calls the host.
+// Voice (source `SVoice`, host forwards). Each peer sends its microphone in a PeerJS media call. A guest calls the host.
 // The host calls each guest once per other speaker, with that speaker's stream and `metadata.slot`.
 // Events: `voice(slot,stream|null)`, `packet(bytes)`, `leave(slot)`, `looks(Map slot→{name,outfit})`, `chat({name,text})`, `status(text)`,
 // `save(bytes)`, `session(role,slot)`, `peers([{slot,name,ping}])`.
@@ -35,7 +35,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  const guestBySlot=s=>[...guests.values()].find(g=>g.slot===s);
  const setLook=(s,look)=>{if(look)looks.set(s,look);else looks.delete(s);emit('looks',new Map(looks));peers();};
  function stop(status){
-  // Role first: the closes below fire close events that must not stop again.
+  // Clear the role first. The closes below fire close events that must not stop again.
   const was=role;role=ROLE.OFF;slot=0;looks.clear();
   if(timer!==null)clearTimer(timer);timer=null;
   const closing=[...guests.values()];guests.clear();
@@ -50,8 +50,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  function failure(error){
   const type=error?.type;
   if(type==='peer-unavailable')stop(STATUS.notFound);
-  else if(type==='unavailable-id')stop(STATUS.server);
-  else if(['network','server-error','socket-error','browser-incompatible'].includes(type))stop(STATUS.server);
+  else if(['unavailable-id','network','server-error','socket-error','browser-incompatible'].includes(type))stop(STATUS.server);
   else stop(error?.message??String(error));
  }
  // Host: send to every guest except `except`.
@@ -59,7 +58,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  function removeGuest(id){
   const g=guests.get(id);if(!g)return;
   guests.delete(id);g.reliable?.close();g.pose?.close();closeVoice(g);
-  for(const other of guests.values()){other.voiceOut.get(g.slot)?.close();other.voiceOut.delete(g.slot);}
+  for(const other of guests.values())unrelay(other,g.slot);
   if(g.welcomed){emit('voice',g.slot,null);broadcast({t:'leave',slot:g.slot});emit('leave',g.slot);setLook(g.slot,null);}
  }
  async function hello(g,m){
@@ -110,6 +109,8 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  function closeVoice(g){g.voiceCall?.close();g.voiceCall=null;g.voiceIn=null;for(const call of g.voiceOut.values())call.close();g.voiceOut.clear();}
  // Host: sends the voice of `from` to guest `g`.
  function relay(g,from,stream){g.voiceOut.get(from)?.close();g.voiceOut.set(from,peer.call(g.id,stream,{metadata:{slot:from}}));}
+ // Host: stops sending the voice of `from` to guest `g`.
+ function unrelay(g,from){g.voiceOut.get(from)?.close();g.voiceOut.delete(from);}
  // Host: a guest microphone. It plays here and goes to the other guests.
  function hostCall(call){
   const g=guests.get(call.peer);if(!g?.welcomed){call.close();return;}
@@ -122,7 +123,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   call.on('close',()=>{
    if(g.voiceCall!==call)return;
    g.voiceCall=null;g.voiceIn=null;emit('voice',g.slot,null);
-   for(const other of guests.values()){other.voiceOut.get(g.slot)?.close();other.voiceOut.delete(g.slot);}
+   for(const other of guests.values())unrelay(other,g.slot);
   });
  }
  // Guest: the voice of one speaker from the host.
@@ -231,7 +232,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   // The local microphone stream, or null. It keeps across sessions.
   voice(stream){
    if(stream===mic)return;mic=stream;
-   if(role===ROLE.HOST){for(const g of guests.values()){if(!g.welcomed)continue;g.voiceOut.get(0)?.close();g.voiceOut.delete(0);if(mic)relay(g,0,mic);}}
+   if(role===ROLE.HOST){for(const g of guests.values()){if(!g.welcomed)continue;unrelay(g,0);if(mic)relay(g,0,mic);}}
    else if(role===ROLE.GUEST)callHost();
   },
   leave(){
@@ -244,7 +245,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
    for(let at=0;at+2<=packets.length;){
     const raw=packets[at]|packets[at+1]<<8,n=raw&~RELIABLE,packet=packets.subarray(at+2,at+2+n);at+=2+n;
     if(raw&RELIABLE){
-     // A copy: the outbox buffer is reused by the next frame.
+     // Copy the packet, because the next frame reuses the outbox buffer.
      const message={t:'sim',data:packet.slice()};
      if(role===ROLE.HOST){for(const g of guests.values())if(g.welcomed)g.reliable.send(message);}
      else if(host?.welcomed)host.reliable.send(message);

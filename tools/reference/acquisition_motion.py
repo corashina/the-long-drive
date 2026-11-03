@@ -8,7 +8,7 @@ SHOVEL_CONTROLLER = {'file':'sharedassets1.assets', 'path_id':4515}
 CLIPS = (3998, 4001, 3999, 3997, 4002, 4003)
 STATES = (2008834259, 2530234843, 3863879828, 1326377276, 1368685456, 3895914711)
 PARAMETERS = ('AttackLeft', 'AttackRight', 'AttackForward', 'AttackBack', 'AttackStab', 'Speed', 'Hit')
-# weaponhandlingscript RH: every controller animates this node through the hand Animator.
+# weaponhandlingscript RH. Every controller animates this node through the hand Animator.
 TARGET = {'file':'level1', 'path_id':23118}
 HANDLER = {'file':'level1', 'path_id':74298}
 ANIMATOR = {'file':'level1', 'path_id':56797}

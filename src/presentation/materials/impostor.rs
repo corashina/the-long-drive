@@ -233,7 +233,7 @@ impl Material for ImpostorMaterial {
     }
 }
 impl AsBindGroup for ImpostorMaterial {
-    /// Reflected transform and GPU prop rows.
+    /// Flags for a reflected transform and for GPU prop rows.
     type Data = (bool, bool);
     type Param = (
         <SourceReceiver as AsBindGroup>::Param,

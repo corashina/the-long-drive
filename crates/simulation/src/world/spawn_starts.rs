@@ -62,7 +62,7 @@ impl SpawnEvaluation<'_> {
                 let f = &record.fields;
                 match record.class_name {
                     "tosaveitemscript" if flag(f, "manualStart")? => {
-                        self.start_save(&parent, record, 0)?
+                        self.start_save(&parent, record, 0)?;
                     }
                     "partconditionscript" => {
                         let limits = if condition_source == Some(record.source) {
@@ -81,7 +81,7 @@ impl SpawnEvaluation<'_> {
                         self.start_condition(&parent, record, limits, 0)?;
                     }
                     "randomTypeSelector" if flag(f, "forceStart")? => {
-                        self.start_selector(&parent, record)?
+                        self.start_selector(&parent, record)?;
                     }
                     "electronicsscript" => {
                         self.mark_started(&parent.id, source);
@@ -172,7 +172,7 @@ impl SpawnEvaluation<'_> {
         self.bake_cables();
         Ok(())
     }
-    /// Source `attachgripscript.FStart`: the grip prefab spawns at the grip point of the trailer.
+    /// Source `attachgripscript.FStart`. The grip prefab spawns at the grip point of the trailer.
     fn spawn_grip(&mut self, parent: &Placement, source: &SourceId) -> Result<(), ReferenceError> {
         let Some(grip) = self
             .reference
@@ -232,7 +232,7 @@ impl SpawnEvaluation<'_> {
         let f = &record.fields;
         if flag(f, "started")?
             || !flag(f, "m_Enabled")?
-            || !self.mark_started(&parent.id, &record.source)
+            || !self.mark_started(&parent.id, record.source)
         {
             return Ok(());
         }
@@ -349,7 +349,7 @@ impl SpawnEvaluation<'_> {
             })
             .collect()
     }
-    /// Source `tipus.tank`: the variant replaces the tank fluids (Car06 start car diesel pick).
+    /// Source `tipus.tank`. The variant replaces the tank fluids (Car06 start car diesel pick).
     /// It runs after `RandomSpawned`, so it also replaces a random primary fluid.
     fn selector_fluid(
         &mut self,

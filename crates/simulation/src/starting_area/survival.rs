@@ -199,7 +199,7 @@ pub struct DrinkResult {
 }
 
 impl GarageRuntime {
-    pub fn apply_toilet_output(
+    fn apply_toilet_output(
         &mut self,
         reference: &ReferenceManifest,
         output: crate::survival::ToiletOutput,
@@ -211,7 +211,7 @@ impl GarageRuntime {
         }
     }
 
-    pub fn spawn_turd(&mut self, reference: &ReferenceManifest) -> Result<ItemId, ReferenceError> {
+    fn spawn_turd(&mut self, reference: &ReferenceManifest) -> Result<ItemId, ReferenceError> {
         let prototype_index = reference
             .survival
             .foods
@@ -232,7 +232,7 @@ impl GarageRuntime {
         )?;
         Ok(id)
     }
-    /// `ediblescript.Shot`: the item advances `n` bites without nutrition or sound. A new
+    /// `ediblescript.Shot`. The item advances `n` bites without nutrition or sound. A new
     /// piece with `n` bites spawns turned 180 degrees around Y. Without a piece and with
     /// `only_separate` false, the item loses one bite (`RemoveOne`).
     pub fn cut_food(
@@ -310,7 +310,7 @@ impl GarageRuntime {
         }
         Ok(())
     }
-    /// Source `UpdFood`: the food takes bite `bite`. The last bite destroys it if the recipe says so.
+    /// Source `UpdFood`. The food takes bite `bite`. The last bite destroys it if the recipe says so.
     pub(crate) fn set_food_bite(
         &mut self,
         reference: &ReferenceManifest,
@@ -584,7 +584,7 @@ impl GarageRuntime {
         self.area.foods.retain(|id| *id != item);
         Ok(())
     }
-    /// Destroy of an imported item and the items on its body: its body leaves the world, and
+    /// Destroy of an imported item and the items on its body. Its body leaves the world, and
     /// the item stays as a removed record for the save. The caller first releases it from the
     /// player.
     pub(super) fn remove_imported_item(&mut self, item: ItemId) {
@@ -861,7 +861,7 @@ impl GarageRuntime {
         use rapier3d::math::{Rotation, Vector};
         use rapier3d::prelude::{ColliderHandle, QueryFilter, Ray};
         let r = &reference.sleep;
-        // Uniform direction matches normalized insideUnitCircle; the sequence is a runtime adapter.
+        // Uniform direction matches normalized insideUnitCircle. The sequence is a runtime adapter.
         let angle = self.draw_survival() * std::f32::consts::TAU;
         let radius = r.sleep_cam_ring_min
             + self.draw_survival() * (r.sleep_cam_ring_max - r.sleep_cam_ring_min);

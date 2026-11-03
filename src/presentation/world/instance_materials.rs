@@ -330,7 +330,7 @@ impl InstanceMaterials<'_> {
         binding: &mut RendererMaterial,
         color: [f32; 4],
     ) -> Result<(), ReferenceError> {
-        // A shared binding moves to the shared entry of its color. Same colors batch.
+        // A shared binding moves to the shared entry of its color. Same-color bindings batch.
         let colored = binding.shared.as_ref().map(|key| SharedMaterialKey {
             color: Some(color.map(f32::to_bits)),
             ..key.clone()
@@ -344,7 +344,7 @@ impl InstanceMaterials<'_> {
                     binding,
                     RendererMaterial {
                         visible: shared.visible,
-                        sort: binding.sort.clone(),
+                        sort: binding.sort,
                         shared: Some(key.clone()),
                     },
                 );
@@ -394,7 +394,7 @@ impl InstanceMaterials<'_> {
     }
     /// Source `SetColor("_EmissionColor")` and, with `map`, `SetTexture("_EmissionMap")`.
     /// `None` keeps the current map. Only a changed value touches the material.
-    /// A shared binding becomes private: bind it private before an entity retains it.
+    /// A shared binding becomes private. Bind it private before an entity retains it.
     pub fn emission(
         &mut self,
         binding: &mut RendererMaterial,
@@ -427,8 +427,8 @@ impl InstanceMaterials<'_> {
             )),
         }
     }
-    /// `mirrorscript.FStart`: the mirror image is `_MainTex` and `_EmissionMap`.
-    /// The first call makes the binding private and returns true: the entity must take it.
+    /// `mirrorscript.FStart`. The mirror image is `_MainTex` and `_EmissionMap`.
+    /// The first call makes the binding private and returns true. The entity must take it.
     /// Only a changed image touches the material.
     pub fn mirror_image(
         &mut self,
@@ -458,7 +458,7 @@ impl InstanceMaterials<'_> {
             .map_err(ReferenceError)?;
         Ok(private)
     }
-    /// Source `SetTexture("_EmissionMap", null)`: the white default.
+    /// Source `SetTexture("_EmissionMap", null)`. It binds the white default.
     pub fn clear_emission_map(
         &mut self,
         binding: &mut RendererMaterial,
@@ -541,10 +541,10 @@ impl InstanceMaterials<'_> {
         }
     }
     pub fn release(&mut self, binding: RendererMaterial) {
-        if let Some(key) = &binding.shared {
-            if !self.cache.generated.release(key) {
-                return;
-            }
+        if let Some(key) = &binding.shared
+            && !self.cache.generated.release(key)
+        {
+            return;
         }
         match binding.visible {
             InstanceMaterial::Primary(h) => {
@@ -629,7 +629,7 @@ pub fn ready(ticket: &Option<PipelineTicket>) -> Result<bool, ReferenceError> {
 }
 
 impl RendererMaterial {
-    /// The renderer is a GPU prop row: its shared material reads the row buffers.
+    /// The renderer is a GPU prop row. Its shared material reads the row buffers.
     pub fn gpu_props(&self) -> bool {
         self.shared.as_ref().is_some_and(|key| key.gpu)
     }
@@ -708,7 +708,7 @@ pub fn selected_material<'a>(
     (initial, selected)
 }
 
-/// Source `materialChangeScript` swaps the first material slot only: submesh 0.
+/// Source `materialChangeScript` swaps only the first material slot, submesh 0.
 /// It compares the material that painting and condition already selected.
 pub fn biome_material<'a>(
     stream: &'a RendererWorld,

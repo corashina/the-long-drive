@@ -5,7 +5,7 @@ LANGUAGES = 'TheLongDrive_Data/Languages/'
 
 
 def parse_language(text: str, count: int) -> dict:
-    """Source `ls.ScanLanguages` and `LoadSelectedLanguage`: the first line is the name, then one word per line.
+    """Source `ls.ScanLanguages` and `LoadSelectedLanguage`. The first line is the name. Each next line is one word.
     A missing or empty line is None. The game shows the English word for it."""
     lines = text.split('\n')
     lines = [line[:-1] if line.endswith('\r') else line for line in lines]

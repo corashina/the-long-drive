@@ -8,6 +8,12 @@ fn count(out: &mut Vec<u8>, len: usize) {
             .to_le_bytes(),
     );
 }
+fn words(out: &mut Vec<u8>, values: &[u32]) {
+    count(out, values.len());
+    for value in values {
+        out.extend(value.to_le_bytes());
+    }
+}
 fn floats<const N: usize>(out: &mut Vec<u8>, values: &[[f32; N]]) {
     count(out, values.len());
     for value in values.iter().flatten() {
@@ -34,16 +40,10 @@ pub fn encode_prototype(input: &RoadPrototype, out: &mut Vec<u8>) {
             out.extend(value.to_le_bytes());
         }
     }
-    count(out, input.controls.len());
-    for control in &input.controls {
-        out.extend(control.to_le_bytes());
-    }
+    words(out, &input.controls);
     count(out, input.skins.len());
     for skin in &input.skins {
-        count(out, skin.bones.len());
-        for bone in &skin.bones {
-            out.extend(bone.to_le_bytes());
-        }
+        words(out, &skin.bones);
         floats(out, &skin.bind_poses);
         floats(out, &skin.positions);
         floats(out, &skin.normals);

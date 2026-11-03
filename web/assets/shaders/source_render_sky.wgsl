@@ -1,6 +1,6 @@
 // Installed Unity 2021.3.18f1 Skybox/Procedural, globalgamemanagers.assets:4.
 // Vertex variants 8 (HQ) / 4 (NONE), fragment variants 17 / 13.
-// Atmospheric colors are evaluated per vertex on the recovered octahedron.
+// The shader evaluates atmospheric colors per vertex on the recovered octahedron.
 struct SkyParams {
     world_from_source: mat4x4<f32>,
     clip_from_world: mat4x4<f32>,
@@ -43,7 +43,7 @@ fn sky_vertex(position: vec3<f32>, sun_enabled: bool) -> SkyOutput {
     let clip_z = fma(sky.clip_from_world[2], vec4(world.z), clip_x);
     result.position = fma(sky.clip_from_world[3], vec4(world.w), clip_z);
     // Uniform positive object scale cancels in the source normalized direction.
-    // Preserve its multiply/normalize sequence instead of using normalized input.
+    // Preserve its multiply and normalize sequence instead of using normalized input.
     let source_world = vec3(local_z.x, local_z.y, -local_z.z);
     let eye = source_world * inverseSqrt(dot(source_world, source_world));
     let tint = exp2(log2(sky.tint_thickness.xyz) * 0.4545454680919647);

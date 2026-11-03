@@ -16,7 +16,7 @@ pub struct SettingSlider {
     pub whole: bool,
     /// A slider move rounds to `round_digit`.
     pub round: bool,
-    /// `roundWithIFToo`: every change rounds to `round_digit`.
+    /// `roundWithIFToo`. Every change rounds to `round_digit`.
     pub round_typed: bool,
     pub round_digit: i32,
     pub multiplier: f32,
@@ -159,7 +159,7 @@ pub struct PlayerSettings {
     pub invert: [bool; 5],
     /// `BWalkHeadBob`, `BDriveHeadBob`.
     pub head_bob: [bool; 2],
-    /// `inputs[inventory1].GetName() == inputs[gear1].GetName()`: a seated clutch blocks the
+    /// When `inputs[inventory1].GetName() == inputs[gear1].GetName()`, a seated clutch blocks the
     /// inventory keys.
     pub inventory_gear_keys: bool,
 }

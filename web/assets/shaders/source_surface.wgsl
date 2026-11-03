@@ -6,8 +6,9 @@
     pbr_bindings,
     mesh_view_bindings,
 }
+#import bevy_pbr::pbr_functions
 #ifdef SOURCE_GPU_PROPS
-#import bevy_pbr::{pbr_types, pbr_functions}
+#import bevy_pbr::pbr_types
 #endif
 
 #import source_float_store::half4
@@ -76,7 +77,7 @@ fn sample_source(slot: u32, main_uv: vec2<f32>, detail_uv: vec2<f32>, offset: ve
 #endif
 }
 fn source_normal(sampled: vec4<f32>, scale: f32) -> vec3<f32> {
-    // Unity UnpackNormal: x = r * a. Decoded RGB normals have a = 1; source DXT5nm blocks keep X in alpha.
+    // Unity UnpackNormal: x = r * a. Decoded RGB normals have a = 1. Source DXT5nm blocks keep X in alpha.
     let rg = vec2(sampled.r * sampled.a, sampled.g);
     let xy = (rg * 2.0 - 1.0) * scale;
     return vec3(xy, sqrt(1.0 - clamp(dot(xy, xy), 0.0, 1.0)));
@@ -104,6 +105,88 @@ fn source_brdf(diffuse: vec3<f32>, specular: vec3<f32>, smoothness: f32, normal:
     return diffuse * disney * nl + specular_term * fresnel;
 }
 
+struct SourceBase {
+    uv: vec2<f32>,
+    detail_uv: vec2<f32>,
+    offset: vec2<f32>,
+    main: vec4<f32>,
+    albedo: vec3<f32>,
+    alpha: f32,
+}
+// Every discard of the surface fragment. The depth prepass calls it too, so both passes keep the same samples.
+fn source_base(
+    in: VertexOutput,
+#ifdef VERTEX_TANGENTS
+    world_bitangent: vec3<f32>,
+#endif
+    lod_fade: f32,
+    color: vec4<f32>,
+    player: bool,
+) -> SourceBase {
+    if !source_lod_keep(in.position.xy, lod_fade) { discard; }
+    // Source player_model discards near the camera of a view with `_Dist`. Flag 12 means that the ragdoll has `_Dist` 0.
+    if player && !source_flag(12u) && length(in.world_position.xyz - mesh_view_bindings::view.world_position) < lighting.near_far.z { discard; }
+    var base: SourceBase;
+    base.uv = vec2(0.0);
+#ifdef VERTEX_UVS_A
+    base.uv = in.uv;
+#endif
+    base.detail_uv = base.uv;
+#ifdef VERTEX_UVS_B
+    base.detail_uv = in.uv_b;
+#endif
+    base.offset = vec2(0.0);
+#ifdef VERTEX_TANGENTS
+    if source_flag(4u) {
+        let tbn = mat3x3(in.world_tangent.xyz, world_bitangent, in.world_normal);
+        let is_orthographic = mesh_view_bindings::view.clip_from_view[3].w == 1.0;
+        let view_direction = pbr_functions::calculate_view(in.world_position, is_orthographic);
+        let height = sample_source(5u, base.uv, base.detail_uv, vec2(0.0)).g;
+        var tangent_view = normalize(transpose(tbn) * view_direction);
+        tangent_view.z += 0.42;
+        base.offset = (height * source.scales.w - source.scales.w * 0.5) * tangent_view.xy / tangent_view.z;
+    }
+#endif
+    base.main = sample_source(0u, base.uv, base.detail_uv, base.offset);
+    base.albedo = base.main.rgb * color.rgb;
+    base.alpha = base.main.a * color.a;
+#ifdef VERTEX_COLORS
+    // Target-generated terrain keeps its linear vertex colors. Authored source materials do not use this bit.
+    if source_flag(11u) { base.albedo *= in.color.rgb; base.alpha *= in.color.a; }
+#endif
+    if source_flag(5u) { base.alpha = color.a; }
+    if source_flag(9u) && base.alpha < source.factors.w { discard; }
+    if player && source.factors.w >= base.alpha { discard; }
+    return base;
+}
+
+// Opaque depth prepass of the world view. It has the same inputs and discards as `fragment`.
+@fragment
+fn depth(
+    in: VertexOutput,
+#ifdef VERTEX_TANGENTS
+    @location(8) world_bitangent: vec3<f32>,
+#endif
+#ifdef SOURCE_GPU_PROPS
+    @location(13) @interpolate(flat) source_fade: f32,
+    @location(14) @interpolate(flat) source_color: vec4<f32>,
+#endif
+) {
+#ifdef SOURCE_GPU_PROPS
+    let lod_fade = source_fade;
+    let color = source_color;
+#else
+    let lod_fade = bitcast<f32>(receiver.y);
+    let color = source.color;
+#endif
+    _ = source_base(
+        in,
+#ifdef VERTEX_TANGENTS
+        world_bitangent,
+#endif
+        lod_fade, color, source.flags.z == 3u);
+}
+
 @fragment
 fn fragment(
     in: VertexOutput,
@@ -128,12 +211,15 @@ fn fragment(
     let lod_fade = bitcast<f32>(receiver.y);
     let color = source.color;
 #endif
-    if !source_lod_keep(in.position.xy, lod_fade) { discard; }
     let player = source.flags.z == 3u;
-    // Source player_model: discard near the camera of a view with `_Dist`. Flag 12: the ragdoll has `_Dist` 0.
-    if player && !source_flag(12u) && length(in.world_position.xyz - mesh_view_bindings::view.world_position) < lighting.near_far.z { discard; }
+    let base = source_base(
+        in,
+#ifdef VERTEX_TANGENTS
+        world_bitangent,
+#endif
+        lod_fade, color, player);
 #ifdef SOURCE_GPU_PROPS
-    // Same fields as pbr_input_from_vertex_output, without the mesh uniform flags.
+    // It has the same fields as pbr_input_from_vertex_output, without the mesh uniform flags.
     var pbr = pbr_types::pbr_input_new();
     pbr.is_orthographic = mesh_view_bindings::view.clip_from_view[3].w == 1.0;
     pbr.V = pbr_functions::calculate_view(in.world_position, pbr.is_orthographic);
@@ -144,34 +230,15 @@ fn fragment(
 #else
     var pbr = pbr_input_from_vertex_output(in, is_front, false);
 #endif
-    var uv = vec2(0.0);
-#ifdef VERTEX_UVS_A
-    uv = in.uv;
-#endif
-    var detail_uv = uv;
-#ifdef VERTEX_UVS_B
-    detail_uv = in.uv_b;
-#endif
-    var offset = vec2(0.0);
+    let uv = base.uv;
+    let detail_uv = base.detail_uv;
+    let offset = base.offset;
+    let main = base.main;
+    var albedo = base.albedo;
+    var alpha = base.alpha;
 #ifdef VERTEX_TANGENTS
     let tbn = mat3x3(in.world_tangent.xyz, world_bitangent, in.world_normal);
-    if source_flag(4u) {
-        let height = sample_source(5u, uv, detail_uv, vec2(0.0)).g;
-        var tangent_view = normalize(transpose(tbn) * pbr.V);
-        tangent_view.z += 0.42;
-        offset = (height * source.scales.w - source.scales.w * 0.5) * tangent_view.xy / tangent_view.z;
-    }
 #endif
-    let main = sample_source(0u, uv, detail_uv, offset);
-    var albedo = main.rgb * color.rgb;
-    var alpha = main.a * color.a;
-#ifdef VERTEX_COLORS
-    // Target-generated terrain keeps its linear vertex colors. Authored source materials do not use this bit.
-    if source_flag(11u) { albedo *= in.color.rgb; alpha *= in.color.a; }
-#endif
-    if source_flag(5u) { alpha = color.a; }
-    if source_flag(9u) && alpha < source.factors.w { discard; }
-    if player && source.factors.w >= alpha { discard; }
     let mask = sample_source(7u, uv, detail_uv, offset).a;
     if source_flag(1u) {
         albedo *= mix(vec3(1.0), sample_source(6u, uv, detail_uv, offset).rgb * 4.59479380, mask);
@@ -294,7 +361,7 @@ fn fragment(
 #ifdef SOURCE_FORWARD_ADD
     out.color = added;
 #else
-    // Same result as the ForwardAdd draw with One One blending over this base output.
+    // It gives the same result as the ForwardAdd draw with One One blending over this base output.
     out.color += added;
 #endif
 #endif

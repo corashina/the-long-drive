@@ -49,7 +49,7 @@ fn max3(v: vec3<f32>) -> f32 {
     return max(v.x, max(v.y, v.z));
 }
 
-// FragCoC. The raw depth is reversed: 0 is the far plane.
+// FragCoC. The raw depth is reversed, so 0 is the far plane.
 @fragment
 fn coc(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let raw = textureLoad(camera_depth, vec2<i32>(position.xy), 0);

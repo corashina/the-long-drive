@@ -1,4 +1,4 @@
-//! Six-fluid containers owned by the item store.
+//! Six-fluid containers. The item store owns them.
 
 use crate::reference::TankReference;
 use serde::{Deserialize, Serialize};
@@ -119,13 +119,16 @@ impl FluidContainer {
         container
     }
 
+    /// Fluid indices in list order.
+    fn order(&self) -> &[u8] {
+        &self.order[..self.order_len as usize]
+    }
+
     pub fn entries(&self) -> impl Iterator<Item = FluidEntry> + '_ {
-        self.order[..self.order_len as usize]
-            .iter()
-            .map(|&fluid_type| FluidEntry {
-                fluid_type,
-                amount: self.mixture.amount(fluid_type as usize),
-            })
+        self.order().iter().map(|&fluid_type| FluidEntry {
+            fluid_type,
+            amount: self.mixture.amount(fluid_type as usize),
+        })
     }
 
     /// Source GetAmount sums retained entries in list order.
@@ -133,7 +136,7 @@ impl FluidContainer {
         self.entries().map(|entry| entry.amount).sum()
     }
 
-    /// Finite derived volume for physics and presentation only.
+    /// The finite derived volume. Only physics and presentation use it.
     pub fn finite_total(&self) -> f32 {
         let total = self.total();
         if total.is_finite() { total } else { 0. }
@@ -159,7 +162,7 @@ impl FluidContainer {
     }
 
     fn remember(&mut self, index: usize) {
-        if self.order[..self.order_len as usize].contains(&(index as u8)) {
+        if self.order().contains(&(index as u8)) {
             return;
         }
         self.order[self.order_len as usize] = index as u8;
@@ -175,7 +178,7 @@ impl FluidContainer {
         } else {
             amount
         };
-        if self.order[..self.order_len as usize].contains(&(index as u8)) {
+        if self.order().contains(&(index as u8)) {
             self.mixture.quantities_liters[index] += changed;
             return changed;
         }
@@ -201,7 +204,8 @@ impl FluidContainer {
     }
 
     pub fn cleanup_one(&mut self) {
-        if let Some(position) = self.order[..self.order_len as usize]
+        if let Some(position) = self
+            .order()
             .iter()
             .position(|&index| self.mixture.quantities_liters[index as usize] <= 0.)
         {
@@ -227,7 +231,7 @@ pub struct VehicleFluids<'a> {
     pub coolant: Option<&'a mut FluidContainer>,
 }
 
-/// Both helpers receive amounts after caller sleep scaling.
+/// Both helpers receive amounts after the caller applies sleep scaling.
 pub fn transfer(source: &mut FluidContainer, destination: &mut FluidContainer, liters: f32) -> f32 {
     drink_transfer(source, destination, liters, false, false)
 }

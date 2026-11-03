@@ -25,6 +25,6 @@ Size: S is up to a day. M is a few days. L is about a week. XL is several weeks.
 
 ### Multiplayer
 
-Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). WebRTC peer to peer through PeerJS. The host browser runs the world. Guests talk only to the host. The host forwards.
+Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). Peers connect directly through WebRTC with PeerJS. The host browser runs the world. Guests talk only to the host. The host forwards.
 
 Not planned: VR, stereo 3D, mod events, Steam features.

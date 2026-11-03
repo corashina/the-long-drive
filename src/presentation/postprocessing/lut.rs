@@ -260,7 +260,7 @@ impl LutPass {
             tonemapper: Tonemapper::Neutral,
         })
     }
-    /// Replace the grading and tonemapper. Each existing slice buffer takes a queue write; bake again after this.
+    /// Replace the grading and tonemapper. Each existing slice buffer takes a queue write. Bake again after this.
     pub fn set_grading(
         &mut self,
         device: &RenderDevice,
@@ -288,16 +288,7 @@ impl LutPass {
             .all(|p| cache.get_render_pipeline(*p).is_some())
     }
     pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        self.pipelines
-            .iter()
-            .find_map(|p| match cache.get_render_pipeline_state(*p) {
-                CachedPipelineState::Err(
-                    bevy::shader::ShaderCacheError::ShaderNotLoaded(_)
-                    | bevy::shader::ShaderCacheError::ShaderImportNotYetAvailable,
-                ) => None,
-                CachedPipelineState::Err(e) => Some(format!("Source LUT pipeline: {e}")),
-                _ => None,
-            })
+        super::named_pipeline_failure(cache, &self.pipelines, "Source LUT pipeline")
     }
     pub fn encode(&self, encoder: &mut CommandEncoder, cache: &PipelineCache) -> bool {
         let index = match self.tonemapper {

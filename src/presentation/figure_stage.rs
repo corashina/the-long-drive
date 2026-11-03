@@ -148,7 +148,7 @@ fn surface(source: &SourceMaterials, key: (crate::reference::AssetId, u32)) -> S
     material
 }
 
-/// Bind the figure: keep the character primitives, give them stage materials and pose the joints.
+/// Bind the figure. Keep the character primitives, give them stage materials and pose the joints.
 fn bind<R: StageOwner>(
     event: On<WorldInstanceReady>,
     mut commands: Commands,
@@ -316,7 +316,7 @@ fn bind<R: StageOwner>(
     commands.entity(event.entity).insert(Visibility::Inherited);
 }
 
-/// `ColorChange` and `PressedToggle` on the figure: show the chosen character with the outfit colors.
+/// `ColorChange` and `PressedToggle` on the figure. Show the chosen character with the outfit colors.
 fn dress(
     outfit: &Outfit,
     preview: &FigureStage,

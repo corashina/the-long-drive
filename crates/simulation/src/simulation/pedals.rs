@@ -24,7 +24,7 @@ pub struct PedalState {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PedalStep {
-    /// Motor torque for each driven wheel. `None` while disabled: carscript owns the torque.
+    /// Motor torque for each driven wheel. `None` while disabled, because carscript owns the torque.
     pub torque: Option<f32>,
     /// Pedal x rotation in degrees this step, for all `Axis` entries. Inverse pedals turn back.
     pub angle: f32,

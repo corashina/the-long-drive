@@ -14,20 +14,32 @@ struct PropRow {
     color: vec4<f32>,
     // Frozen source position for procedural inputs.
     source_position: vec3<f32>,
+    // Renderer flags: cast, receive << 1, motion vectors << 2.
+    renderer_flags: u32,
+    // Renderer bounds in the mesh frame, and the probe usage.
+    local_center: vec3<f32>,
+    probe_usage: f32,
+    local_extents: vec3<f32>,
     unused: u32,
 }
 @group(2) @binding(50) var<storage> prop_rows: array<PropRow>;
 @group(2) @binding(51) var<storage> prop_visible: array<u32>;
-// x: first entry of this batch in the visible list. Dynamic offset per batch.
+// x: first entry of this batch in the visible list. Each batch has a dynamic offset.
 @group(2) @binding(52) var<uniform> prop_batch: vec4<u32>;
+// Lamp mask and probe pair of each camera-visible row, next to its visible entry. The cull pass writes it.
+@group(2) @binding(53) var<storage> prop_lights: array<vec4<u32>>;
 
 fn prop_row(instance_index: u32) -> PropRow {
     return prop_rows[prop_visible[prop_batch.x + instance_index]];
 }
+// It has the same layout as the entity value in object_lighting.rs.
+fn prop_object(instance_index: u32) -> vec4<u32> {
+    return prop_lights[prop_batch.x + instance_index];
+}
 fn prop_world_from_local(row: PropRow) -> mat4x4<f32> {
     return transpose(mat4x4<f32>(row.world_x, row.world_y, row.world_z, vec4<f32>(0.0, 0.0, 0.0, 1.0)));
 }
-// Same result as Bevy's `get_local_from_world`: the glam inverse of the 3x3, then the translation.
+// It gives the same result as Bevy's `get_local_from_world`. It takes the glam inverse of the 3x3, then the translation.
 fn prop_local_from_world(world_from_local: mat4x4<f32>) -> mat4x4<f32> {
     let x = world_from_local[0].xyz;
     let y = world_from_local[1].xyz;
@@ -55,7 +67,7 @@ fn prop_determinant_sign(world_from_local: mat4x4<f32>) -> f32 {
     let det = dot(world_from_local[0].xyz, cross(world_from_local[1].xyz, world_from_local[2].xyz));
     return select(1.0, -1.0, det < 0.0);
 }
-// Same result as Bevy's inverse transpose: the cofactor matrix times the determinant sign.
+// It gives the same result as Bevy's inverse transpose. It uses the cofactor matrix times the determinant sign.
 fn prop_normal_local_to_world(world_from_local: mat4x4<f32>, normal: vec3<f32>) -> vec3<f32> {
     if all(normal == vec3<f32>(0.0)) {
         return normal;

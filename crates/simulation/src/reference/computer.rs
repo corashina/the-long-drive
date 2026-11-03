@@ -24,7 +24,7 @@ pub struct ComputerReference {
     pub screen: ComputerScreenReference,
 }
 
-/// The C64output canvas that the computer camera draws. Pixels are top-down; colors are source sRGB.
+/// The C64output canvas that the computer camera draws. Pixels are top-down. Colors are source sRGB.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ComputerScreenReference {
@@ -42,7 +42,7 @@ pub struct ComputerScreenReference {
     pub glyphs: GlyphAtlasReference,
 }
 
-/// Text glyphs of printable ASCII baked at the screen font size: one coverage cell per character.
+/// Text glyphs of printable ASCII baked at the screen font size. Each character has one coverage cell.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GlyphAtlasReference {

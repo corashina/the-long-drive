@@ -1,5 +1,5 @@
 //! Source PhysX pushes the player body out of overlaps, such as a door closed on it.
-//! The push speed is capped by Unity `Physics.defaultMaxDepenetrationVelocity`.
+//! Unity `Physics.defaultMaxDepenetrationVelocity` caps the push speed.
 use rapier3d::math::{Pose, Vector};
 use rapier3d::parry::bounding_volume::BoundingVolume;
 use rapier3d::parry::shape::Shape;

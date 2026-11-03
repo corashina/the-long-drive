@@ -2,15 +2,17 @@
 //! The car step reads `remote`, writes `sent`, and takes the received changes.
 use super::items::Out;
 use super::message::{
-    CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage, Message, PoseMessage,
+    CarFloatsMessage, CarGearMessage, CarHandbrakeMessage, CarIgnitionMessage, CarLampsMessage,
+    Message, PoseMessage,
 };
+use crate::car::VehicleRuntime;
 use crate::reference::ReferenceManifest;
-use crate::starting_area::{GarageRuntime, VehicleRuntime};
+use crate::starting_area::GarageRuntime;
 use crate::vehicle::VehiclePose;
 use crate::world::ObjectKey;
 use glam::{DQuat, DVec3, Quat, Vec3};
 
-/// Source `carscript.CarSyncValue` values. Steer is the port steer: positive steers left.
+/// Source `carscript.CarSyncValue` values. Steer is the port steer. Positive steers left.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CarFloats {
     pub steer: f32,
@@ -50,10 +52,11 @@ impl CarFloats {
     }
 }
 
-/// Handbrake, gear and ignition that the peers know.
+/// Handbrake, headlights, gear and ignition that the peers know.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CarShared {
     pub handbrake: bool,
+    pub headlights: u8,
     pub gear: usize,
     pub ignition: bool,
     pub starter: bool,
@@ -84,13 +87,13 @@ impl CarNet {
         }
     }
 
-    /// Ends the session: no peer drives the car.
+    /// Ends the session. No peer drives the car.
     pub fn clear(&mut self) {
         *self = Self::new(self.key);
     }
 }
 
-/// Source `UpdMulti` receiver: a remote value replaces a smaller local one. Without a local
+/// Source `UpdMulti` receiver. A remote value replaces a smaller local one. Without a local
 /// driver, the remote steer replaces the local steer.
 pub fn with_remote(
     local: crate::simulation::input::DrivingControls,
@@ -114,13 +117,14 @@ pub fn with_remote(
 pub fn shared(vehicle: &VehicleRuntime) -> CarShared {
     CarShared {
         handbrake: vehicle.handbrake,
+        headlights: vehicle.requested_headlights,
         gear: vehicle.net.gear.unwrap_or(vehicle.drivetrain.gear()),
         ignition: vehicle.ignition.ignition,
         starter: vehicle.ignition.starter,
     }
 }
 
-/// Source `carscript.UpdMulti`: driver values older than 1 s drop.
+/// Source `carscript.UpdMulti`. Driver values older than 1 s drop.
 const VALUES_SECONDS: f64 = 1.;
 
 /// Source `carscript.CarSyncValues` entry of one peer and one car.
@@ -140,7 +144,7 @@ pub struct CarSync {
 }
 
 impl CarSync {
-    /// The session ended: no peer drives a car.
+    /// The session ended. No peer drives a car.
     pub fn end(&mut self, runtime: &mut GarageRuntime) {
         self.values.clear();
         if std::mem::take(&mut self.touched) {
@@ -184,6 +188,8 @@ impl CarSync {
             }
         } else if let Ok((_, m)) = CarHandbrakeMessage::decode(packet) {
             got_handbrake(runtime, m.car, m.handbrake);
+        } else if let Ok((_, m)) = CarLampsMessage::decode(packet) {
+            got_headlights(runtime, m.car, m.headlights);
         } else if let Ok((_, m)) = CarGearMessage::decode(packet) {
             got_gear(reference, runtime, m.car, m.gear as usize);
         } else if let Ok((_, m)) = CarIgnitionMessage::decode(packet) {
@@ -228,6 +234,13 @@ impl CarSync {
                     pad: 0,
                 });
             }
+            if now.headlights != was.headlights {
+                out.push(&CarLampsMessage {
+                    car: net.key,
+                    headlights: now.headlights.into(),
+                    pad: 0,
+                });
+            }
             if now.gear != was.gear {
                 out.push(&CarGearMessage {
                     car: net.key,
@@ -235,7 +248,7 @@ impl CarSync {
                     pad: 0,
                 });
             }
-            // Source sends on a toggle and when the starter begins.
+            // The source sends on a toggle and when the starter begins.
             if now.ignition != was.ignition || (now.starter && !was.starter) {
                 let mut flags = 0;
                 if now.ignition {
@@ -271,6 +284,18 @@ fn got_handbrake(runtime: &mut GarageRuntime, car: u64, handbrake: f32) {
     }
 }
 
+/// Port addition: the headlight mode of source `lampak`, 0 to 2.
+fn got_headlights(runtime: &mut GarageRuntime, car: u64, headlights: u32) {
+    if let Some(v) = find(runtime, car)
+        && headlights < 3
+    {
+        v.requested_headlights = headlights as u8;
+        if let Some(shared) = &mut v.net.shared {
+            shared.headlights = v.requested_headlights;
+        }
+    }
+}
+
 /// Source `UpdMultiGear`. The next step shifts, so the lever moves.
 fn got_gear(reference: &ReferenceManifest, runtime: &mut GarageRuntime, car: u64, gear: usize) {
     if let Some(v) = find(runtime, car)
@@ -283,7 +308,7 @@ fn got_gear(reference: &ReferenceManifest, runtime: &mut GarageRuntime, car: u64
     }
 }
 
-/// Source `UpdMultiIgnition`. The port does not pulse the starter: source `mstarting` lasts one
+/// Source `UpdMultiIgnition`. The port does not pulse the starter. Source `mstarting` lasts one
 /// frame, and the rpm carries the start.
 fn got_ignition(runtime: &mut GarageRuntime, m: &CarIgnitionMessage) {
     if let Some(v) = find(runtime, m.car) {
