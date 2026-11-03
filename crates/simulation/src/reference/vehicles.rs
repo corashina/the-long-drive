@@ -70,7 +70,7 @@ pub struct WorldVehicleReference {
     pub key_steer_multiplier: f32,
     /// Source `carscript.speedBasedKeyboardSens`. Some: it replaces `key_steer_multiplier`.
     pub key_steer_speed: Option<KeySteerSpeed>,
-    /// Source `carscript.ledOilTestTwoStrokeDefault`: the oil LED follows the two-stroke mix.
+    /// Source `carscript.ledOilTestTwoStrokeDefault`. The oil LED follows the two-stroke mix.
     pub oil_led_two_stroke: bool,
     pub seats: Vec<WorldSeatReference>,
     pub drive_frames: DriveFrames,
@@ -112,7 +112,7 @@ pub struct ControlPedalReference {
     /// 0, 1 or 2: source x, y or z.
     pub axis: u8,
     pub amount: f32,
-    /// Source `lerp`: ease toward the target by `pedalLerp` each frame.
+    /// Source `lerp`. The pedal eases toward the target by `pedalLerp` each frame.
     pub lerp: bool,
     pub push: bool,
 }
@@ -251,7 +251,7 @@ impl WorldVehicleReference {
     }
 }
 
-/// Source `kmhslottype`: the meter of the part in each slot reads `types`, times `modifier`.
+/// Source `kmhslottype`. The meter of the part in each slot reads `types`, times `modifier`.
 /// With `force`, every needle of that meter reads the speed (source behavior).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -327,7 +327,7 @@ pub struct WorldSeatReference {
 }
 
 /// Source `carscript` player body frames while driving: `LHDrivePos`, `RHDrivePos`,
-/// `LLDrivePos`, `RLDrivePos`. `None` for a null link.
+/// `LLDrivePos`, `RLDrivePos`. A null link is `None`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DriveFrames {
@@ -580,7 +580,7 @@ pub struct CarAudioReference {
     pub switch: Option<CarShotReference>,
     /// `handbrakeSound` on `SValtoSound`.
     pub handbrake: Option<CarShotReference>,
-    /// `valtoSounds` on `SValtoSound`: `Shifted` plays one at random.
+    /// `valtoSounds` on `SValtoSound`. `Shifted` plays one at random.
     pub shift: Vec<CarShotReference>,
     /// `rosszvaltoSound` on `SValtoSound`: a shift without enough clutch.
     pub grind: Option<CarShotReference>,
@@ -592,7 +592,7 @@ pub struct CarAudioReference {
     pub doors: Vec<BusDoorAudioReference>,
 }
 
-/// Source `busdooropenscript.sounds`: `Open` and `Close` play one at random at the leaf.
+/// Source `busdooropenscript.sounds`. `Open` and `Close` play one at random at the leaf.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BusDoorAudioReference {

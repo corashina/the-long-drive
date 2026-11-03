@@ -44,7 +44,7 @@ pub fn assign_slots(
         if d2 > near * near || !sphere_touches_planes(lamp.center, lamp.range, planes) {
             continue;
         }
-        // Insertion into the sorted fixed list.
+        // Insert into the sorted fixed list.
         let mut item = Some((d2, *lamp));
         for entry in &mut nearest {
             if entry.is_none_or(|(d, _)| item.is_some_and(|(n, _)| n < d)) {
@@ -280,7 +280,7 @@ pub struct LampHistory {
 impl LampHistory {
     /// A face draws when the atlas is forced or its tile holds a different face.
     /// It refreshes when it draws, or it holds animated casters now or at its last refresh.
-    /// An unused tile forgets its face: a spot face can cover it.
+    /// An unused tile forgets its face, because a spot face can cover it.
     pub fn plan(
         &mut self,
         forced: bool,

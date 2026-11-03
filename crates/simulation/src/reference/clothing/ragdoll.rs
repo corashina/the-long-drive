@@ -1,6 +1,6 @@
 //! Player ragdoll prefab (`fpscontroller.prefabRagdol`).
 //! Body poses are in ragdoll root space. Collider geometry, joint anchors and joint axes are in body space.
-//! Joint axes are axial: a positive source angle about the source axis stays positive here. Limits are in degrees.
+//! Joint axes are axial. A positive source angle about the source axis stays positive here. Limits are in degrees.
 use super::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -86,7 +86,7 @@ pub struct RagdollPose {
     pub source: SourceId,
     /// Player `fpscontroller.ragdolPos`.
     pub live_source: SourceId,
-    /// `ragdolPosScript.head`: the camera follows it while dead.
+    /// `ragdolPosScript.head`. The camera follows it while dead.
     pub head: NodeId,
     pub pairs: Vec<RagdollPosePair>,
 }

@@ -291,7 +291,7 @@ pub fn png_pixels(mips: &[super::TextureMip]) -> Result<usize, ReferenceError> {
 macro_rules! fixed_shaders {
     ($($name:literal),* $(,)?) => {
         pub const FIXED_SHADER_PATHS: [&str; 40] = [$(concat!("shaders/", $name)),*];
-        /// Shaders are compiled into the build, so they always match its pipeline layouts.
+        /// The build includes the compiled shaders, so they always match its pipeline layouts.
         const FIXED_SHADER_SOURCES: [&str; 40] =
             [$(include_str!(concat!("../../../../web/assets/shaders/", $name))),*];
     };

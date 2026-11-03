@@ -29,7 +29,7 @@ pub const HOSE_SEGMENTS: usize = 6;
 /// Light id of a `lightdither` light in its own table. The cigarette ember light is 1.
 pub const DITHER_LIGHT_ID: u32 = 2;
 
-/// Source `lightdither`: Perlin dithers set the intensity of one point light.
+/// Source `lightdither`. Perlin dithers set the intensity of one point light.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LightDitherReference {
@@ -255,13 +255,13 @@ pub struct PrototypeBehavior {
     pub melee: Option<SourceId>,
     pub attack_target: Option<SourceId>,
     pub attack_trigger: Option<SourceId>,
-    /// gibscript of a gib root. Gibs only.
+    /// gibscript of a gib root. Only gibs set it.
     pub gib: Option<GibReference>,
-    /// gibscripts of gib pieces below the root. Gibs only.
+    /// gibscripts of gib pieces below the root. Only gibs set it.
     pub gib_pieces: Vec<GibPieceReference>,
-    /// ParticleSystems that play on awake when Break instantiates the gib. Gibs only.
+    /// ParticleSystems that play on awake when Break instantiates the gib. Only gibs set it.
     pub gib_particles: Vec<super::ParticleReference>,
-    /// Gib nodes with scaleDestroyScript. Gibs only.
+    /// Gib nodes with scaleDestroyScript. Only gibs set it.
     pub scale_destroy: Vec<NodeId>,
     pub clips: Vec<SourceId>,
     pub contact_sound_source: Option<SourceId>,

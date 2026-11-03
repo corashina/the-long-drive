@@ -841,7 +841,7 @@ impl GlassesProfile {
 pub const MAIN_VOLUME_MASK: u32 = 2097408;
 
 /// `fpscontroller.DeadV`: a global volume over the main stack. `mainscript.Died` enables it.
-/// While dead, its weight is `InverseLerp(0, 14, t - deathTime)`; `survival` holds both constants.
+/// While dead, its weight is `InverseLerp(0, 14, t - deathTime)`. `survival` holds both constants.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeadProfile {
@@ -1116,7 +1116,7 @@ impl GradingSettings {
 /// The `DeadV` overrides that the main grading supports.
 /// Source PostProcessManager blends each overridden parameter as `Lerp(main, dead, weight)`.
 /// The port main stack has only `ColorGrading` in its HDR Neutral variant with default curves.
-/// Thus other effects, curve and texture parameters, and a different grading mode or tonemapper are ignored.
+/// Thus the port ignores other effects, curve and texture parameters, and a different grading mode or tonemapper.
 /// `new` names each ignored overridden parameter.
 #[derive(Clone, Debug, Default)]
 pub struct DeadGrading {

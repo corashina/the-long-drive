@@ -353,7 +353,7 @@ impl AudioReference {
                     && v.gain >= 0.0
                     && v.pitch > 0.0
                     && (0.0..=1.0).contains(&v.spatial_blend)
-                    // Linear rolloff is defined from distance 0. The airplane source starts there.
+                    // Unity defines linear rolloff from distance 0. The airplane source starts there.
                     && (v.min_distance > 0.0 || (v.min_distance == 0.0 && v.rolloff_mode == 1))
                     && v.max_distance >= v.min_distance
                     && v.max_distance > 0.0
@@ -545,7 +545,7 @@ impl AudioReference {
                 "world car audio",
             )?;
         }
-        // Voice ids run 1..n in table order: the runtime indexes templates by id.
+        // Voice ids run 1..n in table order. The runtime indexes templates by id.
         require(
             self.car_voices
                 .iter()
@@ -983,7 +983,7 @@ pub struct AudioGateCarVoice {
     pub id: u32,
     pub one_shot: bool,
 }
-/// The audio rows that gameplay reads. Unknown fields are ignored, so it parses when playback does not.
+/// The audio rows that gameplay reads. The parser ignores unknown fields, so this record parses when playback does not.
 #[derive(Clone, Debug, Deserialize)]
 pub struct AudioGameplayReference {
     #[serde(rename = "survival")]

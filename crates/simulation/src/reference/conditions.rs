@@ -133,7 +133,7 @@ pub struct ToolSound {
     pub position: [f32; 3],
 }
 
-/// Node fields are prototype node sources. `tool.voice` is None: `sound` plays the loop.
+/// Node fields are prototype node sources. `tool.voice` is None. `sound` plays the loop.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum PrototypeTool {

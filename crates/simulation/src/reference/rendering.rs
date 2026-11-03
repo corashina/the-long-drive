@@ -22,7 +22,7 @@ pub const MATERIAL_TEXTURE_BANKS: usize = 7;
 pub struct RenderingRecord {
     pub materials: Vec<MaterialRecord>,
 }
-/// JSON form: each unique texture storage once, materials name it by index.
+/// In the JSON form, each unique texture storage appears once, and materials name it by index.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RenderingWire {
@@ -857,7 +857,7 @@ pub struct LightingTextureChunk {
     pub width: u32,
     pub rows: u32,
 }
-/// Row chunk payload. BC rows keep the source blocks; a chunk starts on a block row.
+/// Row chunk payload. BC rows keep the source blocks. A chunk starts on a block row.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChunkFormat {
