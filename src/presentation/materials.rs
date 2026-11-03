@@ -1717,6 +1717,8 @@ impl MaterialExtension for SourceExtension {
             });
         }
         if let Some(fragment) = &mut descriptor.fragment {
+            // source_surface.wgsl also has the `depth` prepass entry. WebGPU needs a named entry.
+            fragment.entry_point = Some("fragment".into());
             if state.src == 1 && state.dst == 0 {
                 fragment
                     .shader_defs

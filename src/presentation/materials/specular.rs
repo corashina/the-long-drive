@@ -256,6 +256,8 @@ impl Material for SpecularMaterial {
                 .push(ShaderDefVal::Bool("SOURCE_GPU_PROPS".into(), true));
         }
         if let Some(fragment) = &mut descriptor.fragment {
+            // source_surface.wgsl also has the `depth` prepass entry. WebGPU needs a named entry.
+            fragment.entry_point = Some("fragment".into());
             fragment.shader_defs.extend([
                 ShaderDefVal::Bool("SOURCE_SURFACE".into(), true),
                 ShaderDefVal::Bool("SOURCE_STANDARD".into(), true),
