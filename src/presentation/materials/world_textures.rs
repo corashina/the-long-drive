@@ -5,9 +5,7 @@ use crate::presentation::texture_batches::SourceTextureBatch;
 use crate::reference::texture_batch::{
     TextureArrayKey as ArrayKey, TextureBatchReference, texture_bank_groups,
 };
-use crate::reference::{
-    ChunkFormat, LightingTextureRecord, ReferenceError, SourceId, WorldSourceMaterial,
-};
+use crate::reference::{LightingTextureRecord, ReferenceError, SourceId, WorldSourceMaterial};
 use bevy::asset::AssetId;
 static NEXT_SESSION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 use bevy::{
@@ -856,14 +854,7 @@ fn array_image(key: ArrayKey, layers: usize) -> Result<Image, ReferenceError> {
             depth_or_array_layers: layers as u32,
         },
         TextureDimension::D2,
-        match (key.format, key.srgb) {
-            (ChunkFormat::Rgba8, true) => TextureFormat::Rgba8UnormSrgb,
-            (ChunkFormat::Rgba8, false) => TextureFormat::Rgba8Unorm,
-            (ChunkFormat::Bc1, true) => TextureFormat::Bc1RgbaUnormSrgb,
-            (ChunkFormat::Bc1, false) => TextureFormat::Bc1RgbaUnorm,
-            (ChunkFormat::Bc3, true) => TextureFormat::Bc3RgbaUnormSrgb,
-            (ChunkFormat::Bc3, false) => TextureFormat::Bc3RgbaUnorm,
-        },
+        crate::presentation::textures::texture_format(key.format, key.srgb),
         RenderAssetUsages::RENDER_WORLD,
     );
     image.texture_descriptor.mip_level_count = key.mips;

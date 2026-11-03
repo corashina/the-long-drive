@@ -162,7 +162,7 @@ def extend_spawn_closure(source, reader, output, world):
                     record['fields']['m_Children']['value']=[v for v in record['fields']['m_Children']['value'] if tuple(v['value'].values()) in keep]
                     record['links']=[l for l in record['links'] if not l['field'].startswith('m_Children[') or tuple(l['target'].values()) in keep]
     source.world_prototype_roots=set(prototypes)|set(new_roots)
-    source.world_material_source=copy.copy(source);source.world_material_source.banked_textures=True;source.world_material_source.lighting_textures={tuple(t["source"].values()):t for t in world["material_textures"]}
+    source.world_material_source=copy.copy(source);source.world_material_source.lighting_textures={tuple(t["source"].values()):t for t in world["material_textures"]}
     source.world_material_export=lambda material:source_material(source,selected,material,output,source.world_material_source)
     print(f'Spawn closure: {len(processed)} input roots, {len(new_roots)} new supported prototypes',flush=True)
     added=export_world_prototypes(source,reader,selected,output,new_roots,{k:'nested' for k in new_roots},scopes,max(p['asset'] for p in world['prototypes'])+1)

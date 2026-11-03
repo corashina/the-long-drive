@@ -21,6 +21,9 @@ pub struct SourceImageSettings {
     pub main_world_only: bool,
     #[serde(default)]
     pub decoded_bytes: usize,
+    /// Payload of every mip: RGBA8 pixels or source BC blocks.
+    #[serde(default)]
+    pub format: crate::reference::ChunkFormat,
 }
 impl AssetLoader for SourceImageLoader {
     type Asset = Image;
@@ -73,10 +76,11 @@ impl AssetLoader for SourceImageLoader {
         }
         let bytes = (0..count)
             .try_fold(0usize, |sum, level| {
-                let pixels = ((width >> level).max(1) as usize)
-                    .checked_mul((height >> level).max(1) as usize)?
-                    .checked_mul(4)?;
-                sum.checked_add(pixels)
+                let mip = settings
+                    .format
+                    .region_bytes((width >> level).max(1), (height >> level).max(1))
+                    .ok()?;
+                sum.checked_add(mip)
             })
             .ok_or_else(invalid)?;
         if bytes != settings.decoded_bytes {
@@ -87,6 +91,19 @@ impl AssetLoader for SourceImageLoader {
     }
     fn extensions(&self) -> &[&str] {
         &["smip"]
+    }
+}
+
+/// GPU format of a row chunk payload.
+pub(crate) fn texture_format(format: crate::reference::ChunkFormat, srgb: bool) -> TextureFormat {
+    use crate::reference::ChunkFormat;
+    match (format, srgb) {
+        (ChunkFormat::Rgba8, true) => TextureFormat::Rgba8UnormSrgb,
+        (ChunkFormat::Rgba8, false) => TextureFormat::Rgba8Unorm,
+        (ChunkFormat::Bc1, true) => TextureFormat::Bc1RgbaUnormSrgb,
+        (ChunkFormat::Bc1, false) => TextureFormat::Bc1RgbaUnorm,
+        (ChunkFormat::Bc3, true) => TextureFormat::Bc3RgbaUnormSrgb,
+        (ChunkFormat::Bc3, false) => TextureFormat::Bc3RgbaUnorm,
     }
 }
 
@@ -104,11 +121,7 @@ pub(crate) fn source_image(
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        if settings.srgb {
-            TextureFormat::Rgba8UnormSrgb
-        } else {
-            TextureFormat::Rgba8Unorm
-        },
+        texture_format(settings.format, settings.srgb),
         if settings.main_world_only {
             RenderAssetUsages::MAIN_WORLD
         } else {

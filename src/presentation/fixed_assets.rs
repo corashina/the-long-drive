@@ -648,11 +648,7 @@ impl SourceFixedAssets {
                 || image.height() != chunk.rows
                 || image.texture_descriptor.mip_level_count != 1
                 || image.texture_descriptor.format
-                    != if record.color_space != 0 {
-                        TextureFormat::Rgba8UnormSrgb
-                    } else {
-                        TextureFormat::Rgba8Unorm
-                    }
+                    != super::textures::texture_format(record.format, record.color_space != 0)
             {
                 self.failure
                     .get_or_insert("Fixed row decoded image contract".into());
@@ -692,6 +688,7 @@ impl SourceFixedAssets {
                     wrap_v: record.wrap_v,
                     main_world_only: false,
                     decoded_bytes: row.pixels.len(),
+                    format: record.format,
                 };
                 let image = images.add(super::textures::source_image(
                     record.width,
@@ -978,12 +975,13 @@ impl SourceFixedAssets {
             if first {
                 self.rows[index].pixels = vec![0; record.validate_chunks()?];
             }
-            let (srgb, filter, aniso, wrap_u, wrap_v) = (
+            let (srgb, filter, aniso, wrap_u, wrap_v, format) = (
                 record.color_space != 0,
                 record.filter_mode,
                 record.aniso as u16,
                 record.wrap_u,
                 record.wrap_v,
+                record.format,
             );
             let decoded_bytes = record.chunk_range(self.rows[index].chunk)?.len();
             self.rows[index].load = Some(
@@ -998,6 +996,7 @@ impl SourceFixedAssets {
                             wrap_v,
                             main_world_only: true,
                             decoded_bytes,
+                            format,
                         };
                     })
                     .load(chunk.data.path.clone()),

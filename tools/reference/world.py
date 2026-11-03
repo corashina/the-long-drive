@@ -404,7 +404,7 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
     terrain_prefabs=[]
     terrain_materials=[]
     terrain_source=copy.copy(source)
-    terrain_source.lighting_textures={};terrain_source.banked_textures=True
+    terrain_source.lighting_textures={}
     for prefab,material in zip(('TerrainPrefab','DistantTerrainPrefab','DistantTerrainPrefab2'),('MaterialTerrain','MaterialDistantTerrain','MaterialDistant2Terrain')):
         target=source.resolve(terrain_owner,terrain[prefab])
         terrain_prefabs.append(selected.receipt(_source_root(source,target)))
@@ -570,7 +570,7 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
     source.biome_material_sets=recover_sets(source,scene_component(source,reader,SETS_CLASS))
     source.biome_sets_used=set()
     source.world_material_source=copy.copy(source)
-    source.world_material_source.lighting_textures={};source.world_material_source.banked_textures=True
+    source.world_material_source.lighting_textures={}
     source.world_material_export=lambda material:source_material(source,selected,material,output,source.world_material_source)
     prototypes=export_world_prototypes(source,reader,selected,output,roots,roles,scope_cache,first_asset)
     physics=next(owner for owner in source.objects.values() if owner.type.name=='PhysicsManager')
@@ -650,7 +650,7 @@ def bind_light_cookies(source, world, output):
         if not cookie or cookie['kind']!='link':continue
         identity=tuple(cookie['value'].values())
         if r['fields']['m_Type']['value']!=0:raise ValueError(f"{r['source']} world light cookie is not on a spot light")
-        bindings[identity]={'source':cookie['value'],'texture':texture(source,source.get(*identity),output)}
+        bindings[identity]={'source':cookie['value'],'texture':texture(source,source.get(*identity),output,cpu=True)}
     world['light_cookies']=[bindings[i] for i in sorted(bindings)]
 
 def register_mirrors(source, cars):

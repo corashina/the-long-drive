@@ -205,9 +205,15 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
     else {
         return Err(ReferenceError("Expected native BC storage".into()));
     };
+    let normal = matches!(texture.slot.as_str(), "_BumpMap" | "_DetailNormalMap");
     require(
-        texture.encoding == TextureEncoding::Rgba
-            && texture.source_encoding == TextureEncoding::Rgba
+        (texture.encoding == texture.source_encoding
+            && match texture.encoding {
+                TextureEncoding::Rgba => !normal,
+                // A DXT5nm normal keeps X in alpha and Y in green.
+                TextureEncoding::Ag => normal && *format == NativeBcFormat::Bc3,
+                _ => false,
+            })
             && matches!(
                 (format, source_format),
                 (NativeBcFormat::Bc1, 10 | 28) | (NativeBcFormat::Bc3, 12 | 29)
@@ -215,8 +221,11 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
             && *image_count == 1
             && *dimension == 2
             && *mips_stripped == 0
+            && width % 4 == 0
+            && height % 4 == 0
             && *mip_count == texture.sampler.mip_count
-            && *mip_count == 32 - width.max(height).leading_zeros()
+            && *mip_count > 0
+            && *mip_count <= 32 - width.max(height).leading_zeros()
             && !texture.source.file.is_empty()
             && texture.source.path_id != 0,
         "Native BC source gate",
