@@ -577,8 +577,7 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
     selected.record(physics)
     collision_rows=source.read(physics)['m_LayerCollisionMatrix']
     if len(collision_rows)!=32:raise ValueError('Physics layer matrix must have 32 masks')
-    collision_rules={'source':source_id(physics),'record_sha256':selected.receipts[key(physics)]['sha256'],
-        'layers':collision_rows}
+    collision_rules={'source':source_id(physics),'layers':collision_rows}
     startup_holes=[]
     for component_id,filter_id in ((68463,46406),(77620,49294)):
         component=source.get('level1',component_id);mesh_filter=source.get('level1',filter_id)
@@ -591,7 +590,7 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
         points=GltfExporter.rows(None,doc,directory,doc.meshes[mesh_index].primitives[0].attributes.POSITION)
         if len(points)<4:raise ValueError(f'{key(mesh)} startup hole needs four vertices')
         startup_holes.append({'component':source_id(component),'filter':source_id(mesh_filter),
-            'mesh':source_id(mesh),'mesh_sha256':selected.receipts[key(mesh)]['sha256'],
+            'mesh':source_id(mesh),
             'vertices':[[x,y,-z] for x,y,z in points[:4]]})
     grass_displacement=recover_grass_displacement(source,selected,prototypes)
     lod=recover_lod(source,selected)

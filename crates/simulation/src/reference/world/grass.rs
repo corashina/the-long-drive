@@ -29,7 +29,7 @@ impl WorldGrassDisplacement {
     pub(super) fn validate(
         &self,
         records: &HashMap<&SourceId, &WorldSourceRecord>,
-        receipts: &[WorldSourceReceipt],
+        receipts: &HashSet<&SourceId>,
     ) -> Result<(), ReferenceError> {
         let camera = checked_record(records, &self.camera, &["Camera"])?;
         let follow = checked_record(records, &self.follow, &["CameraFollow"])?;
@@ -65,7 +65,7 @@ impl WorldGrassDisplacement {
                     && record_link(filter, "m_Mesh") == Some(&writer.mesh)
                     && matches!(owner.fields.get("m_Layer"), Some(WorldValue::Integer(n)) if *n == writer.layer as i64)
                     && matches!(renderer.fields.get("m_Enabled"), Some(WorldValue::Bool(enabled)) if *enabled == writer.enabled)
-                    && receipts.iter().any(|receipt| receipt.source == writer.mesh),
+                    && receipts.contains(&writer.mesh),
                 "Grass writer ownership and layer",
             )?;
             let Some(WorldValue::Array(materials)) = renderer.fields.get("m_Materials") else {
