@@ -1,7 +1,6 @@
 """Recover the plate font and material, and the car prototype plate labels."""
 import hashlib
 import json
-import math
 from .source import key, source_id
 from .gltf import converted_transform
 from .materials import shader_defaults, export_material_textures
@@ -142,27 +141,7 @@ def recover_plates(source, prefab, output) -> dict:
     if source.read(source.resolve(font_reader,f['m_AtlasTextures'][0]))['m_TextureFormat']!=1:raise ValueError('sharedassets0.assets:366 required alpha atlas')
     if source_id(source.resolve(font_reader,f['m_AtlasTextures'][0]))!=atlas['source']:raise ValueError(f'{key(font_reader)} atlas/material mismatch')
     result={'font':_font(source,font_reader,atlas,output),'material':material}
-    validate_plate_data(result)
     return result
-
-def validate_plate_data(result):
-    f=result['font'];width,height=f['atlas_extent'];glyphs={g['index']:g for g in f['glyphs']};chars={c['unicode']:c for c in f['characters']}
-    if len(glyphs)!=len(f['glyphs']) or len(chars)!=len(f['characters']):raise ValueError('sharedassets0.assets:1366 duplicate glyph/character')
-    for code in [*range(65,91),45,*range(48,58)]:
-        if code not in chars:raise ValueError(f'sharedassets0.assets:1366 missing generated character {code}')
-    for g in f['glyphs']:
-        x,y,w,h=g['rect']
-        if x<0 or y<0 or w<0 or h<0 or x+w>width or y+h>height or not all(math.isfinite(v) for v in g['metrics']+[g['scale']]):raise ValueError(f'sharedassets0.assets:1366 glyph {g["index"]}: invalid metrics/atlas rectangle')
-    if any(c['glyph'] not in glyphs for c in f['characters']):raise ValueError('sharedassets0.assets:1366 missing mapped glyph')
-    def finite_tree(value):
-        if isinstance(value,float) and not math.isfinite(value):raise ValueError('Plate contract: nonfinite source value')
-        if isinstance(value,dict):
-            for child in value.values():finite_tree(child)
-        elif isinstance(value,list):
-            for child in value:finite_tree(child)
-    finite_tree(result)
-    for pair in f['pair_adjustments']:
-        if any(pair[side]['glyph'] not in glyphs for side in ('first','second')):raise ValueError('sharedassets0.assets:1366 pair adjustment: missing glyph')
 
 def plate_resources(contract):
     return [contract['material']['shader'],contract['material']['compiled_shader'],*contract['material']['resources']]

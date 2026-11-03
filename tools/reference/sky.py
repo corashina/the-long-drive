@@ -1,11 +1,9 @@
 """Recover the sky traffic spawner and its prefabs from checked records."""
-import math
 from .source import source_id,key,vector
-from .survival import managed_evidence,finite_record,component
+from .survival import managed_evidence,component
 from .small_items import animation_curve
 from .acquisition_motion import motion_clips
-from .particles import particle,validate_particle
-from .validation import record,array,number,u32,optional,string,boolean,source as source_shape
+from .particles import particle
 from .weather import game_object
 from .world_biome_materials import scene_component
 from .collision import world_pose,geometry
@@ -197,82 +195,3 @@ def recover_flyer(source, manifest):
         'pitch_range':[d['soundMinPitch'],d['soundMaxPitch']],
         # recover_audio replaces these AudioClip identities with clip ids and sets the shared one-shot voice.
         'clips':[source_id(source.resolve(flyer,c)) for c in d['soundClips']],'voice':None,'wing':wing}
-
-def validate_flyer(f, manifest):
-    prototype=next((p for p in manifest['world']['prototypes'] if p['source']==f['prefab']),None)
-    clips={c['id'] for c in manifest['audio']['clips']}
-    shots={v['id'] for v in manifest['audio']['car_voices'] if v['one_shot']}
-    def track(t):
-        width=4 if t.get('attribute')==2 else 3
-        record(t,{'node':u32,'attribute':u32,'path_hash':u32,'custom_type':u32,'curve_offset':u32,'storage':string,'interpolation':string,
-            'times':array(number),'values':array(array(number,width)),'in_tangents':array(array(number,width)),
-            'out_tangents':array(array(number,width)),'coefficients':array(array(array(number,3),width))})
-    def clip(w):
-        record(w,{'source':source_shape,'source_tracks':lambda r:record(r,{'bytes':u32,'file':string,'sha256':string}),'name':string,
-            'start_time':number,'stop_time':number,'sample_rate':number,'loop':boolean,'cycle_offset':number,'tracks':array(track),'events':array(lambda e:None)})
-    record(f,{'source':source_shape,'prefab':source_shape,'asset':u32,'item_id':u32,'time_range':array(number,2),'range':array(number,2),
-        'max_range_from_start':number,'speed_range':array(number,2),'velocity_lerp':number,'rot_lerp':number,'sound_time_range':array(number,2),
-        'volume_range':array(number,2),'pitch_range':array(number,2),'clips':array(u32),'voice':u32,'wing':clip})
-    finite_record(f)
-    if prototype is None or prototype['asset']!=f['asset']:raise ValueError('Invalid flyer prototype')
-    if any(not 0<=r[0]<=r[1] for r in (f['time_range'],f['range'],f['speed_range'],f['sound_time_range'],f['volume_range'],f['pitch_range'])):
-        raise ValueError('Invalid flyer range')
-    if (min(f['max_range_from_start'],f['velocity_lerp'],f['rot_lerp'])<=0 or not f['clips'] or any(c not in clips for c in f['clips'])
-            or f['voice'] not in shots):
-        raise ValueError('Invalid flyer values')
-    w=f['wing']
-    if (w['source']!={'file':FLYER_CLIP[0],'path_id':FLYER_CLIP[1]} or not w['loop'] or not w['start_time']<w['stop_time']
-            or not w['tracks'] or w['events']):raise ValueError('Invalid flyer wing clip')
-    for t in w['tracks']:
-        if (t['node']>=len(prototype['nodes']) or t['attribute'] not in (1,2,3,4) or not t['times'] or any(b<=a for a,b in zip(t['times'],t['times'][1:]))
-                or len(t['values'])!=len(t['times']) or len(t['in_tangents'])!=len(t['times']) or len(t['out_tangents'])!=len(t['times'])
-                or len(t['coefficients']) not in (0,len(t['times']))):raise ValueError('Invalid flyer wing track')
-
-def validate_sky(sky, manifest):
-    textures={t['id'] for t in manifest['lighting']['textures']}
-    nodes={n['id']:n for n in manifest['nodes']};assets={a['id']:a for a in manifest['assets']}
-    voices={v['id']:v for v in manifest['audio']['voices']};emitters={e['id']:e for e in manifest['audio']['emitters']}
-    def prefab(p):
-        record(p,{'source':source_shape,'asset':u32,'root':u32,'contrail':optional(lambda c:validate_particle(c,textures)),'voices':array(u32),
-            'spin':optional(lambda s:record(s,{'node':u32,'axis':array(number,3),'degrees_per_second':number})),'seated':optional(u32),'emp':optional(emp_shape)})
-    def key_shape(k):
-        record(k,{'time':number,'value':number,'in_tangent':number,'out_tangent':number,'in_weight':number,'out_weight':number,'weighted_mode':u32})
-    def emp_shape(e):
-        record(e,{'affect_ambient_sound':boolean,'make_rabbits_evil':boolean,'range':number,'value':number,
-            'range_spread':number,'range_speed':number,'value_spread':number,'value_speed':number,
-            'fall_off':lambda c:record(c,{'keys':array(key_shape),'pre_wrap_mode':number,'post_wrap_mode':number}),'layers':u32})
-    def ufo_shape(u):
-        record(u,{'source':source_shape,'prefab':u32,'night_range':array(number,2),'nights_after_spawn':number,'chance':number,
-            'back_range':array(number,2),'side_distance':number,'up_distance':number,'fedo':source_shape,'speed':number,'high_speed':number,
-            'target_distance':number,'road_height_offset':number,'ai_distance_range':array(number,2),'ai_multiplier_range':array(number,2),
-            'visited_distance':number,'disappear_distance':number,'mass':number,'speed_lerp':number,
-            'colliders':array(lambda c:record(c,{'source':source_shape,'role':string,'spin':boolean,'seated':boolean,'membership':u32,'filter':u32,'geometry':lambda g:None})),
-            'seat':lambda t:record(t,{'source':source_shape,'node':array(number,3),'sit':array(number,3),'rot_limit':number,'yaw_unlimited':boolean,
-                'look_instead_of_lean':boolean,'root_origin':boolean,'default_pitch':number,'min_exit_angle':number,'exit_height':number,
-                'show_sleep_text':boolean,'cant_push_from_seat':boolean,'push_force_modifier':number,'def_pose':u32}),
-            'stimulus':lambda t:record(t,{'source':source_shape,'center':array(number,3),'radius':number}),
-            'evidence':lambda e:record(e,{'assembly_sha256':string,'methods':array(string)})})
-    record(sky,{'source':source_shape,'chances':array(number),'max_planes':u32,'spawn_time_range':array(number,2),
-        'spawn_distance':number,'height':number,'speed':number,'max_angle':number,'destroy_distance':number,'contrail_rate':number,
-        'prefabs':array(prefab,len(PREFABS)),'evidence':lambda e:record(e,{'assembly_sha256':string,'methods':array(string)}),'ground_ufo':ufo_shape,'flyer':lambda f:None})
-    finite_record(sky)
-    if len(sky['chances'])!=len(sky['prefabs']) or any(c<0 for c in sky['chances']) or sum(sky['chances'])<=0:raise ValueError('Invalid sky chances')
-    if sky['max_planes']<=0 or not 0<=sky['spawn_time_range'][0]<=sky['spawn_time_range'][1]:raise ValueError('Invalid sky schedule')
-    if (min(sky['spawn_distance'],sky['speed'],sky['destroy_distance'])<=0 or sky['contrail_rate']<0
-            or not 0<=sky['max_angle']<=180):raise ValueError('Invalid sky spawner')
-    for p in sky['prefabs']:
-        asset=assets.get(p['asset'],{});root=nodes.get(p['root'],{})
-        if asset.get('usage')!='sky_traffic' or asset.get('root')!=p['source'] or root.get('source')!=p['source'] or root.get('parent') is not None:
-            raise ValueError('Invalid sky prefab root')
-        if any(v not in voices or nodes.get(emitters[voices[v]['emitter']]['node'],{}).get('asset')!=p['asset'] for v in p['voices']):
-            raise ValueError('Invalid sky voice')
-        s=p['spin']
-        if s and (nodes.get(s['node'],{}).get('asset')!=p['asset'] or math.hypot(*s['axis'])==0):raise ValueError('Invalid sky spin')
-    u=sky['ground_ufo']
-    if (u['prefab']>=len(sky['prefabs']) or sky['prefabs'][u['prefab']]['emp'] is None or not 0<=u['night_range'][0]<=u['night_range'][1]
-            or not 0<=u['chance']<=1 or not 0<=u['back_range'][0]<=u['back_range'][1] or not 0<u['speed']<=u['high_speed']
-            or sky['prefabs'][u['prefab']]['seated'] is None or u['mass']<=0
-            or {c['role'] for c in u['colliders']}!={'body','seat','auto_pilot','speed','altitude'}
-            or any(c['seated']!=(c['role'] in ('auto_pilot','speed','altitude')) for c in u['colliders'])):
-        raise ValueError('Invalid ground UFO')
-    validate_flyer(sky['flyer'],manifest)

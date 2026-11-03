@@ -7,13 +7,12 @@ import math
 from .source import key, source_id, vector
 from .gltf import convert_point
 from .collision import geometry, step_surface, collider_tag, world_pose
-from .survival import component, managed_evidence, finite_record
+from .survival import component, managed_evidence
 from .acquisition_motion import motion_clips
 from .breakables import breakable
 from .humanoid import humanoid_record, voice_record
 from .menu_figure import relative_pose
 from .library.types import ObjectId
-from .validation import record, array, number, u32, boolean, source as source_shape
 
 RABBIT = ('sharedassets1.assets', 33572)
 # The newAiScript prefab GameObject. Buildings spawn it through the `humanmonster` category.
@@ -518,152 +517,3 @@ def recover_stimuli(source):
     rows.sort(key=lambda r: (r['source']['file'], r['source']['path_id']))
     return rows
 
-
-def validate_creatures(c, manifest):
-    finite_record(c)
-    r = c['rabbit']
-    nodes = {n['id']: n for n in manifest['nodes']}
-    assets = {a['id']: a for a in manifest['assets']}
-    def local(n):
-        return nodes.get(n, {}).get('asset') == r['asset']
-    pair = array(number, 2)
-    record(r['spawner'], {'source': source_shape, 'chance': number, 'time_range': pair, 'count_range': pair, 'max_count': u32,
-        'distance_range': pair, 'offset': array(number, 3), 'radius': number, 'half_fov': number,
-        'surface_mask': u32, 'sphere_mask': u32})
-    s = r['spawner']
-    if not 0 <= s['time_range'][0] <= s['time_range'][1] or not 0 <= s['distance_range'][0] <= s['distance_range'][1] or s['max_count'] == 0:
-        raise ValueError('Invalid rabbit spawner')
-    if assets.get(r['asset'], {}).get('usage') != 'creature_prototype' or nodes.get(r['root'], {}).get('source') != r['source']:
-        raise ValueError('Rabbit asset identity')
-    ray = lambda v: record(v, {'enabled': boolean, 'inverted': boolean, 'symmetry': boolean, 'boolean': boolean,
-        'direction': array(number, 3), 'length': number, 'mask': u32, 'max_value': number, 'spread': number})
-    record(r['senses'], {'source': source_shape, 'scan_interval': number, 'eyes': u32, 'eye_objects': array(u32), 'fov': array(number, 3),
-        'hear_distance': number, 'min_hear_distance': number, 'min_hear_value': number, 'hear_modifier': number,
-        'stimulus_mask': u32, 'vision_mask': u32, 'rays': array(ray)})
-    if r['senses']['scan_interval'] <= 0 or not local(r['senses']['eyes']) or not all(local(n) for n in r['senses']['eye_objects']):
-        raise ValueError('Invalid rabbit senses')
-    size = r['size']
-    if any(size[k][0] < 0 or size[k][1] < 0 for k in ('scale', 'mass', 'health', 'shoot_health', 'speed', 'rot_speed')) or size['scale'][0] <= 0:
-        raise ValueError('Invalid rabbit size ranges')
-    if not all(local(n) for n in size['eyes']):
-        raise ValueError('Invalid rabbit eyes')
-    body = r['body']
-    if body['mass_kg'] <= 0 or not body['colliders'] or not all(local(x['node']) for x in body['colliders']):
-        raise ValueError('Invalid rabbit live body')
-    rag = r['ragdoll']
-    if not rag['bodies'] or [b['id'] for b in rag['bodies']] != list(range(1, len(rag['bodies']) + 1)) or not all(local(b['node']) for b in rag['bodies']):
-        raise ValueError('Invalid rabbit ragdoll bodies')
-    ids = {b['id'] for b in rag['bodies']}
-    if any(x['body'] not in ids for x in rag['colliders']) or any(j['body'] not in ids or j['connected_body'] not in ids for j in rag['joints']):
-        raise ValueError('Invalid rabbit ragdoll links')
-    if len(rag['pickups']) != len(rag['bodies']) or any(p['cant_pickup'] for p in rag['pickups']):
-        raise ValueError('Invalid rabbit ragdoll pickups')
-    anim = r['animator']
-    if len(anim['thresholds']) != len(anim['clips']) or len(anim['clips']) < 2 or any(b <= a for a, b in zip(anim['thresholds'], anim['thresholds'][1:])):
-        raise ValueError('Invalid rabbit blend tree')
-    for clip in anim['clips'] + [anim['overlay']['clip']]:
-        if not clip['loop'] or not clip['start_time'] < clip['stop_time'] or any(not local(t['node']) for t in clip['tracks']):
-            raise ValueError('Invalid rabbit clip')
-    if not 0 < anim['overlay']['weight'] <= 1 or not anim['overlay']['clip']['tracks']:
-        raise ValueError('Invalid rabbit overlay layer')
-    for name, a in anim['actions'].items():
-        record(a, {'clip': lambda v: None, 'speed': number, 'loop': boolean,
-            'enter': lambda v: record(v, {'exit_time': lambda x: None, 'duration': number, 'offset': number}),
-            'leave': lambda v: record(v, {'exit_time': number, 'duration': number, 'offset': number})})
-        clip = a['clip']
-        if (a['speed'] <= 0 or not clip['start_time'] < clip['stop_time'] or any(not local(t['node']) for t in clip['tracks'])
-                or not 0 <= a['leave']['exit_time'] <= 1 or a['leave']['duration'] < 0 or a['enter']['duration'] < 0):
-            raise ValueError(f'Invalid rabbit {name} action')
-    if set(anim['actions']) != {'roar', 'attack'}:
-        raise ValueError('Rabbit actions differ')
-    x = r['electronics']
-    record(x, {'source': source_shape, 'node': u32, 'max_output': number, 'override_max_jam': number, 'jam': number,
-        'colliders': array(lambda v: record(v, {'source': source_shape, 'layer': u32, 'anim': boolean}))})
-    if not local(x['node']) or not x['colliders'] or any(c['layer'] > 31 for c in x['colliders']) or x['max_output'] < 0:
-        raise ValueError('Invalid rabbit electronics')
-    e = r['evil']
-    material = lambda v: record(v, {'asset': u32, 'gltf_material': u32, 'source': source_shape, 'condition_key': lambda x: None})
-    record(e, {'source': source_shape, 'attack_angle': number, 'attack_distance': number, 'attack_duration': number,
-        'attack_cooldown': number, 'attack_modifier': number, 'roar_duration': number, 'target_forget_time': number,
-        'idle_time': pair, 'idle_distance': number, 'roar_pitch': number, 'roar_clips': array(u32), 'idle_clips': array(u32),
-        'attack_clips': array(u32), 'eye_materials': lambda v: record(v, {'evil': material, 'green': material}),
-        'trigger': lambda v: None})
-    t = e['trigger']
-    if (not local(t['collider']['node']) or not t['collider']['sensor'] or t['damage_player'] < 0 or t['damage_breakable'] < 0
-            or any(m['asset'] != r['asset'] for m in e['eye_materials'].values())
-            or not 0 <= e['idle_time'][0] <= e['idle_time'][1] or min(e['attack_duration'], e['roar_duration']) <= 0):
-        raise ValueError('Invalid rabbit evil record')
-    clips = {x['id'] for x in manifest['audio']['clips']}
-    if any(not e[f] or any(x not in clips for x in e[f]) for f in ('roar_clips', 'idle_clips', 'attack_clips')):
-        raise ValueError('Invalid rabbit evil sounds')
-    shots = {v['id'] for v in manifest['audio']['car_voices'] if v['one_shot']}
-    if not r['die_clips'] or any(x not in clips for x in r['die_clips']) or r['die_voice'] not in shots:
-        raise ValueError('Invalid rabbit die sounds')
-    validate_human(c['human'], manifest)
-    for row in c['stimuli']:
-        record(row, {'source': source_shape, 'node': source_shape, 'root': source_shape, 'visible': boolean, 'sound': boolean,
-            'smell': boolean, 'stimuli': array(lambda v: record(v, {'kind': lambda k: None, 'value': number})),
-            'max_sound_value': number, 'check_audio_sources': boolean, 'audio_sources': array(source_shape)})
-        if any(s['kind'] not in STIMULUS_KINDS for s in row['stimuli']):
-            raise ValueError('Invalid stimulus kind')
-    rows = {(row['source']['file'], row['source']['path_id']): row for row in c['stimuli']}
-    player = rows.get((c['player_stimulus']['file'], c['player_stimulus']['path_id']))
-    sound = rows.get((c['sound_stimulus']['file'], c['sound_stimulus']['path_id']))
-    if player is None or not player['visible'] or not player['stimuli']:
-        raise ValueError('Player stimulus differs')
-    if sound is None or not sound['sound'] or sound['check_audio_sources'] or sound['audio_sources'] or not sound['stimuli']:
-        raise ValueError('Sound stimulus differs')
-    hum = rows.get((c['hum_stimulus']['file'], c['hum_stimulus']['path_id']))
-    if (hum is None or not hum['sound'] or hum['check_audio_sources'] or hum['audio_sources'] or not hum['stimuli']
-            or hum['root'] != player['root']):
-        raise ValueError('Hum stimulus differs')
-
-
-def validate_human(h, manifest):
-    nodes = {n['id']: n for n in manifest['nodes']}
-    assets = {a['id']: a for a in manifest['assets']}
-    def local(n):
-        return nodes.get(n, {}).get('asset') == h['asset']
-    pair = array(number, 2)
-    record(h['start'], {'source': source_shape, 'sleeping': boolean, 'start_sleep_chance': number, 'first': boolean,
-        'voice_pitch': pair, 'patrol_time': pair})
-    s = h['start']
-    if any(not 0 <= r[0] <= r[1] for r in (s['voice_pitch'], s['patrol_time'])) or not 0 <= s['start_sleep_chance'] <= 1:
-        raise ValueError('Invalid human start')
-    if assets.get(h['asset'], {}).get('usage') != 'creature_prototype' or nodes.get(h['root'], {}).get('source') != h['source']:
-        raise ValueError('Human asset identity')
-    if not local(h['head']):
-        raise ValueError('Invalid human head')
-    b = h['breakable']
-    if min(b['health'], b['shoot_health'], b['explosion_health']) <= 0:
-        raise ValueError('Invalid human breakable')
-    body = h['body']
-    if body['mass_kg'] <= 0 or not body['colliders'] or not all(local(x['node']) for x in body['colliders']):
-        raise ValueError('Invalid human live body')
-    rag = h['ragdoll']
-    if not rag['bodies'] or [b['id'] for b in rag['bodies']] != list(range(1, len(rag['bodies']) + 1)) or not all(local(b['node']) for b in rag['bodies']):
-        raise ValueError('Invalid human ragdoll bodies')
-    ids = {b['id'] for b in rag['bodies']}
-    if any(x['body'] not in ids for x in rag['colliders']) or any(j['body'] not in ids or j['connected_body'] not in ids for j in rag['joints']):
-        raise ValueError('Invalid human ragdoll links')
-    if len(rag['pickups']) != len(rag['bodies']) or any(p['cant_pickup'] for p in rag['pickups']):
-        raise ValueError('Invalid human ragdoll pickups')
-    ai = h['ai']
-    if len(ai['sens']) != 5 or not all(local(x['node']) and x['sensor'] for x in ai['sens']):
-        raise ValueError('Invalid human sens')
-    if ai['col'] not in {x['node'] for x in body['colliders']} or ai['patrol_ray_count'] < 1:
-        raise ValueError('Invalid human AI')
-    a = h['animator']
-    if (not a['grounded'] or not a['crouching'] or len(a['bones']) != 55 or a['bones'][0] is None
-            or not all(local(b['node']) for b in a['bones'] if b) or not local(a['root'])
-            or not all(local(c['node']) for c in a['copies'])
-            or any(c['clip'] >= len(a['clips']) for c in a['grounded'] + a['crouching'])):
-        raise ValueError('Invalid human animator')
-    v = h['voice']
-    clips = {x['id']: x for x in manifest['audio']['clips']}
-    voices = {x['id'] for x in manifest['audio']['car_voices'] if not x['one_shot']}
-    lists = [v[f] for f in ('idle', 'chase', 'notice', 'attack', 'death')]
-    if (not all(lists) or any(c['clip'] not in clips or c['seconds'] <= 0 for l in lists for c in l)
-            or v['voice'] not in voices or not local(v['mouth'])
-            or any(not 0 <= t[0] <= t[1] for t in (v['idle_time'], v['chase_time'], v['seeing_time']))):
-        raise ValueError('Invalid human voice')
