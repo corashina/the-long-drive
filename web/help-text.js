@@ -24,7 +24,7 @@ export function helpLines(help,assists){
 }
 // Fills the template tokens. `names` are the bound key names by action (`boundNames`), `inputs` the settings store keys.
 export function fillHelp(template,word,names,mouseLook){
- return template.replace(/<(\w+)>/g,(_,w)=>word(w)).replace(/\{(\w+)\}/g,(_,a)=>a==='szamok'?'['+names.gear1+'-'+names.gear4+']':a==='mouse'?'['+(mouseLook?word('mouse'):names.lookright)+']':'['+names[a]+']');
+ return template.replace(/<(\w+)>/g,(_,w)=>word(w)).replace(/\{(\w+)\}/g,(_,a)=>a==='szamok'?'['+names.gear1+'-'+names.gear4+']':a==='mouse'?'['+(mouseLook?'Mouse':names.lookright)+']':'['+names[a]+']');
 }
 // Source ThelpText: each line, a space and a line break.
 export function helpText(help,assists,word,names,mouseLook){
