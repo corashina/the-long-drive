@@ -67,7 +67,7 @@ impl WorldStream {
         let mut i = 0;
         while i < self.lamp_bindings.len() {
             let parent = &self.lamp_bindings[i].parent;
-            if self.structures.iter().any(|s| &s.placement.id == parent)
+            if self.structures.contains(parent)
                 || self.portable_lamp_item(parent).is_some()
             {
                 i += 1;
@@ -86,7 +86,7 @@ impl WorldStream {
                         .lamp_bindings
                         .iter()
                         .any(|b| &b.parent == parent && &b.source == source)
-                        && (self.structures.iter().any(|s| &s.placement.id == parent)
+                        && (self.structures.contains(parent)
                             || self.portable_lamp_item(parent).is_some())
                         && self.bindings_ready(parent)
                 })

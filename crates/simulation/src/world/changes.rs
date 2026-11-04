@@ -75,11 +75,48 @@ pub struct ObjectChange {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChangeRecordIndex(usize);
 
+/// Record position of each key. Generated ids have their own map, so a lookup needs no key clone.
+#[derive(Clone, Debug, Default)]
+struct Identities {
+    imported: HashMap<crate::reference::ItemId, usize>,
+    generated: HashMap<super::GeneratedId, usize>,
+}
+impl Identities {
+    fn get(&self, key: &ObjectKey) -> Option<usize> {
+        match key {
+            ObjectKey::Imported(id) => self.imported.get(id),
+            ObjectKey::Generated(id) => self.generated.get(id),
+        }
+        .copied()
+    }
+    fn insert(&mut self, key: &ObjectKey, index: usize) {
+        match key {
+            ObjectKey::Imported(id) => self.imported.insert(*id, index),
+            ObjectKey::Generated(id) => self.generated.insert(id.clone(), index),
+        };
+    }
+    fn remove(&mut self, key: &ObjectKey) -> Option<usize> {
+        match key {
+            ObjectKey::Imported(id) => self.imported.remove(id),
+            ObjectKey::Generated(id) => self.generated.remove(id),
+        }
+    }
+    fn retained_bytes(&self) -> usize {
+        super::metrics::map_bytes(
+            self.imported.capacity(),
+            std::mem::size_of::<(crate::reference::ItemId, usize)>(),
+        ) + super::metrics::map_bytes(
+            self.generated.capacity(),
+            std::mem::size_of::<(super::GeneratedId, usize)>(),
+        )
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct ChangeRecords {
     records: Vec<(ObjectKey, ObjectChange)>,
     #[serde(skip)]
-    identities: HashMap<ObjectKey, usize>,
+    identities: Identities,
     #[serde(skip)]
     attachment_owners: HashMap<ObjectKey, usize>,
     #[serde(skip)]
@@ -162,7 +199,7 @@ impl<'de> Deserialize<'de> for ChangeRecords {
             ..Self::default()
         };
         for (key, change) in envelope.records {
-            if result.identities.contains_key(&key) {
+            if result.identities.get(&key).is_some() {
                 return Err(serde::de::Error::custom("Duplicate world change identity"));
             }
             result.insert(key, change);
@@ -233,7 +270,7 @@ impl ChangeRecords {
         {
             return;
         }
-        if let Some(&index) = self.identities.get(&key) {
+        if let Some(index) = self.identities.get(&key) {
             let old_owner = self.records[index]
                 .1
                 .snapshot
@@ -301,14 +338,14 @@ impl ChangeRecords {
         instance: &super::GeneratedId,
     ) {
         if let Some(index) = self.identities.get(key)
-            && self.records[*index].1.replay.is_none()
+            && self.records[index].1.replay.is_none()
         {
-            self.records[*index].1.replay = Some(placement.clone());
-            self.records[*index].1.instance = Some(instance.clone());
+            self.records[index].1.replay = Some(placement.clone());
+            self.records[index].1.instance = Some(instance.clone());
             self.payload_bytes +=
-                super::contents::placement_heap(self.records[*index].1.replay.as_ref().unwrap())
+                super::contents::placement_heap(self.records[index].1.replay.as_ref().unwrap())
                     + super::contents::identity_heap(
-                        self.records[*index].1.instance.as_ref().unwrap(),
+                        self.records[index].1.instance.as_ref().unwrap(),
                     );
             self.revision = self.revision.wrapping_add(1);
         }
@@ -346,7 +383,7 @@ impl ChangeRecords {
         self.region_bytes += (entries.capacity() - before) * std::mem::size_of::<usize>();
     }
     fn insert(&mut self, key: ObjectKey, change: ObjectChange) {
-        let index = if let Some(&index) = self.identities.get(&key) {
+        let index = if let Some(index) = self.identities.get(&key) {
             let old_owner = self.records[index]
                 .1
                 .snapshot
@@ -375,7 +412,7 @@ impl ChangeRecords {
                 self.index_attachment_owner(owner);
             }
             let index = self.records.len();
-            self.identities.insert(key.clone(), index);
+            self.identities.insert(&key, index);
             self.payload_bytes += change_heap(&key, &change);
             self.records.push((key, change));
             index
@@ -408,7 +445,7 @@ impl ChangeRecords {
             .saturating_sub(change_heap(&self.records[index].0, &self.records[index].1));
         self.records.swap_remove(index);
         if index != last {
-            self.identities.insert(self.records[index].0.clone(), index);
+            self.identities.insert(&self.records[index].0, index);
             if let Some(snapshot) = &self.records[index].1.snapshot {
                 self.index(region(snapshot.pose.position), index);
             }
@@ -419,7 +456,17 @@ impl ChangeRecords {
     pub fn get(&self, key: impl std::borrow::Borrow<ObjectKey>) -> Option<&ObjectChange> {
         self.identities
             .get(key.borrow())
-            .map(|i| &self.records[*i].1)
+            .map(|i| &self.records[i].1)
+    }
+    /// The change of a generated object, without a key clone.
+    pub fn get_generated(&self, id: &super::GeneratedId) -> Option<&ObjectChange> {
+        self.identities
+            .generated
+            .get(id)
+            .map(|&i| &self.records[i].1)
+    }
+    pub fn has_generated(&self) -> bool {
+        !self.identities.generated.is_empty()
     }
     pub fn iter(&self) -> impl Iterator<Item = (&ObjectKey, &ObjectChange)> {
         self.records.iter().map(|(key, change)| (key, change))
@@ -561,9 +608,7 @@ impl ChangeRecords {
                 .map(|g| (g.values.capacity() + g.counters.capacity()) * std::mem::size_of::<f32>())
                 .sum::<usize>()
             + self.records.capacity() * std::mem::size_of::<(ObjectKey, ObjectChange)>()
-            + self.identities.capacity().saturating_mul(2)
-                * (std::mem::size_of::<(ObjectKey, usize)>() + 1)
-            + 16
+            + self.identities.retained_bytes()
             + self.attachment_owners.capacity().saturating_mul(2)
                 * (std::mem::size_of::<(ObjectKey, usize)>() + 1)
             + 16

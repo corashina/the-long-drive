@@ -674,7 +674,7 @@ impl WorldStream {
             delta.holds.extend(world.holds.iter().cloned());
         }
         world.hold_insert_bytes = crate::world::metrics::map_insert_bytes(&self.prototype_holds);
-        world.prototype_cpu_bytes = self.metrics().prototype_cpu_bytes;
+        world.prototype_cpu_bytes = self.prototype_cpu_bytes();
         world.staging_configured = self.dependency_staging_configured();
         delta.required_ready = world.required_ready;
         delta.road_required = world.road_required;
