@@ -16,8 +16,10 @@ use crate::simulation::{
 };
 use crate::vehicle::{PhysicsWorld, VehiclePose, collider_builder, to_rapier};
 use crate::world::{DEFAULT_SEED, ObjectKey, WorldStream};
+use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::{
-    ActiveEvents, Group, InteractionGroups, InteractionTestMode, RigidBodyBuilder, RigidBodyHandle,
+    ActiveEvents, Group, InteractionGroups, InteractionTestMode, QueryFilter, RigidBodyBuilder,
+    RigidBodyHandle, Vector,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -188,6 +190,13 @@ impl StartingArea {
             }
         }
         physics.refresh_queries();
+        let dropping: Vec<_> = reference
+            .bodies
+            .iter()
+            .filter(|body| body.dynamic && body.parent_body.is_none())
+            .map(|body| bodies[&body.id])
+            .collect();
+        rest_on_support(physics, &dropping);
         items.sync_poses(physics);
         let spawn = &reference.area.player_spawn;
         let player = PlayerState::new(
@@ -2471,39 +2480,58 @@ fn startup_hash(mut value: u64) -> u64 {
     value ^ (value >> 31)
 }
 
-impl GarageRuntime {
-    /// Throwaway probe: `seconds` after start (also while paused), stands 0.9 m in front of and aims the view at the low
-    /// wire brush (5-20 s), the high wire brush (20-35 s), then a sponge (35-50 s).
-    /// Returns true when it aimed.
-    pub(crate) fn brush_look_probe(&mut self, reference: &ReferenceManifest, seconds: f64) -> bool {
-        let slot = match seconds as u32 {
-            5..20 => 1,
-            20..35 => 0,
-            35..50 => 3,
-            _ => return false,
-        };
-        let Some(tool) = reference.conditions.brushes.get(slot) else {
-            return false;
-        };
-        let Some(item) = self.area.items.get(tool.item) else {
-            return false;
-        };
-        let target = item.pose.position;
-        // Stand 0.9 m in front of the item on the room side.
-        let old = self.area.player.body_pose(&self.physics).position;
-        let stand = [target[0] - 0.9, old[1], target[2]];
-        if (old[0] - stand[0]).abs() + (old[2] - stand[2]).abs() > 0.01 {
-            self.area
-                .player
-                .rebase(std::array::from_fn(|i| old[i] - stand[i]));
-            let pose = self.area.player.body_pose(&self.physics);
-            let body = self.area.player.body_handle();
-            self.physics.edit_body(body, |body| {
-                body.set_position(crate::vehicle::to_rapier(pose), true);
-                body.set_linvel(rapier3d::math::Vector::ZERO, true);
-            });
+/// Longest drop that `rest_on_support` removes.
+const MAX_REST_DROP: f32 = 0.3;
+/// Gap left between a rested body and its support.
+const REST_GAP: f32 = 0.005;
+
+/// Moves each body straight down onto the first surface below it, at most `MAX_REST_DROP`.
+/// A thin item that drops onto a thin board can spin through the top face in one step and stay
+/// inside the board. The low wire brush starts 13 cm above its shelf board.
+fn rest_on_support(physics: &mut PhysicsWorld, handles: &[RigidBodyHandle]) {
+    let down = Vector::new(0.0, -MAX_REST_DROP, 0.0);
+    let mut drops = Vec::with_capacity(handles.len());
+    for &handle in handles {
+        let body = &physics.rapier().bodies[handle];
+        if !body.is_enabled() {
+            continue;
         }
-        self.area.player.look_at(target, &self.physics);
-        true
+        let mut toi = 1.0f32;
+        for &collider_handle in body.colliders() {
+            let collider = &physics.rapier().colliders[collider_handle];
+            if collider.is_sensor() || !collider.is_enabled() {
+                continue;
+            }
+            let queries = physics.queries(
+                QueryFilter::default()
+                    .exclude_sensors()
+                    .exclude_rigid_body(handle)
+                    .groups(collider.collision_groups()),
+            );
+            if let Some((_, hit)) = queries.cast_shape(
+                collider.position(),
+                down,
+                collider.shape(),
+                ShapeCastOptions {
+                    max_time_of_impact: 1.0,
+                    stop_at_penetration: true,
+                    ..Default::default()
+                },
+            ) {
+                toi = toi.min(hit.time_of_impact);
+            }
+        }
+        let drop = toi * MAX_REST_DROP - REST_GAP;
+        if toi < 1.0 && drop > 0.0 {
+            drops.push((handle, drop));
+        }
     }
+    for (handle, drop) in drops {
+        physics.edit_body(handle, |body| {
+            let mut pose = *body.position();
+            pose.translation.y -= drop;
+            body.set_position(pose, true);
+        });
+    }
+    physics.refresh_queries();
 }

@@ -516,7 +516,6 @@ pub(crate) fn sync_conditions(world: &mut World) {
             apply_spray(receivers, color, visuals.bank, world, false);
         }
         visuals.apply_visibility(world);
-        brush_probe(&visuals, world);
         for (index, (_, model, _)) in visuals.tools.iter().enumerate() {
             let Some(model) = model else { continue };
             let pose = world.resource::<SimFrameResource>().frame.brush_poses[index].pose();
@@ -564,47 +563,6 @@ fn apply_spray(
             world
                 .entity_mut(receiver.entity)
                 .insert(MeshMaterial3d(choice.material.clone()));
-        }
-    }
-}
-
-/// Throwaway probe: logs each brush model and its mesh children about every 2 s.
-fn brush_probe(visuals: &ConditionVisuals, world: &mut World) {
-    use bevy::camera::visibility::{InheritedVisibility, ViewVisibility};
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static FRAME: AtomicU32 = AtomicU32::new(0);
-    if FRAME.fetch_add(1, Ordering::Relaxed) % 120 != 0 {
-        return;
-    }
-    let camera = world
-        .query::<(&Camera3d, &GlobalTransform)>()
-        .iter(world)
-        .next()
-        .map(|(_, g)| g.translation());
-    for (index, (_, model, _)) in visuals.tools.iter().enumerate() {
-        let Some(model) = *model else { continue };
-        let pose = world.resource::<SimFrameResource>().frame.brush_poses[index].pose();
-        let mut entities = vec![model];
-        let mut at = 0;
-        while at < entities.len() {
-            if let Some(children) = world.get::<Children>(entities[at]) {
-                entities.extend(children.iter());
-            }
-            at += 1;
-        }
-        for entity in entities {
-            let name = world.get::<Name>(entity).map(|n| n.as_str().to_owned());
-            let global = world
-                .get::<GlobalTransform>(entity)
-                .map(|g| g.to_scale_rotation_translation());
-            let visibility = world.get::<Visibility>(entity).copied();
-            let inherited = world.get::<InheritedVisibility>(entity).map(|v| v.get());
-            let view = world.get::<ViewVisibility>(entity).map(|v| v.get());
-            let mesh = world.get::<Mesh3d>(entity).is_some();
-            info!(
-                "brush-probe tool {index} sim {:?} camera {camera:?} {name:?} mesh {mesh} global {global:?} vis {visibility:?} inherited {inherited:?} view {view:?}",
-                pose.position
-            );
         }
     }
 }

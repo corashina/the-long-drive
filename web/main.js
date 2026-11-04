@@ -105,6 +105,9 @@ let wasmMemory,renderAudit,initialReadyMs=null,peakFrameMs=0,lastFrameTime=null,
 const performancePanel=createPerformance(()=>wasmMemory?.buffer.byteLength,()=>renderAudit&&JSON.parse(renderAudit()),()=>worldDrawDistance,()=>simulation.stats());
 window.gamePerformanceFrame=(physicsMs,worldMs,updateMs,renderMs)=>performancePanel.frame(performance.now(),physicsMs,worldMs,updateMs,renderMs);
 window.gamePerformanceCounters=performancePanel.counters;
+window.gamePerformance=()=>performancePanel.snapshot();
+// Test sandbox (`simulation::sandbox`), for `tests/bench/fps.mjs`. Only a `?sandbox` page has it.
+if(new URLSearchParams(location.search).has('sandbox'))window.gameSandbox=actions=>simulation.sandbox(JSON.stringify(actions)).then(JSON.parse);
 const measurementWaiters=[];
 const bootstrap={manifestUtf16PayloadBytes:0,dependencyGate:worldBootstrapMeasurements};
 window.gameNow=()=>performance.now();

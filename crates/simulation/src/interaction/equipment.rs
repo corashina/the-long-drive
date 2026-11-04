@@ -144,7 +144,7 @@ impl EquipmentState {
             }
         });
         let target = anchor * local * to_rapier(item.local_pose).inverse();
-        physics.edit_body(body, |body| {
+        physics.follow_body(body, |body| {
             body.set_position(target, false);
             body.set_next_kinematic_position(target);
         });

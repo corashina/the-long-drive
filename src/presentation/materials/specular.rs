@@ -16,7 +16,6 @@ use bevy::{
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct SpecularMaterial {
     pub preparation: crate::presentation::gpu_prepare::GpuPreparation,
-    pub lod_fade: f32,
     pub source: SourceId,
     base: StandardMaterial,
     uniform: SourceUniform,
@@ -31,10 +30,7 @@ pub struct SpecularMaterial {
 }
 impl SpecularMaterial {
     pub(crate) fn shadow_batch_state(&self) -> crate::presentation::shadow_batch::CasterBatchState {
-        crate::presentation::shadow_batch::CasterBatchState::opaque_specular(
-            self.uniform.flags.x,
-            self.lod_fade,
-        )
+        crate::presentation::shadow_batch::CasterBatchState::opaque_specular(self.uniform.flags.x)
     }
 
     /// Only a shared material can draw GPU prop rows.
@@ -143,9 +139,11 @@ impl SpecularMaterial {
             if slot == 1 && !normal {
                 continue;
             }
-            let (binding, image) = textures
-                .binding(&record.source, name)
-                .ok_or_else(|| ReferenceError(format!("Specular texture not ready: {name}")))?;
+            // `bind` checked readiness, so a missing slot is a null texture.
+            // The shader then reads the slot default, as Unity does.
+            let Some((binding, image)) = textures.binding(&record.source, name) else {
+                continue;
+            };
             let bank = match banks.iter().position(|(id, _)| *id == binding.array) {
                 Some(index) => index,
                 None => {
@@ -166,11 +164,13 @@ impl SpecularMaterial {
                 .ok_or_else(|| ReferenceError("Missing source specular sampler".into()))?;
             uniform.sampling[slot] = Vec4::new(0., sampling.x, sampling.y, sampling.z);
         }
+        if banks.is_empty() {
+            return Err(ReferenceError("Specular material has no texture".into()));
+        }
         let array_count = banks.len() as u8;
         let arrays = std::array::from_fn(|i| banks.get(i).unwrap_or(&banks[0]).1.clone());
         Ok(Self {
             preparation: default(),
-            lod_fade: 1.,
             source: record.source.clone(),
             base: StandardMaterial::default(),
             uniform,
@@ -310,7 +310,6 @@ impl AsBindGroup for SpecularMaterial {
             return Err(AsBindGroupError::CreateBindGroupDirectly);
         }
         let extension = SourceReceiver {
-            lod_fade: self.lod_fade,
             receiver_mask: self.receiver_mask,
         };
         let mut result = extension.unprepared_bind_group(layout, device, &mut params.0, true)?;

@@ -67,15 +67,12 @@ impl Default for PlayerStepContext {
 }
 /// fpscontroller `scrubLimitX` and `scrubLimitY` degrees.
 const SCRUB_LIMITS: [f32; 2] = [50., 35.];
-/// Source scrubbing. The mouse turns `ghostHead`. Returns the mouse that turns the view,
-/// which is all of it at a scrub limit, else none.
-fn scrub_look(scrub: &mut [f32; 2], mouse: [f32; 2]) -> [f32; 2] {
-    let mut limited = false;
+/// Scrubbing. The mouse turns `ghostHead` up to the scrub limits.
+/// The view stays still. Unlike the source, the view does not turn at a limit.
+fn scrub_turn(scrub: &mut [f32; 2], mouse: [f32; 2]) {
     for ((angle, delta), limit) in scrub.iter_mut().zip(mouse).zip(SCRUB_LIMITS) {
         *angle = (*angle + delta).clamp(-limit, limit);
-        limited |= angle.abs() == limit;
     }
-    if limited { mouse } else { [0.; 2] }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -480,7 +477,8 @@ impl PlayerState {
         if let Some(multiplier) = ordinary_look {
             let mut mouse = input.mouse.map(|v| if v.is_finite() { v } else { 0. });
             if context.scrubbing {
-                mouse = scrub_look(&mut self.scrub, mouse);
+                scrub_turn(&mut self.scrub, mouse);
+                mouse = [0.; 2];
             } else {
                 self.scrub = [0.; 2];
             }
@@ -1558,14 +1556,14 @@ fn groups(membership: u32, filter: u32) -> InteractionGroups {
 
 #[cfg(test)]
 mod tests {
-    use super::scrub_look;
+    use super::scrub_turn;
 
     #[test]
-    fn scrub_turns_the_view_only_at_a_limit() {
+    fn scrub_stops_at_the_limits() {
         let mut scrub = [0.; 2];
-        assert_eq!(scrub_look(&mut scrub, [20., -10.]), [0.; 2]);
+        scrub_turn(&mut scrub, [20., -10.]);
         assert_eq!(scrub, [20., -10.]);
-        assert_eq!(scrub_look(&mut scrub, [40., 0.]), [40., 0.]);
-        assert_eq!(scrub, [50., -10.]);
+        scrub_turn(&mut scrub, [40., -40.]);
+        assert_eq!(scrub, [50., -35.]);
     }
 }

@@ -36,7 +36,7 @@ mod heap {
                 },
                 previous => (previous, step),
             };
-            let base = (previous * PAGE) as *mut u8;
+            let base = core::ptr::with_exposed_provenance_mut::<u8>(previous * PAGE);
             let end = base.wrapping_add(pages * PAGE);
             if let Some(old) = talc.source.end.take() {
                 if old.as_ptr() == base {

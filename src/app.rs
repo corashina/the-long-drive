@@ -312,6 +312,8 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
                 .chain(),
         )
         .add_systems(Startup, setup)
+        // One chain on purpose. Most of these systems share `SimFrameResource`, `Transform` or
+        // `Visibility`. Bevy's ambiguity check finds 59 unordered conflicts if the chain is split.
         .add_systems(
             Update,
             (

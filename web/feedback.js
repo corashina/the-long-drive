@@ -1,4 +1,4 @@
-import {applyLayout} from './ui-layout.js';
+import {applyLayout,layoutBox} from './ui-layout.js';
 import {boundNames} from './bindings.js';
 import {HELP,helpText} from './help-text.js';
 export function formatGear(gear){return gear<0?'R':gear===0?'N':String(gear);}
@@ -76,12 +76,28 @@ export const HINTS={translationHelp:'{rmb}+[<mouse>]: <move>\n{scrollup}: Distan
  doorMove:'{lmb}+[<mouse>]: <move>',doorOpen:'{lmb}+[<mouse>]: <openclose>',useLmbSwitch:'{use} / {lmb}: <turnSwitch>',useSwitch:'{use}: <turnSwitch>',useOpen:'{use}: <openclose>',
  tuneLmb:'{use} / {lmb}+[<mouse>]: <tune>',tune:'{use}+[<mouse>]: <tune>',tuneOpen:'{use}+[<mouse>] / {scrollup}: <openclose>',scrollTune:'{scrollup}: <tune>',scrollOpen:'{scrollup}: <openclose>',
  crankLmb:'{use} / {lmb}+[<mouse>]: <crank>',crank:'{use}+[<mouse>]: <crank>'};
+// One prompt line: each `[key]` becomes a key cap, `:` separators drop out.
+function promptLine(node,text){
+ node.replaceChildren();
+ for(const part of text.trim().split(/(\[[^\]]*\])/)){
+  if(part.startsWith('[')&&part.endsWith(']')){const k=document.createElement('kbd');k.textContent=part.slice(1,-1);node.append(k);continue;}
+  const t=part.replace(/^\s*:\s*/,' ').replace(/\s*:\s*$/,' ');if(!t.trim()){if(t)node.append(t);continue;}
+  const s=document.createElement('span');s.textContent=t.trim();node.append(' ',s,' ');
+ }
+}
+// A prompt panel per text line.
+function promptLines(node,text){
+ node.replaceChildren(...text.split('\n').filter(l=>l.trim()).map(l=>{const p=document.createElement('p');p.className='prompt';promptLine(p,l);return p;}));
+}
 const css=([r,g,b,a])=>`rgba(${r*255},${g*255},${b*255},${a})`;
 // `settings` is the settings store: `BHelp`, `BCrosshair`, `BOldCrosshair` and `FCrosshairScale`.
 // `actions` is the action index by source name (`actionIndex`). `language` is the word table (`createLanguage`).
 export function createFeedback(ui,manifest,settings,actions,language) {
- const state=new FeedbackState(language.word,language.index),root=document.querySelector('#hud'),icon=document.querySelector('#crosshair'),fluid=document.querySelector('#fluid-text'),carry=document.querySelector('#carry-help'),helpNode=document.querySelector('#help-text'),notice=document.querySelector('#action-notice'),charge=document.querySelector('#throw-charge'),level=document.querySelector('#throw-level');
+ const state=new FeedbackState(language.word,language.index),root=document.querySelector('#hud'),stack=document.querySelector('#prompts'),corner=document.querySelector('#hud-corner'),icon=document.querySelector('#crosshair'),fluid=document.querySelector('#fluid-text'),carry=document.querySelector('#carry-help'),helpNode=document.querySelector('#help-text'),notice=document.querySelector('#action-notice'),charge=document.querySelector('#throw-charge'),level=document.querySelector('#throw-level');
  const gear=document.querySelector('#driving-gear');let lastGear,wasSeated;
+ // Source prompt families, top to bottom: use, pickup, mount, fill. Rows keep that order in the stack.
+ const destinations={use:'use',door:'use',pickup:'pickup',drop:'pickup',mount:'mount',dismount:'mount',fill:'fill',eat:'use',smoke:'use',takeOne:'use',putOn:'pickup',drink:'use',tune:'use',enter:'use',exit:'use',switch:'use',primary:'use',push:'pickup',grip:'pickup',release:'pickup',throw:'pickup',scroll:'use',heldSwitch:'use',wash:'use',scrub:'use',equip:'pickup',recenter:'pickup',releaseEquipment:'pickup',releaseEquipmentSeated:'pickup',crank:'use',hoseAttach:'mount',coilUp:'use',drain:'use',breakBarrel:'use',openCylinder:'use',reload:'use',unload:'use',binocularsUse:'use',binocularsFocus:'use',computerTurnOn:'use',computerTurnOff:'use',computerUse:'use',computerConnect:'use',computerDisconnect:'use'};
+ const families={use:0,pickup:1,mount:2,fill:3};
  const rows=[
   [ACTION.USE,'use','{use}: <openclose>'],
   [ACTION.DOOR,'door','{lmb}+[<mouse>]: <openclose>'],
@@ -127,7 +143,7 @@ export function createFeedback(ui,manifest,settings,actions,language) {
   [0,'computerUse','{lmb}: <use>',0,COMPUTER.USE],
   [0,'computerConnect','{use}: <connect>',0,COMPUTER.CONNECT],
   [0,'computerDisconnect','{use}: <disconnect>',0,COMPUTER.DISCONNECT]
- ].map(([bit,role,template,prompt=0,computer=0])=>{const n=document.createElement('p');n.className='action-row';n.hidden=true;root.append(n);return {bit,prompt,computer,role,template,n,family:0,top:-1};});
+ ].map(([bit,role,template,prompt=0,computer=0])=>{const n=document.createElement('p');n.className='prompt';n.hidden=true;n.style.order=families[destinations[role]];stack.append(n);return {bit,prompt,computer,role,template,n};});
  const named=Object.fromEntries(rows.map(r=>[r.role,r.n]));
  // fpscontroller GCWeapon: the gun crosshair sprite tinted by its color. It is one crosshair layer.
  const weapon=document.createElement('div');weapon.id='weapon-crosshair';weapon.hidden=true;let weaponIcon=0;
@@ -146,35 +162,17 @@ export function createFeedback(ui,manifest,settings,actions,language) {
  function fillTexts(){
   names=boundNames(settings.values.inputs,actions);
   const fill=t=>t.replace(/<(\w+)>/g,(_,w)=>language.word(w)).replace(/\{(\w+)\}/g,(_,a)=>'['+names[a]+']');
-  for(const row of rows)row.n.textContent=fill(row.template);
+  for(const row of rows)promptLine(row.n,fill(row.template));
   for(const [name,t] of Object.entries(HINTS))texts[name]=fill(t);
   lastCarry=lastDoor=lastUse=lastTune=lastScroll=lastPrimary=lastCrank=lastHelp='';
  }
- // Prompt families stack in screen order. A family starts below the lines of the families above it, so no two rows share a line.
- const counts=new Uint8Array(4),familyTops=new Float32Array(4),familyLines=new Float32Array(4),starts=new Float32Array(4),order=[0,1,2,3];
- const destinations={use:'use',door:'use',pickup:'pickup',drop:'pickup',mount:'mount',dismount:'mount',fill:'fill',eat:'use',smoke:'use',takeOne:'use',putOn:'pickup',drink:'use',tune:'use',enter:'use',exit:'use',switch:'use',primary:'use',push:'pickup',grip:'pickup',release:'pickup',throw:'pickup',scroll:'use',heldSwitch:'use',wash:'use',scrub:'use',equip:'pickup',recenter:'pickup',releaseEquipment:'pickup',releaseEquipmentSeated:'pickup',crank:'use',hoseAttach:'mount',coilUp:'use',drain:'use',breakBarrel:'use',openCylinder:'use',reload:'use',unload:'use',binocularsUse:'use',binocularsFocus:'use',computerTurnOn:'use',computerTurnOff:'use',computerUse:'use',computerConnect:'use',computerDisconnect:'use'};
- const families={use:0,pickup:1,mount:2,fill:3};
- function placeRows(){
-  counts.fill(0);
-  for(const row of rows)if(!row.n.hidden)counts[row.family]++;
-  let bottom=-Infinity;
-  for(const f of order){starts[f]=Math.max(familyTops[f],bottom);if(counts[f])bottom=starts[f]+counts[f]*familyLines[f];}
-  counts.fill(0);
-  for(const row of rows){if(row.n.hidden)continue;const top=starts[row.family]+counts[row.family]++*familyLines[row.family];if(top!==row.top){row.n.style.top=top+'px';row.top=top;}}
- }
  function resize(){
-  for(const row of rows){const role=destinations[row.role],box=applyLayout(row.n,ui.layouts[role]),f=families[role];row.family=f;row.top=-1;familyTops[f]=box.y;familyLines[f]=box.fontSize*1.4;}
-  order.sort((a,b)=>familyTops[a]-familyTops[b]);
-  placeRows();
+  corner.style.fontSize=layoutBox(ui.layouts.use,innerWidth,innerHeight).fontSize+'px';
   const scale=applyLayout(icon,ui.layouts.reticle).scale;icon.style.left='50%';icon.style.top='50%';icon.style.width=icon.style.height='0';
   for(const [layer,[,width,height]] of layers.map((n,i)=>[n,crosshairLayers(0)[i]])){layer.style.width=width*scale+'px';layer.style.height=height*scale+'px';}
   for(const child of pickupChildren){child.style.width=layers[2].style.width;child.style.height=layers[2].style.height;}
   old.forEach((n,i)=>{const [,,width,height]=ui.layouts[i?'old-crosshair-carry':'old-crosshair'].rect;n.style.width=width*scale+'px';n.style.height=height*scale+'px';});
   const fluidBox=applyLayout(fluid,ui.layouts.fluid);fluid.style.top=(fluidBox.y+fluidBox.height/2)+'px';fluid.style.height='auto';fluid.style.width='max-content';fluid.style.left='50%';
-  // Source ThelpText2: lower right alignment with overflow, so the lines grow up and left from the lower right corner.
-  const helpBox=applyLayout(helpNode,ui.layouts.help),hs=helpNode.style;hs.left=hs.top='auto';hs.width=hs.height='auto';hs.textAlign='right';
-  hs.right=(innerWidth-helpBox.x-helpBox.width)+'px';hs.bottom=(innerHeight-helpBox.y-helpBox.height)+'px';
-  const carryBox=applyLayout(carry,ui.layouts.carry);carry.style.left='auto';carry.style.right='8px';carry.style.width='max-content';carry.style.height='auto';carry.style.top='auto';carry.style.bottom=(innerHeight-carryBox.y-carryBox.height)+'px';
   notice.style.fontSize=ui.layouts.use.font_size*scale+'px';
   charge.style.fontSize=ui.layouts.use.font_size*scale+'px';charge.style.left='50%';charge.style.top=(innerHeight/2+120*scale)+'px';
  }
@@ -184,27 +182,26 @@ export function createFeedback(ui,manifest,settings,actions,language) {
   // Source `BHelp` hides the prompts and the item help.
   for(const r of rows)r.n.hidden=!help||(r.computer?!(state.computer&r.computer):r.prompt?!(state.prompts&r.prompt):!(state.actions&r.bit)||(r.bit===ACTION.DROP&&Boolean(state.actions&ACTION.THROW))||(r.bit===ACTION.SWITCH&&Boolean(state.actions&ACTION.PRIMARY_SWITCH))||(r.bit===ACTION.MOUNT&&Boolean(state.prompts&PROMPT.ATTACH)));
   const doorText=state.context===7?texts.doorMove:texts.doorOpen;
-  if(doorText!==lastDoor){named.door.textContent=doorText;lastDoor=doorText;}
+  if(doorText!==lastDoor){promptLine(named.door,doorText);lastDoor=doorText;}
   const useText=state.context===10?(state.lmbUse&&!(state.actions&ACTION.HELD_SWITCH)?texts.useLmbSwitch:texts.useSwitch):texts.useOpen;
-  if(useText!==lastUse){named.use.textContent=useText;lastUse=useText;}
+  if(useText!==lastUse){promptLine(named.use,useText);lastUse=useText;}
   const radio=state.context===11||state.context===12;
   const tuneText=radio?(state.lmbUse?texts.tuneLmb:texts.tune):texts.tuneOpen;
-  if(tuneText!==lastTune){named.tune.textContent=tuneText;lastTune=tuneText;}
+  if(tuneText!==lastTune){promptLine(named.tune,tuneText);lastTune=tuneText;}
   const scrollText=radio?texts.scrollTune:texts.scrollOpen;
-  if(scrollText!==lastScroll){named.scroll.textContent=scrollText;lastScroll=scrollText;}
+  if(scrollText!==lastScroll){promptLine(named.scroll,scrollText);lastScroll=scrollText;}
   const primaryText=state.actions&ACTION.HELD_SWITCH?texts.useSwitch:texts.useLmbSwitch;
-  if(primaryText!==lastPrimary){named.primary.textContent=primaryText;lastPrimary=primaryText;}
+  if(primaryText!==lastPrimary){promptLine(named.primary,primaryText);lastPrimary=primaryText;}
   const crankText=state.lmbUse?texts.crankLmb:texts.crank;
-  if(crankText!==lastCrank){named.crank.textContent=crankText;lastCrank=crankText;}
-  placeRows();
+  if(crankText!==lastCrank){promptLine(named.crank,crankText);lastCrank=crankText;}
   charge.hidden=!state.throwActive;const strength=Math.max(0,Math.min(1,state.throwCharge||0));
   if(strength!==lastCharge){level.value=strength;lastCharge=strength;}
   carry.hidden=!help||!state.carrying;const carryText=state.actions&ACTION.ROTATE?texts.rotationHelp:texts.translationHelp;
-  if(carryText!==lastCarry){carry.textContent=carryText;lastCarry=carryText;}
+  if(carryText!==lastCarry){promptLines(carry,carryText);lastCarry=carryText;}
   // Source GhelpText: `BHelp` or `showifmenudisabledtoo`, and a help box under the use ray.
   const shown=Boolean(state.help)&&(help||Boolean(state.help&HELP.ALWAYS));helpNode.hidden=!shown;
   const helpLines=shown?helpText(state.help,assists,language.word,names,v.inputs[actions.lookright][0]==='Mouse X'):'';
-  if(helpLines!==lastHelp){helpNode.textContent=helpLines;lastHelp=helpLines;}
+  if(helpLines!==lastHelp){promptLines(helpNode,helpLines);lastHelp=helpLines;}
   // Source `BCrosshair` hides every crosshair. `BOldCrosshair` swaps the layers for GC and GC2. TCrossHair scales both.
   icon.hidden=!v.BCrosshair;icon.style.scale=String(v.FCrosshairScale);
   for(const layer of layers)layer.style.visibility=v.BOldCrosshair?'hidden':'';

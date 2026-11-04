@@ -1654,7 +1654,9 @@ impl WorldStream {
             let spawns = if entry.group == super::random_starts::GROUP {
                 super::random_starts::picked(entry, &self.random_starts)
             } else {
-                entry.group == START_ITEMS || entry.group == self.start_car.field()
+                entry.group == START_ITEMS
+                    || entry.group == self.start_car.field()
+                    || super::startup::SCENE_GROUPS.contains(&entry.group.as_str())
             };
             if !spawns {
                 continue;
@@ -1733,11 +1735,20 @@ impl WorldStream {
         Ok(())
     }
     /// Fixed startup placements request their contents within the item spawn distance.
+    /// Scene structures, such as the outhouse, use the building distance.
     /// A changed placement returns through the changed destination replay instead.
     fn refresh_startup_placements(&mut self) {
-        let radius = self.distances.item_spawn_dist;
+        let items = self.distances.item_spawn_dist;
+        let buildings = self.distances.building_gen_dist;
         let points = [self.request.player, self.request.vehicle];
+        let reference = &self.reference;
         let near = |p: &Placement| {
+            let radius = match reference.startup_row(&p.id) {
+                Some(row) if super::startup::SCENE_GROUPS.contains(&row.group.as_str()) => {
+                    buildings
+                }
+                _ => items,
+            };
             points
                 .into_iter()
                 .any(|f| source_distance_squared(f, p.pose.position) < radius * radius)

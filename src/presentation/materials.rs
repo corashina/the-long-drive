@@ -1070,7 +1070,6 @@ fn make_material(
             ..default()
         },
         extension: SourceExtension {
-            lod_fade: 1.,
             receiver_mask: mask,
             surface: SourceSurface {
                 data,
@@ -1321,7 +1320,6 @@ impl SourceMaterial {
                 && surface.state.src == 1
                 && surface.state.dst == 0,
             flags: surface.data.flags.x,
-            lod_fade: self.extension.lod_fade,
         }
     }
     pub(crate) fn caster_data(&self) -> SourceUniform {
@@ -1594,7 +1592,6 @@ impl Material for SourceMaterial {
 
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct SourceExtension {
-    pub lod_fade: f32,
     pub receiver_mask: u32,
     pub surface: SourceSurface,
 }
@@ -1750,7 +1747,6 @@ impl Default for SourceExtension {
     fn default() -> Self {
         Self {
             receiver_mask: u32::MAX,
-            lod_fade: 1.,
             surface: SourceSurface::default(),
         }
     }
@@ -1776,7 +1772,6 @@ impl AsBindGroup for SourceExtension {
     ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
         let mut result = SourceReceiver {
             receiver_mask: self.receiver_mask,
-            lod_fade: self.lod_fade,
         }
         .unprepared_bind_group(layout, device, &mut params.0, false)?;
         result.bindings.0.extend(
@@ -1795,7 +1790,6 @@ impl AsBindGroup for SourceExtension {
 }
 pub struct SourceReceiver {
     pub receiver_mask: u32,
-    pub lod_fade: f32,
 }
 impl AsBindGroup for SourceReceiver {
     type Data = ();
@@ -1874,13 +1868,8 @@ impl AsBindGroup for SourceReceiver {
                     OwnedBindingResource::Buffer(
                         device.create_buffer_with_data(&BufferInitDescriptor {
                             label: Some("source receiver mask"),
-                            contents: &[
-                                self.receiver_mask.to_le_bytes(),
-                                self.lod_fade.to_le_bytes(),
-                                [0; 4],
-                                [0; 4],
-                            ]
-                            .concat(),
+                            contents: &[self.receiver_mask.to_le_bytes(), [0; 4], [0; 4], [0; 4]]
+                                .concat(),
                             usage: BufferUsages::UNIFORM,
                         }),
                     ),
