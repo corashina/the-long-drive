@@ -857,7 +857,6 @@ impl SourceAoChain {
         queue: &RenderQueue,
         cache: &PipelineCache,
         color: &TextureView,
-        resolve: Option<&TextureView>,
         near: f32,
         far: f32,
         projection_00: f32,
@@ -882,16 +881,7 @@ impl SourceAoChain {
         self.render
             .encode(encoder, device, queue, cache, projection_00)?;
         self.upsample.encode(encoder, cache);
-        self.composite.encode(
-            encoder,
-            device,
-            queue,
-            cache,
-            color,
-            resolve,
-            near,
-            far,
-            fog_density,
-        )
+        self.composite
+            .encode(encoder, device, queue, cache, color, near, far, fog_density)
     }
 }
