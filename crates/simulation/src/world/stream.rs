@@ -22,6 +22,60 @@ const MAX_PENDING: usize = 32;
 const DRIVING_DESCRIPTOR_MS: f64 = 4.;
 /// Focus movement in metres before the structure window refreshes.
 const STRUCTURE_REFRESH_DISTANCE: f32 = 1.0;
+
+/// Inputs of the content select step. The step gives the same result for equal inputs while
+/// each focus stays within its slack: the distance to the nearest item spawn radius crossing.
+#[derive(Clone, Copy, PartialEq)]
+struct SelectInputs {
+    request: (u64, u64),
+    wanted: u64,
+    active: u64,
+    roots: u64,
+    input: u64,
+    changes: u64,
+    replay: u64,
+    structures: u64,
+    lights: u64,
+    boxes: u64,
+    spawn: u32,
+}
+#[derive(Clone, Copy)]
+struct ContentSelect {
+    inputs: SelectInputs,
+    focus: [[f64; 3]; 2],
+    slack: [f32; 2],
+}
+impl ContentSelect {
+    /// True when no focus moved far enough to cross an item spawn radius.
+    fn holds(&self, inputs: SelectInputs, focus: [[f64; 3]; 2]) -> bool {
+        self.inputs == inputs
+            && focus
+                .into_iter()
+                .zip(self.focus)
+                .zip(self.slack)
+                .all(|((a, b), slack)| {
+                    // `source_distance_squared` rounds coordinates to f32. Keep a margin for it.
+                    let scale = [a[0], a[2], b[0], b[2]]
+                        .into_iter()
+                        .fold(0f64, |m, v| m.max(v.abs()));
+                    let margin = 0.01 + 8.0 * f64::from(f32::EPSILON) * scale;
+                    let moved = ((a[0] - b[0]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+                    moved + margin < f64::from(slack)
+                })
+    }
+}
+
+/// Source item spawn test of `position` against both foci. `slack` keeps the smallest distance
+/// of each focus to the radius, so a smaller move cannot change the result.
+fn spawn_near(focus: [[f64; 3]; 2], position: [f64; 3], radius: f32, slack: &mut [f32; 2]) -> bool {
+    let mut near = false;
+    for (f, slack) in focus.into_iter().zip(slack) {
+        let d = source_distance_squared(f, position);
+        near |= d < radius.powi(2);
+        *slack = slack.min((d.sqrt() - radius).abs());
+    }
+    near
+}
 pub const STAGING: usize = 32 * MIB;
 pub const CHECKPOINTS: usize = 16 * MIB;
 pub const PROTOTYPE_CPU: usize = 512 * MIB;
@@ -260,6 +314,14 @@ pub struct WorldStream {
     unbound: Vec<bool>,
     /// Next prop layer or content unit of descriptor selection.
     selection_ring: selection_ring::SelectionRing,
+    /// Inputs of the last complete prop select and content select. Equal inputs skip the step.
+    prop_select: Option<(u64, u64)>,
+    content_select: Option<ContentSelect>,
+    /// Bumps when `lights` membership changes.
+    light_revision: u64,
+    /// Bumps when `replay_indices` changes. `replay_previous` is the reused compare buffer.
+    replay_revision: u64,
+    replay_previous: Vec<super::changes::ChangeRecordIndex>,
     /// Inputs of the current `color_helpers`.
     helper_key: Option<HelperKey>,
     startup: Option<StartupTerrain>,
@@ -871,6 +933,11 @@ impl WorldStream {
             replay_ids: Default::default(),
             unbound: Vec::new(),
             selection_ring: Default::default(),
+            prop_select: None,
+            content_select: None,
+            light_revision: 0,
+            replay_revision: 0,
+            replay_previous: Vec::new(),
             helper_key: None,
             startup: None,
             startup_placements: Vec::new(),
@@ -958,8 +1025,7 @@ impl WorldStream {
     }
     fn admit_generation(&mut self, bytes: usize) -> bool {
         let staging = self.ledger.staging_limit();
-        if bytes > staging
-            || self.active_cpu_bytes().saturating_add(bytes) > self.limits.active_cpu
+        if bytes > staging || self.active_cpu_bytes().saturating_add(bytes) > self.limits.active_cpu
         {
             self.failure = Some(format!(
                 "Source generation budget exceeded: CPU requested {} bytes, limit {} bytes; staging requested {bytes} bytes, limit {staging} bytes",
@@ -1135,9 +1201,7 @@ impl WorldStream {
             .required
             .structures
             .iter()
-            .filter(|id| {
-                !(self.structures.contains(id) && self.bindings_ready(id))
-            })
+            .filter(|id| !(self.structures.contains(id) && self.bindings_ready(id)))
             .map(|id| {
                 let mut audit = match self.wanted_structures.iter().find(|p| &p.id == id) {
                     Some(p) => {
@@ -1180,7 +1244,8 @@ impl WorldStream {
     /// True if the stream holds the prototype or has room for the hold.
     pub fn can_hold_prototype(&self, source: &SourceId) -> bool {
         self.holds_prototype(source)
-            || self.prototype_cpu_bytes()
+            || self
+                .prototype_cpu_bytes()
                 .checked_add(self.hold_cost(source).1)
                 .is_some_and(|v| v <= PROTOTYPE_CPU)
     }
@@ -1958,6 +2023,11 @@ impl WorldStream {
             return;
         }
         timer.next(Stage::PropSelect);
+        // Equal prop and wanted lists give the same select. A waiting ramp step runs again.
+        let inputs = (self.props.revision(), self.wanted_structures.revision());
+        if !self.ramps_wait && self.prop_select == Some(inputs) {
+            return;
+        }
         super::stream_profile::count(Stage::PropSelect, self.wanted_structures.len());
         self.wanted_structures.retain(|p| {
             !matches!(
@@ -1977,6 +2047,7 @@ impl WorldStream {
         self.append_ramps();
         self.ready_structures
             .retain(|id| self.wanted_structures.contains(id));
+        self.prop_select = Some((self.props.revision(), self.wanted_structures.revision()));
     }
     /// Source `buildingscript.FStart(0)`. A road building connects to the nearest road pole.
     /// Contents wait for the cable. The search replays at most 8 road segments per update.
@@ -2056,10 +2127,7 @@ impl WorldStream {
         let generated_objects = self.generated_objects();
         // The step paces new contents. One source evaluation (a building with its
         // bats) can pass the pace. Only the object budget caps it.
-        let budget = self
-            .limits
-            .objects
-            .saturating_sub(generated_objects);
+        let budget = self.limits.objects.saturating_sub(generated_objects);
         let limit = 32usize.min(budget);
         if limit == 0 {
             if !self
@@ -2111,12 +2179,43 @@ impl WorldStream {
             return;
         }
         timer.next(super::stream_profile::Stage::ContentSelect);
+        self.discard_fixed_decoration_changes();
+        let focus = [self.request.player, self.request.vehicle];
+        // A replay cursor changes its siblings without a revision. Select fully while one runs.
+        let held = !self.contents.has_replay()
+            && self
+                .content_select
+                .is_some_and(|last| last.holds(self.select_inputs(), focus));
+        if held {
+            self.refresh_content_lights();
+        } else if !self.select_contents(focus) {
+            return;
+        }
+        self.replay_roots.retain(|root| {
+            !self.contents.replay_finished(&root.id)
+                || self.replay_indices.iter().any(|&index| {
+                    let (_, change) = self.changes.get_indexed(index);
+                    change.replay.as_ref().is_some_and(|p| p.id == root.id)
+                        && change.instance.as_ref().is_some_and(|id| {
+                            !self
+                                .contents
+                                .active()
+                                .iter()
+                                .chain(&self.static_controls)
+                                .any(|c| &c.content.placement.id == id && c.restored)
+                        })
+                })
+        });
+    }
+
+    /// Source item spawn selection of the wanted structures, content instances and lights.
+    /// Returns false when admission stops it. A complete select keeps its inputs.
+    fn select_contents(&mut self, focus: [[f64; 3]; 2]) -> bool {
+        self.content_select = None;
         use super::stream_profile::{Stage, Timer};
         let mut part = Timer::new(Stage::SelectChanged);
         super::stream_profile::count(Stage::SelectChanged, self.wanted_structures.len());
-        self.discard_fixed_decoration_changes();
-        self.replay_ids
-            .rebuild(&self.replay_indices, &self.changes);
+        self.replay_ids.rebuild(&self.replay_indices, &self.changes);
         if self.changes.has_generated() {
             self.wanted_structures.retain(|p| {
                 self.changes.get_generated(&p.id).is_none_or(|change| {
@@ -2140,20 +2239,12 @@ impl WorldStream {
             }
         }
         let mut unbound = self.unbound.iter();
+        let mut slack = [f32::INFINITY; 2];
+        let radius = self.distances.item_spawn_dist;
         self.wanted_structures.retain(|p| {
             !*unbound.next().unwrap()
-                || [self.request.player, self.request.vehicle]
-                    .into_iter()
-                    .any(|f| {
-                        source_distance_squared(f, p.pose.position)
-                            < self.distances.item_spawn_dist.powi(2)
-                    })
-                || replay_ids::selects(
-                    &self.replay_ids,
-                    &self.replay_indices,
-                    &self.changes,
-                    &p.id,
-                )
+                || spawn_near(focus, p.pose.position, radius, &mut slack)
+                || replay_ids::selects(&self.replay_ids, &self.replay_indices, &self.changes, &p.id)
         });
         part.next(Stage::SelectInstances);
         super::stream_profile::count(Stage::SelectInstances, self.structures.len());
@@ -2189,13 +2280,13 @@ impl WorldStream {
                 0
             };
         if !self.admit_generation(allocation) {
-            return;
+            return false;
         }
         if self.wanted_structures.try_reserve_exact(count).is_err()
             || self.lights.try_reserve_exact(light_count).is_err()
         {
             self.failure = Some("Selected content descriptor allocation failed".into());
-            return;
+            return false;
         }
         for content in self.contents.instances() {
             if self.box_content_withheld(&content.placement.id) {
@@ -2208,12 +2299,8 @@ impl WorldStream {
             if changed.is_some_and(|c| c.snapshot.is_none() || !selected) {
                 continue;
             }
-            let baseline_near = [self.request.player, self.request.vehicle]
-                .into_iter()
-                .any(|p| {
-                    source_distance_squared(p, content.placement.pose.position)
-                        < self.distances.item_spawn_dist.powi(2)
-                });
+            let baseline_near =
+                spawn_near(focus, content.placement.pose.position, radius, &mut slack);
             if !baseline_near && !selected && !self.structures.contains(id) {
                 continue;
             }
@@ -2242,7 +2329,9 @@ impl WorldStream {
             }
         }
         let mut keep = self.light_keep.iter();
+        let count = self.lights.len();
         self.lights.retain(|_| *keep.next().unwrap());
+        let mut lights_changed = self.lights.len() != count;
         self.light_index.rebuild(&self.lights, |l| &l.id);
         for content in self
             .contents
@@ -2260,26 +2349,54 @@ impl WorldStream {
                 } else {
                     self.light_index.push(&light.id, self.lights.len());
                     self.lights.push(light.clone());
+                    lights_changed = true;
                 }
             }
         }
         self.contents
             .discard_replay_siblings(&self.wanted_structures);
-        self.replay_roots.retain(|root| {
-            !self.contents.replay_finished(&root.id)
-                || self.replay_indices.iter().any(|&index| {
-                    let (_, change) = self.changes.get_indexed(index);
-                    change.replay.as_ref().is_some_and(|p| p.id == root.id)
-                        && change.instance.as_ref().is_some_and(|id| {
-                            !self
-                                .contents
-                                .active()
-                                .iter()
-                                .chain(&self.static_controls)
-                                .any(|c| &c.content.placement.id == id && c.restored)
-                        })
-                })
+        if lights_changed {
+            self.light_revision = self.light_revision.wrapping_add(1);
+        }
+        self.content_select = Some(ContentSelect {
+            inputs: self.select_inputs(),
+            focus,
+            slack,
         });
+        true
+    }
+    /// Live light state of the wanted contents. Light membership did not change.
+    fn refresh_content_lights(&mut self) {
+        let (lights, index) = (&mut self.lights, &self.light_index);
+        for content in self
+            .contents
+            .instances()
+            .filter(|c| !c.lights.is_empty() && self.wanted_structures.contains(&c.placement.id))
+        {
+            for light in &content.lights {
+                if let Some(i) = index.position(lights, |l| &l.id, &light.id) {
+                    let current = &mut lights[i];
+                    current.enabled = light.enabled;
+                    current.intensity = light.intensity;
+                    current.pose = light.pose;
+                }
+            }
+        }
+    }
+    fn select_inputs(&self) -> SelectInputs {
+        SelectInputs {
+            request: (self.request.session, self.request.revision),
+            wanted: self.wanted_structures.revision(),
+            active: self.contents.active_revision(),
+            roots: self.contents.roots_revision(),
+            input: self.contents.input_revision(),
+            changes: self.changes.revision(),
+            replay: self.replay_revision,
+            structures: self.structure_revision,
+            lights: self.light_revision,
+            boxes: self.contents.boxes.revision(),
+            spawn: self.distances.item_spawn_dist.to_bits(),
+        }
     }
 
     fn select_changed_destinations(&mut self) {
@@ -2289,6 +2406,7 @@ impl WorldStream {
             max: [focus[0] + radius, f64::INFINITY, focus[2] + radius],
         });
         if self.change_revision != self.changes.revision() || self.change_bounds != Some(bounds) {
+            std::mem::swap(&mut self.replay_indices, &mut self.replay_previous);
             self.replay_indices.clear();
             for bounds in bounds {
                 // Selection only lists records. Each replay root waits for its own room
@@ -2314,6 +2432,9 @@ impl WorldStream {
             if self.replay_indices.len() > self.limits.objects {
                 self.failure = Some("Changed destination replay exceeds active admission".into());
                 return;
+            }
+            if self.replay_indices != self.replay_previous {
+                self.replay_revision = self.replay_revision.wrapping_add(1);
             }
             self.change_revision = self.changes.revision();
             self.change_bounds = Some(bounds);
@@ -2356,8 +2477,7 @@ impl WorldStream {
             if !self.ledger.wait_for_room(
                 descriptor_bytes <= self.available_staging_bytes(),
                 Reclaim::STAGING,
-            ) || self.active_cpu_bytes()
-                .saturating_add(descriptor_bytes)
+            ) || self.active_cpu_bytes().saturating_add(descriptor_bytes)
                 > self.limits.active_cpu
             {
                 return;
@@ -2603,7 +2723,8 @@ impl WorldStream {
                         && p.placement.id.unit[0] == index as i64
                 }),
         );
-        let required = self.generated_objects()
+        let required = self
+            .generated_objects()
             .saturating_add(new_light + old_poles + new_pole);
         if required > self.limits.objects {
             self.failure = Some(format!(
@@ -2704,6 +2825,7 @@ impl WorldStream {
             .unwrap();
         if !self.lights.iter().any(|l| l.id == retained.light.id) {
             self.lights.push(retained.light.clone());
+            self.light_revision = self.light_revision.wrapping_add(1);
         }
         self.wanted_lights.push(index);
         self.refresh_poles();
@@ -2891,7 +3013,8 @@ impl WorldStream {
         // This is an admission estimate, separate from the logical operation charge.
         let capacity = capacity.max(self.road_worker_reserved_bytes);
         let delta = capacity - self.road_worker_reserved_bytes;
-        if self.active_cpu_bytes()
+        if self
+            .active_cpu_bytes()
             .saturating_add(pending_bytes + cache_bytes)
             .saturating_add(delta)
             > self.limits.active_cpu
@@ -3524,9 +3647,13 @@ impl WorldStream {
             });
         }
         if self.recovery.is_none() && self.next_road == self.road_candidates.len() {
+            let count = self.lights.len();
             self.lights.retain(|light| {
                 light.biome.is_none() || self.wanted_lights.contains(&(light.id.unit[0] as u32))
             });
+            if self.lights.len() != count {
+                self.light_revision = self.light_revision.wrapping_add(1);
+            }
             self.refresh_poles();
         }
     }
@@ -3717,9 +3844,11 @@ impl WorldStream {
             .terrain
             .iter()
             .filter(|key| self.surfaces.iter().any(|s| s.key == **key));
-        let structures = self.required.structures.iter().filter(|id| {
-            self.structures.contains(id) && self.bindings_ready(id)
-        });
+        let structures = self
+            .required
+            .structures
+            .iter()
+            .filter(|id| self.structures.contains(id) && self.bindings_ready(id));
         let ready = roads.count() + terrain.count() + structures.count();
         let total = self.required.roads.len()
             + self.required.terrain.len()
@@ -4077,7 +4206,8 @@ impl WorldStream {
                 self.limits.objects
             )));
         }
-        if self.active_cpu_bytes()
+        if self
+            .active_cpu_bytes()
             .saturating_add(self.recipes[&placement.prototype].instance_bytes())
             .saturating_add(super::contents::placement_heap(placement))
             > self.limits.active_cpu
@@ -4107,14 +4237,13 @@ impl WorldStream {
         ) {
             return Ok(());
         }
-        if self.active_cpu_bytes()
+        if self
+            .active_cpu_bytes()
             .saturating_add(binding_reservation)
             .saturating_add(self.recipes[&placement.prototype].instance_bytes())
             .saturating_add(super::contents::placement_heap(placement))
             > self.limits.active_cpu
-            || self.generated_objects()
-                .saturating_add(binding_objects)
-                > self.limits.objects
+            || self.generated_objects().saturating_add(binding_objects) > self.limits.objects
         {
             return Err(ReferenceError(
                 "Source generated bindings exceed admission budget".into(),
@@ -4920,7 +5049,9 @@ impl WorldStream {
                 .iter()
                 .map(super::contents::placement_heap)
                 .sum::<usize>()
-            + (self.replay_indices.capacity() + self.replay_query.capacity())
+            + (self.replay_indices.capacity()
+                + self.replay_query.capacity()
+                + self.replay_previous.capacity())
                 * std::mem::size_of::<super::changes::ChangeRecordIndex>()
             + self.static_controls.capacity()
                 * std::mem::size_of::<super::contents::ContentInstance>()
@@ -5058,8 +5189,7 @@ impl WorldStream {
             bytes += work.pending_bytes;
         }
         if let Some(startup) = &self.startup {
-            bytes += startup.foundations.capacity()
-                * std::mem::size_of::<TerrainFoundation>()
+            bytes += startup.foundations.capacity() * std::mem::size_of::<TerrainFoundation>()
                 + startup.holes.capacity() * std::mem::size_of::<[[f32; 3]; 4]>()
                 + startup.hole_centers.capacity() * std::mem::size_of::<[f32; 3]>()
                 + startup.root_offsets.capacity() * std::mem::size_of::<(SourceId, f32)>()
@@ -5073,8 +5203,7 @@ impl WorldStream {
     }
     /// Generated object count for the object budget.
     fn generated_objects(&self) -> usize {
-        self
-            .contents
+        self.contents
             .active()
             .iter()
             .chain(&self.static_controls)
@@ -5381,4 +5510,47 @@ pub(super) fn lamp_materials_of(
         .into_iter()
         .map(|(node, list)| (node, list.into()))
         .collect())
+}
+
+#[cfg(test)]
+mod select_tests {
+    use super::*;
+
+    fn inputs() -> SelectInputs {
+        SelectInputs {
+            request: (1, 1),
+            wanted: 0,
+            active: 0,
+            roots: 0,
+            input: 0,
+            changes: 0,
+            replay: 0,
+            structures: 0,
+            lights: 0,
+            boxes: 0,
+            spawn: 10f32.to_bits(),
+        }
+    }
+
+    #[test]
+    fn select_holds_until_a_focus_can_cross_the_spawn_radius() {
+        let focus = [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]];
+        let mut slack = [f32::INFINITY; 2];
+        // 7 m inside the radius of the first focus, far outside the second.
+        assert!(spawn_near(focus, [3.0, 5.0, 0.0], 10.0, &mut slack));
+        assert!((slack[0] - 7.0).abs() < 1e-4);
+        let last = ContentSelect {
+            inputs: inputs(),
+            focus,
+            slack,
+        };
+        let moved = |x: f64| [[x, 0.0, 0.0], focus[1]];
+        assert!(last.holds(inputs(), moved(6.5)));
+        assert!(!last.holds(inputs(), moved(7.0)));
+        let changed = SelectInputs {
+            wanted: 1,
+            ..inputs()
+        };
+        assert!(!last.holds(changed, focus));
+    }
 }
