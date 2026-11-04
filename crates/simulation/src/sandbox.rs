@@ -60,6 +60,8 @@ enum Action {
     Cycle { seconds: f64 },
     /// Answers the player, the cycle, the cars and the items within `radius` metres.
     State { radius: f32 },
+    /// Answers the worker CPU profile. `window.gameCpuProfile(true)` starts it and clears it.
+    Profile,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -120,6 +122,18 @@ fn run_batch(
             .and_then(|action| apply(runtime, reference, &mut sandbox.homes, action));
         replies.push(reply(id, result));
     }
+}
+
+/// The worker CPU profile. Only the WASM worker measures.
+#[cfg(target_arch = "wasm32")]
+fn profile() -> Result<(String, Value), String> {
+    let audit = crate::cpu_profile::cpu_profile_audit();
+    let audit = serde_json::from_str(&audit).map_err(|e| e.to_string())?;
+    Ok(("Worker CPU profile.".into(), audit))
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn profile() -> Result<(String, Value), String> {
+    Err("Only the WASM worker has a CPU profile.".into())
 }
 
 fn reply(id: u32, result: Result<(String, Value), String>) -> String {
@@ -258,6 +272,7 @@ fn apply(
             Ok(("Cycle set.".into(), Value::Null))
         }
         Action::State { radius } => Ok(("State.".into(), state(runtime, reference, radius))),
+        Action::Profile => profile(),
     }
 }
 
