@@ -48,7 +48,10 @@ test('routes a file over the Pages size limit to R2', async t => {
   const {web, site} = await fixture(t);
   await truncate(join(web, 'pkg/the_long_slop_bg.wasm'), 25 * 1024 * 1024 + 1);
   const {large} = await stageSite({webRoot: web, siteRoot: site});
-  assert.deepEqual(large, ['pkg/the_long_slop_bg.wasm']);
+  assert.deepEqual(large.map(({path}) => path), ['pkg/the_long_slop_bg.wasm']);
+  const keys = JSON.parse(await readFile(join(site, 'r2.json'), 'utf8'));
+  assert.deepEqual(keys, {'/pkg/the_long_slop_bg.wasm': large[0].key});
+  assert.match(large[0].key, /^[a-f0-9]{64}$/);
   assert.ok(!await exists(join(site, 'pkg/the_long_slop_bg.wasm')));
   const routes = JSON.parse(await readFile(join(site, '_routes.json'), 'utf8'));
   assert.deepEqual(routes.include, ['/pkg/the_long_slop_bg.wasm']);
