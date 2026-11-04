@@ -339,12 +339,14 @@ impl SourceContents {
             }
         }
     }
+    /// Reserves the queues. None: they fit the staging limit but not the room, so work waits.
     fn admit_queues(
         &mut self,
         limit: usize,
         deferred: usize,
         staging: usize,
-    ) -> Result<usize, ReferenceError> {
+        staging_limit: usize,
+    ) -> Result<Option<usize>, ReferenceError> {
         self.bytes.set(None);
         fn overlap<T>(values: &Vec<T>, extra: usize) -> usize {
             let required = values.len().saturating_add(extra);
@@ -355,10 +357,13 @@ impl SourceContents {
             }
         }
         let bytes = overlap(&self.active, limit).saturating_add(overlap(&self.deferred, deferred));
-        if bytes > staging {
+        if bytes > staging_limit {
             return Err(ReferenceError(
                 "Source continuation queues exceed staging".into(),
             ));
+        }
+        if bytes > staging {
+            return Ok(None);
         }
         self.active
             .try_reserve_exact(limit)
@@ -366,7 +371,7 @@ impl SourceContents {
         self.deferred
             .try_reserve_exact(deferred)
             .map_err(|_| ReferenceError("Source continuation queue allocation failed".into()))?;
-        Ok(staging - bytes)
+        Ok(Some(staging - bytes))
     }
     pub fn retain_requests(&mut self, structures: &[Placement], replays: &[Placement]) {
         self.bytes.set(None);
@@ -427,8 +432,10 @@ impl SourceContents {
                 return Ok(true);
             }
             let cap = budget.saturating_sub(self.active.len().saturating_sub(initial_count));
-            if !self.advance_deferred(reference, remaining, cap, available)? {
-                return Ok(false);
+            match self.advance_deferred(reference, remaining, cap, available, staging_limit)? {
+                Some(true) => {}
+                Some(false) => return Ok(false),
+                None => return Ok(true),
             }
         }
         let limit = limit.saturating_sub(self.active.len().saturating_sub(initial_count));
@@ -528,7 +535,9 @@ impl SourceContents {
             if pending.saturating_add(initial_pending) <= self.pending_requests() {
                 return Ok(waits);
             }
-            let staging = self.admit_queues(limit, 1, staging)?;
+            let Some(staging) = self.admit_queues(limit, 1, staging, staging_limit)? else {
+                return Ok(true);
+            };
             let cursor = &self.cursors[index];
             let parent = &cursor.parent;
             // Staging room is transient. A root that can fit waits for it.
@@ -721,7 +730,11 @@ impl SourceContents {
                 break;
             }
             dirty = true;
-            let staging = self.admit_queues(limit, 1, staging)?;
+            let Some(staging) = self.admit_queues(limit, 1, staging, staging_limit)? else {
+                self.next = index;
+                waits = true;
+                break;
+            };
             let cursor = &self.cursors[index];
             let first = cursor.next == 0;
             let source = if first {
@@ -843,16 +856,18 @@ impl SourceContents {
         }
         Ok(waits)
     }
+    /// Some(false): no eligible batch. None: the batch waits for staging room.
     fn advance_deferred(
         &mut self,
         reference: &WorldReference,
         limit: usize,
         cap: usize,
         staging: usize,
-    ) -> Result<bool, ReferenceError> {
+        staging_limit: usize,
+    ) -> Result<Option<bool>, ReferenceError> {
         self.bytes.set(None);
         let Some(index) = self.deferred.iter().position(|b| b.eligible <= self.update) else {
-            return Ok(false);
+            return Ok(Some(false));
         };
         let final_task = self.deferred[index].next + 1 == self.deferred[index].tasks.len();
         if !self.cursors.iter().any(|c| {
@@ -864,7 +879,9 @@ impl SourceContents {
         }
         // A child appends before the old record retires, including its final task.
         // The existing family claim covers it. Its record and CPU storage need admission.
-        let staging = self.admit_queues(limit, 1, staging)?;
+        let Some(staging) = self.admit_queues(limit, 1, staging, staging_limit)? else {
+            return Ok(None);
+        };
         let batch = &self.deferred[index];
         let (parent, source) = &batch.tasks[batch.next];
         let replay_only = batch.replay_only;
@@ -972,7 +989,7 @@ impl SourceContents {
                 });
             }
         }
-        Ok(true)
+        Ok(Some(true))
     }
     fn complete_deferred(
         &mut self,
@@ -1837,7 +1854,8 @@ mod tests {
         let staging = std::mem::size_of::<ContentInstance>() + std::mem::size_of::<DeferredBatch>();
         let mut rejected = cursors(reference);
         rejected.cursors[0].replay_only = true;
-        let error = rejected
+        // The queues fit the limit but not the room, so the cursor waits for room.
+        let waits = rejected
             .advance(
                 reference,
                 spawn(reference),
@@ -1851,11 +1869,11 @@ mod tests {
                 staging - 1,
                 crate::world::stream::STAGING,
             )
-            .unwrap_err();
-        assert_eq!(error.0, "Source continuation queues exceed staging");
+            .unwrap();
+        assert!(waits);
         assert_eq!(rejected.active.capacity(), 0);
         assert_eq!(rejected.deferred.capacity(), 0);
-        assert_eq!(rejected.next, 1);
+        assert_eq!(rejected.next, 0);
         assert_eq!(rejected.cursors[0].next, 0);
         assert_eq!(rejected.state.capture_history(), history);
         let scans = ScanCheck::new();
