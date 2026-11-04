@@ -4,6 +4,10 @@ use rapier3d::math::Pose;
 
 /// Source `Sight()` while the player looks through binoculars.
 pub const LOOK_SCALE: f32 = 0.1;
+/// Port tuning. The source wheel needs 37 notches for the full focus range. This makes it about 6.
+pub const WHEEL_GAIN: f32 = 6.;
+/// Port tuning. The source zoom spans `minfov` to `maxfov` (3 to 4 degrees). This makes the wide end 12 degrees.
+pub const WIDE_FOV_SCALE: f32 = 3.;
 
 struct Bound {
     item: ItemId,
@@ -74,14 +78,14 @@ impl Binoculars {
             .map(|index| {
                 let b = &mut self.bound[index];
                 if wheel.is_finite() {
-                    b.focus += wheel * dt * r.focus_sensitivity;
+                    b.focus += wheel * dt * r.focus_sensitivity * WHEEL_GAIN;
                 }
                 b.focus = b.focus.clamp(r.min_focus, r.max_focus);
                 let t = ((b.focus - r.max_focus) / (r.min_focus - r.max_focus)).clamp(0., 1.);
                 BinocularUse {
                     item: b.item,
                     camera: b.camera,
-                    fov_degrees: r.min_fov + (r.max_fov - r.min_fov) * t,
+                    fov_degrees: r.min_fov + (r.max_fov * WIDE_FOV_SCALE - r.min_fov) * t,
                     focus: b.focus,
                 }
             });

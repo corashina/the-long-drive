@@ -28,6 +28,9 @@ enum Action {
     Teleport { x: f64, z: f64 },
     /// Moves the player to the start spawn. Held cars go back to their pose before the first move.
     Garage,
+    /// Moves the player on foot to the road surface `distance` metres along the road from the
+    /// start spawn. The player looks along the road.
+    Road { distance: f64 },
     /// Moves the player to the first building on the road whose name contains `name`.
     Building { name: String },
     /// Spawns an item prototype (catalog name) or a world prototype (root name, such as a car or a gun)
@@ -57,6 +60,8 @@ enum Action {
     Cycle { seconds: f64 },
     /// Answers the player, the cycle, the cars and the items within `radius` metres.
     State { radius: f32 },
+    /// Answers the worker CPU profile. `window.gameCpuProfile(true)` starts it and clears it.
+    Profile,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -119,6 +124,18 @@ fn run_batch(
     }
 }
 
+/// The worker CPU profile. Only the WASM worker measures.
+#[cfg(target_arch = "wasm32")]
+fn profile() -> Result<(String, Value), String> {
+    let audit = crate::cpu_profile::cpu_profile_audit();
+    let audit = serde_json::from_str(&audit).map_err(|e| e.to_string())?;
+    Ok(("Worker CPU profile.".into(), audit))
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn profile() -> Result<(String, Value), String> {
+    Err("Only the WASM worker has a CPU profile.".into())
+}
+
 fn reply(id: u32, result: Result<(String, Value), String>) -> String {
     let reply = match result {
         Ok((message, data)) => Reply {
@@ -156,6 +173,13 @@ fn apply(
             let spawn = reference.area.player_spawn.translation.map(f64::from);
             place_player(runtime, homes, spawn, false)?;
             Ok(("Moved to the start spawn.".into(), Value::Null))
+        }
+        Action::Road { distance } => {
+            let (point, target) = road_view(reference, runtime, distance)?;
+            place_player(runtime, homes, [point[0], point[1] + 2., point[2]], true)?;
+            let target = runtime.stream.origin.local(target);
+            runtime.area.player.look_at(target, &runtime.physics);
+            Ok(("Moved to the road.".into(), json!(point)))
         }
         Action::Building { name } => {
             let (found, position) = building(reference, runtime.stream.seed(), &name)?;
@@ -248,6 +272,7 @@ fn apply(
             Ok(("Cycle set.".into(), Value::Null))
         }
         Action::State { radius } => Ok(("State.".into(), state(runtime, reference, radius))),
+        Action::Profile => profile(),
     }
 }
 
@@ -663,6 +688,30 @@ fn building(
     }
     names.sort_unstable();
     Err(format!("No building {name}. Names: {}", names.join(", ")))
+}
+
+/// The road surface point `distance` metres along the road (world -Z) from the start spawn,
+/// and an eye-height point 120 m further along the road.
+fn road_view(
+    reference: &ReferenceManifest,
+    runtime: &GarageRuntime,
+    distance: f64,
+) -> Result<([f64; 3], [f64; 3]), String> {
+    const LOOK: f64 = 120.;
+    if !distance.is_finite() || distance < 0. {
+        return Err("Distance must be 0 or more.".into());
+    }
+    let start = f64::from(reference.area.player_spawn.translation[2]) - distance;
+    let mut road = runtime
+        .stream
+        .road_surface_points()
+        .skip_while(|point| point[2] > start);
+    let point = road.next().ok_or("The road ends before this distance.")?;
+    let mut target = road
+        .find(|p| p[2] <= point[2] - LOOK)
+        .ok_or("The road ends before this distance.")?;
+    target[1] += 1.6;
+    Ok((point, target))
 }
 
 /// The physics pose `forward` metres in front of the player and 0.5 m up.

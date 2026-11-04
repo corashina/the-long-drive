@@ -15,8 +15,8 @@ use crate::reference::{
     WorldPrototypeReference,
 };
 use crate::vehicle::{PhysicsWorld, to_rapier};
+use crate::world::GeneratedId;
 use crate::world::spawn_rules::*;
-use crate::world::{GeneratedId, ObjectKey};
 use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{ColliderHandle, QueryFilter, Ray};
 
@@ -310,7 +310,7 @@ impl WorldStream {
     }
     fn saved(&self, parent: &GeneratedId) -> Option<&crate::world::ObjectSnapshot> {
         self.changes
-            .get(ObjectKey::Generated(parent.clone()))
+            .get_generated(&parent)
             .and_then(|c| c.snapshot.as_ref())
     }
     fn bind_spray(

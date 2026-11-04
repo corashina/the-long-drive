@@ -316,6 +316,8 @@ impl StructureRecipe {
             colliders.push((source.source.clone(), handle));
         }
         for (recipe, &handle) in self.bodies.iter().zip(&bodies) {
+            // Owners read the body mass at bind, before the next step computes it.
+            physics.recompute_body_mass(handle);
             let Some(center) = recipe.center_of_mass else {
                 continue;
             };

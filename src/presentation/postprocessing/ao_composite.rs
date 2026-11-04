@@ -114,7 +114,6 @@ impl AoCompositePass {
         queue: &RenderQueue,
         cache: &PipelineCache,
         color: &TextureView,
-        resolve: Option<&TextureView>,
         near: f32,
         far: f32,
         density: f32,
@@ -136,7 +135,7 @@ impl AoCompositePass {
         let colors = [Some(RenderPassColorAttachment {
             view: color,
             depth_slice: None,
-            resolve_target: resolve.map(|view| &**view),
+            resolve_target: None,
             ops: Operations {
                 load: LoadOp::Load,
                 store: StoreOp::Store,

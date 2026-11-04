@@ -73,6 +73,8 @@ pub struct SourceViewClock {
     preparation_ready: bool,
     probe: [ProbeSchedule; PROBE_COUNT],
     probe_index: usize,
+    /// Low reflections skip the probe job on every 2nd frame.
+    probe_rest: bool,
     main_token: u32,
     probe_token: u32,
     frame: u32,
@@ -94,6 +96,9 @@ impl SourceViewClock {
         self.probe[index] = ProbeSchedule::default();
     }
     fn probe_job(&self, enabled: [bool; PROBE_COUNT]) -> Option<ProbeJob> {
+        if self.probe_rest {
+            return None;
+        }
         self.probe[self.probe_index].pending_job(enabled[self.probe_index])
     }
     /// A face camera runs only while its face prepares: each face in warmup, then the current face job.
@@ -104,6 +109,7 @@ impl SourceViewClock {
         &mut self,
         acks: &SourceSubmissionAcks,
         probe_enabled: [bool; PROBE_COUNT],
+        every_frame: bool,
     ) -> Result<(), &'static str> {
         if self.main_token == 0 {
             self.main_token = 1;
@@ -155,6 +161,7 @@ impl SourceViewClock {
                     .ok_or("Source probe job token exhausted")?;
             }
         }
+        self.probe_rest = !every_frame && !self.probe_rest;
         Ok(())
     }
 }
@@ -202,15 +209,11 @@ pub struct SourceViewFrame {
     pub main_motion: Option<super::temporal::MainMotion>,
 }
 impl SourceViewFrame {
-    /// Shadow atlas side of a view. The shadow quality shrinks only world views.
+    /// Sun shadow atlas side of a world view, after the shadow quality.
     pub fn atlas_size(&self, index: usize) -> Option<u32> {
         let native = self.views[index]?.native_extent;
         let source = crate::reference::shadows::source_atlas_size(native.x, native.y)?;
-        Some(if index < WORLD_VIEWS {
-            self.shadow_quality.atlas_size(source)
-        } else {
-            source
-        })
+        Some(self.shadow_quality.atlas_size(source))
     }
     /// A probe face or mirror view without a snapshot prepares and draws nothing this frame.
     pub fn skip_preparation(&self, index: usize) -> bool {
@@ -283,6 +286,7 @@ fn sync_probe_cameras(
     assets: Option<Res<LightingAssets>>,
     scene: Res<SourceSceneLighting>,
     activation: Res<super::lighting_scene::ProbeActivation>,
+    display: Res<crate::display_settings::DisplaySettings>,
     acks: Res<SourceSubmissionAcks>,
     mut clock: ResMut<SourceViewClock>,
     status: Res<RendererStateHandle>,
@@ -292,7 +296,7 @@ fn sync_probe_cameras(
     {
         return;
     }
-    if let Err(error) = clock.consume(&acks, activation.enabled) {
+    if let Err(error) = clock.consume(&acks, activation.enabled, display.reflections == 0) {
         status.fail(error.into());
         status
             .lock()

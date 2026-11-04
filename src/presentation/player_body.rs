@@ -14,6 +14,7 @@ use crate::app::{Drive, RuntimeReference};
 use crate::reference::{CharacterReference, NodeId, ReferenceManifest, SourceId};
 use bevy::ecs as bevy_ecs;
 use bevy::gltf::GltfExtras;
+use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAssetRoot, WorldInstanceReady};
 use std::collections::{HashMap, HashSet};
@@ -332,6 +333,8 @@ fn bind(
     frame: Res<SimFrameResource>,
     mut body: ResMut<PlayerBody>,
     graph: SceneGraph,
+    skins: Query<(&Mesh3d, &SkinnedMesh)>,
+    mut meshes: ResMut<Assets<Mesh>>,
 ) {
     if let Some(bound) = bind_instance(
         0,
@@ -341,8 +344,118 @@ fn bind(
         frame.rig(),
         &graph,
     ) {
+        if let Err(error) = mark_limbs(
+            &mut commands,
+            &reference.0,
+            &bound,
+            &graph,
+            &skins,
+            &mut meshes,
+        ) {
+            error!("Player body limbs: {error}");
+        }
         body.bound = bound;
     }
+}
+
+/// Skin joint entities that the `_Dist` head clip keeps: the leg chains, and the arm chains from the forearm.
+/// The first bone of an arm chain is the upper arm. Child joints, such as the fingers, follow their chain bone.
+fn limb_joints(
+    manifest: &ReferenceManifest,
+    body: &BoundBody,
+    graph: &SceneGraph,
+) -> Result<HashSet<Entity>, String> {
+    let pose = &manifest.clothing.pose;
+    let target = |name: &str| pose.targets.get(name).copied();
+    let legs = [target("LLTarget"), target("RLTarget")];
+    let arms = [target("LHTarget"), target("RHTarget")];
+    let roots: Vec<NodeId> = pose
+        .ik_chains
+        .iter()
+        .filter_map(|c| {
+            let first = if legs.contains(&Some(c.target)) {
+                0
+            } else if arms.contains(&Some(c.target)) {
+                1
+            } else {
+                return None;
+            };
+            c.bones.get(first).copied()
+        })
+        .collect();
+    if roots.len() != 4 {
+        return Err("missing leg or arm IK chain".into());
+    }
+    let female = character_nodes(manifest, &manifest.clothing.characters, &roots)
+        .ok_or("character 1 lacks a limb joint")?;
+    let mut limbs = HashSet::new();
+    for node in roots.iter().chain(&female) {
+        let entity = *body.joints.get(node).ok_or("limb joint is not bound")?;
+        limbs.insert(entity);
+        limbs.extend(graph.children.iter_descendants(entity));
+    }
+    Ok(limbs)
+}
+
+/// Give the local body meshes a vertex color. Red is the skin weight of the limb joints.
+/// The surface shader keeps these vertices inside the `_Dist` head clip, so the knees, forearms and hands stay whole.
+/// The local body takes mesh copies. Remote figures and stages keep the source meshes.
+fn mark_limbs(
+    commands: &mut Commands,
+    manifest: &ReferenceManifest,
+    body: &BoundBody,
+    graph: &SceneGraph,
+    skins: &Query<(&Mesh3d, &SkinnedMesh)>,
+    meshes: &mut Assets<Mesh>,
+) -> Result<(), String> {
+    use bevy::mesh::VertexAttributeValues;
+    let limbs = limb_joints(manifest, body, graph)?;
+    let mut copies = HashMap::<AssetId<Mesh>, Handle<Mesh>>::new();
+    for &(primitive, _) in &body.primitives {
+        let Ok((mesh, skin)) = skins.get(primitive) else {
+            continue;
+        };
+        if let Some(copy) = copies.get(&mesh.id()) {
+            commands.entity(primitive).insert(Mesh3d(copy.clone()));
+            continue;
+        }
+        let source = meshes.get(&mesh.0).ok_or("body mesh is not loaded")?;
+        if source.contains_attribute(Mesh::ATTRIBUTE_COLOR) {
+            return Err("body mesh has vertex colors".into());
+        }
+        let (
+            Some(VertexAttributeValues::Uint16x4(indices)),
+            Some(VertexAttributeValues::Float32x4(weights)),
+        ) = (
+            source.attribute(Mesh::ATTRIBUTE_JOINT_INDEX),
+            source.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT),
+        )
+        else {
+            return Err("body mesh lacks joint attributes".into());
+        };
+        let limb: Vec<bool> = skin.joints.iter().map(|j| limbs.contains(j)).collect();
+        let colors: Vec<[f32; 4]> = indices
+            .iter()
+            .zip(weights)
+            .map(|(index, weight)| {
+                let value: f32 = index
+                    .iter()
+                    .zip(weight)
+                    .filter(|(i, _)| limb.get(usize::from(**i)).copied().unwrap_or(false))
+                    .map(|(_, w)| w)
+                    .sum();
+                [value, value, value, 1.]
+            })
+            .collect();
+        let copy = meshes.add(
+            source
+                .clone()
+                .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors),
+        );
+        commands.entity(primitive).insert(Mesh3d(copy.clone()));
+        copies.insert(mesh.id(), copy);
+    }
+    Ok(())
 }
 
 /// Spawns the player asset scene, hidden until it binds.

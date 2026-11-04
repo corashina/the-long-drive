@@ -233,29 +233,35 @@ pub fn half_angle(degrees: f32) -> (f32, f32) {
     (sin_poly(x) as f32, cos_poly(x, false) as f32)
 }
 
+fn heap<T>(values: &Vec<T>) -> usize {
+    values.capacity() * size_of::<T>()
+}
+
 impl RoadPrototype {
     pub fn retained_bytes(&self) -> usize {
-        self.nodes.capacity() * std::mem::size_of::<RoadNode>()
-            + self.controls.capacity() * 4
-            + self.skins.capacity() * std::mem::size_of::<RoadSkin>()
+        heap(&self.nodes)
+            + heap(&self.controls)
+            + heap(&self.skins)
             + self
                 .skins
                 .iter()
-                .map(|s| {
-                    s.bones.capacity() * 4
-                        + s.bind_poses.capacity() * 64
-                        + s.positions.capacity() * 12
-                        + s.normals.capacity() * 12
-                        + s.tangents.capacity() * 16
-                        + s.uv.capacity() * 8
-                        + s.joints.capacity() * 16
-                        + s.weights.capacity() * 16
-                        + s.triangles.capacity() * std::mem::size_of::<Vec<[u32; 3]>>()
-                        + s.triangles
-                            .iter()
-                            .map(|group| group.capacity() * 12)
-                            .sum::<usize>()
-                })
+                .map(RoadSkin::retained_bytes)
                 .sum::<usize>()
+    }
+}
+
+impl RoadSkin {
+    /// Heap bytes of the streams, by capacity.
+    fn retained_bytes(&self) -> usize {
+        heap(&self.bones)
+            + heap(&self.bind_poses)
+            + heap(&self.positions)
+            + heap(&self.normals)
+            + heap(&self.tangents)
+            + heap(&self.uv)
+            + heap(&self.joints)
+            + heap(&self.weights)
+            + heap(&self.triangles)
+            + self.triangles.iter().map(heap).sum::<usize>()
     }
 }

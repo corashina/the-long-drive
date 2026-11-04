@@ -508,26 +508,11 @@ impl InstanceMaterials<'_> {
         };
         Ok(color.map_or_else(|| material.expect("bound GPU prop material"), linear_color))
     }
-    /// Entity LOD fade. `sync` keeps the impostor source position.
+    /// LOD fade of an entity impostor or grass material. `sync` keeps the impostor source position.
+    /// Primary and specular entities take the fade as `LodFade`, so their materials stay shared.
     pub fn fade(&mut self, binding: &RendererMaterial, fade: f32) {
-        if binding.shared.is_some() {
-            assert_eq!(
-                fade, 1.,
-                "LOD bindings must be private before pipeline warmup"
-            );
-            return;
-        }
         match &binding.visible {
-            InstanceMaterial::Primary(h) => {
-                if let Some(mut m) = self.primary.get_mut(h) {
-                    m.extension.lod_fade = fade;
-                }
-            }
-            InstanceMaterial::Specular(h) => {
-                if let Some(mut m) = self.specular.get_mut(h) {
-                    m.lod_fade = fade;
-                }
-            }
+            InstanceMaterial::Primary(_) | InstanceMaterial::Specular(_) => {}
             InstanceMaterial::Impostor(h) => {
                 if let Some(mut m) = self.impostors.get_mut(h) {
                     m.uniform.lod.x = fade;

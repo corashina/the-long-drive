@@ -86,15 +86,21 @@ impl EquipmentState {
         item.location = ItemLocation::World;
         Some(id)
     }
-    fn offset(rule: &PickupReference) -> Pose {
+    /// Source: `RH.TransformPoint(RHP)` with `Euler(RHR)`, then the hand IK reaches to `RightHandPos`.
+    /// That pulls the right hand to the screen center for some items. The port moves an item with
+    /// a `grip` so that the grip sits at the `RH` origin, where the hand rests without an item.
+    fn offset(rule: &PickupReference, grip: Option<Pose>) -> Pose {
         if rule.disable_rh_fix {
-            Pose::IDENTITY
-        } else {
-            to_rapier(VehiclePose {
-                position: rule.right_hand_position,
-                rotation: rule.right_hand_rotation,
-            })
+            return Pose::IDENTITY;
         }
+        let mut offset = to_rapier(VehiclePose {
+            position: rule.right_hand_position,
+            rotation: rule.right_hand_rotation,
+        });
+        if let Some(grip) = grip {
+            offset.translation = -(offset.rotation * grip.translation);
+        }
+        offset
     }
     pub fn advance_hand(
         &mut self,
@@ -102,15 +108,16 @@ impl EquipmentState {
         pose: &PlayerPoseState,
         items: &ItemStore,
         rule: &PickupReference,
+        grip: Option<Pose>,
         physics: &mut PhysicsWorld,
     ) {
         if !dt.is_finite() || dt <= 0. || self.item.is_none() {
             return;
         }
-        self.sync(pose, items, rule, physics);
+        self.sync(pose, items, rule, grip, physics);
         if let Some(elapsed) = &mut self.elapsed {
             *elapsed += dt;
-            let target = Self::offset(rule);
+            let target = Self::offset(rule, grip);
             if *elapsed >= self.interpolation_seconds {
                 self.hand_pose = Some(target);
                 self.elapsed = None;
@@ -120,7 +127,7 @@ impl EquipmentState {
                 current.translation = current.translation.lerp(target.translation, gain);
                 current.rotation = current.rotation.lerp(target.rotation, gain);
             }
-            self.sync(pose, items, rule, physics);
+            self.sync(pose, items, rule, grip, physics);
         }
     }
     pub fn sync(
@@ -128,6 +135,7 @@ impl EquipmentState {
         pose: &PlayerPoseState,
         items: &ItemStore,
         rule: &PickupReference,
+        grip: Option<Pose>,
         physics: &mut PhysicsWorld,
     ) {
         let Some(id) = self.item else { return };
@@ -140,11 +148,11 @@ impl EquipmentState {
                     * physics.rapier().bodies[body].position()
                     * to_rapier(item.local_pose)
             } else {
-                Self::offset(rule)
+                Self::offset(rule, grip)
             }
         });
         let target = anchor * local * to_rapier(item.local_pose).inverse();
-        physics.edit_body(body, |body| {
+        physics.follow_body(body, |body| {
             body.set_position(target, false);
             body.set_next_kinematic_position(target);
         });

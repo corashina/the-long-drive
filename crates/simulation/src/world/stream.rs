@@ -18,8 +18,64 @@ use std::{
 
 const MIB: usize = 1024 * 1024;
 const MAX_PENDING: usize = 32;
+/// Descriptor selection time per driving step. A longer step stalls the 50 Hz physics.
+const DRIVING_DESCRIPTOR_MS: f64 = 4.;
 /// Focus movement in metres before the structure window refreshes.
 const STRUCTURE_REFRESH_DISTANCE: f32 = 1.0;
+
+/// Inputs of the content select step. The step gives the same result for equal inputs while
+/// each focus stays within its slack: the distance to the nearest item spawn radius crossing.
+#[derive(Clone, Copy, PartialEq)]
+struct SelectInputs {
+    request: (u64, u64),
+    wanted: u64,
+    active: u64,
+    roots: u64,
+    input: u64,
+    changes: u64,
+    replay: u64,
+    structures: u64,
+    lights: u64,
+    boxes: u64,
+    spawn: u32,
+}
+#[derive(Clone, Copy)]
+struct ContentSelect {
+    inputs: SelectInputs,
+    focus: [[f64; 3]; 2],
+    slack: [f32; 2],
+}
+impl ContentSelect {
+    /// True when no focus moved far enough to cross an item spawn radius.
+    fn holds(&self, inputs: SelectInputs, focus: [[f64; 3]; 2]) -> bool {
+        self.inputs == inputs
+            && focus
+                .into_iter()
+                .zip(self.focus)
+                .zip(self.slack)
+                .all(|((a, b), slack)| {
+                    // `source_distance_squared` rounds coordinates to f32. Keep a margin for it.
+                    let scale = [a[0], a[2], b[0], b[2]]
+                        .into_iter()
+                        .fold(0f64, |m, v| m.max(v.abs()));
+                    let margin = 0.01 + 8.0 * f64::from(f32::EPSILON) * scale;
+                    let moved = ((a[0] - b[0]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+                    moved + margin < f64::from(slack)
+                })
+    }
+}
+
+/// Source item spawn test of `position` against both foci. `slack` keeps the smallest distance
+/// of each focus to the radius, so a smaller move cannot change the result.
+fn spawn_near(focus: [[f64; 3]; 2], position: [f64; 3], radius: f32, slack: &mut [f32; 2]) -> bool {
+    let mut near = false;
+    for (f, slack) in focus.into_iter().zip(slack) {
+        let d = source_distance_squared(f, position);
+        near |= d < radius.powi(2);
+        *slack = slack.min((d.sqrt() - radius).abs());
+    }
+    near
+}
 pub const STAGING: usize = 32 * MIB;
 pub const CHECKPOINTS: usize = 16 * MIB;
 pub const PROTOTYPE_CPU: usize = 512 * MIB;
@@ -238,7 +294,7 @@ pub struct WorldStream {
     wanted_roads: Vec<u32>,
     wanted_tiles: Vec<SurfaceKey>,
     road_points: Vec<TerrainRoadPoint>,
-    structures: Vec<super::StructureInstance>,
+    structures: structure_list::StructureList,
     trigger_roles: super::TriggerRoles,
     structure_revision: u64,
     presentation_changes: Vec<content_index::ContentSlot>,
@@ -252,6 +308,22 @@ pub struct WorldStream {
     /// Reused per step by `prepare_contents`: an index of `lights` and the lights to keep.
     light_index: super::id_index::IdIndex,
     light_keep: Vec<bool>,
+    /// Reused per step by `prepare_contents`: ids that selected change records name, and the
+    /// wanted structures with unbound contents.
+    replay_ids: replay_ids::ReplayIds,
+    unbound: Vec<bool>,
+    /// Next prop layer or content unit of descriptor selection.
+    selection_ring: selection_ring::SelectionRing,
+    /// Inputs of the last complete prop select and content select. Equal inputs skip the step.
+    prop_select: Option<(u64, u64)>,
+    content_select: Option<ContentSelect>,
+    /// Bumps when `lights` membership changes.
+    light_revision: u64,
+    /// Bumps when `replay_indices` changes. `replay_previous` is the reused compare buffer.
+    replay_revision: u64,
+    replay_previous: Vec<super::changes::ChangeRecordIndex>,
+    /// Inputs of the current `color_helpers`.
+    helper_key: Option<HelperKey>,
     startup: Option<StartupTerrain>,
     /// Fixed prototype placements of the startup list, set with `startup`.
     startup_placements: Vec<Placement>,
@@ -393,7 +465,7 @@ impl WorldStream {
             .iter()
             .filter(|r| {
                 changes
-                    .get(super::ObjectKey::Generated(r.id.clone()))
+                    .get_generated(&r.id)
                     .is_some_and(|c| c.snapshot.is_none())
             })
             .cloned()
@@ -844,7 +916,7 @@ impl WorldStream {
             wanted_roads: Vec::with_capacity(limits.roads),
             wanted_tiles: Vec::with_capacity(limits.tiles.iter().sum()),
             road_points: Vec::with_capacity(limits.roads * super::ROAD_CONTROLS),
-            structures: Vec::new(),
+            structures: Default::default(),
             trigger_roles: super::TriggerRoles::default(),
             structure_revision: 0,
             presentation_changes: Vec::new(),
@@ -858,6 +930,15 @@ impl WorldStream {
             ready_structures: Vec::with_capacity(32),
             light_index: Default::default(),
             light_keep: Vec::new(),
+            replay_ids: Default::default(),
+            unbound: Vec::new(),
+            selection_ring: Default::default(),
+            prop_select: None,
+            content_select: None,
+            light_revision: 0,
+            replay_revision: 0,
+            replay_previous: Vec::new(),
+            helper_key: None,
             startup: None,
             startup_placements: Vec::new(),
             startup_candidates: Vec::new(),
@@ -944,12 +1025,11 @@ impl WorldStream {
     }
     fn admit_generation(&mut self, bytes: usize) -> bool {
         let staging = self.ledger.staging_limit();
-        if bytes > staging
-            || self.metrics().active_cpu_bytes.saturating_add(bytes) > self.limits.active_cpu
+        if bytes > staging || self.active_cpu_bytes().saturating_add(bytes) > self.limits.active_cpu
         {
             self.failure = Some(format!(
                 "Source generation budget exceeded: CPU requested {} bytes, limit {} bytes; staging requested {bytes} bytes, limit {staging} bytes",
-                self.metrics().active_cpu_bytes.saturating_add(bytes),
+                self.active_cpu_bytes().saturating_add(bytes),
                 self.limits.active_cpu,
             ));
             return false;
@@ -1059,7 +1139,7 @@ impl WorldStream {
                 "road_candidates": self.road_candidates.len(),
                 "published_roads": self.required.roads.iter().filter(|id| self.surfaces.iter().any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(**id))).count(),
                 "published_terrain": self.required.terrain.iter().filter(|key| self.surfaces.iter().any(|s| s.key == **key)).count(),
-                "published_structures": self.required.structures.iter().filter(|id| self.structures.iter().any(|s| s.placement.id == **id) && self.bindings_ready(id)).count(),
+                "published_structures": self.required.structures.iter().filter(|id| self.structures.contains(id) && self.bindings_ready(id)).count(),
             },
             "presentation": self.ledger.credit().jobs,
             "pending": {
@@ -1121,9 +1201,7 @@ impl WorldStream {
             .required
             .structures
             .iter()
-            .filter(|id| {
-                !(self.structures.iter().any(|s| s.placement.id == **id) && self.bindings_ready(id))
-            })
+            .filter(|id| !(self.structures.contains(id) && self.bindings_ready(id)))
             .map(|id| {
                 let mut audit = match self.wanted_structures.iter().find(|p| &p.id == id) {
                     Some(p) => {
@@ -1135,7 +1213,7 @@ impl WorldStream {
                 };
                 audit["id"] = format!("{id:?}").into();
                 audit["wanted"] = self.wanted_structures.contains(id).into();
-                audit["published"] = self.structures.iter().any(|s| s.placement.id == *id).into();
+                audit["published"] = self.structures.contains(id).into();
                 audit["bindings_ready"] = self.bindings_ready(id).into();
                 audit["content"] = self.contents.contains(id).into();
                 audit
@@ -1167,8 +1245,7 @@ impl WorldStream {
     pub fn can_hold_prototype(&self, source: &SourceId) -> bool {
         self.holds_prototype(source)
             || self
-                .metrics()
-                .prototype_cpu_bytes
+                .prototype_cpu_bytes()
                 .checked_add(self.hold_cost(source).1)
                 .is_some_and(|v| v <= PROTOTYPE_CPU)
     }
@@ -1212,7 +1289,7 @@ impl WorldStream {
         let (renderer_want, stream_waits) = self.ledger.last_wait();
         serde_json::json!({
             "asset_cpu": {
-                "stream": self.metrics().prototype_cpu_bytes - self.ledger.credit().prototype_cpu,
+                "stream": self.prototype_cpu_bytes() - self.ledger.credit().prototype_cpu,
                 "renderer_credit": self.ledger.credit().prototype_cpu,
                 "renderer_used": self.ledger.used().prototype_cpu,
                 "limit": PROTOTYPE_CPU,
@@ -1498,9 +1575,27 @@ impl WorldStream {
         // Placement needs the complete selected road-point set.
         if self.next_road == self.road_candidates.len() {
             timer.next(Stage::DescriptorProps);
-            self.prepare_props();
-            timer.next(Stage::DescriptorContents);
-            self.prepare_contents();
+            let mut ring = std::mem::take(&mut self.selection_ring);
+            ring.tick(
+                |unit| {
+                    match unit {
+                        selection_ring::Unit::PropLayer => self.prepare_prop_layer(),
+                        selection_ring::Unit::Contents => {
+                            timer.next(Stage::DescriptorContents);
+                            self.prepare_contents();
+                        }
+                    }
+                    self.failure.is_none()
+                },
+                || {
+                    #[cfg(target_arch = "wasm32")]
+                    let elapsed = crate::host::game_now() - started;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let elapsed = started.elapsed().as_secs_f64() * 1000.;
+                    elapsed >= budget_ms
+                },
+            );
+            self.selection_ring = ring;
         }
     }
     /// Keep payload construction and renderer publication downstream from source selection.
@@ -1554,13 +1649,17 @@ impl WorldStream {
         let started = crate::host::game_now();
         #[cfg(not(target_arch = "wasm32"))]
         let started = std::time::Instant::now();
-        // Zero requests one driving step. Bound its terrain work to a 1 ms slice.
-        // Loading keeps its supplied budget, including time spent on descriptors.
-        let limit_ms = if budget_ms == 0. { 1. } else { budget_ms };
+        // Zero requests one driving step. Bound its descriptor selection to a 4 ms slice and
+        // its terrain work to a 1 ms slice. Loading keeps its supplied budget for both.
+        let (descriptor_ms, limit_ms) = if budget_ms == 0. {
+            (DRIVING_DESCRIPTOR_MS, 1.)
+        } else {
+            (budget_ms, budget_ms)
+        };
         let mut timer =
             super::stream_profile::Timer::new(super::stream_profile::Stage::StreamDescriptors);
         self.poll_road_work();
-        self.prepare_descriptors(budget_ms);
+        self.prepare_descriptors(descriptor_ms);
         timer.next(super::stream_profile::Stage::StreamGeometry);
         self.prepare_geometry(|| {
             #[cfg(target_arch = "wasm32")]
@@ -1619,13 +1718,14 @@ impl WorldStream {
                 let helpers = count + startup.foundations.len();
                 let bytes = count * std::mem::size_of::<super::FoundationPoint>()
                     + helpers * std::mem::size_of::<TerrainFoundation>();
-                if self.metrics().active_cpu_bytes + bytes > self.limits.active_cpu {
+                if self.active_cpu_bytes() + bytes > self.limits.active_cpu {
                     self.failure =
                         Some("Source color helper admission exceeds active CPU budget".into());
                     return;
                 }
                 self.color_foundations = Vec::with_capacity(count);
                 self.color_helpers = Vec::with_capacity(helpers);
+                self.helper_key = None;
                 match self.startup_placements(&startup) {
                     Ok(placements) => self.startup_placements = placements,
                     Err(error) => self.failure = Some(error.0),
@@ -1654,7 +1754,9 @@ impl WorldStream {
             let spawns = if entry.group == super::random_starts::GROUP {
                 super::random_starts::picked(entry, &self.random_starts)
             } else {
-                entry.group == START_ITEMS || entry.group == self.start_car.field()
+                entry.group == START_ITEMS
+                    || entry.group == self.start_car.field()
+                    || super::startup::SCENE_GROUPS.contains(&entry.group.as_str())
             };
             if !spawns {
                 continue;
@@ -1733,22 +1835,26 @@ impl WorldStream {
         Ok(())
     }
     /// Fixed startup placements request their contents within the item spawn distance.
+    /// Scene structures, such as the outhouse, use the building distance.
     /// A changed placement returns through the changed destination replay instead.
     fn refresh_startup_placements(&mut self) {
-        let radius = self.distances.item_spawn_dist;
+        let items = self.distances.item_spawn_dist;
+        let buildings = self.distances.building_gen_dist;
         let points = [self.request.player, self.request.vehicle];
+        let reference = &self.reference;
         let near = |p: &Placement| {
+            let radius = match reference.startup_row(&p.id) {
+                Some(row) if super::startup::SCENE_GROUPS.contains(&row.group.as_str()) => {
+                    buildings
+                }
+                _ => items,
+            };
             points
                 .into_iter()
                 .any(|f| source_distance_squared(f, p.pose.position) < radius * radius)
         };
         let changes = &self.changes;
-        let wanted = |p: &Placement| {
-            near(p)
-                && changes
-                    .get(super::ObjectKey::Generated(p.id.clone()))
-                    .is_none()
-        };
+        let wanted = |p: &Placement| near(p) && changes.get_generated(&p.id).is_none();
         let active = &self.contents.active();
         self.wanted_structures.retain(|p| {
             p.id.layer != WorldLayer::Startup
@@ -1815,7 +1921,7 @@ impl WorldStream {
             .building_components
             .needs_lookup(&self.wanted_structures)
         {
-            self.metrics().prototype_cpu_bytes
+            self.prototype_cpu_bytes()
         } else {
             PROTOTYPE_CPU
         };
@@ -1866,21 +1972,13 @@ impl WorldStream {
             });
         }
     }
-    fn prepare_props(&mut self) {
-        for _ in 0..4 {
-            self.prepare_prop_layer();
-            if self.failure.is_some() {
-                break;
-            }
-        }
-    }
     fn prepare_prop_layer(&mut self) {
         let budget = self.props.allocation_bound();
         if !self.admit_generation(budget) {
             return;
         }
-        let metrics = self.metrics();
-        let can_request = metrics.pending_work < 32;
+        let can_request = self.pending_work() < 32;
+        let generated_objects = self.generated_objects();
         if self.failure.is_some() {
             return;
         }
@@ -1889,6 +1987,8 @@ impl WorldStream {
             .obj_gen_dist
             .max(d.mountain_gen_dist)
             .max(d.building_gen_dist) as f64;
+        use super::stream_profile::{Stage, Timer};
+        let mut timer = Timer::new(Stage::PropHelpers);
         self.refresh_helper_context(union(
             window(self.request.player, helper_radius),
             window(self.request.vehicle, helper_radius),
@@ -1905,11 +2005,13 @@ impl WorldStream {
             holes: &[],
             biome_override: self.mode.biome_override(),
         };
+        timer.next(Stage::PropAdvance);
         let current = self.props.placements().len();
+        super::stream_profile::count(Stage::PropAdvance, current);
         let maximum = self
             .limits
             .objects
-            .saturating_sub(metrics.generated_objects)
+            .saturating_sub(generated_objects)
             .saturating_add(current);
         if let Err(error) = self.props.advance(
             [self.request.player, self.request.vehicle],
@@ -1920,6 +2022,13 @@ impl WorldStream {
             self.failure = Some(error.0);
             return;
         }
+        timer.next(Stage::PropSelect);
+        // Equal prop and wanted lists give the same select. A waiting ramp step runs again.
+        let inputs = (self.props.revision(), self.wanted_structures.revision());
+        if !self.ramps_wait && self.prop_select == Some(inputs) {
+            return;
+        }
+        super::stream_profile::count(Stage::PropSelect, self.wanted_structures.len());
         self.wanted_structures.retain(|p| {
             !matches!(
                 p.id.layer,
@@ -1938,6 +2047,7 @@ impl WorldStream {
         self.append_ramps();
         self.ready_structures
             .retain(|id| self.wanted_structures.contains(id));
+        self.prop_select = Some((self.props.revision(), self.wanted_structures.revision()));
     }
     /// Source `buildingscript.FStart(0)`. A road building connects to the nearest road pole.
     /// Contents wait for the cable. The search replays at most 8 road segments per update.
@@ -2013,14 +2123,11 @@ impl WorldStream {
             .select_revision(self.request.session, self.request.revision);
         self.contents
             .retain_requests(&self.wanted_structures, &self.replay_roots);
-        let metrics = self.metrics();
-        let pending = 32usize.saturating_sub(metrics.pending_work);
+        let pending = 32usize.saturating_sub(self.pending_work());
+        let generated_objects = self.generated_objects();
         // The step paces new contents. One source evaluation (a building with its
         // bats) can pass the pace. Only the object budget caps it.
-        let budget = self
-            .limits
-            .objects
-            .saturating_sub(metrics.generated_objects);
+        let budget = self.limits.objects.saturating_sub(generated_objects);
         let limit = 32usize.min(budget);
         if limit == 0 {
             if !self
@@ -2030,7 +2137,7 @@ impl WorldStream {
             {
                 self.failure = Some(format!(
                     "Source content object budget exceeded: requested {}, limit {}",
-                    metrics.generated_objects + 1,
+                    generated_objects + 1,
                     self.limits.objects
                 ));
             }
@@ -2039,7 +2146,7 @@ impl WorldStream {
         let reservation = self.available_staging_bytes().min(
             self.limits
                 .active_cpu
-                .saturating_sub(metrics.active_cpu_bytes),
+                .saturating_sub(self.active_cpu_bytes()),
         );
         if !self.admit_generation(reservation) {
             return;
@@ -2073,67 +2180,92 @@ impl WorldStream {
         }
         timer.next(super::stream_profile::Stage::ContentSelect);
         self.discard_fixed_decoration_changes();
-        self.wanted_structures.retain(|p| {
-            self.changes
-                .get(super::ObjectKey::Generated(p.id.clone()))
-                .is_none_or(|change| {
-                    change.snapshot.is_some()
-                        && self.replay_indices.iter().any(|&index| {
-                            matches!(self.changes.get_indexed(index).0,
-                                super::ObjectKey::Generated(id) if id == &p.id)
+        let focus = [self.request.player, self.request.vehicle];
+        // A replay cursor changes its siblings without a revision. Select fully while one runs.
+        let held = !self.contents.has_replay()
+            && self
+                .content_select
+                .is_some_and(|last| last.holds(self.select_inputs(), focus));
+        if held {
+            self.refresh_content_lights();
+        } else if !self.select_contents(focus) {
+            return;
+        }
+        self.replay_roots.retain(|root| {
+            !self.contents.replay_finished(&root.id)
+                || self.replay_indices.iter().any(|&index| {
+                    let (_, change) = self.changes.get_indexed(index);
+                    change.replay.as_ref().is_some_and(|p| p.id == root.id)
+                        && change.instance.as_ref().is_some_and(|id| {
+                            !self
+                                .contents
+                                .active()
+                                .iter()
+                                .chain(&self.static_controls)
+                                .any(|c| &c.content.placement.id == id && c.restored)
                         })
                 })
         });
-        self.wanted_structures.retain(|p| {
-            let unbound = self
-                .contents
-                .active()
-                .iter()
-                .any(|c| c.content.placement.id == p.id && c.item.is_none());
-            !unbound
-                || [self.request.player, self.request.vehicle]
-                    .into_iter()
-                    .any(|f| {
-                        source_distance_squared(f, p.pose.position)
-                            < self.distances.item_spawn_dist.powi(2)
-                    })
-                || self.replay_indices.iter().any(|&index| {
-                    let (_, c) = self.changes.get_indexed(index);
-                    c.instance.as_ref() == Some(&p.id)
-                        || c.replay.as_ref().is_some_and(|root| root.id == p.id)
-                        || matches!(c.snapshot
-                                .as_ref()
-                                .and_then(|s| s.attachment.as_ref())
-                                .and_then(|a| a.owner.as_ref()),
-                                Some(super::ObjectKey::Generated(id)) if id == &p.id)
+    }
+
+    /// Source item spawn selection of the wanted structures, content instances and lights.
+    /// Returns false when admission stops it. A complete select keeps its inputs.
+    fn select_contents(&mut self, focus: [[f64; 3]; 2]) -> bool {
+        self.content_select = None;
+        use super::stream_profile::{Stage, Timer};
+        let mut part = Timer::new(Stage::SelectChanged);
+        super::stream_profile::count(Stage::SelectChanged, self.wanted_structures.len());
+        self.replay_ids.rebuild(&self.replay_indices, &self.changes);
+        if self.changes.has_generated() {
+            self.wanted_structures.retain(|p| {
+                self.changes.get_generated(&p.id).is_none_or(|change| {
+                    change.snapshot.is_some()
+                        && replay_ids::changed(
+                            &self.replay_ids,
+                            &self.replay_indices,
+                            &self.changes,
+                            &p.id,
+                        )
                 })
+            });
+        }
+        part.next(Stage::SelectUnbound);
+        super::stream_profile::count(Stage::SelectUnbound, self.contents.active().len());
+        self.unbound.clear();
+        self.unbound.resize(self.wanted_structures.len(), false);
+        for c in self.contents.active().iter().filter(|c| c.item.is_none()) {
+            if let Some(i) = self.wanted_structures.position(&c.content.placement.id) {
+                self.unbound[i] = true;
+            }
+        }
+        let mut unbound = self.unbound.iter();
+        let mut slack = [f32::INFINITY; 2];
+        let radius = self.distances.item_spawn_dist;
+        self.wanted_structures.retain(|p| {
+            !*unbound.next().unwrap()
+                || spawn_near(focus, p.pose.position, radius, &mut slack)
+                || replay_ids::selects(&self.replay_ids, &self.replay_indices, &self.changes, &p.id)
         });
-        let missing = |p: &Placement| !self.wanted_structures.contains(&p.id);
-        let missing_light = |l: &super::WorldLight| !self.lights.iter().any(|w| w.id == l.id);
-        let count = self
-            .contents
-            .instances()
-            .filter(|c| missing(&c.placement))
-            .count();
-        let light_count = self
-            .contents
-            .instances()
-            .flat_map(|c| &c.lights)
-            .filter(|l| missing_light(l))
-            .count();
-        let selected_bytes = self
-            .contents
-            .instances()
-            .filter(|c| missing(&c.placement))
-            .map(|c| super::contents::placement_heap(&c.placement))
-            .sum::<usize>()
-            + self
-                .contents
-                .instances()
-                .flat_map(|c| &c.lights)
-                .filter(|l| missing_light(l))
-                .map(super::WorldLight::heap_bytes)
-                .sum::<usize>();
+        part.next(Stage::SelectInstances);
+        super::stream_profile::count(Stage::SelectInstances, self.structures.len());
+        self.light_index.rebuild(&self.lights, |l| &l.id);
+        let (mut count, mut light_count, mut selected_bytes) = (0, 0, 0);
+        for c in self.contents.instances() {
+            if !self.wanted_structures.contains(&c.placement.id) {
+                count += 1;
+                selected_bytes += super::contents::placement_heap(&c.placement);
+            }
+            for l in &c.lights {
+                if self
+                    .light_index
+                    .position(&self.lights, |w| &w.id, &l.id)
+                    .is_none()
+                {
+                    light_count += 1;
+                    selected_bytes += l.heap_bytes();
+                }
+            }
+        }
         let allocation = selected_bytes
             + if self.wanted_structures.len() + count > self.wanted_structures.capacity() {
                 (self.wanted_structures.len() + count + self.wanted_structures.capacity())
@@ -2148,56 +2280,37 @@ impl WorldStream {
                 0
             };
         if !self.admit_generation(allocation) {
-            return;
+            return false;
         }
         if self.wanted_structures.try_reserve_exact(count).is_err()
             || self.lights.try_reserve_exact(light_count).is_err()
         {
             self.failure = Some("Selected content descriptor allocation failed".into());
-            return;
+            return false;
         }
         for content in self.contents.instances() {
             if self.box_content_withheld(&content.placement.id) {
                 continue;
             }
-            let key = super::ObjectKey::Generated(content.placement.id.clone());
-            let selected = self.replay_indices.iter().any(|&index| {
-                let (_, c) = self.changes.get_indexed(index);
-                c.instance.as_ref() == Some(&content.placement.id)
-                    || c.replay
-                        .as_ref()
-                        .is_some_and(|root| root.id == content.placement.id)
-                    || matches!(c.snapshot
-                            .as_ref()
-                            .and_then(|s| s.attachment.as_ref())
-                            .and_then(|a| a.owner.as_ref()),
-                            Some(super::ObjectKey::Generated(id)) if id == &content.placement.id)
-            });
-            let changed = self.changes.get(&key);
+            let id = &content.placement.id;
+            let selected =
+                replay_ids::selects(&self.replay_ids, &self.replay_indices, &self.changes, id);
+            let changed = self.changes.get_generated(id);
             if changed.is_some_and(|c| c.snapshot.is_none() || !selected) {
                 continue;
             }
-            let baseline_near = [self.request.player, self.request.vehicle]
-                .into_iter()
-                .any(|p| {
-                    source_distance_squared(p, content.placement.pose.position)
-                        < self.distances.item_spawn_dist.powi(2)
-                });
-            if !baseline_near
-                && !selected
-                && !self
-                    .structures
-                    .iter()
-                    .any(|s| s.placement.id == content.placement.id)
-            {
+            let baseline_near =
+                spawn_near(focus, content.placement.pose.position, radius, &mut slack);
+            if !baseline_near && !selected && !self.structures.contains(id) {
                 continue;
             }
-            if !self.wanted_structures.contains(&content.placement.id) {
+            if !self.wanted_structures.contains(id) {
                 self.wanted_structures.push(content.placement.clone());
             }
         }
-        // Keep biome lights and lights of wanted contents.
-        self.light_index.rebuild(&self.lights, |l| &l.id);
+        part.next(Stage::SelectLights);
+        super::stream_profile::count(Stage::SelectLights, self.lights.len());
+        // Keep biome lights and lights of wanted contents. `light_index` is current.
         self.light_keep.clear();
         self.light_keep
             .extend(self.lights.iter().map(|l| l.biome.is_some()));
@@ -2216,7 +2329,9 @@ impl WorldStream {
             }
         }
         let mut keep = self.light_keep.iter();
+        let count = self.lights.len();
         self.lights.retain(|_| *keep.next().unwrap());
+        let mut lights_changed = self.lights.len() != count;
         self.light_index.rebuild(&self.lights, |l| &l.id);
         for content in self
             .contents
@@ -2234,26 +2349,54 @@ impl WorldStream {
                 } else {
                     self.light_index.push(&light.id, self.lights.len());
                     self.lights.push(light.clone());
+                    lights_changed = true;
                 }
             }
         }
         self.contents
             .discard_replay_siblings(&self.wanted_structures);
-        self.replay_roots.retain(|root| {
-            !self.contents.replay_finished(&root.id)
-                || self.replay_indices.iter().any(|&index| {
-                    let (_, change) = self.changes.get_indexed(index);
-                    change.replay.as_ref().is_some_and(|p| p.id == root.id)
-                        && change.instance.as_ref().is_some_and(|id| {
-                            !self
-                                .contents
-                                .active()
-                                .iter()
-                                .chain(&self.static_controls)
-                                .any(|c| &c.content.placement.id == id && c.restored)
-                        })
-                })
+        if lights_changed {
+            self.light_revision = self.light_revision.wrapping_add(1);
+        }
+        self.content_select = Some(ContentSelect {
+            inputs: self.select_inputs(),
+            focus,
+            slack,
         });
+        true
+    }
+    /// Live light state of the wanted contents. Light membership did not change.
+    fn refresh_content_lights(&mut self) {
+        let (lights, index) = (&mut self.lights, &self.light_index);
+        for content in self
+            .contents
+            .instances()
+            .filter(|c| !c.lights.is_empty() && self.wanted_structures.contains(&c.placement.id))
+        {
+            for light in &content.lights {
+                if let Some(i) = index.position(lights, |l| &l.id, &light.id) {
+                    let current = &mut lights[i];
+                    current.enabled = light.enabled;
+                    current.intensity = light.intensity;
+                    current.pose = light.pose;
+                }
+            }
+        }
+    }
+    fn select_inputs(&self) -> SelectInputs {
+        SelectInputs {
+            request: (self.request.session, self.request.revision),
+            wanted: self.wanted_structures.revision(),
+            active: self.contents.active_revision(),
+            roots: self.contents.roots_revision(),
+            input: self.contents.input_revision(),
+            changes: self.changes.revision(),
+            replay: self.replay_revision,
+            structures: self.structure_revision,
+            lights: self.light_revision,
+            boxes: self.contents.boxes.revision(),
+            spawn: self.distances.item_spawn_dist.to_bits(),
+        }
     }
 
     fn select_changed_destinations(&mut self) {
@@ -2263,6 +2406,7 @@ impl WorldStream {
             max: [focus[0] + radius, f64::INFINITY, focus[2] + radius],
         });
         if self.change_revision != self.changes.revision() || self.change_bounds != Some(bounds) {
+            std::mem::swap(&mut self.replay_indices, &mut self.replay_previous);
             self.replay_indices.clear();
             for bounds in bounds {
                 // Selection only lists records. Each replay root waits for its own room
@@ -2289,6 +2433,9 @@ impl WorldStream {
                 self.failure = Some("Changed destination replay exceeds active admission".into());
                 return;
             }
+            if self.replay_indices != self.replay_previous {
+                self.replay_revision = self.replay_revision.wrapping_add(1);
+            }
             self.change_revision = self.changes.revision();
             self.change_bounds = Some(bounds);
         }
@@ -2305,7 +2452,7 @@ impl WorldStream {
         // Selected records are not work requests. Admit one caller at a time and
         // leave capacity for its first phase. Retry admission even with cached bounds.
         if !self.replay_roots.is_empty()
-            || self.metrics().pending_work >= 31
+            || self.pending_work() >= 31
             || self.available_external_jobs() == 0
         {
             return;
@@ -2330,10 +2477,7 @@ impl WorldStream {
             if !self.ledger.wait_for_room(
                 descriptor_bytes <= self.available_staging_bytes(),
                 Reclaim::STAGING,
-            ) || self
-                .metrics()
-                .active_cpu_bytes
-                .saturating_add(descriptor_bytes)
+            ) || self.active_cpu_bytes().saturating_add(descriptor_bytes)
                 > self.limits.active_cpu
             {
                 return;
@@ -2565,7 +2709,7 @@ impl WorldStream {
             .filter(|l| {
                 l.biome.is_some()
                     && !self.wanted_structures.contains(&l.id)
-                    && !self.structures.iter().any(|p| p.placement.id == l.id)
+                    && !self.structures.contains(&l.id)
             })
             .count();
         let new_pole = usize::from(
@@ -2580,8 +2724,7 @@ impl WorldStream {
                 }),
         );
         let required = self
-            .metrics()
-            .generated_objects
+            .generated_objects()
             .saturating_add(new_light + old_poles + new_pole);
         if required > self.limits.objects {
             self.failure = Some(format!(
@@ -2682,10 +2825,11 @@ impl WorldStream {
             .unwrap();
         if !self.lights.iter().any(|l| l.id == retained.light.id) {
             self.lights.push(retained.light.clone());
+            self.light_revision = self.light_revision.wrapping_add(1);
         }
         self.wanted_lights.push(index);
         self.refresh_poles();
-        if self.metrics().generated_objects > self.limits.objects {
+        if self.generated_objects() > self.limits.objects {
             self.failure = Some(format!(
                 "Source object count exceeds {}",
                 self.limits.objects
@@ -2870,8 +3014,7 @@ impl WorldStream {
         let capacity = capacity.max(self.road_worker_reserved_bytes);
         let delta = capacity - self.road_worker_reserved_bytes;
         if self
-            .metrics()
-            .active_cpu_bytes
+            .active_cpu_bytes()
             .saturating_add(pending_bytes + cache_bytes)
             .saturating_add(delta)
             > self.limits.active_cpu
@@ -3504,9 +3647,13 @@ impl WorldStream {
             });
         }
         if self.recovery.is_none() && self.next_road == self.road_candidates.len() {
+            let count = self.lights.len();
             self.lights.retain(|light| {
                 light.biome.is_none() || self.wanted_lights.contains(&(light.id.unit[0] as u32))
             });
+            if self.lights.len() != count {
+                self.light_revision = self.light_revision.wrapping_add(1);
+            }
             self.refresh_poles();
         }
     }
@@ -3550,7 +3697,7 @@ impl WorldStream {
                 && [0, 2].into_iter().all(|axis| {
                     p.bounds.min[axis] <= swept.max[axis] && p.bounds.max[axis] >= swept.min[axis]
                 })
-                && !self.structures.iter().any(|s| s.placement.id == p.id)
+                && !self.structures.contains(&p.id)
         }) {
             return Some(SupportGap::Structure(placement));
         }
@@ -3589,12 +3736,22 @@ impl WorldStream {
             .map(SupportGap::Terrain)
     }
     fn refresh_helper_context(&mut self, bounds: WorldBounds) {
+        let key = HelperKey {
+            bounds,
+            structures: self.wanted_structures.revision(),
+            coverage: self.placements.coverage(),
+            foundations: self.placements.foundation_count(),
+            startup: self.startup.as_ref().map(|s| s.foundations.len()),
+        };
+        if self.helper_key == Some(key) {
+            return;
+        }
         let required = self.placements.foundation_count()
             + self.startup.as_ref().map_or(0, |s| s.foundations.len())
             + self.structure_helpers.count(&self.wanted_structures);
         let extra = required.saturating_sub(self.color_helpers.capacity())
             * std::mem::size_of::<TerrainFoundation>();
-        if self.metrics().active_cpu_bytes.saturating_add(extra) > self.limits.active_cpu {
+        if self.active_cpu_bytes().saturating_add(extra) > self.limits.active_cpu {
             self.failure = Some("Source helper context exceeds active CPU budget".into());
             return;
         }
@@ -3621,6 +3778,7 @@ impl WorldStream {
             }));
         self.structure_helpers
             .append(&self.wanted_structures, &mut self.color_helpers);
+        self.helper_key = Some(key);
     }
     pub fn terrain_color(&mut self, point: [f64; 3]) -> [f32; 4] {
         self.terrain_sample(point).1
@@ -3686,9 +3844,11 @@ impl WorldStream {
             .terrain
             .iter()
             .filter(|key| self.surfaces.iter().any(|s| s.key == **key));
-        let structures = self.required.structures.iter().filter(|id| {
-            self.structures.iter().any(|s| s.placement.id == **id) && self.bindings_ready(id)
-        });
+        let structures = self
+            .required
+            .structures
+            .iter()
+            .filter(|id| self.structures.contains(id) && self.bindings_ready(id));
         let ready = roads.count() + terrain.count() + structures.count();
         let total = self.required.roads.len()
             + self.required.terrain.len()
@@ -3928,7 +4088,7 @@ impl WorldStream {
             .ok_or_else(|| ReferenceError("Missing structure prototype".into()))?;
         let bytes = super::StructureRecipe::reservation(prototype);
         let owner_bytes = super::metrics::map_insert_bytes(&self.recipes) + source.file.len();
-        let used = self.metrics().prototype_cpu_bytes;
+        let used = self.prototype_cpu_bytes();
         if used.saturating_add(bytes).saturating_add(owner_bytes) > PROTOTYPE_CPU {
             if self.ledger.credit().prototype_cpu > self.ledger.used().prototype_cpu {
                 self.ledger.wait_for_room(false, Reclaim::PROTOTYPE_CPU);
@@ -3985,7 +4145,7 @@ impl WorldStream {
             return Err(ReferenceError("Missing instance renderer claim".into()));
         }
         self.ready_structures.push(id.clone());
-        debug_assert!(self.metrics().pending_work <= 32);
+        debug_assert!(self.pending_work() <= 32);
         Ok(())
     }
     fn release_structure_renderer(&mut self, id: &super::GeneratedId) -> bool {
@@ -4040,15 +4200,14 @@ impl WorldStream {
         {
             return Err(ReferenceError("Building supply prefix is preparing".into()));
         }
-        if self.metrics().generated_objects + 1 + points.len() * 2 > self.limits.objects {
+        if self.generated_objects() + 1 + points.len() * 2 > self.limits.objects {
             return Err(ReferenceError(format!(
                 "Source object count exceeds {}",
                 self.limits.objects
             )));
         }
         if self
-            .metrics()
-            .active_cpu_bytes
+            .active_cpu_bytes()
             .saturating_add(self.recipes[&placement.prototype].instance_bytes())
             .saturating_add(super::contents::placement_heap(placement))
             > self.limits.active_cpu
@@ -4079,24 +4238,19 @@ impl WorldStream {
             return Ok(());
         }
         if self
-            .metrics()
-            .active_cpu_bytes
+            .active_cpu_bytes()
             .saturating_add(binding_reservation)
             .saturating_add(self.recipes[&placement.prototype].instance_bytes())
             .saturating_add(super::contents::placement_heap(placement))
             > self.limits.active_cpu
-            || self
-                .metrics()
-                .generated_objects
-                .saturating_add(binding_objects)
-                > self.limits.objects
+            || self.generated_objects().saturating_add(binding_objects) > self.limits.objects
         {
             return Err(ReferenceError(
                 "Source generated bindings exceed admission budget".into(),
             ));
         }
         let instance = if let Some(extra) = scaled {
-            if self.metrics().active_cpu_bytes.saturating_add(extra * 2) > self.limits.active_cpu {
+            if self.active_cpu_bytes().saturating_add(extra * 2) > self.limits.active_cpu {
                 return Err(ReferenceError(
                     "Source scaled collision exceeds allocation budget".into(),
                 ));
@@ -4289,7 +4443,7 @@ impl WorldStream {
             for (key, id) in [(tank_key, tank), (cap_key, cap)] {
                 if let Some(change) = self
                     .changes
-                    .get(super::ObjectKey::Generated(key))
+                    .get_generated(&key)
                     .and_then(|c| c.snapshot.as_ref())
                 {
                     items.restore_generated(id, change)?;
@@ -4776,13 +4930,7 @@ impl WorldStream {
     }
 
     pub fn metrics(&self) -> WorldMetrics {
-        let imported_snapshot_bytes = self.imported_baselines.capacity()
-            * std::mem::size_of::<(crate::reference::ItemId, super::ObjectSnapshot)>()
-            + self
-                .imported_baselines
-                .iter()
-                .map(|(_, s)| s.heap_bytes())
-                .sum::<usize>();
+        let imported_snapshot_bytes = self.imported_snapshot_bytes();
         let mut metrics = WorldMetrics {
             road_worker_wasm_bytes: self.road_worker.wasm_bytes(),
             road_worker_reserved_bytes: self.road_worker_reserved_bytes,
@@ -4803,195 +4951,18 @@ impl WorldStream {
             checkpoint_bytes: self.contents.state.retained_bytes()
                 + self.roads.retained_index_bytes()
                 + self.placements.retained_index_bytes(),
-            prototype_cpu_bytes: super::metrics::map_bytes(
-                self.prototype_holds.capacity(),
-                std::mem::size_of::<(SourceId, bool)>(),
-            ) + self
-                .prototype_holds
-                .keys()
-                .map(|id| id.file.capacity())
-                .sum::<usize>()
-                + super::metrics::map_bytes(
-                    self.recipes.capacity(),
-                    std::mem::size_of::<(SourceId, super::StructureRecipe)>(),
-                )
-                + self
-                    .recipes
-                    .keys()
-                    .map(|id| id.file.capacity())
-                    .sum::<usize>()
-                + self
-                    .road_prototypes
-                    .iter()
-                    .flatten()
-                    .map(road_mesh::RoadPrototype::retained_bytes)
-                    .sum::<usize>()
-                + self.road_light.retained_bytes()
-                + self.cables.retained_bytes()
-                + self.contents.rules.retained_bytes()
-                + self.building_components.retained_bytes()
-                + self.structure_helpers.retained_bytes()
-                + self.ledger.credit().prototype_cpu
-                + self
-                    .recipes
-                    .values()
-                    .map(|recipe| recipe.cpu_bytes)
-                    .sum::<usize>(),
+            prototype_cpu_bytes: self.prototype_cpu_bytes(),
             reference_cpu_bytes: self.reference_cpu_bytes,
             prototype_gpu_bytes: self.ledger.credit().prototype_gpu,
             active_gpu_bytes: self.ledger.credit().active_gpu,
             changed_record_bytes: self.changes.retained_bytes(),
             changed_objects: self.changes.len(),
-            active_cpu_bytes: std::mem::size_of::<Self>()
-                + self.road_worker_reserved_bytes
-                + self.road_worker.cache_bytes()
-                + self.required.roads.capacity() * std::mem::size_of::<u32>()
-                + self.required.terrain.capacity() * std::mem::size_of::<SurfaceKey>()
-                + (self.required.structures.capacity() + self.required.lights.capacity())
-                    * std::mem::size_of::<super::GeneratedId>()
-                + self
-                    .required
-                    .structures
-                    .iter()
-                    .chain(&self.required.lights)
-                    .map(super::contents::identity_heap)
-                    .sum::<usize>()
-                + imported_snapshot_bytes
-                + self.replay_roots.capacity() * std::mem::size_of::<Placement>()
-                + self
-                    .replay_roots
-                    .iter()
-                    .map(super::contents::placement_heap)
-                    .sum::<usize>()
-                + (self.replay_indices.capacity() + self.replay_query.capacity())
-                    * std::mem::size_of::<super::changes::ChangeRecordIndex>()
-                + self.static_controls.capacity()
-                    * std::mem::size_of::<super::contents::ContentInstance>()
-                + self
-                    .static_controls
-                    .iter()
-                    .map(super::contents::ContentInstance::control_heap_bytes)
-                    .sum::<usize>()
-                + self.binding_reserved
-                + self.binding_bytes
-                + self.presentation_changes.capacity()
-                    * std::mem::size_of::<content_index::ContentSlot>()
-                + self.presentation_lamp_changes.capacity() * std::mem::size_of::<usize>()
-                + self.lamp_bindings.capacity() * std::mem::size_of::<content_lamps::LampBinding>()
-                + self
-                    .lamp_bindings
-                    .iter()
-                    .map(content_lamps::LampBinding::heap_bytes)
-                    .sum::<usize>()
-                + self.kinds.heap_bytes()
-                + self.small_items.heap_bytes()
-                + self.computers.heap_bytes()
-                + self.cobwebs.heap_bytes()
-                + self.tools.heap_bytes()
-                + self.contents.retained_bytes()
-                + self.props.retained_bytes()
-                + self.ledger.credit().active_cpu
-                + self.color_foundations.capacity() * std::mem::size_of::<super::FoundationPoint>()
-                + self.color_helpers.capacity() * std::mem::size_of::<TerrainFoundation>()
-                + self
-                    .structures
-                    .iter()
-                    .map(|instance| instance.cpu_bytes)
-                    .sum::<usize>()
-                + self.ready_structures.capacity() * std::mem::size_of::<super::GeneratedId>()
-                + self
-                    .ready_structures
-                    .iter()
-                    .map(super::contents::identity_heap)
-                    .sum::<usize>()
-                + self.selected_roads.capacity() * std::mem::size_of::<SelectedRoad>()
-                + self
-                    .selected_roads
-                    .iter()
-                    .map(|r| r.light.heap_bytes())
-                    .sum::<usize>()
-                + self
-                    .selected_roads
-                    .iter()
-                    .map(|r| {
-                        r.cable.capacity() * std::mem::size_of::<super::NodeAppearance>()
-                            + r.cable
-                                .iter()
-                                .map(super::NodeAppearance::heap_bytes)
-                                .sum::<usize>()
-                    })
-                    .sum::<usize>()
-                + self.building_cables.capacity() * std::mem::size_of::<CableEntry>()
-                + self
-                    .building_cables
-                    .iter()
-                    .map(cable_entry_heap)
-                    .sum::<usize>()
-                + self.cable_search.retained_bytes()
-                + self.home_cable.retained_bytes()
-                + self.road_candidates.capacity() * std::mem::size_of::<u32>()
-                + self.wanted_roads.capacity() * std::mem::size_of::<u32>()
-                + self.wanted_lights.capacity() * std::mem::size_of::<u32>()
-                + self.wanted_tiles.capacity() * std::mem::size_of::<SurfaceKey>()
-                + self.road_points.capacity() * std::mem::size_of::<TerrainRoadPoint>()
-                + self.startup_candidates.capacity() * std::mem::size_of::<u32>()
-                + self.startup_points.capacity() * std::mem::size_of::<TerrainRoadPoint>()
-                + self.surfaces.capacity() * std::mem::size_of::<PublishedSurface>()
-                + self.lights.capacity() * std::mem::size_of::<super::WorldLight>()
-                + self.light_index.retained_bytes()
-                + self.light_keep.capacity()
-                + self
-                    .lights
-                    .iter()
-                    .map(super::WorldLight::heap_bytes)
-                    .sum::<usize>()
-                + self.structures.capacity() * std::mem::size_of::<super::StructureInstance>()
-                + self.saved_item_protection.capacity() * std::mem::size_of::<super::ObjectKey>()
-                + self
-                    .saved_item_protection
-                    .iter()
-                    .map(super::changes::key_heap)
-                    .sum::<usize>()
-                + self.supplies.capacity() * std::mem::size_of::<PublishedSupply>()
-                + self.wanted_structures.capacity() * std::mem::size_of::<Placement>()
-                + self.wanted_structures.index_bytes()
-                + self
-                    .wanted_structures
-                    .iter()
-                    .map(super::contents::placement_heap)
-                    .sum::<usize>(),
+            active_cpu_bytes: self.active_cpu_bytes(),
             prepared_roads: self.roads.prepared_segments(),
             prepared_buildings: self.placements.prepared_buildings(),
 
             last_road_work: self.last_road_work,
-            generated_objects: self
-                .contents
-                .active()
-                .iter()
-                .chain(&self.static_controls)
-                .map(|c| c.bindings.len() + usize::from(c.item.is_some()))
-                .sum::<usize>()
-                + self
-                    .contents
-                    .active()
-                    .iter()
-                    .filter(|c| {
-                        c.item.is_none()
-                            && !self
-                                .wanted_structures
-                                .iter()
-                                .any(|p| p.id == c.content.placement.id)
-                    })
-                    .count()
-                + self.structures.len()
-                + self
-                    .wanted_structures
-                    .iter()
-                    .filter(|p| !self.structures.iter().any(|s| s.placement.id == p.id))
-                    .count()
-                + self.supplies.len() * 2
-                + self.lights.len()
-                + self.ledger.credit().objects,
+            generated_objects: self.generated_objects(),
             ..WorldMetrics::default()
         };
         for surface in &self.surfaces {
@@ -5002,19 +4973,196 @@ impl WorldStream {
                 WorldLayer::DistantTerrain2 => metrics.distant_tiles[1] += 1,
                 _ => {}
             }
-            let bytes = surface_bytes(&surface.surface)
+            metrics.active_gpu_bytes += surface_render_bytes(&surface.surface);
+        }
+        if let Some(work) = self.ready.as_ref().filter(|work| work.offered) {
+            metrics.active_gpu_bytes += surface_render_bytes(&work.published.surface);
+        }
+        metrics
+    }
+    fn imported_snapshot_bytes(&self) -> usize {
+        self.imported_baselines.capacity()
+            * std::mem::size_of::<(crate::reference::ItemId, super::ObjectSnapshot)>()
+            + self
+                .imported_baselines
+                .iter()
+                .map(|(_, s)| s.heap_bytes())
+                .sum::<usize>()
+    }
+    fn prototype_cpu_bytes(&self) -> usize {
+        super::metrics::map_bytes(
+            self.prototype_holds.capacity(),
+            std::mem::size_of::<(SourceId, bool)>(),
+        ) + self
+            .prototype_holds
+            .keys()
+            .map(|id| id.file.capacity())
+            .sum::<usize>()
+            + super::metrics::map_bytes(
+                self.recipes.capacity(),
+                std::mem::size_of::<(SourceId, super::StructureRecipe)>(),
+            )
+            + self
+                .recipes
+                .keys()
+                .map(|id| id.file.capacity())
+                .sum::<usize>()
+            + self
+                .road_prototypes
+                .iter()
+                .flatten()
+                .map(road_mesh::RoadPrototype::retained_bytes)
+                .sum::<usize>()
+            + self.road_light.retained_bytes()
+            + self.cables.retained_bytes()
+            + self.contents.rules.retained_bytes()
+            + self.building_components.retained_bytes()
+            + self.structure_helpers.retained_bytes()
+            + self.ledger.credit().prototype_cpu
+            + self
+                .recipes
+                .values()
+                .map(|recipe| recipe.cpu_bytes)
+                .sum::<usize>()
+    }
+    /// Retained world CPU bytes. Budget checks call this, not `metrics`.
+    fn active_cpu_bytes(&self) -> usize {
+        let imported_snapshot_bytes = self.imported_snapshot_bytes();
+        let mut bytes = std::mem::size_of::<Self>()
+            + self.road_worker_reserved_bytes
+            + self.road_worker.cache_bytes()
+            + self.required.roads.capacity() * std::mem::size_of::<u32>()
+            + self.required.terrain.capacity() * std::mem::size_of::<SurfaceKey>()
+            + (self.required.structures.capacity() + self.required.lights.capacity())
+                * std::mem::size_of::<super::GeneratedId>()
+            + self
+                .required
+                .structures
+                .iter()
+                .chain(&self.required.lights)
+                .map(super::contents::identity_heap)
+                .sum::<usize>()
+            + imported_snapshot_bytes
+            + self.replay_roots.capacity() * std::mem::size_of::<Placement>()
+            + self
+                .replay_roots
+                .iter()
+                .map(super::contents::placement_heap)
+                .sum::<usize>()
+            + (self.replay_indices.capacity()
+                + self.replay_query.capacity()
+                + self.replay_previous.capacity())
+                * std::mem::size_of::<super::changes::ChangeRecordIndex>()
+            + self.static_controls.capacity()
+                * std::mem::size_of::<super::contents::ContentInstance>()
+            + self
+                .static_controls
+                .iter()
+                .map(super::contents::ContentInstance::control_heap_bytes)
+                .sum::<usize>()
+            + self.binding_reserved
+            + self.binding_bytes
+            + self.presentation_changes.capacity()
+                * std::mem::size_of::<content_index::ContentSlot>()
+            + self.presentation_lamp_changes.capacity() * std::mem::size_of::<usize>()
+            + self.lamp_bindings.capacity() * std::mem::size_of::<content_lamps::LampBinding>()
+            + self
+                .lamp_bindings
+                .iter()
+                .map(content_lamps::LampBinding::heap_bytes)
+                .sum::<usize>()
+            + self.kinds.heap_bytes()
+            + self.small_items.heap_bytes()
+            + self.computers.heap_bytes()
+            + self.cobwebs.heap_bytes()
+            + self.tools.heap_bytes()
+            + self.contents.retained_bytes()
+            + self.props.retained_bytes()
+            + self.ledger.credit().active_cpu
+            + self.color_foundations.capacity() * std::mem::size_of::<super::FoundationPoint>()
+            + self.color_helpers.capacity() * std::mem::size_of::<TerrainFoundation>()
+            + self
+                .structures
+                .iter()
+                .map(|instance| instance.cpu_bytes)
+                .sum::<usize>()
+            + self.ready_structures.capacity() * std::mem::size_of::<super::GeneratedId>()
+            + self
+                .ready_structures
+                .iter()
+                .map(super::contents::identity_heap)
+                .sum::<usize>()
+            + self.selected_roads.capacity() * std::mem::size_of::<SelectedRoad>()
+            + self
+                .selected_roads
+                .iter()
+                .map(|r| r.light.heap_bytes())
+                .sum::<usize>()
+            + self
+                .selected_roads
+                .iter()
+                .map(|r| {
+                    r.cable.capacity() * std::mem::size_of::<super::NodeAppearance>()
+                        + r.cable
+                            .iter()
+                            .map(super::NodeAppearance::heap_bytes)
+                            .sum::<usize>()
+                })
+                .sum::<usize>()
+            + self.building_cables.capacity() * std::mem::size_of::<CableEntry>()
+            + self
+                .building_cables
+                .iter()
+                .map(cable_entry_heap)
+                .sum::<usize>()
+            + self.cable_search.retained_bytes()
+            + self.home_cable.retained_bytes()
+            + self.road_candidates.capacity() * std::mem::size_of::<u32>()
+            + self.wanted_roads.capacity() * std::mem::size_of::<u32>()
+            + self.wanted_lights.capacity() * std::mem::size_of::<u32>()
+            + self.wanted_tiles.capacity() * std::mem::size_of::<SurfaceKey>()
+            + self.road_points.capacity() * std::mem::size_of::<TerrainRoadPoint>()
+            + self.startup_candidates.capacity() * std::mem::size_of::<u32>()
+            + self.startup_points.capacity() * std::mem::size_of::<TerrainRoadPoint>()
+            + self.surfaces.capacity() * std::mem::size_of::<PublishedSurface>()
+            + self.lights.capacity() * std::mem::size_of::<super::WorldLight>()
+            + self.light_index.retained_bytes()
+            + self.light_keep.capacity()
+            + self.replay_ids.retained_bytes()
+            + self.unbound.capacity()
+            + self
+                .lights
+                .iter()
+                .map(super::WorldLight::heap_bytes)
+                .sum::<usize>()
+            + self.structures.capacity() * std::mem::size_of::<super::StructureInstance>()
+            + self.structures.index_bytes()
+            + self.saved_item_protection.capacity() * std::mem::size_of::<super::ObjectKey>()
+            + self
+                .saved_item_protection
+                .iter()
+                .map(super::changes::key_heap)
+                .sum::<usize>()
+            + self.supplies.capacity() * std::mem::size_of::<PublishedSupply>()
+            + self.wanted_structures.capacity() * std::mem::size_of::<Placement>()
+            + self.wanted_structures.index_bytes()
+            + self
+                .wanted_structures
+                .iter()
+                .map(super::contents::placement_heap)
+                .sum::<usize>();
+        for surface in &self.surfaces {
+            bytes += surface_bytes(&surface.surface)
                 + surface
                     .prototype
                     .as_ref()
-                    .map_or(0, |id| id.file.capacity());
-            let render_bytes = surface_render_bytes(&surface.surface);
-            metrics.active_cpu_bytes +=
-                bytes + surface_render_cpu(&surface.surface) + surface.collision_bytes;
-            metrics.active_gpu_bytes += render_bytes;
+                    .map_or(0, |id| id.file.capacity())
+                + surface_render_cpu(&surface.surface)
+                + surface.collision_bytes;
         }
-        metrics.active_cpu_bytes += self.failure.as_ref().map_or(0, String::capacity);
+        bytes += self.failure.as_ref().map_or(0, String::capacity);
         for supply in &self.supplies {
-            metrics.active_cpu_bytes += super::contents::identity_heap(&supply.key)
+            bytes += super::contents::identity_heap(&supply.key)
                 + supply.definition.tank.file.capacity()
                 + supply.definition.cap.file.capacity()
                 + supply.definition.fluids.capacity() * std::mem::size_of::<super::SupplyFluid>()
@@ -5026,24 +5174,22 @@ impl WorldStream {
                 });
         }
         if let Some(work) = &self.ready {
-            metrics.active_cpu_bytes += work.pending_bytes
+            bytes += work.pending_bytes
                 + work
                     .published
                     .prototype
                     .as_ref()
                     .map_or(0, |id| id.file.capacity());
             if work.offered {
-                metrics.active_cpu_bytes += surface_render_cpu(&work.published.surface);
-                metrics.active_gpu_bytes += surface_render_bytes(&work.published.surface);
+                bytes += surface_render_cpu(&work.published.surface);
             }
         }
-        metrics.active_cpu_bytes += self.terrain_execution.pending_bytes();
+        bytes += self.terrain_execution.pending_bytes();
         if let Some(work) = &self.road_work {
-            metrics.active_cpu_bytes += work.pending_bytes;
+            bytes += work.pending_bytes;
         }
         if let Some(startup) = &self.startup {
-            metrics.active_cpu_bytes += startup.foundations.capacity()
-                * std::mem::size_of::<TerrainFoundation>()
+            bytes += startup.foundations.capacity() * std::mem::size_of::<TerrainFoundation>()
                 + startup.holes.capacity() * std::mem::size_of::<[[f32; 3]; 4]>()
                 + startup.hole_centers.capacity() * std::mem::size_of::<[f32; 3]>()
                 + startup.root_offsets.capacity() * std::mem::size_of::<(SourceId, f32)>()
@@ -5053,8 +5199,44 @@ impl WorldStream {
                     .map(|(id, _)| id.file.capacity())
                     .sum::<usize>();
         }
-        metrics
+        bytes
     }
+    /// Generated object count for the object budget.
+    fn generated_objects(&self) -> usize {
+        self.contents
+            .active()
+            .iter()
+            .chain(&self.static_controls)
+            .map(|c| c.bindings.len() + usize::from(c.item.is_some()))
+            .sum::<usize>()
+            + self
+                .contents
+                .active()
+                .iter()
+                .filter(|c| {
+                    c.item.is_none() && !self.wanted_structures.contains(&c.content.placement.id)
+                })
+                .count()
+            + self.structures.len()
+            + self
+                .wanted_structures
+                .iter()
+                .filter(|p| !self.structures.contains(&p.id))
+                .count()
+            + self.supplies.len() * 2
+            + self.lights.len()
+            + self.ledger.credit().objects
+    }
+}
+
+/// Inputs of the terrain helper context. Equal inputs give the same helpers.
+#[derive(Clone, Copy, PartialEq)]
+struct HelperKey {
+    bounds: WorldBounds,
+    structures: u64,
+    coverage: u32,
+    foundations: usize,
+    startup: Option<usize>,
 }
 
 fn same_request(a: WorldRequest, b: WorldRequest) -> bool {
@@ -5227,6 +5409,12 @@ pub mod renderer_world;
 
 #[path = "pending_structures.rs"]
 mod pending_structures;
+#[path = "replay_ids.rs"]
+mod replay_ids;
+#[path = "selection_ring.rs"]
+mod selection_ring;
+#[path = "structure_list.rs"]
+mod structure_list;
 
 #[cfg(test)]
 #[path = "stream_tests.rs"]
@@ -5322,4 +5510,47 @@ pub(super) fn lamp_materials_of(
         .into_iter()
         .map(|(node, list)| (node, list.into()))
         .collect())
+}
+
+#[cfg(test)]
+mod select_tests {
+    use super::*;
+
+    fn inputs() -> SelectInputs {
+        SelectInputs {
+            request: (1, 1),
+            wanted: 0,
+            active: 0,
+            roots: 0,
+            input: 0,
+            changes: 0,
+            replay: 0,
+            structures: 0,
+            lights: 0,
+            boxes: 0,
+            spawn: 10f32.to_bits(),
+        }
+    }
+
+    #[test]
+    fn select_holds_until_a_focus_can_cross_the_spawn_radius() {
+        let focus = [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]];
+        let mut slack = [f32::INFINITY; 2];
+        // 7 m inside the radius of the first focus, far outside the second.
+        assert!(spawn_near(focus, [3.0, 5.0, 0.0], 10.0, &mut slack));
+        assert!((slack[0] - 7.0).abs() < 1e-4);
+        let last = ContentSelect {
+            inputs: inputs(),
+            focus,
+            slack,
+        };
+        let moved = |x: f64| [[x, 0.0, 0.0], focus[1]];
+        assert!(last.holds(inputs(), moved(6.5)));
+        assert!(!last.holds(inputs(), moved(7.0)));
+        let changed = SelectInputs {
+            wanted: 1,
+            ..inputs()
+        };
+        assert!(!last.holds(changed, focus));
+    }
 }

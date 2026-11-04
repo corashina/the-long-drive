@@ -69,7 +69,7 @@ def extend_spawn_closure(source, reader, output, world):
         if reason:
             initialization={'tosaveitemscript','newAiScript','nyulscript','partconditionscript','partslotscript','partscript','randomTypeSelector','randomScaleScript','spawnInBoxScript','paintingScript','paintingMain','newRandomStuffSpawnScript','ammoscript','foodscript','tankscript','massScript','childunparent','sprayscript','flashlightscript'}
             consumed={
-                'tosaveitemscript': {'m_GameObject','m_Script','m_Enabled','started','partslotscripts','randomScales','painting','spawnBox','ammo','tanks','randomizetanks','food','engine','partconditions','manualStart','scaleDestroyOnStart','scaleDestroyOnStartIfReducedGibs'},
+                'tosaveitemscript': {'m_GameObject','m_Script','m_Enabled','started','partslotscripts','randomScales','painting','spawnBox','ammo','tanks','randomizetanks','food','engine','partconditions','manualStart','buried','useThisForDistance','scaleDestroyOnStart','scaleDestroyOnStartIfReducedGibs'},
                 'newAiScript': {'m_GameObject','m_Script','m_Enabled','sleeping','startSleepChange','voiceMinPitch','voiceMaxPitch','startPatrolTimeMin','startPatrolTimeMax'},
                 'flashlightscript': {'m_GameObject','m_Script','m_Enabled','ON','randomStart'},
                 'nyulscript': {'m_GameObject','m_Script','m_Enabled'},

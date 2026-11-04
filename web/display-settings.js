@@ -5,7 +5,7 @@
 const LEVELS=[0,1,2];
 export const ROWS={
  // Scene resolution percent. 0 is Auto. Then Rust steps the scale on the F3 GPU time.
- scene_scale:{values:[0,100,85,75,67,50],default:100},
+ scene_scale:{values:[0,100,85,75,67,50],default:0},
  // 0 high, 1 medium, 2 low.
  shadows:{values:LEVELS,default:0},
  // 0 high, 1 medium, 2 low. Applies after a reload.
@@ -18,15 +18,18 @@ export const ROWS={
  grayscale:{default:false},
  // Source `ToggleDepthOfField.def` is off.
  depth_of_field:{default:false},
- mirrors:{default:true},
+ // 0 high (2 mirror draws per frame), 1 low (1 mirror draw per frame), 2 off.
+ mirrors:{values:LEVELS,default:0},
  // Source `FMirrorDrawDistance` in meters. The default comes from the export.
  mirror_distance:{range:true},
  motion_blur:{default:true},
  lamp_shadows:{default:true},
  // 0 high (4x MSAA and TAA), 1 low (TAA only), 2 off. Applies after a reload.
- antialiasing:{values:LEVELS,default:0},
+ // The default is TAA only. 4x MSAA multiplies the HDR color, depth and resolve bandwidth. The Ultra preset sets high.
+ antialiasing:{values:LEVELS,default:1},
  ambient_occlusion:{default:true},
- reflections:{default:true},
+ // 0 high (a probe job each frame), 1 low (a probe job every 2nd frame), 2 off.
+ reflections:{values:LEVELS,default:0},
 };
 const NAMES=Object.keys(ROWS);
 const POSITIONS=1000;
@@ -42,14 +45,15 @@ export function mirrorPosition(value,{minimum,maximum,half}){
  return Math.round(Math.min(2,Math.max(0,t))*POSITIONS/2);
 }
 // Settings store fields (`createSettings`). `mirror` is the exported `world.mirrors.draw_distance` range.
-export function displayFields(mirror){
+// `defaults` replaces row defaults by name: the rows of the first quality preset.
+export function displayFields(mirror,defaults){
  const fields={};
  for(const [name,row] of Object.entries(ROWS)){
   let valid;
   if(row.range)valid=v=>Number.isFinite(v)&&v>=mirror.minimum&&v<=mirror.maximum;
   else if(row.values)valid=v=>row.values.includes(v);
   else valid=v=>typeof v==='boolean';
-  fields[name]={tab:'graphics',default:row.range?mirror.default:row.default,valid};
+  fields[name]={tab:'graphics',default:row.range?mirror.default:defaults[name]??row.default,valid};
  }
  return fields;
 }

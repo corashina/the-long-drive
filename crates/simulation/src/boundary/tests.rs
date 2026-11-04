@@ -439,16 +439,36 @@ fn look_frame(yaw: f32, pitch: f32, seq_consumed: u64) -> SimFrame {
         gain: 2.,
         yaw_limits: [-90., 90.],
         pitch_limits: [-60., 60.],
-        pad: 0,
+        brush: 0,
     };
     frame
+}
+
+fn mouse_input(mouse: [f32; 2]) -> FrameInput {
+    FrameInput {
+        mouse,
+        ..Default::default()
+    }
+}
+
+/// While LMB scrubs with a brush, the unconsumed mouse does not turn the view.
+#[test]
+fn mouse_look_ignores_scrubbing_mouse() {
+    let mut look = MouseLook::default();
+    let mut frame = look_frame(10., 0., 0);
+    frame.state.look.brush = 1;
+    let still = look.camera(&frame);
+    let mut input = mouse_input([5., 3.]);
+    input.held = crate::simulation::keys::PRIMARY;
+    look.send(1, &input);
+    assert_eq!(look.camera(&frame), still);
 }
 
 #[test]
 fn mouse_look_adds_unconsumed_mouse_within_limits() {
     let mut look = MouseLook::default();
-    look.send(1, [5., 0.]);
-    look.send(2, [1., 40.]);
+    look.send(1, &mouse_input([5., 0.]));
+    look.send(2, &mouse_input([1., 40.]));
     let pose = look.camera(&look_frame(10., 0., 1));
     let expected = Quat::from_rotation_y(0.5)
         * Quat::from_rotation_y(-12f32.to_radians())
@@ -460,7 +480,7 @@ fn mouse_look_adds_unconsumed_mouse_within_limits() {
 #[test]
 fn mouse_look_matches_the_frame_after_consume() {
     let mut look = MouseLook::default();
-    look.send(1, [3., -2.]);
+    look.send(1, &mouse_input([3., -2.]));
     let before = look.camera(&look_frame(10., 5., 0));
     // The step applies the mouse with the same gain.
     let after = look.camera(&look_frame(16., 1., 1));

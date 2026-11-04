@@ -3,7 +3,7 @@
 @font-face {font-family:"Overpass";src:url("./fonts/Overpass-latin-ext.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap;ascent-override:88%;descent-override:30%;line-gap-override:0%;unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
 @font-face {font-family:"Overpass";src:url("./fonts/Overpass-cyrillic.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap;ascent-override:88%;descent-override:30%;line-gap-override:0%;unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;}
 /* The menu looks like a desert highway. Panels are warm asphalt, text is sun-bleached, and road paint yellow is the one accent.
-   The Overpass font comes from the Highway Gothic road sign letters. A dashed lane line marks each menu window. */
+   The Overpass font comes from the Highway Gothic road sign letters. A dashed lane line marks each menu window, but not the start menu. */
 :root {--asphalt:#272420;--asphalt-glass:#272420d9;--shoulder:#34302b;--seam:#4a443c;--seam-soft:#34302b;--dust:#a39783;--bleach:#efe6d2;--paint:#f2b230;--paint-hi:#ffc54f;--ink:#211a0d;
  --menu-font:"Overpass","Liberation Sans",Arial,sans-serif;--lane:repeating-linear-gradient(90deg,var(--paint) 0 34px,transparent 34px 58px);}
 :root {color-scheme:dark;font-family:Arial,sans-serif;color:var(--bleach);background:#000;}
@@ -43,9 +43,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 /* The road view stays clear. Only the bottom darkens under the buttons. */
 #menu.road-view::before {content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(transparent 70%,#0008);}
 #menu.road-view :is(#status,#capture-error) {left:50%;right:auto;width:min(900px,calc(100% - 32px));transform:translateX(-50%);text-align:center;}
-.start-menu {position:absolute;z-index:2;left:50%;bottom:clamp(24px,7vh,72px);display:grid;justify-items:center;gap:22px;padding-top:30px;width:min(760px,calc(100% - 32px));transform:translateX(-50%);animation:start-in .7s ease-out .15s backwards;}
-/* The lane line runs under the car and fades out at both sides. */
-.start-menu::before {content:"";position:absolute;left:0;right:0;top:0;height:4px;background:var(--lane);mask:linear-gradient(90deg,transparent,#000 25%,#000 75%,transparent);-webkit-mask:linear-gradient(90deg,transparent,#000 25%,#000 75%,transparent);}
+.start-menu {position:absolute;z-index:2;left:50%;bottom:clamp(24px,7vh,72px);display:grid;justify-items:center;gap:22px;width:min(760px,calc(100% - 32px));transform:translateX(-50%);animation:start-in .7s ease-out .15s backwards;}
 @keyframes start-in {from {opacity:0;transform:translate(-50%,18px);}}
 .start-menu button {position:static;text-shadow:none;transition:background-color .15s,border-color .15s,color .15s;}
 .start-menu button:hover:enabled {filter:none;}
@@ -156,11 +154,12 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #save-toggles label {display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;padding:2px 4px;border-bottom:1px solid var(--seam-soft);cursor:pointer;}
 #save-toggles label input {order:1;}
 #runtime-error {position:absolute;left:16px;right:16px;top:16px;margin:0;padding:16px;background:#4b211d;color:#fff;overflow-wrap:anywhere;}
-#loading-details {position:absolute;z-index:4;right:24px;bottom:24px;width:min(440px,calc(100% - 48px));max-height:calc(100% - 170px);overflow:auto;padding:24px 22px 20px;border-radius:6px;background:var(--asphalt-glass);color:var(--bleach);font:400 16px/1.45 var(--menu-font);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
+#loading-details {position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100% - 48px));max-height:calc(100% - 170px);overflow:auto;padding:24px 22px 20px;border-radius:6px;background:var(--asphalt-glass);color:var(--bleach);font:400 16px/1.45 var(--menu-font);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
 #loading-details::before {content:"";position:sticky;display:block;top:-24px;height:4px;margin:-24px -22px 20px;background:var(--lane);}
 #loading-details h2 {margin:0 0 12px;font-size:22px;font-weight:800;}
 #loading-details progress {display:block;width:100%;height:10px;accent-color:var(--paint);}
 #loading-details p {margin:10px 0 0;white-space:pre-line;}
+#loading-elapsed {text-align:center;}
 #loading-steps {list-style:none;margin:14px 0 0;padding:0;display:grid;gap:4px;}
 #loading-steps li {display:grid;grid-template-columns:1.4em minmax(0,1fr) auto;gap:8px;color:#9a9a9a;}
 #loading-steps li[data-state=active] {color:var(--bleach);}
@@ -175,7 +174,6 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #loading-budgets dd {text-align:right;}
 #loading-budget-note {font-size:14px;color:var(--bleach);}
 @media(min-width:800px) {
- main:has(#performance:not([hidden])) #loading-details {right:332px;}
  #menu:has(#capture-error:not([hidden])) #capture-error,#runtime-error {right:520px;max-height:calc(100dvh - 190px);overflow:auto;}
 }
 #hud {position:absolute;inset:0;pointer-events:none;font-family:Arial,sans-serif;text-shadow:2px 2px 2px #000;}
@@ -183,15 +181,24 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #crosshair > * {position:absolute;left:0;top:0;transform:translate(-50%,-50%);}
 #crosshair .old-crosshair {mask-size:100% 100%;-webkit-mask-size:100% 100%;}
 #weapon-crosshair {position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);mask-size:contain;mask-repeat:no-repeat;mask-position:center;-webkit-mask-size:contain;-webkit-mask-repeat:no-repeat;-webkit-mask-position:center;pointer-events:none;}
-.action-row {position:absolute;margin:0;white-space:nowrap;text-shadow:2px 2px 2px #000;}
+/* Key prompts, carry help and car help: one stack in the lower right corner. */
+#hud-corner {position:absolute;right:32px;bottom:32px;display:flex;flex-direction:column;align-items:flex-end;gap:.6em;font-family:var(--menu-font);line-height:1.2;text-shadow:none;}
+#prompts,#carry-help,#help-text {display:flex;flex-direction:column;align-items:flex-end;gap:.3em;}
+:is(#prompts,#carry-help,#help-text)[hidden],.prompt[hidden],#prompts:not(:has(.prompt:not([hidden]))) {display:none;}
+.prompt {display:flex;align-items:center;gap:.35em;margin:0;padding:.3em .7em;white-space:nowrap;color:var(--bleach);background:var(--asphalt-glass);border:1px solid var(--seam);border-radius:3px;}
+.prompt kbd {display:inline-block;min-width:1.5em;padding:.1em .4em 0;box-sizing:border-box;text-align:center;font:700 .82em/1.4 var(--menu-font);color:var(--ink);background:var(--bleach);border-radius:3px;border-bottom:2px solid var(--dust);}
+.prompt .mouse {height:1.5em;width:auto;flex:none;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round;}
+.prompt .mouse .mouse-on {fill:var(--paint);stroke:var(--paint);}
 #fluid-text {position:absolute;margin:0;white-space:pre;transform:translate(-50%,-50%);text-align:center;text-shadow:3px 3px 2px #000;}
-#carry-help {position:absolute;margin:0;white-space:pre;text-align:right;text-shadow:2px 2px 2px #000;}
-#help-text {position:absolute;margin:0;white-space:pre;text-shadow:2px 2px 2px #000;}
 /* Multiplayer screen, chat and name labels. */
 .multiplayer-body {display:flex;flex-direction:column;gap:8px;}
 .multiplayer-body label {display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;padding:2px 4px;border-bottom:1px solid var(--seam-soft);}
 .multiplayer-body label input[type=checkbox] {order:1;}
 .multiplayer-body fieldset {display:flex;flex-direction:column;gap:6px;margin:0;padding:0;border:0;}
+.multiplayer-body legend {padding:8px 4px 2px;font-weight:700;color:var(--paint);}
+.multiplayer-body [hidden] {display:none;}
+#net-room {text-transform:uppercase;}
+#net-host-hint {color:var(--dust);}
 .multiplayer-body fieldset > button {align-self:flex-start;margin-top:6px;}
 .multiplayer-body p {margin:4px 0;}
 .multiplayer-body ul {margin:0;padding-left:20px;}
@@ -201,7 +208,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #net-labels {position:absolute;inset:0;overflow:hidden;pointer-events:none;}
 #net-labels span {position:absolute;left:0;top:0;font:16px Arial,sans-serif;color:#fff;text-shadow:2px 2px 2px #000;white-space:nowrap;}
 #net-labels span.speaking::after {content:' 🔊';}
-#net-mic {position:absolute;right:16px;bottom:96px;font:32px Arial,sans-serif;text-shadow:2px 2px 2px #000;pointer-events:none;}
+#net-mic {position:absolute;right:16px;top:56px;font:32px Arial,sans-serif;text-shadow:2px 2px 2px #000;pointer-events:none;}
 #autosave-notice {position:absolute;right:16px;top:16px;margin:0;color:#fff;font-family:Arial,sans-serif;text-shadow:2px 2px 2px #000;pointer-events:none;}
 #action-notice {position:absolute;left:0;bottom:20px;margin:0;color:#fff;text-shadow:2px 2px 2px #000;}
 @media(max-width:799px) {

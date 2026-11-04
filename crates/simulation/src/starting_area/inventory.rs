@@ -302,6 +302,7 @@ impl StartingArea {
                 &self.pose,
                 &self.items,
                 self.interaction.carry.rule(id).unwrap(),
+                self.interaction.tab_grip(id),
                 physics,
             );
         }
@@ -320,7 +321,7 @@ impl StartingArea {
                         ),
                     )
                 });
-                physics.edit_body(h, |body| {
+                physics.follow_body(h, |body| {
                     body.set_position(storage * to_rapier(frame.1), false);
                     body.set_enabled(false);
                 });
@@ -469,6 +470,7 @@ impl GarageRuntime {
                 &self.area.pose,
                 &self.area.items,
                 self.area.interaction.carry.rule(id).unwrap(),
+                self.area.interaction.tab_grip(id),
                 &mut self.physics,
             );
         }

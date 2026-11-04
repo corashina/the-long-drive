@@ -12,7 +12,7 @@ const joinRoom=(()=>{try{return JSON.parse(takeSession(JOIN_KEY)??'null');}catch
 const seed=installSeed(window,document.querySelector('#seed'),Math.random,newGameSeed);
 import {createSettings,frameLimit,installSettingsBridge} from './settings.js';
 import {displayFields,installDisplaySettings} from './display-settings.js';
-import {installQualityPresets,qualityField} from './quality-presets.js';
+import {PRESETS,firstQuality,installQualityPresets,qualityField} from './quality-presets.js';
 import {createLanguage,installLanguageSelect,languageField} from './language.js';
 import {installFramePacer} from './frame-pacer.js';
 import {actionIndex,compileBindings,inputsField} from './bindings.js';
@@ -56,9 +56,11 @@ document.addEventListener('visibilitychange',startupVisibilityChanged);
 window.addEventListener('blur',startupBlurred);
 function stopStartupEnvironment(){startupVisibilityChanged();document.removeEventListener('visibilitychange',startupVisibilityChanged);window.removeEventListener('blur',startupBlurred);}
 cpuProfile.enable(startupCpuProfile);
-let rustCpuProfile,profileStep=0,startupRenderTrace=startupCpuProfile?observeRenderMainThread():null;
+let rustCpuProfile,rustCpuAudit,profileStep=0,startupRenderTrace=startupCpuProfile?observeRenderMainThread():null;
 window.gameCpuProfile=enabled=>{cpuProfile.enable(enabled);profileStep=0;rustCpuProfile?.(enabled);simulation.profile(enabled);if(enabled)grassClients.profileHandshake();};
 window.gameCpuProfileSnapshot=()=>cpuProfile.snapshot();
+// Main thread Rust stages, in the format of the worker `profile` sandbox reply.
+window.gameMainCpuAudit=()=>rustCpuAudit?JSON.parse(rustCpuAudit()):null;
 window.gameCpuInstrumentationState=()=>({browserEnabled:cpuProfile.enabled,grass:grassClients.profileState(),startupRenderTraceActive:startupRenderTrace!==null});
 window.gameCpuStartupRenderTrace=()=>{const trace=startupRenderTrace?.stop()??null;startupRenderTrace=null;return trace;};
 window.gameCpuInputConsumed=()=>input?.consume(++profileStep);
@@ -101,10 +103,17 @@ window.gameStartupStage=(stage,started)=>{if(started){startup.begin(stage);cpuPr
 window.gameLoadingProgress=(...counts)=>loading.progress(...counts);
 window.gameLoadingBudget=(name,used,limit,unit)=>loading.budget(name,used,limit,unit);
 const bootStarted=performance.now();
-let wasmMemory,renderAudit,initialReadyMs=null,peakFrameMs=0,lastFrameTime=null,measureRequested=false;
-const performancePanel=createPerformance(()=>wasmMemory?.buffer.byteLength,()=>renderAudit&&JSON.parse(renderAudit()),()=>worldDrawDistance,()=>simulation.stats());
+let wasmMemory,renderAudit,watchRenderAudit,renderAuditWatched=false,initialReadyMs=null,peakFrameMs=0,lastFrameTime=null,measureRequested=false;
+const performancePanel=createPerformance(()=>wasmMemory?.buffer.byteLength,()=>renderAudit&&JSON.parse(renderAudit()),on=>{renderAuditWatched=on;watchRenderAudit?.(on);},()=>worldDrawDistance,()=>simulation.stats());
 window.gamePerformanceFrame=(physicsMs,worldMs,updateMs,renderMs)=>performancePanel.frame(performance.now(),physicsMs,worldMs,updateMs,renderMs);
 window.gamePerformanceCounters=performancePanel.counters;
+window.gamePerformance=()=>performancePanel.snapshot();
+// The failure message after a startup or runtime failure, else null. `gameFailure` reports a failure.
+window.gameFailureMessage=()=>failure;
+// The start menu model, for `tests/bench/fps.mjs`. Null before the interface loads.
+window.gameMenu=()=>menu?{state:menu.model.state,started:menu.model.started,pending:menu.model.pending,ready:menu.model.readyFlag,status:menu.model.status,error:menu.model.error}:null;
+// Test sandbox (`simulation::sandbox`), for `tests/bench/fps.mjs`. Only a `?sandbox` page has it.
+if(new URLSearchParams(location.search).has('sandbox'))window.gameSandbox=actions=>simulation.sandbox(JSON.stringify(actions)).then(JSON.parse);
 const measurementWaiters=[];
 const bootstrap={manifestUtf16PayloadBytes:0,dependencyGate:worldBootstrapMeasurements};
 window.gameNow=()=>performance.now();
@@ -116,7 +125,7 @@ window.gameMeasurements=json=>{
   initialStartReadyMs:initialReadyMs,peakFrameIntervalMs:peakFrameMs,bootstrap};
  for(const resolve of measurementWaiters.splice(0))resolve(snapshot);
 };
-let input,survival,dead=false,sleeping=false,audio,menu,multiplayer,feedback,failed=false,worldAdmitted=false,actions=0,frame,renderFailure;
+let input,survival,dead=false,sleeping=false,audio,menu,multiplayer,feedback,failed=false,failure=null,worldAdmitted=false,actions=0,frame,renderFailure;
 const inventory={selected:0,slots:[0,0,0,0],progress:0};
 window.gameInventory=(selected,a,b,c,d,progress)=>{
  inventory.selected=selected;inventory.slots[0]=a;inventory.slots[1]=b;inventory.slots[2]=c;inventory.slots[3]=d;inventory.progress=progress;
@@ -189,7 +198,7 @@ const sleep={phase:0,eligible:false,showHint:false,charge:0,cooldownRemaining:0,
 window.gameSleep=(phase,eligible,showHint,charge,cooldownRemaining,progress)=>{
  sleep.phase=phase;sleep.eligible=eligible;sleep.showHint=showHint;sleep.charge=charge;sleep.cooldownRemaining=cooldownRemaining;sleep.progress=progress;sleep.held=(input.state.held&262144)!==0;sleep.dead=dead;sleeping=phase===2;survival?.updateSleep(sleep,feedback?.state.enabled);
 };
-function fail(message,notifyRenderer=true){if(failed)return;failed=true;if(/Draw distance [\d.]+ m does not fit/.test(message))slider?.clear();performancePanel.stop();startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.fail({...startupFailureDetails,message,loading:loading.snapshot()});startupDone=true;loading.fail();const text='Cannot start the game. '+message+' Reload to try again.';if(menu){menu.fail(text);status.textContent='';}else{status.textContent='';runtimeError.textContent=text;runtimeError.hidden=false;}if(notifyRenderer)renderFailure?.(message);}
+function fail(message,notifyRenderer=true){if(failed)return;failed=true;failure=message;if(/Draw distance [\d.]+ m does not fit/.test(message))slider?.clear();performancePanel.stop();startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.fail({...startupFailureDetails,message,loading:loading.snapshot()});startupDone=true;loading.fail();const text='Cannot start the game. '+message+' Reload to try again.';if(menu){menu.fail(text);status.textContent='';}else{status.textContent='';runtimeError.textContent=text;runtimeError.hidden=false;}if(notifyRenderer)renderFailure?.(message);}
 function finishStartup(){if(failed||startupDone||!startupReady||!input||!menu)return;startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.finish({inputReady:true});startupDone=true;}
 window.gameFailure=message=>fail(message,false);
 window.gameLoading=()=>{if(failed)return;loading.start(true);menu.loading();};
@@ -217,7 +226,10 @@ async function downloadManifest(response){
 async function load(){
  cpuProfile.begin('startup');
  startup.begin('graphics');
- if(!await navigator.gpu?.requestAdapter())throw Error('This browser cannot use WebGPU.');
+ // Bevy asks for the high performance adapter, so this is the GPU that renders.
+ const adapter=await navigator.gpu?.requestAdapter({powerPreference:'high-performance'});
+ if(!adapter)throw Error('This browser cannot use WebGPU.');
+ const quality=firstQuality(adapter.info);
  startup.end('graphics');startup.begin('manifest');
  // Download and compile the game code while the manifest downloads.
  const code=Promise.all([import('./pkg/the_long_slop.js'),fetch('./pkg/the_long_slop_bg.wasm').then(response=>{
@@ -229,15 +241,15 @@ async function load(){
  if(!response.ok)throw Error('Cannot load reference manifest (HTTP '+response.status+').');
  const bytes=await downloadManifest(response);
  loading.step('code',0);
- const [{default:init,prepare,run,manifest_shell,source_render_failure,source_render_audit,cpu_profile,request_thumbnail,wake_frame},module]=await code;
- const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;
- rustCpuProfile=cpu_profile;if(startupCpuProfile)rustCpuProfile(true);
+ const [{default:init,prepare,run,manifest_shell,source_render_failure,source_render_audit,watch_render_audit,cpu_profile,cpu_profile_audit,request_thumbnail,wake_frame},module]=await code;
+ const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;watchRenderAudit=watch_render_audit;watch_render_audit(renderAuditWatched);
+ rustCpuProfile=cpu_profile;rustCpuAudit=cpu_profile_audit;if(startupCpuProfile)rustCpuProfile(true);
  window.gameThumbnailFrame=()=>thumbnail.frame();thumbnail.connect(request_thumbnail);
  // Rust copies only the shell fields, so JS does not parse the world records.
  startup.begin('shell');const text=manifest_shell(bytes),manifest=JSON.parse(text);startup.end('shell');
  const {manifest_sha256:manifestHash}=await manifestStamp(bytes,manifest);
  const bindings=manifest.driving.bindings,actionIds=actionIndex(bindings);
- settings=createSettings(()=>localStorage,manifest.settings,{...displayFields(manifest.world.mirrors.draw_distance),quality:qualityField,...gameFields(manifest.world.start_cars.length),inputs:inputsField(bindings),language:languageField(manifest.language)});
+ settings=createSettings(()=>localStorage,manifest.settings,{...displayFields(manifest.world.mirrors.draw_distance,PRESETS[quality]),quality:qualityField(quality),...gameFields(manifest.world.start_cars.length),inputs:inputsField(bindings),language:languageField(manifest.language)});
  const language=createLanguage(manifest.language,settings,document);
  installLanguageSelect(document.querySelector('#language'),settings,language.names);
  installGameMode(window,document.querySelector('#biome'),settings);

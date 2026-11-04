@@ -253,11 +253,12 @@ impl RadioState {
         }
     }
     /// save_radioscript restores controls only. Stations pick fresh recordings.
+    /// A radio without band control keeps its prefab band, AM or FM.
     pub fn restore_save(
         &mut self,
         saved: &crate::save::RadioSnapshot,
     ) -> Result<(), crate::save::SaveError> {
-        if saved.am && !self.band {
+        if saved.am != self.am && !self.band {
             return Err(crate::save::SaveError::CorruptData(
                 "Radio band without band control".into(),
             ));
@@ -444,5 +445,44 @@ impl RadioBroadcasts {
             }
             iteration += 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RadioState;
+    use crate::save::RadioSnapshot;
+
+    fn radio(band: bool, am: bool) -> RadioState {
+        RadioState::new(
+            [500., 1600., 10.],
+            [88., 108., 0.1],
+            0.1,
+            band,
+            RadioSnapshot {
+                on: false,
+                am,
+                tuning: 0.,
+                volume: 0.,
+            },
+        )
+    }
+
+    #[test]
+    fn fixed_band_radio_restores_its_own_band() {
+        let mut am_only = radio(false, true);
+        let saved = RadioSnapshot {
+            on: true,
+            am: true,
+            tuning: 0.5,
+            volume: 0.3,
+        };
+        am_only.restore_save(&am_only.capture_save()).unwrap();
+        am_only.restore_save(&saved).unwrap();
+        assert_eq!(am_only.capture_save(), saved);
+        let fm = RadioSnapshot { am: false, ..saved };
+        assert!(am_only.restore_save(&fm).is_err());
+        assert!(radio(false, false).restore_save(&saved).is_err());
+        radio(true, false).restore_save(&saved).unwrap();
     }
 }

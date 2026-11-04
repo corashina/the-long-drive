@@ -9,6 +9,9 @@ Save format authority: [save schema](crates/simulation/src/save/schema.rs).
 The game runs at about 60 FPS now. Every new feature must keep it there.
 Check the F3 overlay before and after each change. Report the frame-time cost.
 If a feature drops the frame rate, fix the cost before merge or agree a cut.
+A PR that changes render, shader, worker tick or world stream code must have a bench compare.
+Run `node tests/bench/fps.mjs` on the base and on the branch, then `compare` the two JSON files.
+Put the compare table in the PR. If the PC run waits for the section test pass, list the PR there.
 
 ## Task rules
 

@@ -213,7 +213,7 @@ pub(crate) fn sync_lighting(
         activation.last_check = activation.elapsed;
         activation.instances = revision;
         activation.check(
-            display.reflections,
+            display.reflections < 2,
             player,
             &mut clock,
             &reference,
@@ -231,7 +231,7 @@ pub(crate) fn sync_lighting(
         if let Some(position) = position {
             activation.position[index] = position;
         }
-        activation.enabled[index] = display.reflections && position.is_some();
+        activation.enabled[index] = display.reflections < 2 && position.is_some();
         activation.distance_squared[index] = player.distance_squared(activation.position[index]);
     }
     match scene_value(&assets, &master, sim, &reference, &transforms, activation) {

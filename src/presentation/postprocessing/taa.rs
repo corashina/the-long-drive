@@ -1,4 +1,5 @@
-//! Source TAA. The history resolve runs after the scene copy. Histogram, bloom and Uber read its output.
+//! Source TAA. It reads the resolved scene and stops NaNs itself. Histogram, bloom and Uber read its output.
+//! Below 100% scene scale it upscales: the output and history have the native extent.
 use crate::presentation::render_targets::HDR_FORMAT;
 use crate::reference::postprocessing::TaaSettings;
 use bevy::prelude::*;
@@ -8,9 +9,12 @@ use bevy::render::{
 };
 #[derive(Clone, Copy, ShaderType)]
 struct TaaParams {
+    /// Output and history extent.
     extent: Vec4,
     jitter: Vec4,
     blend: Vec4,
+    /// Scene color, depth and motion extent.
+    source: Vec4,
 }
 pub struct TaaPass {
     _textures: [Texture; 3],
@@ -35,8 +39,11 @@ impl TaaPass {
         source: &TextureView,
         depth: &TextureView,
         motion: &TextureView,
+        source_extent: [u32; 2],
         extent: [u32; 2],
         settings: TaaSettings,
+        // Zero each scene texel with a NaN component, as the source copy did.
+        stop_nan: bool,
         previous: Option<Self>,
     ) -> Result<Self, String> {
         let [width, height] = extent;
@@ -86,6 +93,11 @@ impl TaaPass {
                     fragment: Some(FragmentState {
                         shader: shader.clone(),
                         entry_point: Some(entry.into()),
+                        shader_defs: if stop_nan {
+                            vec!["STOP_NAN".into()]
+                        } else {
+                            vec![]
+                        },
                         targets: vec![
                             Some(ColorTargetState {
                                 format: HDR_FORMAT,
@@ -127,13 +139,10 @@ impl TaaPass {
             min_filter: FilterMode::Linear,
             ..default()
         });
+        let texel = |[w, h]: [u32; 2]| Vec4::new(w as f32, h as f32, 1. / w as f32, 1. / h as f32);
         let mut uniform = UniformBuffer::from(TaaParams {
-            extent: Vec4::new(
-                width as f32,
-                height as f32,
-                1. / width as f32,
-                1. / height as f32,
-            ),
+            extent: texel(extent),
+            source: texel(source_extent),
             jitter: Vec4::ZERO,
             blend: Vec4::new(
                 settings.stationary_blending,

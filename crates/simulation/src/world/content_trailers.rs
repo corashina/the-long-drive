@@ -14,7 +14,8 @@ use crate::vehicle::{
     PhysicsWorld, VehiclePose, WheelMount, WheelSet, WheelTorques, collider_profile, to_rapier,
 };
 use crate::world::GeneratedId;
-use rapier3d::math::{Pose, Rotation, Vector};
+use crate::world::wheel_graphics::WheelGraphic;
+use rapier3d::math::{Pose, Vector};
 
 /// The trailer of one spawned world item.
 pub struct TrailerBinding {
@@ -29,32 +30,21 @@ pub struct TrailerBinding {
     steer: Vec<f32>,
     lights: CarLights,
     graphics: Vec<WheelGraphic>,
+    /// The `T` pose in its parent frame and its unscaled root position after the last wheel step.
+    graphic_poses: Vec<(Transform, Vector)>,
 }
 
-/// Source `wheelgraphicsscript.Graphics` of one trailer wheel.
-struct WheelGraphic {
-    /// The `T` node.
-    node: usize,
-    /// Root frame of the body, scaled.
-    body_pose: Pose,
-    /// Unscaled root frame of the `T` parent, inverted.
-    parent_inverse: Pose,
-    /// Rotation of the wheel collider node in the body frame.
-    collider_rotation: Rotation,
-    scale: [f32; 3],
-    /// The `T` pose in its parent frame after the last wheel step.
-    pose: Transform,
-    /// The `T` position in the unscaled root frame after the last wheel step.
-    root: Vector,
-}
 impl TrailerBinding {
     /// The `T` position of each wheel in the unscaled root frame.
     pub fn graphic_positions(&self) -> impl Iterator<Item = Vector> + '_ {
-        self.graphics.iter().map(|g| g.root)
+        self.graphic_poses.iter().map(|p| p.1)
     }
     /// The `T` node of each wheel and its pose in its parent frame.
     pub fn graphics(&self) -> impl Iterator<Item = (usize, Transform)> + '_ {
-        self.graphics.iter().map(|g| (g.node, g.pose))
+        self.graphics
+            .iter()
+            .zip(&self.graphic_poses)
+            .map(|(g, p)| (g.node, p.0))
     }
 }
 
@@ -70,25 +60,6 @@ fn spawned_child(child: &GeneratedId, parent: &GeneratedId, source: &SourceId) -
             .children
             .last()
             .is_some_and(|(s, o)| s == source && *o == 0)
-}
-
-/// WheelCollider.GetWorldPose in the parent frame of `T`: the wheel center below its connection,
-/// turned by steer, then by the roll angle.
-fn graphic_pose(g: &WheelGraphic, wheel: &crate::vehicle::WheelState) -> (Transform, Vector) {
-    let center = wheel.connection - Vector::Y * wheel.suspension_length;
-    let rotation = g.collider_rotation
-        * Rotation::from_rotation_y(wheel.steering)
-        * Rotation::from_rotation_x(-wheel.angle);
-    let root = g.body_pose * Pose::from_parts(center, rotation);
-    // Prototype node frames are unscaled.
-    let unscaled = Vector::from_array(std::array::from_fn(|i| root.translation[i] / g.scale[i]));
-    let local = g.parent_inverse * Pose::from_parts(unscaled, root.rotation);
-    let pose = Transform {
-        translation: local.translation.to_array(),
-        rotation: local.rotation.to_array(),
-        scale: g.pose.scale,
-    };
-    (pose, unscaled)
 }
 
 impl WorldStream {
@@ -263,26 +234,19 @@ impl WorldStream {
                 doors: Vec::new(),
             })
             .collect();
-        let frame = |i: usize| to_rapier(crate::world::placement::node_frame(prototype, 0, i));
-        let graphics = reference
+        let graphics: Vec<_> = reference
             .wheels
             .iter()
             .zip(&reference.graphics)
             .map(|(w, &node)| {
-                let node = node as usize;
-                let parent = prototype.nodes[node].parent.unwrap_or(0) as usize;
-                WheelGraphic {
-                    node,
-                    body_pose,
-                    parent_inverse: frame(parent).inverse(),
-                    collider_rotation: body_pose.rotation.inverse()
-                        * frame(w.node as usize).rotation,
-                    scale,
-                    pose: prototype.nodes[node].transform,
-                    root: Vector::from_array(
-                        crate::world::placement::node_pose(prototype, node).translation,
-                    ),
-                }
+                WheelGraphic::new(prototype, node as usize, w.node as usize, body_pose, scale)
+            })
+            .collect();
+        let graphic_poses = graphics
+            .iter()
+            .map(|g| {
+                let root = crate::world::placement::node_pose(prototype, g.node).translation;
+                (prototype.nodes[g.node].transform, Vector::from_array(root))
             })
             .collect();
         let count = mounts.len();
@@ -303,6 +267,7 @@ impl WorldStream {
             steer: vec![0.; count],
             lights: CarLights::new(&reference.lights, links),
             graphics,
+            graphic_poses,
         }))
     }
 
@@ -331,8 +296,13 @@ impl WorldStream {
                 t.brake_nm = torque;
             }
             physics.step_wheel_set(&mut b.wheels, &b.torques, &b.steer);
-            for (g, wheel) in b.graphics.iter_mut().zip(b.wheels.wheels()) {
-                (g.pose, g.root) = graphic_pose(g, wheel);
+            for ((g, p), wheel) in b
+                .graphics
+                .iter()
+                .zip(&mut b.graphic_poses)
+                .zip(b.wheels.wheels())
+            {
+                *p = g.pose(wheel);
             }
         }
     }
@@ -415,6 +385,7 @@ impl Bound for TrailerBinding {
             + self.torques.capacity() * std::mem::size_of::<WheelTorques>()
             + self.steer.capacity() * std::mem::size_of::<f32>()
             + self.graphics.capacity() * std::mem::size_of::<WheelGraphic>()
+            + self.graphic_poses.capacity() * std::mem::size_of::<(Transform, Vector)>()
     }
 }
 

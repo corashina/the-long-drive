@@ -193,7 +193,8 @@ impl MotionBlurPass {
                     loop_count,
                 ),
                 depth: Vec4::new(0., 1., (layout.tile_loop as f32 - 1.) * -0.5, 0.),
-                control: UVec4::new(layout.tile_loop, 0, 0, 0),
+                // y, z: the full extent. Depth reads map it to the scene depth.
+                control: UVec4::new(layout.tile_loop, extent[0], extent[1], 0),
             });
             buffer.write_buffer(device, queue);
             buffer

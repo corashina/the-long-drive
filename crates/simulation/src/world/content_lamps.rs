@@ -67,9 +67,7 @@ impl WorldStream {
         let mut i = 0;
         while i < self.lamp_bindings.len() {
             let parent = &self.lamp_bindings[i].parent;
-            if self.structures.iter().any(|s| &s.placement.id == parent)
-                || self.portable_lamp_item(parent).is_some()
-            {
+            if self.structures.contains(parent) || self.portable_lamp_item(parent).is_some() {
                 i += 1;
                 continue;
             }
@@ -86,7 +84,7 @@ impl WorldStream {
                         .lamp_bindings
                         .iter()
                         .any(|b| &b.parent == parent && &b.source == source)
-                        && (self.structures.iter().any(|s| &s.placement.id == parent)
+                        && (self.structures.contains(parent)
                             || self.portable_lamp_item(parent).is_some())
                         && self.bindings_ready(parent)
                 })
@@ -148,7 +146,7 @@ impl WorldStream {
             key.children.push((source.clone(), 0));
             let saved = self
                 .changes
-                .get(ObjectKey::Generated(key))
+                .get_generated(&key)
                 .and_then(|r| r.snapshot.as_ref())
                 .map(|s| (s.lamp, s.lamp_broken));
             if let Some((lamp, broken)) = saved {
@@ -331,7 +329,7 @@ impl WorldStream {
     ) -> Result<(), ReferenceError> {
         if let Some(saved) = self
             .changes
-            .get(ObjectKey::Generated(parent.clone()))
+            .get_generated(&parent)
             .and_then(|r| r.snapshot.as_ref())
             .and_then(|s| s.lamp)
         {

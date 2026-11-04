@@ -19,7 +19,7 @@ pub(crate) struct CollectorKey {
     pub view_from_world: [u32; 16],
     pub near_far_strength: [u32; 3],
     pub atlas_size: u32,
-    pub primary: bool,
+    pub filter: u32,
 }
 /// Compare shader values by bits. Signed zero must not hide an input change.
 pub(crate) fn same_floats(a: impl Iterator<Item = f32>, b: impl Iterator<Item = f32>) -> bool {

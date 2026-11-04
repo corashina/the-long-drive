@@ -269,11 +269,16 @@ pub struct LookBlock {
     pub gain: f32,
     pub yaw_limits: [f32; 2],
     pub pitch_limits: [f32; 2],
-    /// Keeps the block free of padding.
-    pub pad: u32,
+    /// 1 when the equipped item is a brush: the LMB scrubs.
+    pub brush: u32,
 }
 
 impl LookBlock {
+    /// fpscontroller `scrubbing`: the mouse turns the brush, not the view.
+    pub fn scrubbing(&self, input: &FrameInput) -> bool {
+        (self.brush != 0 && input.held & crate::simulation::keys::PRIMARY != 0)
+            || input.player_held & crate::simulation::player_keys::POINT != 0
+    }
     /// Yaw and pitch after the command `mouse` that no step consumed yet.
     pub fn predict(&self, mouse: [f32; 2]) -> [f32; 2] {
         let [yaw_min, yaw_max] = self.yaw_limits;
@@ -307,11 +312,15 @@ impl LookBlock {
 #[derive(Debug, Default)]
 pub struct MouseLook {
     sent: std::collections::VecDeque<(u64, [f32; 2])>,
+    /// The look of the last frame.
+    look: LookBlock,
 }
 
 impl MouseLook {
-    pub fn send(&mut self, seq: u64, mouse: [f32; 2]) {
-        if mouse != [0.; 2] && mouse.iter().all(|v| v.is_finite()) {
+    /// The mouse of a scrubbing command turns the brush. The view does not take it.
+    pub fn send(&mut self, seq: u64, input: &FrameInput) {
+        let mouse = input.mouse;
+        if mouse != [0.; 2] && mouse.iter().all(|v| v.is_finite()) && !self.look.scrubbing(input) {
             self.sent.push_back((seq, mouse));
         }
     }
@@ -329,6 +338,7 @@ impl MouseLook {
             .sent
             .iter()
             .fold([0.; 2], |sum, (_, m)| [sum[0] + m[0], sum[1] + m[1]]);
+        self.look = frame.state.look;
         frame.state.look.pose(frame.state.alpha, mouse)
     }
 }

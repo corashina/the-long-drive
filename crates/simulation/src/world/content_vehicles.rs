@@ -18,6 +18,7 @@ use crate::vehicle::PhysicsWorld;
 use crate::world::changes::ChangeRecords;
 use crate::world::contents::ContentInstance;
 use crate::world::spawn_rules::{SourceRules, optional, texts};
+use crate::world::wheel_graphics::WheelGraphic;
 use crate::world::{GeneratedId, ObjectKey, StructureInstance};
 use rapier3d::prelude::{ColliderHandle, RigidBodyHandle};
 use std::collections::BTreeMap;
@@ -537,6 +538,31 @@ pub struct CarCopy<'a> {
     pub blood: Option<Blood>,
 }
 
+/// `wheelgraphicsscript.T` of each record wheel. Car copies are not scaled.
+fn wheel_graphics(
+    prototype: &WorldPrototypeReference,
+    record: &crate::reference::WorldVehicleReference,
+) -> Vec<WheelGraphic> {
+    let body = prototype.bodies[record.body as usize].pose;
+    let body_pose = crate::vehicle::to_rapier(crate::vehicle::VehiclePose {
+        position: body.translation,
+        rotation: body.rotation,
+    });
+    record
+        .wheels
+        .iter()
+        .map(|w| {
+            WheelGraphic::new(
+                prototype,
+                w.graphic as usize,
+                w.node as usize,
+                body_pose,
+                [1.; 3],
+            )
+        })
+        .collect()
+}
+
 /// Makes the chassis a vehicle and adds its car runtime and wheel slots with the retired
 /// state of its key. Mounts the slot rims that are bound. Returns the wheel slot ids.
 #[allow(clippy::too_many_arguments)]
@@ -577,6 +603,7 @@ pub fn spawn(
             handbrake_switch: copy.handbrake_switch,
             plates,
             blood: copy.blood,
+            wheel_graphics: wheel_graphics(prototype, record),
         },
     );
     if let Some(state) = changes.take_vehicle(&key) {

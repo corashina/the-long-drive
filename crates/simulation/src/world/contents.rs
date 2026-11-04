@@ -377,11 +377,14 @@ impl SourceContents {
         if self.active.len() != previous {
             self.active_revision += 1;
         }
-        self.roots_revision = self.roots_revision.wrapping_add(1);
+        let cursors = self.cursors.len();
         self.cursors.retain(|c| {
             let selected = if c.replay_only { replays } else { structures };
             selected.iter().any(|p| p.id == c.parent.id)
         });
+        if self.cursors.len() != cursors {
+            self.roots_revision = self.roots_revision.wrapping_add(1);
+        }
         self.deferred.retain(|batch| {
             self.cursors
                 .iter()

@@ -16,6 +16,7 @@ pub struct Session {
     net_out: Vec<u8>,
     /// The save of `SimInit` did not load. The garage of a new game starts.
     load_error: Option<String>,
+    sandbox: crate::sandbox::Sandbox,
 }
 
 impl Session {
@@ -58,6 +59,7 @@ impl Session {
             bytes: Vec::new(),
             net_out: Vec::new(),
             load_error,
+            sandbox: Default::default(),
         };
         Ok((session, startup))
     }
@@ -89,12 +91,27 @@ impl Session {
         &self.net_out
     }
 
-    /// Runs one encoded command. Returns the encoded frame.
+    /// Runs a JSON array of sandbox actions between ticks. Returns a JSON array with one reply per action.
+    pub fn sandbox(&mut self, json: &str) -> String {
+        self.sandbox.queued.push(json.to_owned());
+        crate::sandbox::run(&mut self.driver.runtime, &self.reference, &mut self.sandbox);
+        format!(
+            "[{}]",
+            self.sandbox.replies.drain(..).collect::<Vec<_>>().join(",")
+        )
+    }
+
+    /// Runs one encoded command. Returns the encoded frame. Call `step_world` after the frame is sent.
     pub fn tick(&mut self, command: &[u8]) -> Result<&[u8], DecodeError> {
         let command = decode_command(command)?;
         self.driver.tick(&self.reference, command, &mut self.frame);
         self.encoder.encode(&self.frame, &mut self.bytes);
         Ok(&self.bytes)
+    }
+
+    /// Runs the world step of the last command. The next frame shows its result.
+    pub fn step_world(&mut self) {
+        self.driver.advance_world(&self.reference);
     }
 }
 
@@ -127,6 +144,7 @@ mod tests {
         );
         let mut frame = SimFrame::default();
         decode(session.tick(&command).unwrap(), &mut frame).unwrap();
+        session.step_world();
         assert_eq!(frame.seq_consumed, 1);
         assert_eq!(frame.state.session, startup.session);
     }

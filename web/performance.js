@@ -33,24 +33,30 @@ export function gpuLine(stages){
  return '\nGPU ms shadow / opaque / resolve+AO / transparent / post: '+stages.map(v=>v.toFixed(2)).join(' / ')+' (sum '+total.toFixed(2)+')';
 }
 
-// Draws per pass in the world view. Counts come from the renderer audit.
+// Draws per pass in the world view, from the renderer audit. Null before the first graph.
+function renderCounts(audit){
+ if(!audit?.graph)return null;
+ const view=audit.graph.views[0],[rows,visible,draws]=view.props;
+ return {shadowDraws:view.shadow_issued.reduce((a,b)=>a+b,0),surfaceDraws:view.surface[2]+view.surface[4],
+  propRows:rows,propVisible:visible,propDraws:draws,gpuMs:audit.gpu_ms??null,sceneScale:audit.scene_scale};
+}
 function renderLines(audit){
- if(!audit?.graph)return '';
- const view=audit.graph.views[0],sum=values=>values.reduce((a,b)=>a+b,0);
- const [rows,visible,draws]=view.props;
- return '\nDraws shadow / surface: '+sum(view.shadow_issued)+' / '+(view.surface[2]+view.surface[4])+
-  '\nGPU props rows / visible / indirect draws: '+rows+' / '+visible+' / '+draws+gpuLine(audit.gpu_ms)+'\nScene scale: '+audit.scene_scale+'%';
+ const c=renderCounts(audit);
+ if(!c)return '';
+ return '\nDraws shadow / surface: '+c.shadowDraws+' / '+c.surfaceDraws+
+  '\nGPU props rows / visible / indirect draws: '+c.propRows+' / '+c.propVisible+' / '+c.propDraws+gpuLine(c.gpuMs)+'\nScene scale: '+c.sceneScale+'%';
 }
 
 // `readWorker` gives the simulation worker tick average since its last read and its WASM bytes.
-export function createPerformance(readWasmBytes,readRender,readDrawDistance,readWorker=()=>null){
+// `watchRender` tells the renderer to fill its audit. Frames skip that work while nothing reads it.
+export function createPerformance(readWasmBytes,readRender,watchRender,readDrawDistance,readWorker=()=>null){
  const root=document.querySelector('#performance'),values=document.querySelector('#performance-values');
- const timings=new FrameTimings();let lastPaint=-Infinity,stopped=false;
+ const timings=new FrameTimings();let lastPaint=-Infinity,stopped=false,benched=false;
  const ms=value=>value.toFixed(1),mib=bytes=>Number.isFinite(bytes)?(bytes/1048576).toFixed(1)+' MiB':'unavailable';
  function reset(){timings.reset();lastPaint=-Infinity;values.textContent='Waiting for game frames...';}
  const key=event=>{
   if(event.code!=='F3'||event.repeat||event.ctrlKey||event.altKey||event.metaKey)return;
-  event.preventDefault();root.hidden=!root.hidden;lastPaint=-Infinity;
+  event.preventDefault();root.hidden=!root.hidden;lastPaint=-Infinity;watchRender(!root.hidden||benched);
  };
  window.addEventListener('keydown',key);document.addEventListener('visibilitychange',reset);
  return {
@@ -73,6 +79,14 @@ export function createPerformance(readWasmBytes,readRender,readDrawDistance,read
     '\nStorms / strongest influence / particles: '+storms+' / '+stormInfluence.toFixed(2)+' / '+stormParticles+
     '\nWASM main / worker: '+mib(readWasmBytes())+' / '+mib(worker?.wasmBytes)+'\nJS heap: '+mib(performance.memory?.usedJSHeapSize)+
     '\nWorld render CPU reserve: '+mib(cpuBytes)+'\nWorld render GPU reserve: '+mib(gpuBytes)+renderLines(readRender());
+  },
+  // The F3 values as numbers, for `tests/bench/fps.mjs`. It reads the worker tick average, as F3 does.
+  // The first call starts the renderer audit, so its render counts can be stale.
+  snapshot(){
+   if(!benched){benched=true;watchRender(true);}
+   const sample=timings.summary(),worker=readWorker();
+   return {fps:sample?.fps??null,frameMs:sample?.average??null,worstMs:sample?.worst??null,updateMs:sample?.update??null,renderMs:sample?.render??null,
+    physicsMs:sample?.physics??null,worldMs:sample?.world??null,workerTickMs:worker?.tickMs??null,...renderCounts(readRender())};
   },
   stop(){stopped=true;timings.reset();values.textContent='Performance counters stopped.';document.removeEventListener('visibilitychange',reset);},
  };

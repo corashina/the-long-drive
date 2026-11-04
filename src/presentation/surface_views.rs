@@ -38,21 +38,19 @@ pub fn mirror_view(index: usize) -> bool {
 
 /// Source `playermodeloutfitscript.SetDistance`. The `player_model` `_Dist` is 0.35 while the player camera draws.
 /// Other views, such as the probe faces and mirrors, draw it with 0.
-/// The surface shader keeps body parts more than `HEAD_DEPTH` in front of the eye.
+/// The surface shader keeps the limbs of the local body (`player_body::mark_limbs`).
 pub fn player_dist(index: usize) -> f32 {
     if index < WORLD_VIEWS { 0.35 } else { 0. }
 }
 
 /// The world view precedes six probe faces and the mirrors.
-/// Shadow values come from each view's source fit and sun shadow preparation.
+/// Every view samples the sun shadow of the world view (`SunShadow`).
 #[derive(Component, Clone, Copy)]
 pub struct SourceSurfaceView {
     pub index: usize,
     pub near: f32,
     pub far: f32,
     pub clip_from_world: Mat4,
-    pub shadow_fade: Vec4,
-    pub shadow_fade_center: Vec4,
 }
 impl bevy::render::sync_component::SyncComponent for SourceSurfaceView {
     type Target = Self;
@@ -132,7 +130,6 @@ pub(crate) fn prepare_views(
         Option<&SurfaceViewTargets>,
         Option<&mut SourceViewLighting>,
         Option<&mut SourceGlassView>,
-        Option<&super::shadow_collector::CollectorView>,
     )>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
@@ -141,6 +138,7 @@ pub(crate) fn prepare_views(
     antialiasing: Res<super::antialiasing::Antialiasing>,
     lamps: Res<super::lamp_shadows::LampShadows>,
     objects: Res<super::object_lighting::ObjectLightingGpu>,
+    sun: Res<super::shadow_collector::SunShadow>,
 ) {
     if status.failure().is_some() {
         return;
@@ -156,7 +154,7 @@ pub(crate) fn prepare_views(
         return;
     };
     let mut extents = [None; VIEW_COUNT];
-    for (_, source, view, msaa, _, _, _, _) in &mut views {
+    for (_, source, view, msaa, _, _, _) in &mut views {
         if source.index >= VIEW_COUNT
             || extents[source.index].is_some()
             || view.target_format != HDR_FORMAT
@@ -203,7 +201,7 @@ pub(crate) fn prepare_views(
     let needs_targets = existing.as_ref().is_none_or(|value| {
         value.targets.world.width != main.x
             || value.targets.world.height != main.y
-            || value.targets.views[0].atlas_size != atlas
+            || value.targets.sun.size != atlas
     });
     if needs_targets {
         if let Some(existing) = existing.as_mut() {
@@ -242,17 +240,18 @@ pub(crate) fn prepare_views(
     else {
         return;
     };
-    for (entity, source, _, _, bound, binding, glass, sun_shadow) in &mut views {
+    let sun_atlas = resources.targets.sun.atlas.sampled.as_ref().unwrap();
+    for (entity, source, _, _, bound, binding, glass) in &mut views {
         if frame.skip_preparation(source.index) {
             continue;
         }
         let target = &resources.targets.views[source.index];
         let uniform = scene.for_view(
-            source.shadow_fade,
-            source.shadow_fade_center,
+            sun.fade,
+            sun.fade_center,
             source.clip_from_world,
             Vec4::new(source.near, source.far, player_dist(source.index), 0.),
-            sun_shadow.map_or_else(Default::default, |collector| collector.value),
+            sun.value,
             if source.index < WORLD_VIEWS {
                 lamps.uniforms
             } else {
@@ -293,10 +292,7 @@ pub(crate) fn prepare_views(
                     probe_cubes(&resources, source.index),
                     &resources.probe_sampler,
                 ),
-                (
-                    target.atlas.sampled.as_ref().unwrap(),
-                    &resources.shadow_compare,
-                ),
+                (sun_atlas, &resources.shadow_compare),
                 resources.targets.lamp_atlas.sampled.as_ref().unwrap(),
                 &objects,
             );
@@ -326,10 +322,7 @@ pub(crate) fn prepare_views(
                 uniform,
                 (&cookie.texture_view, &cookie.sampler),
                 (cubes, &resources.probe_sampler),
-                (
-                    target.atlas.sampled.as_ref().unwrap(),
-                    &resources.shadow_compare,
-                ),
+                (sun_atlas, &resources.shadow_compare),
                 resources.targets.lamp_atlas.sampled.as_ref().unwrap(),
                 &objects,
             ),

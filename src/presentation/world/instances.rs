@@ -13,7 +13,10 @@ use crate::ownership::PresentationLedger;
 use crate::world::stream::content_index::InstanceSelection;
 use crate::world::{RendererFact, RendererFacts};
 use crate::{
-    presentation::materials::{SourceShadowMode, grass::settings::settings_from_source},
+    presentation::materials::{
+        SourceShadowMode,
+        grass::settings::{quality, settings_from_source},
+    },
     presentation::renderer_visibility::CameraHidden,
     reference::{ReferenceError, ReferenceManifest, WorldPrototypeReference},
     world::{Placement, RendererWorld},
@@ -72,7 +75,6 @@ struct Rebind {
     layer: u8,
     receive: bool,
     reflected: bool,
-    has_lod: bool,
     source_position: Vec3,
     /// Built before the contents spawned. Without a material row, the renderer keeps its material.
     early: bool,
@@ -802,8 +804,6 @@ impl SourceInstances {
                                 let receive = extras.receive_shadows.ok_or_else(|| {
                                     ReferenceError("Missing generated receiver state".into())
                                 })?;
-                                // LOD uniforms and warm tickets retain each renderer's original handles.
-                                let has_lod = !lods.levels(source_index).is_empty();
                                 for primitive in loaded
                                     .plan
                                     .primitives
@@ -918,7 +918,6 @@ impl SourceInstances {
                                             layer: source_node.layer,
                                             receive,
                                             reflected: world.determinant() < 0.,
-                                            has_lod,
                                             source_position,
                                             early,
                                         })
@@ -1012,7 +1011,7 @@ impl SourceInstances {
                                     if let Some(color) = color {
                                         materials.color(&mut binding, color)?;
                                     }
-                                    if has_lod || emissive {
+                                    if emissive {
                                         materials.make_private(&mut binding);
                                     }
                                     let is_grass =
@@ -1072,7 +1071,7 @@ impl SourceInstances {
                                         let initial = super::instance_materials::source_primary(
                                             reference, prototype, &source,
                                         );
-                                        let Some(mut variant) = materials.bind(
+                                        let Some(variant) = materials.bind(
                                             stream.frame().request.session,
                                             prototype,
                                             primitive,
@@ -1093,9 +1092,6 @@ impl SourceInstances {
                                         else {
                                             return Ok(None);
                                         };
-                                        if has_lod {
-                                            materials.make_private(&mut variant);
-                                        }
                                         owned_bindings.push((Some(entity), variant.clone()));
                                         variants.push(MaterialVariant {
                                             source: Some(source),
@@ -1191,7 +1187,7 @@ impl SourceInstances {
                                                 Arc::clone(&patches),
                                                 settings,
                                                 handle.clone(),
-                                                shadow != 0,
+                                                shadow != 0 && quality().shadow_cascades != 0,
                                                 bounds,
                                             )?;
                                         }
@@ -1691,10 +1687,7 @@ impl SourceInstances {
                             None
                         };
                         material_pending |= binding.is_none();
-                        if let Some(mut binding) = binding {
-                            if rebind.has_lod && !row {
-                                materials.make_private(&mut binding);
-                            }
+                        if let Some(binding) = binding {
                             renderer.pending = Some(MaterialVariant {
                                 source: selected.cloned(),
                                 binding,
@@ -1827,6 +1820,9 @@ impl SourceInstances {
                         }
                     };
                     renderer.show(root, commands, props);
+                    commands
+                        .entity(entity)
+                        .insert(crate::presentation::object_lighting::LodFade(fade));
                     materials.fade(&renderer.binding, fade);
                     grass.set_fade(entity, fade, &mut materials.grass);
                 }
