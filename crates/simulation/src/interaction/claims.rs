@@ -1,7 +1,6 @@
 //! fpscontroller `noLMBUse`: the held tool that owns the LMB.
 //! The render frame, the fixed step, the HUD and the player step ask here.
 use super::InteractionState;
-use crate::simulation::{FrameInput, keys};
 
 /// The held tool that owns the LMB.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,8 +36,13 @@ impl InteractionState {
         }
     }
     /// fpscontroller `scrubbing` from the hand: `drotkefe.Use` with LMB held.
-    pub fn scrubbing(&self, input: &FrameInput) -> bool {
-        input.held & keys::PRIMARY != 0 && self.brush_in_hand()
+    /// The frame LMB is used because the fixed input drops the reserved LMB.
+    pub fn scrubbing(&self) -> bool {
+        self.frame_lmb && self.brush_in_hand()
+    }
+    /// Records the LMB of the gameplay frame.
+    pub fn set_frame_lmb(&mut self, held: bool) {
+        self.frame_lmb = held;
     }
     /// Source `drotkefe` in the hand.
     pub fn brush_in_hand(&self) -> bool {

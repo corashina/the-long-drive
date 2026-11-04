@@ -940,7 +940,7 @@ impl GarageRuntime {
         let duck_allowed = !self.hum.humming()
             && PlayerStepContext::can_duck(input, tune || binoculars, picked_up);
         // fpscontroller `scrubbing`: `drotkefe.Use` in the hand, or pointing.
-        let scrubbing = self.area.interaction.scrubbing(&input)
+        let scrubbing = self.area.interaction.scrubbing()
             || input.player_held & crate::simulation::player_keys::POINT != 0;
         PlayerStepContext {
             scrubbing,
