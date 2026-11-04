@@ -166,6 +166,17 @@ async function startGame(browser,o,log){
  return {page,adapter};
 }
 
+// Menu state, and Continue when the game left play (focus loss, pointer lock loss, death).
+// Out of play, the menu caps frames at 30 fps.
+async function resumePlay(page){
+ const menu=await page.evaluate(()=>window.gameMenu?.()??null);
+ if(menu&&menu.state!=='playing'){
+  const resume=page.locator('#resume');
+  if(await resume.isVisible())await resume.click().catch(()=>{});
+ }
+ return menu;
+}
+
 async function runScene(browser,page,name,cycle,o){
  const build=SCENES[name];
  if(!build)throw new Error('Unknown scene '+name+'. Scenes: '+Object.keys(SCENES).join(', '));
@@ -184,6 +195,7 @@ async function runScene(browser,page,name,cycle,o){
  }
  await sleep(o.settle*1000);
  await checkGame(page);
+ await until(name+' play',MOVE_TIMEOUT_MS,async()=>(await resumePlay(page))?.state==='playing');
  const trace=o.trace&&name===o.scenes.split(',').at(-1);
  const tracePath=trace?OUT+o.label+'-'+name+'-trace.json':null;
  if(trace)await browser.startTracing(page,{path:tracePath});
@@ -191,18 +203,25 @@ async function runScene(browser,page,name,cycle,o){
  for(let i=0;i<o.seconds;i++){
   await sleep(1000);
   await checkGame(page);
-  samples.push(flatten(await page.evaluate(()=>window.gamePerformance())));
+  const sample=flatten(await page.evaluate(()=>window.gamePerformance()));
+  const menu=await resumePlay(page);
+  sample.menu=menu?.state??null;
+  if(sample.menu!=='playing')sample.menuStatus=menu?.status||menu?.error||'';
+  samples.push(sample);
  }
  if(trace)await browser.stopTracing();
+ // Only samples in play count. A menu sample has the 30 fps menu cap.
+ const playing=samples.filter(s=>s.menu==='playing');
+ if(!playing.length)throw new Error(`The game left play in ${name}: ${samples.at(-1).menu} ${samples.at(-1).menuStatus}`);
  // No frame in the 2 s window: the game stopped drawing, so the GPU values are stale.
- if(!samples.some(s=>Number.isFinite(s.fps)))throw new Error('No game frames in '+name);
+ if(!playing.some(s=>Number.isFinite(s.fps)))throw new Error('No game frames in '+name);
  // Worker CPU stages for 5 s. The profile has a cost, so it starts after the samples.
  await page.evaluate(()=>window.gameCpuProfile(true));
  await sleep(5000);
  const [profile]=await act(page,[{action:'profile'}]);
  await page.evaluate(()=>window.gameCpuProfile(false));
  const state=await worldState(page);
- return {name,moved:replies[0].message,player:state.player,cycle:state.cycle,summary:summarize(samples),worker:workerStages(profile.data),samples,trace:tracePath};
+ return {name,moved:replies[0].message,player:state.player,cycle:state.cycle,summary:summarize(playing),menuSamples:samples.length-playing.length,worker:workerStages(profile.data),samples,trace:tracePath};
 }
 
 async function bench(o){
@@ -233,6 +252,7 @@ const show=v=>v===null||v===undefined?'-':Number.isInteger(v)?String(v):v.toFixe
 
 function print(label,scene){
  console.log(`\n${label} / ${scene.name}: ${scene.moved}`);
+ if(scene.menuSamples)console.log(`  ${scene.menuSamples} samples out of play are left out`);
  for(const field of FIELDS){
   const {median,p90}=scene.summary[field];
   console.log(`  ${field.padEnd(15)} median ${show(median).padStart(9)}   p90 ${show(p90).padStart(9)}`);
