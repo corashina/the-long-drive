@@ -536,8 +536,9 @@ pub struct WorldStartupReference {
     pub group: String,
     pub source: SourceId,
     pub pose: Transform,
-    /// Fixed placement of this world prototype at `pose`: a start car or its spare wheel.
-    /// `group` is then the source start car field. Only the picked group spawns. Helper frames have none.
+    /// Fixed placement of this world prototype at `pose`: a start car or its spare wheel,
+    /// a start item, or a scene structure copy such as the outhouse or the bus stop.
+    /// A start car `group` is the source start car field. Only the picked group spawns. Helper frames have none.
     pub prototype: Option<SourceId>,
     /// A start car candidate.
     pub start_car: bool,

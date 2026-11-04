@@ -163,6 +163,20 @@ def spare_prefab(source, catalog, node):
     if len(matches)!=1:raise ValueError('{}:{} spare wheel: {} rimtire prefab matches'.format(*key(node['reader']),len(matches)))
     return matches[0]
 
+# Start scene roots that copy a world structure prefab: the outhouse KERTIBUDI (1) and the bus stop Buszmegallo.
+# The well kut is not one: its scene copy adds nodes to its prefab.
+SCENE_STRUCTURES = (22027,34628)
+
+def scene_structure(source, root, structures):
+    """The prototype and start state of a SCENE_STRUCTURES root. Other roots return no fields.
+    Built scenes keep no prefab link, so the lookup matches names."""
+    if key(root)[0]!='level1' or key(root)[1] not in SCENE_STRUCTURES:return {}
+    name=source.read(source.components(root)[0])['m_Name']
+    if name.endswith(')') and ' (' in name:name=name.rsplit(' (',1)[0]
+    matches=[s for s in structures if source.read(source.components(s)[0])['m_Name']==name]
+    if len(matches)!=1:raise ValueError('{}:{} start scene structure: {} prefab matches'.format(*key(root),len(matches)))
+    return {'prototype':source_id(matches[0]),**start_state(source,root,matches[0])}
+
 def start_row(source, catalog, root, group, random_options):
     """The startup row of one scene item copy and its catalog item index, or None without tosaveitemscript.
     The copy keeps its scene pose and scene state. The row prototype is its catalog prefab. recover_world sets it after selection."""
@@ -466,11 +480,13 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
         selected.record(owner)
     # Retain all startup helper frames and rules through selected transforms.
     startup=[]
+    structures=[root for k,root in roots.items() if roles[k]=='structure']
     for field in ('StartObjs','StartObjsFix','StartObjsDonTMoveOnLoad'):
         for pointer in settings[field]:
             root=source.resolve(settings_owner,pointer)
-            startup.append({'group':field,'source':source_id(root),'pose':world_pose(source,root),'prototype':None,'start_car':False,'random_options':[],'conditions':[],'tanks':[],'buried':False})
+            startup.append({'group':field,'source':source_id(root),'pose':world_pose(source,root),'prototype':None,'start_car':False,'random_options':[],'conditions':[],'tanks':[],'buried':False,**scene_structure(source,root,structures)})
             selected.transform_chain(root)
+    if sorted(r['source']['path_id'] for r in startup if r['prototype'])!=sorted(SCENE_STRUCTURES):raise ValueError('Start scene structure roots differ from SCENE_STRUCTURES')
     # Start car candidates. Startup frames ignore these groups. The vehicle binder spawns the picked one.
     starts=start_placements(source,settings_owner,settings,catalog,cars)
     for row in starts:selected.transform_chain(source.get(row['source']['file'],row['source']['path_id']))
