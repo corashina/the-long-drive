@@ -320,7 +320,7 @@ impl StartingArea {
                         ),
                     )
                 });
-                physics.edit_body(h, |body| {
+                physics.follow_body(h, |body| {
                     body.set_position(storage * to_rapier(frame.1), false);
                     body.set_enabled(false);
                 });

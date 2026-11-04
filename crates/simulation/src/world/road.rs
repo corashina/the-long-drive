@@ -662,18 +662,18 @@ pub fn road_prototype_bytes(prototype: &crate::reference::WorldPrototypeReferenc
             .skins
             .iter()
             .map(|s| {
-                s.bones.len() * 4
-                    + s.bind_poses.len() * 64
-                    + s.positions.len() * 12
-                    + s.normals.len() * 12
-                    + s.tangents.len() * 16
-                    + s.uv.len() * 8
-                    + s.joints.len() * 16
-                    + s.weights.len() * 16
-                    + s.triangles.len() * std::mem::size_of::<Vec<[u32; 3]>>()
+                size_of_val(s.bones.as_slice())
+                    + size_of_val(s.bind_poses.as_slice())
+                    + size_of_val(s.positions.as_slice())
+                    + size_of_val(s.normals.as_slice())
+                    + size_of_val(s.tangents.as_slice())
+                    + size_of_val(s.uv.as_slice())
+                    + size_of_val(s.joints.as_slice())
+                    + size_of_val(s.weights.as_slice())
+                    + s.triangles.len() * size_of::<Vec<[u32; 3]>>()
                     + s.triangles
                         .iter()
-                        .map(|group| group.len() * 12)
+                        .map(|group| size_of_val(group.as_slice()))
                         .sum::<usize>()
             })
             .sum::<usize>()

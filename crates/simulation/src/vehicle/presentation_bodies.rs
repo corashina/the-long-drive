@@ -29,6 +29,8 @@ pub(super) struct PresentationBodies {
     queued: HashSet<RigidBodyHandle>,
     /// Pose before and after the last step of each body that the step moved.
     steps: HashMap<RigidBodyHandle, (Pose, Pose)>,
+    /// Bodies that follow the player after the step. They blend while asleep or disabled too.
+    followers: HashSet<RigidBodyHandle>,
 }
 
 impl PresentationBodies {
@@ -56,6 +58,7 @@ impl PresentationBodies {
         active: impl Iterator<Item = RigidBodyHandle>,
     ) {
         self.steps.clear();
+        self.followers.clear();
         for handle in active {
             let pose = *bodies[handle].position();
             self.steps.insert(handle, (pose, pose));
@@ -71,6 +74,12 @@ impl PresentationBodies {
         }
     }
 
+    /// Keeps `after` as the step result of `handle`. The step start stays the first pose of this step.
+    pub(super) fn follow(&mut self, handle: RigidBodyHandle, before: Pose, after: Pose) {
+        self.steps.entry(handle).or_insert((before, before)).1 = after;
+        self.followers.insert(handle);
+    }
+
     pub(super) fn rebase(&mut self, shift: Vector) {
         for (before, after) in self.steps.values_mut() {
             before.translation -= shift;
@@ -83,7 +92,10 @@ impl PresentationBodies {
     fn blended(&self, handle: RigidBodyHandle, body: &RigidBody, alpha: f32) -> Option<Pose> {
         let current = *body.position();
         match self.steps.get(&handle) {
-            Some((before, after)) if *after == current && !body.is_sleeping() => {
+            Some((before, after))
+                if *after == current
+                    && (!body.is_sleeping() || self.followers.contains(&handle)) =>
+            {
                 Some(Pose::from_parts(
                     before.translation.lerp(current.translation, alpha),
                     before.rotation.slerp(current.rotation, alpha),
@@ -109,18 +121,35 @@ impl PresentationBodies {
         self.handles.capacity() * std::mem::size_of::<RigidBodyHandle>()
             + table
             + self.steps.capacity() * (std::mem::size_of::<(RigidBodyHandle, (Pose, Pose))>() + 1)
+            + self.followers.capacity() * (std::mem::size_of::<RigidBodyHandle>() + 1)
     }
 }
 
 impl super::PhysicsWorld {
-    /// Includes direct edits, every step's active bodies, and bodies active without a new step.
+    /// Includes direct edits, every step's active bodies, and bodies active or following without a new step.
     pub fn presentation_bodies(&self) -> impl Iterator<Item = RigidBodyHandle> + '_ {
+        let queued = &self.presentation_bodies.queued;
         self.presentation_bodies.handles.iter().copied().chain(
             self.physics
                 .islands
                 .active_bodies()
-                .filter(|handle| !self.presentation_bodies.queued.contains(handle)),
+                .chain(self.presentation_bodies.followers.iter().copied())
+                .filter(|handle| !queued.contains(handle)),
         )
+    }
+
+    /// Edits `handle` after the step as a move with the player.
+    /// The presented pose blends from the step start to the new pose. A direct edit shows at once.
+    pub fn follow_body<R>(
+        &mut self,
+        handle: RigidBodyHandle,
+        edit: impl FnOnce(&mut rapier3d::prelude::RigidBody) -> R,
+    ) -> R {
+        let before = *self.physics.bodies[handle].position();
+        let result = self.edit_body(handle, edit);
+        let after = *self.physics.bodies[handle].position();
+        self.presentation_bodies.follow(handle, before, after);
+        result
     }
 
     /// The move from the current pose of `handle` to its pose at `alpha`. Identity when it did not blend.
@@ -217,5 +246,26 @@ mod tests {
         let shown_part = physics.presented_pose_or(part, 0.5, moved);
         let error = (shown_part.translation - (shown_car * offset).translation).length();
         assert!(error < 1e-5, "the part is {error} m off its car");
+    }
+
+    #[test]
+    fn a_body_that_follows_after_the_step_shows_between_the_steps() {
+        let mut physics = PhysicsWorld::empty_for_tests();
+        let body = physics.insert_body(RigidBodyBuilder::kinematic_position_based());
+        for x in [1., 2.] {
+            physics.step_physics();
+            physics.follow_body(body, |b| b.set_translation(Vector::new(x, 0., 0.), false));
+        }
+        assert_eq!(
+            physics
+                .presented_pose_or(body, 0.5, Pose::IDENTITY)
+                .translation
+                .x,
+            1.5
+        );
+        assert!(physics.presentation_bodies().any(|h| h == body));
+        physics.clear_presentation_bodies();
+        // A frame without a step still selects the follower.
+        assert!(physics.presentation_bodies().any(|h| h == body));
     }
 }

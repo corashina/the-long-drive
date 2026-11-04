@@ -3,6 +3,14 @@
 #endif
 #import "shaders/source_lod.wgsl"::source_lod_keep
 #import bevy_pbr::{mesh_view_bindings::view, view_transformations::position_world_to_clip}
+// Only the color pass reads the lamp mask. The caster layout has no object_lighting binding.
+// naga_oil applies a #define even inside a false #ifdef, so test both defs directly.
+#ifndef SOURCE_CASTER
+#ifndef PREPASS_PIPELINE
+#import bevy_pbr::mesh_functions::get_tag
+#import source_view_lighting::object_lighting
+#endif
+#endif
 struct GrassUniform {
     lod: vec4<f32>,
     camera: vec4<f32>,
@@ -25,12 +33,19 @@ struct GrassVertex {
     @location(0) anchor: vec3<f32>,
     @location(1) uv: vec2<f32>,
     @location(2) blade: vec4<f32>,
+    @builtin(instance_index) instance_index: u32,
 }
 struct GrassOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) world: vec3<f32>,
     @location(1) color: vec4<f32>,
     @location(2) alive: f32,
+#ifndef SOURCE_CASTER
+#ifndef PREPASS_PIPELINE
+    // Lamps that can reach the grass bounds, low bit first. object_lighting.rs `grass_light_mask` sets them.
+    @location(3) @interpolate(flat) lights: vec2<u32>,
+#endif
+#endif
 }
 fn grass_hash(p:vec2<f32>)->f32 { return fract(sin(dot(p,vec2(12.9898,78.233002)))*43758.546875); }
 fn grass_smooth(t:f32)->f32 {let v=clamp(t,0.,1.);return v*v*(3.-2.*v);}
@@ -90,12 +105,17 @@ fn vertex(input:GrassVertex)->GrassOutput {
     out.position=caster_view.clip_from_world*vec4(world,1.);
 #endif
     out.alive=select(1.,0.,distance>grass.fade_lod.y || alpha<grass.options.z);
+#ifndef SOURCE_CASTER
+#ifndef PREPASS_PIPELINE
+    out.lights=object_lighting[get_tag(input.instance_index)].xy;
+#endif
+#endif
     return out;
 }
 #ifdef PREPASS_PIPELINE
 @fragment fn fragment(input:GrassOutput) {if input.alive<.5 || !source_lod_keep(input.position.xy,grass.lod.x) {discard;}}
 #else
-#import "shaders/source_lighting.wgsl"::{lamp_lighting, receiver, cookie_uv_gradient, cookies, cookie_sampler, attenuation, default_cookie, default_sampler, attenuation_sampler}
+#import "shaders/source_lighting.wgsl"::{lamp_lighting, object_first_light, cookie_uv_gradient, cookies, cookie_sampler, attenuation, default_cookie, default_sampler, attenuation_sampler}
 #import source_view_lighting::{lighting, diffuse_sh, direct_attenuation, fog_factor, sun_cookie, sun_cookie_sampler}
 #import bevy_pbr::{forward_io::FragmentOutput,pbr_types::pbr_input_new}
 @fragment
@@ -104,8 +124,15 @@ fn fragment(input:GrassOutput)->FragmentOutput {
     let sun_uv=(lighting.cookie_from_world*vec4(input.world,1.)).xy;
     var color=lighting.sun_radiance.rgb*input.color.rgb*textureSample(sun_cookie,sun_cookie_sampler,sun_uv).a;
     let world_dx=dpdx(vec4(input.world,1.));let world_dy=dpdy(vec4(input.world,1.));
-    for(var i=0u;i<lamp_lighting.counts.x;i+=1u){
-        let lamp=lamp_lighting.lights[i];if (receiver.x & lamp.mask.x)==0u {continue;}
+    // Visit low bits first, in lamp order, as the loop over every lamp did.
+    var remaining=input.lights;
+    loop {
+        var word=0u;
+        if remaining.x==0u {if remaining.y==0u {break;} word=1u;}
+        let bit=object_first_light(remaining[word]);
+        remaining[word]&=remaining[word]-1u;
+        let i=word*32u+bit;
+        let lamp=lamp_lighting.lights[i];
         var weight=1.;let local=lamp.cookie_from_world*vec4(input.world,1.);
         if lamp.direction_kind.w!=0. {
             let delta=lamp.position_range.xyz-input.world;

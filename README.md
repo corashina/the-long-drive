@@ -72,6 +72,21 @@ node scripts/prepare-http-compression.mjs
 
 The server negotiates Brotli for WASM and current package JSON. It keeps images and package receipts unchanged.
 
+## FPS bench
+
+The bench records F3 values in fixed scenes: garage at noon, road 2 km out at noon, first road building at night.
+Serve a release build on port 4173. Run `npm ci` once. Then run:
+
+```powershell
+node tests/bench/fps.mjs --label master
+node tests/bench/fps.mjs compare tests/bench/out/A.json tests/bench/out/B.json
+```
+
+It opens headed Chrome on the real GPU with a fresh profile, so all settings are defaults.
+Options: `--seed`, `--scenes garage,road,town`, `--town NAME` (a building name part), `--settle 10`, `--seconds 20`, `--trace`.
+`--trace` writes a Chrome trace of the last scene. Results go to `tests/bench/out/`.
+A `?sandbox` page has `window.gameSandbox(actions)` with the actions of `crates/simulation/src/sandbox.rs`.
+
 ## Development asset library
 
 The export holds the full build 11140890 library. Startup loads only the selected runtime assets.

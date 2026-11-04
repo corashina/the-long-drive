@@ -33,13 +33,18 @@ export function gpuLine(stages){
  return '\nGPU ms shadow / opaque / resolve+AO / transparent / post: '+stages.map(v=>v.toFixed(2)).join(' / ')+' (sum '+total.toFixed(2)+')';
 }
 
-// Draws per pass in the world view. Counts come from the renderer audit.
+// Draws per pass in the world view, from the renderer audit. Null before the first graph.
+function renderCounts(audit){
+ if(!audit?.graph)return null;
+ const view=audit.graph.views[0],[rows,visible,draws]=view.props;
+ return {shadowDraws:view.shadow_issued.reduce((a,b)=>a+b,0),surfaceDraws:view.surface[2]+view.surface[4],
+  propRows:rows,propVisible:visible,propDraws:draws,gpuMs:audit.gpu_ms??null,sceneScale:audit.scene_scale};
+}
 function renderLines(audit){
- if(!audit?.graph)return '';
- const view=audit.graph.views[0],sum=values=>values.reduce((a,b)=>a+b,0);
- const [rows,visible,draws]=view.props;
- return '\nDraws shadow / surface: '+sum(view.shadow_issued)+' / '+(view.surface[2]+view.surface[4])+
-  '\nGPU props rows / visible / indirect draws: '+rows+' / '+visible+' / '+draws+gpuLine(audit.gpu_ms)+'\nScene scale: '+audit.scene_scale+'%';
+ const c=renderCounts(audit);
+ if(!c)return '';
+ return '\nDraws shadow / surface: '+c.shadowDraws+' / '+c.surfaceDraws+
+  '\nGPU props rows / visible / indirect draws: '+c.propRows+' / '+c.propVisible+' / '+c.propDraws+gpuLine(c.gpuMs)+'\nScene scale: '+c.sceneScale+'%';
 }
 
 // `readWorker` gives the simulation worker tick average since its last read and its WASM bytes.
@@ -73,6 +78,12 @@ export function createPerformance(readWasmBytes,readRender,readDrawDistance,read
     '\nStorms / strongest influence / particles: '+storms+' / '+stormInfluence.toFixed(2)+' / '+stormParticles+
     '\nWASM main / worker: '+mib(readWasmBytes())+' / '+mib(worker?.wasmBytes)+'\nJS heap: '+mib(performance.memory?.usedJSHeapSize)+
     '\nWorld render CPU reserve: '+mib(cpuBytes)+'\nWorld render GPU reserve: '+mib(gpuBytes)+renderLines(readRender());
+  },
+  // The F3 values as numbers, for `tests/bench/fps.mjs`. It reads the worker tick average, as F3 does.
+  snapshot(){
+   const sample=timings.summary(),worker=readWorker();
+   return {fps:sample?.fps??null,frameMs:sample?.average??null,worstMs:sample?.worst??null,updateMs:sample?.update??null,renderMs:sample?.render??null,
+    physicsMs:sample?.physics??null,worldMs:sample?.world??null,workerTickMs:worker?.tickMs??null,...renderCounts(readRender())};
   },
   stop(){stopped=true;timings.reset();values.textContent='Performance counters stopped.';document.removeEventListener('visibilitychange',reset);},
  };

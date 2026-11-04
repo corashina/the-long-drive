@@ -167,7 +167,6 @@ const GENIE_LAMP_ITEM: u32 = 211;
 const BINOCULARS_ITEM: u32 = 85;
 const PACK_ITEM: u32 = 74;
 const START_PACKS: usize = 3;
-const COBWEBS: usize = 529;
 
 fn invalid(field: &str) -> ReferenceError {
     ReferenceError(format!("Invalid small item field {field}"))
@@ -440,8 +439,9 @@ impl SmallItemsReference {
             )?;
         }
         // The checked cobwebs: CleanProperty 2, destroyOnRepair, one sphere trigger each.
+        // Road buildings and start scene structures both carry them, so the count follows the selection.
         checked(
-            self.washes.len() == COBWEBS
+            !self.washes.is_empty()
                 && self.washes.iter().all(|w| {
                     w.permission == 2
                         && w.destroy_on_repair

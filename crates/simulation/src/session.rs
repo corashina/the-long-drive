@@ -16,6 +16,7 @@ pub struct Session {
     net_out: Vec<u8>,
     /// The save of `SimInit` did not load. The garage of a new game starts.
     load_error: Option<String>,
+    sandbox: crate::sandbox::Sandbox,
 }
 
 impl Session {
@@ -58,6 +59,7 @@ impl Session {
             bytes: Vec::new(),
             net_out: Vec::new(),
             load_error,
+            sandbox: Default::default(),
         };
         Ok((session, startup))
     }
@@ -87,6 +89,16 @@ impl Session {
     pub fn net_send(&mut self) -> &[u8] {
         self.driver.net.take_outbox(&mut self.net_out);
         &self.net_out
+    }
+
+    /// Runs a JSON array of sandbox actions between ticks. Returns a JSON array with one reply per action.
+    pub fn sandbox(&mut self, json: &str) -> String {
+        self.sandbox.queued.push(json.to_owned());
+        crate::sandbox::run(&mut self.driver.runtime, &self.reference, &mut self.sandbox);
+        format!(
+            "[{}]",
+            self.sandbox.replies.drain(..).collect::<Vec<_>>().join(",")
+        )
     }
 
     /// Runs one encoded command. Returns the encoded frame.

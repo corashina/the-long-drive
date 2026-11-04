@@ -50,9 +50,14 @@ impl PostureState {
             contact.step(hit, hold);
         }
     }
+    /// Source `CanStandUp`. It checks only the sensors above the head. At the Ctrl crouch the
+    /// lowest sensor is 1 cm inside the floor, and the source loop stopped there.
     fn grow(&self, amount: f32, reference: &PlayerPostureReference) -> f32 {
         let mut value = 0.0;
         for (sensor, contact) in reference.clearance.iter().zip(self.contacts) {
+            if sensor.posture <= self.value {
+                continue;
+            }
             if contact.sensed() {
                 break;
             }
@@ -251,6 +256,42 @@ mod tests {
                 ..FrameInput::default()
             },
         );
+        for _ in 0..50 {
+            step(&mut posture, FrameInput::default());
+        }
+        assert_eq!(posture.value(), 1.0);
+    }
+
+    /// At the Ctrl crouch the sensors at and below the head touch the floor. Ctrl again stands up.
+    #[test]
+    fn floor_under_the_head_does_not_block_standing_up() {
+        let reference = reference();
+        let mut posture = PostureState::new(1.0);
+        let mut wall = WallJumpState::default();
+        let forces = JumpForces {
+            duck: 0.0,
+            inverse_duck: 0.0,
+            wall: 0.0,
+            ledge: 0.0,
+        };
+        let mut step = |posture: &mut PostureState, input: FrameInput| {
+            posture.contacts(std::array::from_fn(|i| i < 3), 1);
+            posture.step(input, true, true, &mut wall, &reference, 0.02, forces);
+        };
+        let press = FrameInput {
+            pressed: keys::CROUCH,
+            held: keys::CROUCH,
+            ..FrameInput::default()
+        };
+        let release = FrameInput {
+            released: keys::CROUCH,
+            ..FrameInput::default()
+        };
+        step(&mut posture, press);
+        assert_eq!(posture.value(), 0.3);
+        step(&mut posture, release);
+        step(&mut posture, press);
+        step(&mut posture, release);
         for _ in 0..50 {
             step(&mut posture, FrameInput::default());
         }

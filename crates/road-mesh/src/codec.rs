@@ -118,94 +118,119 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 }
-fn valid(condition: bool) -> Result<(), String> {
+fn valid(condition: bool, what: &str) -> Result<(), String> {
     if !condition {
-        return Err("Invalid road prototype counts or indices".into());
+        return Err(format!("Invalid road prototype {what}"));
     }
     Ok(())
 }
 fn u32_values(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
-    bytes
-        .chunks_exact(4)
-        .map(|v| u32::from_le_bytes(v.try_into().unwrap()))
+    bytes.as_chunks().0.iter().copied().map(u32::from_le_bytes)
 }
 fn f32_values(bytes: &[u8]) -> impl Iterator<Item = f32> + '_ {
-    bytes
-        .chunks_exact(4)
-        .map(|v| f32::from_le_bytes(v.try_into().unwrap()))
+    bytes.as_chunks().0.iter().copied().map(f32::from_le_bytes)
 }
-fn float_block<'a>(reader: &mut Reader<'a>, width: usize) -> Result<&'a [u8], String> {
+fn float_block<'a>(reader: &mut Reader<'a>, width: usize, what: &str) -> Result<&'a [u8], String> {
     let bytes = reader.block(width)?;
-    valid(f32_values(bytes).all(f32::is_finite))?;
+    valid(f32_values(bytes).all(f32::is_finite), what)?;
     Ok(bytes)
 }
 fn validate_prototype(input: &[u8]) -> Result<(), String> {
     let mut reader = Reader(input);
     let nodes = reader.count(44)?;
-    valid(nodes > 0)?;
+    valid(nodes > 0, "node count")?;
     for index in 0..nodes {
         let parent = reader.u32()?;
-        valid(if index == 0 {
-            parent == u32::MAX
-        } else {
-            (parent as usize) < index
-        })?;
+        valid(
+            if index == 0 {
+                parent == u32::MAX
+            } else {
+                (parent as usize) < index
+            },
+            "node parent",
+        )?;
         let _translation = reader.f32s::<3>()?;
         let rotation = reader.f32s::<4>()?;
         let scale = reader.f32s::<3>()?;
         valid(
             (rotation.iter().map(|v| v * v).sum::<f32>() - 1.0).abs() < 0.002
                 && scale.iter().all(|v| *v != 0.0),
+            "node rotation or scale",
         )?;
     }
     let controls = reader.block(4)?;
-    valid(controls.len() == 10 * 4)?;
+    valid(controls.len() == 10 * 4, "control count")?;
     for (index, control) in u32_values(controls).enumerate() {
         valid(
             (control as usize) < nodes && !u32_values(&controls[..index * 4]).any(|v| v == control),
+            "control",
         )?;
     }
     let skins = reader.count(36)?;
-    valid(skins > 0)?;
+    valid(skins > 0, "skin count")?;
+    let mut tangent_stream = None;
     let mut total_vertices = 0usize;
     let mut total_triangles = 0usize;
     for _ in 0..skins {
         let bones = reader.block(4)?;
-        valid(!bones.is_empty() && u32_values(bones).all(|v| (v as usize) < nodes))?;
-        let binds = float_block(&mut reader, 64)?;
-        valid(binds.len() / 64 == bones.len() / 4)?;
-        let positions = float_block(&mut reader, 12)?;
+        valid(
+            !bones.is_empty() && u32_values(bones).all(|v| (v as usize) < nodes),
+            "skin bones",
+        )?;
+        let binds = float_block(&mut reader, 64, "bind poses")?;
+        valid(binds.len() / 64 == bones.len() / 4, "bind pose count")?;
+        let positions = float_block(&mut reader, 12, "positions")?;
         let vertices = positions.len() / 12;
         total_vertices = total_vertices
             .checked_add(vertices)
             .ok_or("Road vertex count overflow")?;
-        valid(vertices > 0 && total_vertices <= u32::MAX as usize)?;
-        valid(float_block(&mut reader, 12)?.len() / 12 == vertices)?;
-        let tangents = float_block(&mut reader, 16)?;
-        valid(tangents.is_empty() || tangents.len() / 16 == vertices)?;
-        valid(float_block(&mut reader, 8)?.len() / 8 == vertices)?;
+        valid(
+            vertices > 0 && u32::try_from(total_vertices).is_ok(),
+            "vertex count",
+        )?;
+        valid(
+            float_block(&mut reader, 12, "normals")?.len() / 12 == vertices,
+            "normal count",
+        )?;
+        let tangents = float_block(&mut reader, 16, "tangents")?;
+        // Deform writes one tangent stream for all skins: all skins have tangents, or none.
+        let with_tangents = !tangents.is_empty();
+        valid(
+            *tangent_stream.get_or_insert(with_tangents) == with_tangents
+                && (!with_tangents || tangents.len() / 16 == vertices),
+            "tangents",
+        )?;
+        valid(
+            float_block(&mut reader, 8, "uv")?.len() / 8 == vertices,
+            "uv count",
+        )?;
         let joints = reader.block(16)?;
         valid(
             joints.len() / 16 == vertices
                 && u32_values(joints).all(|v| (v as usize) < bones.len() / 4),
+            "joints",
         )?;
-        let weights = float_block(&mut reader, 16)?;
-        valid(weights.len() / 16 == vertices)?;
+        let weights = float_block(&mut reader, 16, "weights")?;
+        valid(weights.len() / 16 == vertices, "weight count")?;
         for weights in weights.chunks_exact(16) {
             valid(
                 f32_values(weights).all(|v| (0.0..=1.0).contains(&v))
                     && (f32_values(weights).sum::<f32>() - 1.0).abs() < 0.0001,
+                "weights",
             )?;
         }
         let groups = reader.count(4)?;
-        valid(groups > 0)?;
+        valid(groups > 0, "triangle group count")?;
         for _ in 0..groups {
             let triangles = reader.block(12)?;
             total_triangles = total_triangles
                 .checked_add(triangles.len() / 12)
                 .ok_or("Road triangle count overflow")?;
-            valid(total_triangles <= u32::MAX as usize)?;
-            valid(!triangles.is_empty() && u32_values(triangles).all(|v| (v as usize) < vertices))?;
+            valid(u32::try_from(total_triangles).is_ok(), "triangle count")?;
+            valid(
+                !triangles.is_empty() && u32_values(triangles).all(|v| (v as usize) < vertices),
+                "triangles",
+            )?;
         }
     }
     reader.done()
@@ -215,7 +240,8 @@ fn read_floats<const N: usize>(reader: &mut Reader<'_>) -> Result<Vec<[f32; N]>,
     Ok(bytes
         .chunks_exact(N * 4)
         .map(|bytes| {
-            std::array::from_fn(|i| f32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap()))
+            let (values, _) = bytes.as_chunks::<4>();
+            std::array::from_fn(|i| f32::from_le_bytes(values[i]))
         })
         .collect())
 }
@@ -224,7 +250,8 @@ fn read_indices<const N: usize>(reader: &mut Reader<'_>) -> Result<Vec<[u32; N]>
     Ok(bytes
         .chunks_exact(N * 4)
         .map(|bytes| {
-            std::array::from_fn(|i| u32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap()))
+            let (values, _) = bytes.as_chunks::<4>();
+            std::array::from_fn(|i| u32::from_le_bytes(values[i]))
         })
         .collect())
 }
@@ -277,12 +304,12 @@ pub fn decode_pose(input: &[u8]) -> Result<RoadPose, String> {
     let mut origin = [0.0; 3];
     for value in &mut origin {
         *value = f64::from_le_bytes(reader.bytes()?);
-        valid(value.is_finite())?;
+        valid(value.is_finite(), "pose origin")?;
     }
     let mut rotations = [[0.0; 3]; 10];
     for rotation in &mut rotations {
         *rotation = reader.f32s()?;
-        valid(rotation.iter().all(|v| v.abs() <= 90.0))?;
+        valid(rotation.iter().all(|v| v.abs() <= 90.0), "pose rotation")?;
     }
     reader.done()?;
     Ok(RoadPose { origin, rotations })
@@ -307,4 +334,64 @@ pub fn prototype_encoded_len(input: &RoadPrototype) -> usize {
                     + s.triangles.iter().map(|g| 4 + g.len() * 12).sum::<usize>()
             })
             .sum::<usize>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn skin(tangents: bool) -> RoadSkin {
+        let mut bind = [0.0; 16];
+        for i in 0..4 {
+            bind[i * 5] = 1.0;
+        }
+        RoadSkin {
+            bones: vec![0],
+            bind_poses: vec![bind],
+            positions: vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            normals: vec![[0.0, 0.0, 1.0]; 3],
+            tangents: if tangents {
+                vec![[1.0, 0.0, 0.0, 1.0]; 3]
+            } else {
+                Vec::new()
+            },
+            uv: vec![[0.0; 2]; 3],
+            joints: vec![[0; 4]; 3],
+            weights: vec![[1.0, 0.0, 0.0, 0.0]; 3],
+            triangles: vec![vec![[0, 1, 2]]],
+        }
+    }
+
+    fn prototype(skins: Vec<RoadSkin>) -> Vec<u8> {
+        let node = |parent| RoadNode {
+            parent,
+            translation: [0.0; 3],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            scale: [1.0; 3],
+        };
+        let input = RoadPrototype {
+            nodes: (0..10).map(|i| node((i > 0).then_some(0))).collect(),
+            controls: (0..10).collect(),
+            skins,
+        };
+        let mut bytes = Vec::new();
+        encode_prototype(&input, &mut bytes);
+        assert_eq!(bytes.len(), prototype_encoded_len(&input));
+        bytes
+    }
+
+    #[test]
+    fn prototype_round_trip_and_tangent_streams() {
+        for tangents in [false, true] {
+            let decoded = decode_prototype(&prototype(vec![skin(tangents), skin(tangents)]))
+                .expect("valid prototype");
+            let mut again = Vec::new();
+            encode_prototype(&decoded, &mut again);
+            assert_eq!(again, prototype(vec![skin(tangents), skin(tangents)]));
+        }
+        assert_eq!(
+            decode_prototype(&prototype(vec![skin(false), skin(true)])).unwrap_err(),
+            "Invalid road prototype tangents"
+        );
+    }
 }
