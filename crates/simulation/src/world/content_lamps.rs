@@ -67,9 +67,7 @@ impl WorldStream {
         let mut i = 0;
         while i < self.lamp_bindings.len() {
             let parent = &self.lamp_bindings[i].parent;
-            if self.structures.contains(parent)
-                || self.portable_lamp_item(parent).is_some()
-            {
+            if self.structures.contains(parent) || self.portable_lamp_item(parent).is_some() {
                 i += 1;
                 continue;
             }

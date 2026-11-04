@@ -51,9 +51,9 @@ pub fn changed(
     id: &GeneratedId,
 ) -> bool {
     ids.may_contain(id)
-        && indices.iter().any(|&index| {
-            matches!(changes.get_indexed(index).0, ObjectKey::Generated(key) if key == id)
-        })
+        && indices.iter().any(
+            |&index| matches!(changes.get_indexed(index).0, ObjectKey::Generated(key) if key == id),
+        )
 }
 
 /// A selected record names `id` as its instance, replay root or attachment owner.
