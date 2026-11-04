@@ -95,18 +95,23 @@ pub(crate) struct FrameResources {
     colors: Arc<super::render_targets::SourceColorTargets>,
     _sky_depth: Texture,
     sky_depth: TextureView,
-    /// Copies the resolved world image into `held`.
-    display: FrameCopy,
     display_format: TextureFormat,
     held: HeldImage,
 }
 impl FrameResources {
-    fn ready(&self, cache: &PipelineCache) -> bool {
-        self.display.ready(cache) && self.held.copy.ready(cache)
+    /// The post chain writes its last pass into the held image.
+    /// A frame without the sky does not present, so it keeps the last image.
+    pub(crate) fn held_target(
+        &self,
+        colors: &Arc<super::render_targets::SourceColorTargets>,
+        progress: &RendererStateHandle,
+    ) -> Option<&TextureView> {
+        (Arc::ptr_eq(&self.colors, colors) && progress.lock().audit.sky).then_some(&self.held.view)
     }
 }
 /// The last presented image. The canvas gets a new cleared texture each frame.
 /// A frame that presents no world image shows this image again.
+/// Rows are bottom-up, as source textures.
 struct HeldImage {
     texture: Texture,
     view: TextureView,
@@ -118,7 +123,6 @@ impl HeldImage {
     fn texture(
         device: &RenderDevice,
         colors: &super::render_targets::SourceColorTargets,
-        format: TextureFormat,
     ) -> (Texture, TextureView) {
         let texture = device.create_texture(&TextureDescriptor {
             label: Some("source_held_display"),
@@ -130,7 +134,7 @@ impl HeldImage {
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format,
+            format: super::render_targets::HELD_FORMAT,
             usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
@@ -143,12 +147,11 @@ impl HeldImage {
         device: &RenderDevice,
         cache: &PipelineCache,
         colors: &super::render_targets::SourceColorTargets,
-        format: TextureFormat,
     ) {
         if self.texture.width() == colors.width && self.texture.height() == colors.height {
             return;
         }
-        (self.texture, self.view) = Self::texture(device, colors, format);
+        (self.texture, self.view) = Self::texture(device, colors);
         self.copy.rebind(device, cache, &self.view);
         self.filled.store(false, Ordering::Relaxed);
     }
@@ -606,39 +609,23 @@ fn prepare_frame(
     let colors = resources.targets.world.clone();
     if let Some(mut existing) = existing {
         if !Arc::ptr_eq(&existing.colors, &colors) {
-            existing
-                .display
-                .rebind(&device, &cache, colors.resolved.sampled.as_ref().unwrap());
             let texture = sky_depth(&device, &colors);
             existing.sky_depth = texture.create_view(&TextureViewDescriptor::default());
             existing._sky_depth = texture;
-            let format = existing.display_format;
-            existing.held.fit(&device, &cache, &colors, format);
+            existing.held.fit(&device, &cache, &colors);
             existing.colors = colors;
         }
         if existing.display_format != format {
             status.fail("Source display format changed".into());
         }
-        if let Some(error) = existing
-            .display
-            .failure(&cache)
-            .or_else(|| existing.held.copy.failure(&cache))
-        {
+        if let Some(error) = existing.held.copy.failure(&cache) {
             status.fail(error);
         }
         return;
     }
     let texture = sky_depth(&device, &colors);
     let depth = texture.create_view(&TextureViewDescriptor::default());
-    let display = FrameCopy::new(
-        &device,
-        &cache,
-        assets.shaders.copy.clone(),
-        colors.resolved.sampled.as_ref().unwrap(),
-        format,
-        "display_copy",
-    );
-    let (held_texture, held_view) = HeldImage::texture(&device, &colors, format);
+    let (held_texture, held_view) = HeldImage::texture(&device, &colors);
     let held = HeldImage {
         copy: FrameCopy::new(
             &device,
@@ -656,7 +643,6 @@ fn prepare_frame(
         colors,
         _sky_depth: texture,
         sky_depth: depth,
-        display,
         display_format: format,
         held,
     });
@@ -754,7 +740,7 @@ pub(crate) fn surface_ready(
         view: frame.views[index].is_some(),
         allowed: frame_allowed(&frame, &state),
         camera: camera.ready(),
-        display: resources.is_some_and(|r| r.ready(&cache)),
+        display: resources.is_some_and(|r| r.held.copy.ready(&cache)),
         effects: effects.is_some_and(|e| e.ready(&cache)),
         preprocess: preprocess_ready(&preprocess, &cache),
         sky: state.audit.sky,
@@ -915,7 +901,7 @@ fn render_sky(
     };
     if !sky.ready(&cache)
         || !clouds.ready(&cache)
-        || !resources.display.ready(&cache)
+        || !resources.held.copy.ready(&cache)
         || !loading.is_ready()
     {
         return;
@@ -1106,12 +1092,9 @@ fn finish_surface(
         let Some(output) = target.out_texture_color_attachment(None) else {
             return;
         };
-        let encoder = context.command_encoder();
-        if resources.ready(&cache)
-            && resources
-                .display
-                .encode(encoder, &cache, &resources.held.view)
-            && resources.held.show(encoder, &cache, output.view)
+        if resources
+            .held
+            .show(context.command_encoder(), &cache, output.view)
         {
             resources.held.filled.store(true, Ordering::Relaxed);
             state.audit.presented = true;
@@ -1545,7 +1528,7 @@ fn gpu_boundaries(
     boundary.source_targets = world.contains_resource::<SurfaceResources>();
     if let Some(resources) = world.get_resource::<FrameResources>() {
         boundary.frame_resources = true;
-        boundary.frame_copy_ready = resources.display.ready(cache);
+        boundary.frame_copy_ready = resources.held.copy.ready(cache);
     }
     boundary.source_camera_ready = world
         .get_resource::<SourceViewCamera>()

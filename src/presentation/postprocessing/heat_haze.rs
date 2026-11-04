@@ -1,6 +1,6 @@
 //! Installed main camera heat haze: `postprocessingscript` with `Custom/heathazeshader`.
 //! It runs as OnRenderImage after the main stack. The Uber writes `input`, then this pass writes the world target.
-use crate::presentation::render_targets::HDR_FORMAT;
+use crate::presentation::render_targets::{HDR_FORMAT, HELD_FORMAT};
 use crate::reference::postprocessing::HeatHaze;
 use bevy::prelude::*;
 use bevy::render::{
@@ -34,7 +34,6 @@ impl HeatHazePass {
         camera_depth: &TextureView,
         noise: &TextureView,
         extent: [u32; 2],
-        samples: u32,
         record: &HeatHaze,
         previous: Option<&Self>,
     ) -> Self {
@@ -81,16 +80,12 @@ impl HeatHazePass {
                         shader,
                         entry_point: Some("haze".into()),
                         targets: vec![Some(ColorTargetState {
-                            format: HDR_FORMAT,
+                            format: HELD_FORMAT,
                             blend: None,
                             write_mask: ColorWrites::ALL,
                         })],
                         ..default()
                     }),
-                    multisample: MultisampleState {
-                        count: samples,
-                        ..default()
-                    },
                     ..default()
                 })
             },
@@ -175,7 +170,6 @@ impl HeatHazePass {
         queue: &RenderQueue,
         cache: &PipelineCache,
         output: &TextureView,
-        resolve: Option<&TextureView>,
         weight: f32,
         time: f32,
     ) -> bool {
@@ -189,7 +183,7 @@ impl HeatHazePass {
         let colors = [Some(RenderPassColorAttachment {
             view: output,
             depth_slice: None,
-            resolve_target: resolve.map(|view| &**view),
+            resolve_target: None,
             ops: Operations {
                 load: LoadOp::Load,
                 store: StoreOp::Store,

@@ -341,7 +341,6 @@ pub(crate) fn prepare(
             colors.resolved.sampled.as_ref().unwrap(),
             surfaces.targets.views[0].depth.sampled.as_ref().unwrap(),
             extent,
-            colors.samples,
             record,
             &assets.record.0.clothing.dead_profile,
             &assets.record.0.clothing.glasses_profiles,
@@ -446,6 +445,7 @@ fn encode_post(
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     status: Res<RendererStateHandle>,
+    display: Option<Res<super::frame_graph::FrameResources>>,
     mut context: RenderContext,
 ) {
     let index = view.into_inner().index;
@@ -459,6 +459,12 @@ fn encode_post(
         return;
     };
     let Some(targets) = effects.targets.as_mut() else {
+        return;
+    };
+    let Some(held) = display
+        .as_ref()
+        .and_then(|display| display.held_target(&targets.colors, &status))
+    else {
         return;
     };
     // TAA and motion blur read this frame's motion target.
@@ -497,8 +503,7 @@ fn encode_post(
             near: snapshot.near,
             far: snapshot.far,
         },
-        targets.colors.attachment(),
-        targets.colors.resolve_target(),
+        held,
     );
     match encoded {
         Ok(true) => {
