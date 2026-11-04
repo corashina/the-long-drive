@@ -287,8 +287,7 @@ impl SpawnEvaluation<'_> {
                                     self.random,
                                 );
                             }
-                            let mut id = parent.id.clone();
-                            id.children.push((box_id.clone(), i as u32));
+                            let id = parent.id.with_child(&box_id, i as u32);
                             let child = self.placement(root.clone(), id, pose)?;
                             if let Some(save) =
                                 self.rules

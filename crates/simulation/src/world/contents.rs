@@ -1610,13 +1610,14 @@ mod tests {
             .clone();
         for ordinal in 0..4 {
             let parent = Placement {
-                id: GeneratedId {
+                id: super::super::GeneratedKey {
                     layer: super::super::WorldLayer::Building,
                     generator: reference.buildings.source.clone(),
                     unit: [0; 2],
                     ordinal,
                     children: Vec::new(),
-                },
+                }
+                .into(),
                 prototype: prototype.clone(),
                 pose: super::super::AbsolutePose {
                     position: [0.; 3],
@@ -1783,14 +1784,13 @@ mod tests {
             contents.state.live_state().words,
             [4005824999, 1007970560, 4283702805, 3403211127]
         );
-        let mut expected = contents.cursors[0].parent.id.clone();
-        expected.children.push((
-            SourceId {
+        let expected = contents.cursors[0].parent.id.with_child(
+            &SourceId {
                 file: "sharedassets1.assets".into(),
                 path_id: 154992,
             },
             0,
-        ));
+        );
         assert_eq!(
             contents
                 .active

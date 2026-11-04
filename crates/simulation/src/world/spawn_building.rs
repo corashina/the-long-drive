@@ -59,8 +59,7 @@ impl SpawnEvaluation<'_> {
                             as f64,
                     parent.pose.position[2] - (sphere[2] * radius) as f64,
                 ];
-                let mut id = parent.id.clone();
-                id.children.push((building.clone(), i as u32));
+                let id = parent.id.with_child(&building, i as u32);
                 let child = self.placement(
                     self.rules.root(self.reference, target)?.clone(),
                     id,
@@ -137,8 +136,7 @@ impl SpawnEvaluation<'_> {
                 position: pose_position,
                 rotation: source_euler(euler),
             };
-            let mut id = parent.id.clone();
-            id.children.push((caller.clone(), i as u32));
+            let id = parent.id.with_child(&caller, i as u32);
             let child = self.placement(
                 self.rules.root(self.reference, &item.source)?.clone(),
                 id,

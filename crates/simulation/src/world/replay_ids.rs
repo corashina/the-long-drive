@@ -1,7 +1,7 @@
 //! Reused hash set of the generated ids that selected change records name. A miss means the id
 //! is not named. A hit needs an exact check, because two ids can share a hash.
 use crate::world::changes::{ChangeRecordIndex, ChangeRecords};
-use crate::world::{GeneratedId, ObjectKey};
+use crate::world::{GeneratedId, GeneratedKey, ObjectKey};
 use std::collections::HashSet;
 use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 
@@ -83,7 +83,7 @@ mod tests {
     use crate::world::{Placement, StructureInstance, WorldLayer};
 
     fn id(ordinal: u32) -> GeneratedId {
-        GeneratedId {
+        GeneratedKey {
             layer: WorldLayer::Prop,
             generator: SourceId {
                 file: "a".into(),
@@ -93,6 +93,7 @@ mod tests {
             ordinal,
             children: Vec::new(),
         }
+        .into()
     }
     fn placement(ordinal: u32) -> Placement {
         serde_json::from_value(serde_json::json!({

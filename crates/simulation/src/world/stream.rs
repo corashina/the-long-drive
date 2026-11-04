@@ -1764,13 +1764,14 @@ impl WorldStream {
             position[1] += f64::from(offset);
             let radius = self.contents.rules.radius(prototype).unwrap_or(0.);
             placements.push(Placement {
-                id: super::GeneratedId {
+                id: super::GeneratedKey {
                     layer: WorldLayer::Startup,
                     generator: entry.source.clone(),
                     unit: [0, 0],
                     ordinal: ordinal as u32,
                     children: Vec::new(),
-                },
+                }
+                .into(),
                 prototype: prototype.clone(),
                 pose: super::AbsolutePose {
                     position,
@@ -1812,13 +1813,14 @@ impl WorldStream {
                 .filter(|p| &p.id.generator == prototype)
                 .count() as u32;
         self.startup_placements.push(Placement {
-            id: super::GeneratedId {
+            id: super::GeneratedKey {
                 layer: WorldLayer::Startup,
                 generator: prototype.clone(),
                 unit: [0, 0],
                 ordinal,
                 children: Vec::new(),
-            },
+            }
+            .into(),
             prototype: prototype.clone(),
             pose,
             scale,
@@ -4486,10 +4488,8 @@ impl WorldStream {
                 .iter()
                 .find(|prototype| prototype.source == instance.placement.prototype)
                 .ok_or_else(|| ReferenceError("Supply has no prototype".into()))?;
-            let mut tank_key = supply.key.clone();
-            tank_key.children.push((supply.definition.tank.clone(), 0));
-            let mut cap_key = supply.key.clone();
-            cap_key.children.push((supply.definition.cap.clone(), 0));
+            let tank_key = supply.key.with_child(&supply.definition.tank, 0);
+            let cap_key = supply.key.with_child(&supply.definition.cap, 0);
             let tank =
                 items.insert_generated(tank_key.clone(), prototype, supply.point.tank_pose)?;
             let cap = items.insert_generated(cap_key.clone(), prototype, supply.point.cap_pose)?;

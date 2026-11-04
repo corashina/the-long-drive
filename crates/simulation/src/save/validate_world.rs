@@ -1,5 +1,5 @@
 use super::*;
-use crate::world::{AttachmentSnapshot, GeneratedId, ObjectKey, SpawnContext};
+use crate::world::{AttachmentSnapshot, GeneratedId, GeneratedKey, ObjectKey, SpawnContext};
 
 impl SaveSnapshot {
     pub(super) fn validate_world(&self, reference: &ReferenceManifest) -> Result<(), SaveError> {
@@ -476,13 +476,16 @@ mod tests {
     }
     fn lock(volume: i64, slot: Option<r::SourceId>) -> AttachmentSnapshot {
         AttachmentSnapshot {
-            owner: Some(ObjectKey::Generated(GeneratedId {
-                layer: crate::world::WorldLayer::Building,
-                generator: id(1),
-                unit: [0, 0],
-                ordinal: 0,
-                children: Vec::new(),
-            })),
+            owner: Some(ObjectKey::Generated(
+                GeneratedKey {
+                    layer: crate::world::WorldLayer::Building,
+                    generator: id(1),
+                    unit: [0, 0],
+                    ordinal: 0,
+                    children: Vec::new(),
+                }
+                .into(),
+            )),
             slot,
             volume: Some(id(volume)),
             local_pose: AbsolutePose {

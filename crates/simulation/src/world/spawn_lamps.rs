@@ -202,8 +202,7 @@ impl SpawnEvaluation<'_> {
                         record.startup_intensity = original.startup_intensity * state.factor();
                     }
                 }
-                let mut id = parent.id.clone();
-                id.children.push((source.source.clone(), 0));
+                let id = parent.id.with_child(&source.source, 0);
                 self.output[index].lights.push(WorldLight {
                     id,
                     pole: parent.pose,

@@ -1,7 +1,7 @@
 //! Source building selection, spatial replay, and physical supply locations.
 use super::{
-    AbsolutePose, GeneratedId, Placement, RandomState, RoadCurve, SourceRandom, TerrainEvaluator,
-    WorldBounds, WorldLayer,
+    AbsolutePose, GeneratedId, GeneratedKey, Placement, RandomState, RoadCurve, SourceRandom,
+    TerrainEvaluator, WorldBounds, WorldLayer,
 };
 use crate::reference::{
     ColliderGeometry, ReferenceError, SourceId, Transform, WorldBuildingGroup,
@@ -265,13 +265,14 @@ impl BuildingSequence {
     fn placement(&self, building: Building) -> Placement {
         let p = &self.inputs.prototypes[building.prototype_index];
         Placement {
-            id: GeneratedId {
+            id: GeneratedKey {
                 layer: WorldLayer::Building,
                 generator: self.inputs.rules.source.clone(),
                 unit: [building.index as i64, 0],
                 ordinal: 0,
                 children: Vec::new(),
-            },
+            }
+            .into(),
             prototype: p.source.clone(),
             pose: building.pose,
             scale: p.scale,

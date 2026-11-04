@@ -1349,10 +1349,10 @@ fn bind_pickup(
         placement.scale,
         crate::world::placement::node_pose(prototype, pickup_node),
     );
-    let mut key = placement.id.clone();
-    if let (true, Some(pickup)) = (child, pickup) {
-        key.children.push((pickup.source.clone(), 0));
-    }
+    let key = match (child, pickup) {
+        (true, Some(pickup)) => placement.id.with_child(&pickup.source, 0),
+        _ => placement.id.clone(),
+    };
     let id = items.insert_generated(key, prototype, pickup_pose)?;
     let hit = pickup.and_then(|pickup| hit_sound(world, pickup.source));
     let state = items.set_body(id, Some(body)).unwrap();

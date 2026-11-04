@@ -256,7 +256,7 @@ fn frame_round_trips() {
                 path_id: 8,
             }),
             Change::Plates {
-                id: crate::world::GeneratedId {
+                id: crate::world::GeneratedKey {
                     layer: crate::world::WorldLayer::Startup,
                     generator: crate::reference::SourceId {
                         file: "level0".into(),
@@ -265,7 +265,8 @@ fn frame_round_trips() {
                     unit: [0, 0],
                     ordinal: 1,
                     children: Vec::new(),
-                },
+                }
+                .into(),
                 texts: vec!["ABC 123".into()],
             },
             Change::Failure("stream".into()),

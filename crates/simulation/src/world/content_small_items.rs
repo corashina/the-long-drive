@@ -423,8 +423,7 @@ impl WorldStream {
             .and_then(|s| s.glow)
             .filter(|v| (0. ..=1.).contains(v))
             .unwrap_or(r.startup_value);
-        let mut light = parent.clone();
-        light.children.push((r.light.clone(), 0));
+        let light = parent.with_child(&r.light, 0);
         Ok(LampBinding {
             parent,
             slot,
