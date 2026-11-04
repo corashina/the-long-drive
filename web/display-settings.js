@@ -42,14 +42,15 @@ export function mirrorPosition(value,{minimum,maximum,half}){
  return Math.round(Math.min(2,Math.max(0,t))*POSITIONS/2);
 }
 // Settings store fields (`createSettings`). `mirror` is the exported `world.mirrors.draw_distance` range.
-export function displayFields(mirror){
+// `defaults` replaces row defaults by name: the rows of the first quality preset.
+export function displayFields(mirror,defaults){
  const fields={};
  for(const [name,row] of Object.entries(ROWS)){
   let valid;
   if(row.range)valid=v=>Number.isFinite(v)&&v>=mirror.minimum&&v<=mirror.maximum;
   else if(row.values)valid=v=>row.values.includes(v);
   else valid=v=>typeof v==='boolean';
-  fields[name]={tab:'graphics',default:row.range?mirror.default:row.default,valid};
+  fields[name]={tab:'graphics',default:row.range?mirror.default:defaults[name]??row.default,valid};
  }
  return fields;
 }
