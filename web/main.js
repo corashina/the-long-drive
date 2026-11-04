@@ -240,13 +240,15 @@ async function load(){
  const response=await fetch('./assets/reference/manifest.json.gz');
  if(!response.ok)throw Error('Cannot load reference manifest (HTTP '+response.status+').');
  const bytes=await downloadManifest(response);
+ // The worker parses and checks its copy while this thread loads the interface.
+ simulation.load(bytes.slice());
  loading.step('code',0);
- const [{default:init,prepare,run,manifest_shell,source_render_failure,source_render_audit,watch_render_audit,cpu_profile,cpu_profile_audit,request_thumbnail,wake_frame},module]=await code;
+ const [{default:init,prepare,run,source_render_failure,source_render_audit,watch_render_audit,cpu_profile,cpu_profile_audit,request_thumbnail,wake_frame},module]=await code;
  const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;watchRenderAudit=watch_render_audit;watch_render_audit(renderAuditWatched);
  rustCpuProfile=cpu_profile;rustCpuAudit=cpu_profile_audit;if(startupCpuProfile)rustCpuProfile(true);
  window.gameThumbnailFrame=()=>thumbnail.frame();thumbnail.connect(request_thumbnail);
- // Rust copies only the shell fields, so JS does not parse the world records.
- startup.begin('shell');const text=manifest_shell(bytes),manifest=JSON.parse(text);startup.end('shell');
+ // Rust parses the manifest once and returns only the shell fields, so JS does not parse the world records.
+ startup.begin('prepare');const text=prepare(bytes),manifest=JSON.parse(text);startup.end('prepare');
  const {manifest_sha256:manifestHash}=await manifestStamp(bytes,manifest);
  const bindings=manifest.driving.bindings,actionIds=actionIndex(bindings);
  settings=createSettings(()=>localStorage,manifest.settings,{...displayFields(manifest.world.mirrors.draw_distance,PRESETS[quality]),quality:qualityField(quality),...gameFields(manifest.world.start_cars.length),inputs:inputsField(bindings),language:languageField(manifest.language)});
@@ -264,7 +266,6 @@ async function load(){
  const outfit=installOutfit(window,()=>localStorage,manifest.clothing.characters);
  const range=manifest.world.draw_distance;
  slider=installDrawDistance(()=>localStorage,document.querySelector('#draw-distance'),document.querySelector('#draw-distance-value'),{minimum:range.minimum.drawDistance,maximum:range.maximum.drawDistance,fallback:range.default});
- // The simulation parses its own manifest copy while this thread loads the interface.
  worldDrawDistance=slider.value();
  const garageMode=[worldDrawDistance,window.gameBiome(),window.gameStartCar(),window.gameSeed()];
  // The world of a Join reload, of a Load reload, or of Load last at start. `save` is its JSON.
@@ -276,7 +277,7 @@ async function load(){
   return {save:new TextEncoder().encode(JSON.stringify(await verifyRecord(record))),operation:'load'};
  };
  const startWorld=joinRoom?new Promise(resolve=>{joined=resolve;}):storedSave().catch(error=>({error:error?.message??String(error),operation:'load'}));
- const simulationStarted=startWorld.then(async world=>({world,...await simulation.start(bytes.slice(),manifestHash,...garageMode,gameOptions.bits(),world?.save??new Uint8Array())}));
+ const simulationStarted=startWorld.then(async world=>({world,...await simulation.start(manifestHash,...garageMode,gameOptions.bits(),world?.save??new Uint8Array())}));
  // False: the garage is the new game world.
  const reloadNewGame=started=>{
   const mode=[slider.value(),window.gameBiome(),window.gameStartCar(),window.gameSeed()];
@@ -313,10 +314,7 @@ async function load(){
  startup.end('interface');
  if(failed)return;loading.step('interface',1);
  startup.begin('generation');startup.begin('decodeUpload');startup.begin('pipeline');
- // Parse the reference here while the worker parses its own copy and starts.
- // The start message goes out in the first callback of `startWorld`, before this await ends.
  await startWorld;if(failed)return;
- startup.begin('prepare');prepare(bytes);startup.end('prepare');
  const {world,startup:startupBytes,loadError}=await simulationStarted;
  if(world)menu.started(world.error||loadError,world.operation);
  if(world?.operation==='join'&&(world.error||loadError))multiplayer.leave();

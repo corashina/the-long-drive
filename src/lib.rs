@@ -17,6 +17,8 @@ pub mod browser;
 
 pub mod display_settings;
 
+pub mod manifest_shell;
+
 #[cfg(target_arch = "wasm32")]
 mod render_scale;
 

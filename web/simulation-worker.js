@@ -1,5 +1,5 @@
 // Runs the simulation WASM. The terrain and road workers start here, next to the simulation that uses them.
-import init,{start,load_error,tick,cpu_profile,sandbox,net_session,net_receive,net_leave,net_send} from './pkg/simulation_worker.js';
+import init,{load,start,load_error,tick,cpu_profile,sandbox,net_session,net_receive,net_leave,net_send} from './pkg/simulation_worker.js';
 import {createTerrain,installTerrainBridge} from './terrain.js';
 import {installRoadBridge} from './road.js';
 self.gameNow=()=>performance.now();
@@ -13,9 +13,10 @@ self.addEventListener('message',async({data})=>{
  try{
   await ready;
   if(data.cpuProfile!==undefined){cpu_profile(data.cpuProfile);return;}
+  if(data.manifest){load(data.manifest);return;}
   if(data.start){
-   const {manifest,hash,drawDistance,biome,startCar,seed,options,save}=data.start;
-   const startup=start(manifest,hash,drawDistance,biome,startCar,seed,options,save);
+   const {hash,drawDistance,biome,startCar,seed,options,save}=data.start;
+   const startup=start(hash,drawDistance,biome,startCar,seed,options,save);
    self.postMessage({startup,loadError:load_error()},[startup.buffer]);return;
   }
   // Multiplayer: `net.js` owns the peers. Packets go with the commands and frames.
