@@ -209,15 +209,11 @@ pub struct SourceViewFrame {
     pub main_motion: Option<super::temporal::MainMotion>,
 }
 impl SourceViewFrame {
-    /// Shadow atlas side of a view. The shadow quality shrinks only world views.
+    /// Sun shadow atlas side of a world view, after the shadow quality.
     pub fn atlas_size(&self, index: usize) -> Option<u32> {
         let native = self.views[index]?.native_extent;
         let source = crate::reference::shadows::source_atlas_size(native.x, native.y)?;
-        Some(if index < WORLD_VIEWS {
-            self.shadow_quality.atlas_size(source)
-        } else {
-            source
-        })
+        Some(self.shadow_quality.atlas_size(source))
     }
     /// A probe face or mirror view without a snapshot prepares and draws nothing this frame.
     pub fn skip_preparation(&self, index: usize) -> bool {

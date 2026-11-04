@@ -399,6 +399,11 @@ pub fn spawn_cameras(
         views: [None; super::surface_views::MIRROR_COUNT],
         images: super::mirrors::slot_images(images),
     });
+    // Probe faces and mirrors (order 10 + index) sample the sun atlas of the world view.
+    assert!(
+        (record.cameras[2].order as isize) < 10 + PROBE_START as isize,
+        "The world view must render before the probe faces and mirrors"
+    );
     for index in 0..VIEW_COUNT {
         let (near, far, fov, mask, order, samples) = if index < WORLD_VIEWS {
             let world = super::camera::world_camera_settings(fov_degrees, far);
@@ -449,8 +454,6 @@ pub fn spawn_cameras(
                 near,
                 far,
                 clip_from_world: Mat4::IDENTITY,
-                shadow_fade: Vec4::ZERO,
-                shadow_fade_center: Vec4::ZERO,
             },
         ));
         if index == 0 {
@@ -946,9 +949,8 @@ fn finish_surface(
     view: ViewQuery<(
         &SourceSurfaceView,
         &ViewTarget,
-        &super::shadow_collector::CollectorView,
         &super::source_lighting::SourceViewLighting,
-        &super::shadow_phase::ShadowDrawState,
+        Option<&super::shadow_phase::ShadowDrawState>,
         &super::surface_graph::SurfaceViewTargets,
         &super::stained_glass::SourceGlassView,
     )>,
@@ -961,13 +963,14 @@ fn finish_surface(
     effects: Res<super::source_effects::SourceEffects>,
     status: Res<RendererStateHandle>,
     props: Res<super::prop_draws::PropDraws>,
+    sun: Res<super::shadow_collector::SunShadow>,
     mirrors: Option<Res<MirrorCopy>>,
     mirror_frame: Res<super::mirrors::MirrorFrame>,
     gpu_images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
     mut context: RenderContext,
 ) {
-    let (source, target, collector, lighting, shadow, targets, glass) = view.into_inner();
-    if collector.encoded_frame() != frame.frame || glass.audit().frame != frame.frame {
+    let (source, target, lighting, shadow, targets, glass) = view.into_inner();
+    if sun.encoded_frame() != frame.frame || glass.audit().frame != frame.frame {
         return;
     }
     if status.failure().is_some() {
@@ -975,7 +978,9 @@ fn finish_surface(
     }
     let mut state = progress.lock();
     if audit_watched() {
-        let (shadow_epoch, shadow_attempts, shadow_issued) = shadow.counts();
+        // Only world views draw shadows. The other views sample them.
+        let (shadow_epoch, shadow_attempts, shadow_issued) =
+            shadow.map_or_else(Default::default, |s| s.counts());
         state.audit.views[source.index] = ViewAudit {
             frame: frame.frame,
             glass: glass.audit(),
@@ -984,10 +989,10 @@ fn finish_surface(
             shadow_epoch,
             shadow_attempts,
             shadow_issued,
-            shadow_instances: shadow.instance_counts(),
+            shadow_instances: shadow.map_or_else(Default::default, |s| s.instance_counts()),
             props: props.audit(source.index),
-            collector_frame: collector.encoded_frame(),
-            atlas_size: targets.0.atlas_size,
+            collector_frame: sun.encoded_frame(),
+            atlas_size: surfaces.targets.sun.size,
             physical_extent: [targets.0.colors.width, targets.0.colors.height],
             native_extent: frame.views[source.index].unwrap().native_extent.to_array(),
             projection: frame.views[source.index]
@@ -1327,8 +1332,8 @@ struct GpuBoundary {
     transparent_phases: u32,
     shadow_phases: u32,
     shadow_scene_frame: u32,
-    shadow_candidates: [usize; super::surface_views::VIEW_COUNT],
-    shadow_split_counts: [[usize; 4]; super::surface_views::VIEW_COUNT],
+    shadow_candidates: [usize; super::surface_views::WORLD_VIEWS],
+    shadow_split_counts: [[usize; 4]; super::surface_views::WORLD_VIEWS],
     shadow_offscreen_casters: usize,
     shadow_queue_frame: u32,
     shadow_specializations: usize,

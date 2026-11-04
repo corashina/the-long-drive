@@ -8,7 +8,7 @@ use bevy::render::{
 };
 
 pub const HDR_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
-/// The held image. Uber or heat haze writes it, then the canvas shows it.
+/// The held image. Uber writes it, then the canvas shows it.
 pub const HELD_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
 pub const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth24PlusStencil8;
 pub const SHADOW_FORMAT: TextureFormat = TextureFormat::Depth16Unorm;
@@ -157,28 +157,17 @@ impl SourceColorTargets {
     }
 }
 
-/// Depth, attenuation, and shadow storage belong to exactly one surface view.
+/// Depth and attenuation storage belong to exactly one surface view.
 /// Color ownership is shared without sharing any writable view uniform.
 pub struct SourceViewTargets {
     pub colors: std::sync::Arc<SourceColorTargets>,
-    pub atlas_size: u32,
     pub multisample_depth: Option<Target>,
     pub depth: Target,
-    pub atlas: Target,
-    /// Static casters of each cascade tile. The atlas tile copies it, then animated casters draw.
-    pub static_atlas: Target,
     /// Excludes shared color storage. Count each color pair once in the graph total.
     pub logical_bytes: u64,
 }
 impl SourceViewTargets {
-    pub fn new(
-        device: &RenderDevice,
-        colors: std::sync::Arc<SourceColorTargets>,
-        atlas_size: u32,
-    ) -> Result<Self, String> {
-        if atlas_size == 0 || atlas_size > device.limits().max_texture_dimension_2d {
-            return Err("Source shadow atlas extent is unsupported".into());
-        }
+    pub fn new(device: &RenderDevice, colors: std::sync::Arc<SourceColorTargets>) -> Self {
         let SourceColorTargets {
             width,
             height,
@@ -197,24 +186,6 @@ impl SourceViewTargets {
             )
         });
         let depth = Target::new(device, "source_depth", width, height, 1, DEPTH_FORMAT, true);
-        let atlas = Target::new(
-            device,
-            "source_shadow_atlas",
-            atlas_size,
-            atlas_size,
-            1,
-            SHADOW_FORMAT,
-            true,
-        );
-        let static_atlas = Target::new(
-            device,
-            "source_shadow_static_atlas",
-            atlas_size,
-            atlas_size,
-            1,
-            SHADOW_FORMAT,
-            true,
-        );
         // D24S8 uses four logical bytes. The count excludes backend allocation overhead.
         let logical_bytes = u64::from(width)
             * u64::from(height)
@@ -222,27 +193,50 @@ impl SourceViewTargets {
                 4 * u64::from(samples)
             } else {
                 0
-            })
-            + 2 * 2 * u64::from(atlas_size).pow(2);
-        Ok(Self {
+            });
+        Self {
             colors,
-            atlas_size,
             multisample_depth,
             depth,
-            atlas,
-            static_atlas,
             logical_bytes,
+        }
+    }
+}
+
+/// The sun cascade atlas of the world view. Probe faces and mirrors sample it too.
+pub struct SunAtlas {
+    pub size: u32,
+    pub atlas: Target,
+    /// Static casters of each cascade tile. The atlas tile copies it, then animated casters draw.
+    pub static_atlas: Target,
+}
+impl SunAtlas {
+    fn new(device: &RenderDevice, size: u32) -> Result<Self, String> {
+        if size == 0 || size > device.limits().max_texture_dimension_2d {
+            return Err("Source shadow atlas extent is unsupported".into());
+        }
+        let target = |label| Target::new(device, label, size, size, 1, SHADOW_FORMAT, true);
+        Ok(Self {
+            size,
+            atlas: target("source_shadow_atlas"),
+            static_atlas: target("source_shadow_static_atlas"),
         })
+    }
+    /// The atlas and its static copy.
+    fn logical_bytes(&self) -> u64 {
+        2 * 2 * u64::from(self.size).pow(2)
     }
 }
 
 /// The world view owns color storage. Six capture views share single-sample scratch.
-/// The mirror views share another scratch. Depth and shadow atlas storage never alias between views.
+/// The mirror views share another scratch. Depth storage never aliases between views.
 pub struct SurfaceTargets {
     pub world: std::sync::Arc<SourceColorTargets>,
     pub capture: std::sync::Arc<SourceColorTargets>,
     pub mirror: std::sync::Arc<SourceColorTargets>,
     pub views: [std::sync::Arc<SourceViewTargets>; VIEW_COUNT],
+    /// Sun cascade atlas of the world view. Every view binds it.
+    pub sun: std::sync::Arc<SunAtlas>,
     /// Lamp shadow atlas of the world view. Every view binds it.
     pub lamp_atlas: Target,
     /// Static casters of each lamp face. The atlas face copies it, then animated casters draw.
@@ -258,32 +252,24 @@ impl SurfaceTargets {
         atlas: u32,
     ) -> Result<Self, String> {
         use std::sync::Arc;
-        let capture_atlas = crate::reference::shadows::source_atlas_size(64, 64).unwrap();
         let world = Arc::new(SourceColorTargets::new(device, width, height, samples)?);
         let capture = Arc::new(SourceColorTargets::new(device, 64, 64, 1)?);
-        let mirror_atlas =
-            crate::reference::shadows::source_atlas_size(MIRROR_EXTENT, MIRROR_EXTENT).unwrap();
         let mirror = Arc::new(SourceColorTargets::new(
             device,
             MIRROR_EXTENT,
             MIRROR_EXTENT,
             1,
         )?);
-        let mut views = Vec::with_capacity(VIEW_COUNT);
-        for index in 0..VIEW_COUNT {
-            let (color, atlas_size) = if index < WORLD_VIEWS {
-                (&world, atlas)
+        let views = std::array::from_fn(|index| {
+            let color = if index < WORLD_VIEWS {
+                &world
             } else if index < MIRROR_START {
-                (&capture, capture_atlas)
+                &capture
             } else {
-                (&mirror, mirror_atlas)
+                &mirror
             };
-            views.push(Arc::new(SourceViewTargets::new(
-                device,
-                color.clone(),
-                atlas_size,
-            )?));
-        }
+            Arc::new(SourceViewTargets::new(device, color.clone()))
+        });
         let lamp = super::lamp_shadows::ATLAS;
         let lamp_atlas = Target::new(
             device,
@@ -303,20 +289,18 @@ impl SurfaceTargets {
             SHADOW_FORMAT,
             true,
         );
-        let logical_bytes = world.logical_bytes
-            + capture.logical_bytes
-            + mirror.logical_bytes
-            + views.iter().map(|view| view.logical_bytes).sum::<u64>()
-            + lamp_atlas_bytes();
-        Ok(Self {
+        let mut targets = Self {
             world,
             capture,
             mirror,
-            views: views.try_into().ok().unwrap(),
+            views,
+            sun: Arc::new(SunAtlas::new(device, atlas)?),
             lamp_atlas,
             lamp_static_atlas,
-            logical_bytes,
-        })
+            logical_bytes: 0,
+        };
+        targets.count_bytes();
+        Ok(targets)
     }
     /// Main resize preserves fixed capture and mirror targets and published probe storage.
     pub fn resize_world(
@@ -328,11 +312,15 @@ impl SurfaceTargets {
         atlas: u32,
     ) -> Result<(), String> {
         let world = std::sync::Arc::new(SourceColorTargets::new(device, width, height, samples)?);
+        self.sun = std::sync::Arc::new(SunAtlas::new(device, atlas)?);
         for index in 0..WORLD_VIEWS {
-            self.views[index] =
-                std::sync::Arc::new(SourceViewTargets::new(device, world.clone(), atlas)?);
+            self.views[index] = std::sync::Arc::new(SourceViewTargets::new(device, world.clone()));
         }
         self.world = world;
+        self.count_bytes();
+        Ok(())
+    }
+    fn count_bytes(&mut self) {
         self.logical_bytes = self.world.logical_bytes
             + self.capture.logical_bytes
             + self.mirror.logical_bytes
@@ -341,8 +329,8 @@ impl SurfaceTargets {
                 .iter()
                 .map(|view| view.logical_bytes)
                 .sum::<u64>()
+            + self.sun.logical_bytes()
             + lamp_atlas_bytes();
-        Ok(())
     }
 }
 fn lamp_atlas_bytes() -> u64 {

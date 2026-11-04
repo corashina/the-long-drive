@@ -1,8 +1,10 @@
 //! Camera-local Uber output and persistent noise and exposure bindings.
+//! It also does the installed main camera heat haze (`postprocessingscript` with `Custom/heathazeshader`).
+//! The source haze moves the Uber output. Here the Uber runs at the moved UV, so no extra pass is necessary.
 use super::grain::GRAIN_SIZE;
 use super::{dither::DitherSequence, pipeline_failure};
-use crate::presentation::render_targets::{HDR_FORMAT, HELD_FORMAT};
-use crate::reference::stack_effects::StackEffects;
+use crate::presentation::render_targets::HELD_FORMAT;
+use crate::reference::{postprocessing::HeatHaze, stack_effects::StackEffects};
 use bevy::prelude::*;
 use bevy::render::{
     render_resource::{binding_types::*, *},
@@ -33,6 +35,14 @@ struct Params {
     grain_tile: Vec4,
     /// LDR `_Lut2D_Params`.
     strip: Vec4,
+    /// Heat haze `_Weight` (0 is off), `_MinDist`, `_DistanceM`, `_Time.y`.
+    haze: Vec4,
+    haze_up_offset_scale: Vec4,
+    haze_down_offset_scale: Vec4,
+    /// `_UpSpeed`, `_UpSpeed2`, `_UpStrength`.
+    haze_up: Vec4,
+    /// `_DownSpeed`, `_DownSpeed2`, `_DownStrength`.
+    haze_down: Vec4,
 }
 pub struct MainInputs<'a> {
     pub bloom: &'a TextureView,
@@ -45,15 +55,21 @@ pub struct MainInputs<'a> {
     pub strip: &'a TextureView,
     pub grain: &'a TextureView,
     pub sample_scale: f32,
+    /// The main view depth.
+    pub camera_depth: &'a TextureView,
+    /// `HeatHaze::noise`.
+    pub haze_noise: &'a TextureView,
+    pub haze: &'a HeatHaze,
 }
 pub struct UberPass {
     uniform: UniformBuffer<Params>,
     bindings: Vec<BindGroup>,
-    /// HDR then LDR grading, each for the held image and for the heat haze input.
-    pipelines: [CachedRenderPipelineId; 4],
+    /// HDR then LDR grading.
+    pipelines: [CachedRenderPipelineId; 2],
     sequence: DitherSequence,
     pending: Option<DitherSequence>,
     extent: [u32; 2],
+    haze_temperature: [f32; 2],
 }
 impl UberPass {
     pub fn new(
@@ -105,6 +121,14 @@ impl UberPass {
                         12,
                         texture_2d(TextureSampleType::Float { filterable: true }),
                     ),
+                    (
+                        13,
+                        texture_2d(TextureSampleType::Float { filterable: false }),
+                    ),
+                    (
+                        14,
+                        texture_2d(TextureSampleType::Float { filterable: true }),
+                    ),
                 ),
             )
             .to_vec(),
@@ -112,13 +136,7 @@ impl UberPass {
         let layout = BindGroupLayoutDescriptor::new("source_uber", &entries);
         let pipelines = previous.as_ref().map_or_else(
             || {
-                [
-                    (false, HELD_FORMAT),
-                    (false, HDR_FORMAT),
-                    (true, HELD_FORMAT),
-                    (true, HDR_FORMAT),
-                ]
-                .map(|(ldr, format)| {
+                [false, true].map(|ldr| {
                     let mut shader_defs = vec!["SOURCE_UBER_MAIN".into()];
                     if ldr {
                         shader_defs.push("SOURCE_UBER_LDR".into());
@@ -136,7 +154,7 @@ impl UberPass {
                             entry_point: Some("uber".into()),
                             shader_defs,
                             targets: vec![Some(ColorTargetState {
-                                format,
+                                format: HELD_FORMAT,
                                 blend: None,
                                 write_mask: ColorWrites::ALL,
                             })],
@@ -169,6 +187,21 @@ impl UberPass {
             grain: Vec4::ZERO,
             grain_tile: Vec4::ZERO,
             strip: super::lut_ldr::STRIP_PARAMS,
+            haze: Vec4::new(0., input.haze.min_dist, input.haze.distance_m, 0.),
+            haze_up_offset_scale: Vec4::from_array(input.haze.up_offset_scale),
+            haze_down_offset_scale: Vec4::from_array(input.haze.down_offset_scale),
+            haze_up: Vec4::new(
+                input.haze.up_speed[0],
+                input.haze.up_speed[1],
+                input.haze.up_strength,
+                0.,
+            ),
+            haze_down: Vec4::new(
+                input.haze.down_speed[0],
+                input.haze.down_speed[1],
+                input.haze.down_strength,
+                0.,
+            ),
         };
         if input.dirt_extent.contains(&0) {
             return Err("Source bloom dirt extent is invalid".into());
@@ -221,6 +254,8 @@ impl UberPass {
                         (10, input.vignette_mask),
                         (11, input.strip),
                         (12, input.grain),
+                        (13, input.camera_depth),
+                        (14, input.haze_noise),
                     ))
                     .to_vec(),
                 );
@@ -238,6 +273,7 @@ impl UberPass {
             sequence: previous.map_or_else(DitherSequence::default, |old| old.sequence),
             pending: None,
             extent,
+            haze_temperature: input.haze.temperature,
         })
     }
     pub fn recreate(&mut self) {
@@ -315,6 +351,15 @@ impl UberPass {
         let tile = UVec2::from_array(self.extent).as_vec2() / GRAIN_SIZE as f32 / g.size;
         p.grain_tile = tile.extend(p.grain_tile.z).extend(p.grain_tile.w);
     }
+    /// `temperature` is the ambient temperature while the heat haze setting is on. `time` is the shader `_Time.y`.
+    /// `napszakvaltakozas`: `_Weight` = InverseLerp(heatHazeTempMin, heatHazeTempMax, temp).
+    /// At weight 0 the haze does not move the image, so the shader skips it.
+    pub fn set_haze(&mut self, temperature: Option<f32>, time: f32) {
+        let [min, max] = self.haze_temperature;
+        let haze = &mut self.uniform.get_mut().haze;
+        haze.x = temperature.map_or(0., |t| ((t - min) / (max - min)).clamp(0., 1.));
+        haze.w = time;
+    }
     /// The Halton offset of this frame's grain lookup.
     pub fn set_grain_offset(&mut self, offset: [f32; 2]) {
         let p = self.uniform.get_mut();
@@ -346,7 +391,6 @@ impl UberPass {
         output: &TextureView,
         exposure_index: usize,
         ldr: bool,
-        haze: bool,
     ) -> bool {
         if !self.ready(cache) || exposure_index > 1 {
             return false;
@@ -370,7 +414,7 @@ impl UberPass {
             color_attachments: &colors,
             ..default()
         });
-        let pipeline = self.pipelines[usize::from(ldr) * 2 + usize::from(haze)];
+        let pipeline = self.pipelines[usize::from(ldr)];
         pass.set_pipeline(cache.get_render_pipeline(pipeline).unwrap());
         pass.set_bind_group(0, &self.bindings[exposure_index * 64 + index], &[]);
         pass.draw(0..3, 0..1);

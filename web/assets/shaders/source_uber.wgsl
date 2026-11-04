@@ -1,13 +1,17 @@
 #import source_float_store::{half4, source_max, source_sat}
 // Installed Uber4653 (main HDR), Uber4641 (main LDR) and Uber4251 (far and foreground), Linear project.
 // Installed Uber7101 (dead HDR: DISTORT, CHROMATIC_ABERRATION, VIGNETTE, GRAIN) for the volume effects.
+// Installed Custom/heathazeshader (blob 2) moves the main output. Here the Uber runs at the moved UV.
 struct Params { extent: vec4<f32>, noise: vec4<f32>, bloom: vec4<f32>, tint: vec4<f32>, dirt: vec4<f32>, grading: vec4<f32>,
  // _Vignette_Color and _Vignette_Opacity, _Vignette_Settings, then _Vignette_Center, mode (0 off, 1 classic, 2 masked), aspect.
  vignette: vec4<f32>, vignette_shape: vec4<f32>, vignette_center: vec4<f32>,
  // _Distortion_Amount, _Distortion_CenterScale, then CA amount, CA mode (0 off, 1 low, 2 full), distortion on.
  distortion: vec4<f32>, distortion_center: vec4<f32>, lens: vec4<f32>,
  // _Grain_Params1 (intensity 0 is off) and _Grain_Params2.
- grain: vec4<f32>, grain_tile: vec4<f32>, strip: vec4<f32> }
+ grain: vec4<f32>, grain_tile: vec4<f32>, strip: vec4<f32>,
+ // Heat haze _Weight (0 is off), _MinDist, _DistanceM, _Time.y, then _UpOffsetScale and _DownOffsetScale,
+ // then _UpSpeed, _UpSpeed2, _UpStrength and _DownSpeed, _DownSpeed2, _DownStrength.
+ haze: vec4<f32>, haze_up_offset_scale: vec4<f32>, haze_down_offset_scale: vec4<f32>, haze_up: vec4<f32>, haze_down: vec4<f32> }
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var source_color: texture_2d<f32>;
 @group(0) @binding(2) var noise_texture: texture_2d<f32>;
@@ -22,6 +26,8 @@ struct Params { extent: vec4<f32>, noise: vec4<f32>, bloom: vec4<f32>, tint: vec
 @group(0) @binding(10) var vignette_mask: texture_2d<f32>;
 @group(0) @binding(11) var strip_lut: texture_2d<f32>;
 @group(0) @binding(12) var grain_texture: texture_2d<f32>;
+@group(0) @binding(13) var camera_depth: texture_2d<f32>;
+@group(0) @binding(14) var haze_noise: texture_2d<f32>;
 #endif
 fn f(bits:u32)->f32 { return bitcast<f32>(bits); }
 fn sat3(x:vec3<f32>)->vec3<f32> { return vec3(source_sat(x.x),source_sat(x.y),source_sat(x.z)); }
@@ -75,6 +81,21 @@ fn chromatic(u:vec2<f32>)->vec4<f32> {
  }
  return sum/weight_sum;
 }
+// Custom/heathazeshader fragment, exact DXBC order. `uv` and the result start at the top.
+fn heat_haze(uv:vec2<f32>,position:vec2<f32>)->vec2<f32> {
+ let unity_uv=flip(uv);
+ let time=params.haze.w;
+ let down_uv=fma(params.haze_down_offset_scale.zw,unity_uv,params.haze_down_offset_scale.xy)
+  +vec2(sin(params.haze_down.y*time),-params.haze_down.x*time);
+ var amount=textureSample(haze_noise,linear_repeat,down_uv).x*params.haze_down.z;
+ let up_uv=fma(params.haze_up_offset_scale.zw,unity_uv,params.haze_up_offset_scale.xy)
+  +vec2(sin(params.haze_up.y*time),-params.haze_up.x*time);
+ amount=fma(textureSample(haze_noise,linear_repeat,up_uv).x,params.haze_up.z,amount);
+ // Reversed depth: 0 is far. Near pixels below 1 - _MinDist do not move.
+ let depth=textureLoad(camera_depth,vec2<i32>(position),0).x;
+ amount=saturate((1.-depth)-params.haze.y)*amount*params.haze.z;
+ return flip(fma(vec2(amount),vec2(params.haze.x),unity_uv));
+}
 // Source pow is exp2(log2(x) * p). The exponents here are positive, so x = 0 gives 0.
 fn source_pow(x:f32,p:f32)->f32 { return select(exp2(log2(x)*p),0.,x<=0.); }
 #endif
@@ -82,8 +103,11 @@ fn source_pow(x:f32,p:f32)->f32 { return select(exp2(log2(x)*p),0.,x<=0.); }
  let uv=vec2<f32>(f32((index<<1u)&2u),f32(index&2u));return vec4(uv*2.-1.,0.,1.);
 }
 @fragment fn uber(@builtin(position) position:vec4<f32>)->@location(0) vec4<f32> {
- let uv=position.xy*params.extent.zw;
+ let pixel_uv=position.xy*params.extent.zw;
 #ifdef SOURCE_UBER_MAIN
+ // The source haze samples the Uber output with bilinear clamp. Weight 0 does not move it.
+ var uv=pixel_uv;
+ if params.haze.x>0. { uv=clamp(heat_haze(pixel_uv,position.xy),vec2(0.),vec2(1.)); }
  var color:vec4<f32>;
  // Distorted screen UV for bloom, dirt and the vignette.
  var effect_uv=uv;
@@ -153,10 +177,10 @@ fn source_pow(x:f32,p:f32)->f32 { return select(exp2(log2(x)*p),0.,x<=0.); }
  color=vec4(textureSampleLevel(lut_texture,linear_clamp,lut_uv,0.).rgb,color.a);
 #endif
 #else
- var color=textureSampleLevel(source_color,linear_clamp,uv,0.);
+ var color=textureSampleLevel(source_color,linear_clamp,pixel_uv,0.);
 #endif
  // Lighting image loading preserves the source Alpha8 channel in RGBA8 alpha.
- let noise=textureSampleLevel(noise_texture,point_repeat,fma(uv,params.noise.xy,params.noise.zw),0.).a;
+ let noise=textureSampleLevel(noise_texture,point_repeat,fma(pixel_uv,params.noise.xy,params.noise.zw),0.).a;
  let n=fma(noise,2.,-1.);
  let direction=fma(source_sat(fma(n,f(0x7f7fffffu),.5)),2.,-1.);
  let triangular=direction*(1.-sqrt(1.-abs(n)));
