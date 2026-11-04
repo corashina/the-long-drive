@@ -1,4 +1,5 @@
 //! Ordered CPU batch owners and GPU acknowledgement.
+use crate::presentation::upload_budget::{UploadBudget, UploadSpend};
 use crate::{
     ownership::texture_batch::{BatchIdentity, BatchQueue, BatchState, SLOTS},
     presentation::{
@@ -123,7 +124,10 @@ impl UploadQueue {
     }
 }
 #[derive(Resource, Default)]
-struct RenderUploads(Option<Arc<Mutex<UploadQueue>>>);
+struct RenderUploads {
+    queue: Option<Arc<Mutex<UploadQueue>>>,
+    spend: UploadSpend,
+}
 pub(super) struct WorldTextureUploadPlugin;
 impl Plugin for WorldTextureUploadPlugin {
     fn build(&self, app: &mut App) {
@@ -143,6 +147,7 @@ impl Plugin for WorldTextureUploadPlugin {
 }
 fn extract(
     source: Extract<Option<Res<super::SourceMaterials>>>,
+    budget: Extract<Res<UploadBudget>>,
     mut uploads: ResMut<RenderUploads>,
     images: Res<RenderAssets<GpuImage>>,
     queue: Res<RenderQueue>,
@@ -160,9 +165,10 @@ fn extract(
             }
         }
     }
-    uploads.0 = source
+    uploads.queue = source
         .as_ref()
         .map(|s| Arc::clone(s.world_textures.upload_queue()));
+    uploads.spend = budget.spend.clone();
 }
 fn upload(
     uploads: Res<RenderUploads>,
@@ -170,36 +176,36 @@ fn upload(
     queue: Res<RenderQueue>,
     device: Res<RenderDevice>,
 ) {
-    let Some(shared) = &uploads.0 else { return };
+    let Some(shared) = &uploads.queue else {
+        return;
+    };
     let mut shared = shared.lock().unwrap();
-    // Upload every ready owner in order.
+    // Upload ready owners in order while the frame budget holds them.
     while let Some(owner) = shared.ownership.next_upload() {
         if owner.state != BatchState::Ready || owner.cancelled {
             return;
         }
-        if !upload_job(&shared, owner.identity, &images, &queue, &device) {
+        let job = shared
+            .jobs
+            .iter()
+            .flatten()
+            .find(|j| j.identity == owner.identity)
+            .unwrap();
+        let Some(image) = images.get(job.image.id()) else {
+            return;
+        };
+        if !uploads
+            .spend
+            .take(job.payload.as_ref().unwrap().payload.len())
+        {
             return;
         }
+        upload_job(job, image, &queue, &device);
         shared.ownership.submit(owner.identity);
     }
 }
-/// Writes the rows of one ready batch. Returns false while its image is not on the GPU.
-fn upload_job(
-    shared: &UploadQueue,
-    identity: BatchIdentity,
-    images: &RenderAssets<GpuImage>,
-    queue: &RenderQueue,
-    device: &RenderDevice,
-) -> bool {
-    let job = shared
-        .jobs
-        .iter()
-        .flatten()
-        .find(|j| j.identity == identity)
-        .unwrap();
-    let Some(image) = images.get(job.image.id()) else {
-        return false;
-    };
+/// Writes the rows of one ready batch.
+fn upload_job(job: &Upload, image: &GpuImage, queue: &RenderQueue, device: &RenderDevice) {
     let batch = job.payload.as_ref().unwrap();
     let _scope = job.preparation.scope(device);
     let block = batch.format.block();
@@ -233,10 +239,11 @@ fn upload_job(
         queue.submit([]);
         job.preparation.submitted(queue);
     }
-    true
 }
 fn complete(uploads: Res<RenderUploads>, queue: Res<RenderQueue>) {
-    let Some(shared) = &uploads.0 else { return };
+    let Some(shared) = &uploads.queue else {
+        return;
+    };
     let mut shared = shared.lock().unwrap();
     let shared = &mut *shared;
     for job in shared.jobs.iter_mut().flatten() {

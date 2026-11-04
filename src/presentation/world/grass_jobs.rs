@@ -310,6 +310,7 @@ impl GrassJobs {
         materials: &mut Assets<GrassMaterial>,
         pipelines: &mut WorldPipelines,
         fixed: &crate::presentation::fixed_assets::SourceFixedAssets,
+        uploads: &mut crate::presentation::upload_budget::UploadBudget,
     ) -> Result<(), ReferenceError> {
         let result = self.prepare_inner(
             stream,
@@ -320,6 +321,7 @@ impl GrassJobs {
             materials,
             pipelines,
             fixed,
+            uploads,
         );
         if result.is_err() {
             self.release_worker(ledger)?;
@@ -336,6 +338,7 @@ impl GrassJobs {
         materials: &mut Assets<GrassMaterial>,
         pipelines: &mut WorldPipelines,
         fixed: &crate::presentation::fixed_assets::SourceFixedAssets,
+        uploads: &mut crate::presentation::upload_budget::UploadBudget,
     ) -> Result<(), ReferenceError> {
         if !self.instances.is_empty() {
             if self.actor_cpu == 0 {
@@ -639,7 +642,7 @@ impl GrassJobs {
                 mesh.insert_indices(Indices::U32(output.indices));
 
                 material.uniform.camera = view.position.extend(view.screen_height);
-                let mesh = meshes.add(mesh);
+                let mesh = uploads.add(meshes, mesh);
                 let upload = fixed.watch_meshes(std::iter::once(mesh.clone()));
                 instance
                     .continuation

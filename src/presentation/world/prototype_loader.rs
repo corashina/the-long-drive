@@ -9,8 +9,10 @@ use bevy::{
 };
 #[derive(Asset, TypePath)]
 pub struct SourceGltf {
-    #[dependency]
+    /// Filled from `pending` through the frame upload budget. See `UploadBudget`.
     pub meshes: Vec<Handle<Mesh>>,
+    /// Decoded primitives that wait for the upload budget.
+    pub pending: Vec<Mesh>,
     pub primitives: Vec<(usize, usize, usize)>,
     #[dependency]
     pub inverse_bindposes: Vec<Handle<SkinnedMeshInverseBindposes>>,
@@ -85,6 +87,7 @@ impl AssetLoader for SourceGltfLoader {
         }
         let mut result = SourceGltf {
             meshes: Vec::new(),
+            pending: Vec::new(),
             primitives: Vec::new(),
             inverse_bindposes: Vec::new(),
             joints: Vec::new(),
@@ -221,15 +224,7 @@ impl AssetLoader for SourceGltfLoader {
                 result
                     .primitives
                     .push((node.index(), source_mesh.index(), primitive.index()));
-                result.meshes.push(context.add_labeled_asset(
-                    format!(
-                        "Node{}/Mesh{}/Primitive{}",
-                        node.index(),
-                        source_mesh.index(),
-                        primitive.index()
-                    ),
-                    mesh,
-                ));
+                result.pending.push(mesh);
             }
         }
         for skin in document.skins() {
