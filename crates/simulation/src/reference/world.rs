@@ -1735,8 +1735,11 @@ impl WorldReference {
         )?;
         if p.role == WorldPrototypeRole::Road {
             require(
-                p.controls.len() == self.road.road_bone_num as usize && !p.skins.is_empty(),
-                &field(&p.source, "road controls/skin"),
+                p.controls.len() == self.road.road_bone_num as usize
+                    && !p.skins.is_empty()
+                    // Road deform output has one tangent stream for all skins.
+                    && p.skins.iter().all(|s| s.tangents.is_empty() == p.skins[0].tangents.is_empty()),
+                &field(&p.source, "road controls/skin/tangents"),
             )?;
         }
         let road_rules: Vec<_> = objects
