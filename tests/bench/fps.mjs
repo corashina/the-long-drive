@@ -18,7 +18,7 @@ import {PRESETS} from '../../web/quality-presets.js';
 const OUT=fileURLToPath(new URL('./out/',import.meta.url));
 const START_TIMEOUT_MS=600000,MOVE_TIMEOUT_MS=180000;
 // Values that the summary and the compare table show, in this order.
-const FIELDS=['fps','frameMs','worstMs','updateMs','renderMs','workerTickMs','physicsMs','worldMs','gpuShadow','gpuOpaque','gpuResolveAo','gpuTransparent','gpuPost','gpuSum','shadowDraws','surfaceDraws','propVisible','sceneScale'];
+const FIELDS=['fps','frameMs','worstMs','updateMs','renderMs','workerTickMs','physicsMs','rapierMs','worldMs','dynamicBodies','awakeBodies','ccdBodies','contactPairs','gpuShadow','gpuOpaque','gpuResolveAo','gpuTransparent','gpuPost','gpuSum','shadowDraws','surfaceDraws','propVisible','sceneScale'];
 const GPU=['gpuShadow','gpuOpaque','gpuResolveAo','gpuTransparent','gpuPost'];
 
 // Scene actions for `simulation::sandbox`. `noon` and `night` are source cycle seconds.
@@ -262,7 +262,7 @@ function print(label,scene){
  console.log(`\n${label} / ${scene.name}: ${scene.moved}`);
  if(scene.menuSamples)console.log(`  ${scene.menuSamples} samples out of play are left out`);
  for(const field of FIELDS){
-  const {median,p90}=scene.summary[field];
+  const {median,p90}=scene.summary[field]??{};
   console.log(`  ${field.padEnd(15)} median ${show(median).padStart(9)}   p90 ${show(p90).padStart(9)}`);
  }
  printStages('worker',scene.worker);
@@ -282,7 +282,7 @@ function compare(pathA,pathB){
   if(!other)continue;
   console.log(`\n${scene.name}: ${a.label} -> ${b.label}`);
   for(const field of FIELDS){
-   const x=scene.summary[field].median,y=other.summary[field].median;
+   const x=scene.summary[field]?.median,y=other.summary[field]?.median;
    const change=Number.isFinite(x)&&Number.isFinite(y)&&x!==0?((y-x)/x*100).toFixed(1)+' %':'-';
    console.log(`  ${field.padEnd(15)} ${show(x).padStart(9)} ${show(y).padStart(9)} ${change.padStart(9)}`);
   }
