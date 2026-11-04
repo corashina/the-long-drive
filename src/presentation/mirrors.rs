@@ -1,6 +1,6 @@
 //! Source live car mirrors: `mainscript.MirrorsUpdate`, the "Mirrors" toggle and the
 //! "Mirror draw distance" setting. Each live mirror draws a surface view into its slot image.
-use super::mirror_turns::{pick_draws, skipped};
+use super::mirror_turns::{draws_per_frame, pick_draws, skipped};
 use super::surface_views::{MIRROR_COUNT, MIRROR_EXTENT, MIRROR_START, SourceSurfaceView};
 use super::world::{instance_materials::InstanceMaterials, instances::SourceInstances};
 use bevy::camera::visibility::RenderLayers;
@@ -147,7 +147,7 @@ pub(crate) fn select(
     // Pass 1 finds the live mirrors and their views. Pass 2 gives new live mirrors free slots.
     let mut live: [Option<(usize, MirrorView)>; MIRROR_COUNT] = [None; MIRROR_COUNT];
     for (rank, candidate) in candidates.iter().enumerate().take(MIRROR_COUNT) {
-        if !settings.mirrors || !near {
+        if settings.mirrors == 2 || !near {
             break;
         }
         let record = &world.prototypes[candidate.prototype];
@@ -226,7 +226,7 @@ pub(crate) fn select(
         fresh[slot] = live_slots[slot] && !drawn[slot];
     }
     *slots = next;
-    let draw = pick_draws(live_slots, fresh, cursor);
+    let draw = pick_draws(live_slots, fresh, draws_per_frame(settings.mirrors), cursor);
     for slot in 0..MIRROR_COUNT {
         drawn[slot] |= draw[slot];
     }

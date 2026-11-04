@@ -18,7 +18,8 @@ export const ROWS={
  grayscale:{default:false},
  // Source `ToggleDepthOfField.def` is off.
  depth_of_field:{default:false},
- mirrors:{default:true},
+ // 0 high (2 mirror draws per frame), 1 low (1 mirror draw per frame), 2 off.
+ mirrors:{values:LEVELS,default:0},
  // Source `FMirrorDrawDistance` in meters. The default comes from the export.
  mirror_distance:{range:true},
  motion_blur:{default:true},
