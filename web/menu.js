@@ -7,8 +7,8 @@ const pendingText={save:'Saving...',load:'Loading...',loadLast:'Loading...',remo
 // Result texts confirm a menu action. They clear when play continues.
 const resultText={join:'Joined the game.',save:'Save complete.',load:'Game loaded.',loadLast:'Game loaded.',remove:'Save deleted.',newGame:'New game ready.'};
 const SUBSCREENS=['settings','game-mode','saves','appearance','multiplayer'];
-// Appearance has its own preview, so the car stage hides there.
-const CAR_STATES=['start-menu','settings','game-mode','saves','multiplayer'];
+// The start menus show the live road view of the simulation (no art). Appearance has its own preview.
+const ROAD_STATES=['start-menu','settings','game-mode','saves','multiplayer'];
 function operationError(error){
  const message=error?.message??String(error);
  if(message==='No saved game.')return 'No saved game is available.';
@@ -49,7 +49,7 @@ export class MenuState {
  }
 }
 export async function captureWithAudio(model,action,request,audio){const success=await model.capture(action,request,()=>audio?.unlock());if(!success)audio?.pause();return success;}
-export function createMenu({canvas,language,ui,clearInput,queueAction,saveSession,buildId,thumbnail=()=>null,sleeping=()=>false,seated=()=>false,guest=()=>false,slider,audio,bindings,defaultAssists,onPause,onNewGame,reloadNewGame=()=>false,autoNewGame=false,appearance,showCar,settings,resets}) {
+export function createMenu({canvas,language,ui,clearInput,queueAction,saveSession,buildId,thumbnail=()=>null,sleeping=()=>false,seated=()=>false,guest=()=>false,slider,audio,bindings,defaultAssists,onPause,onNewGame,reloadNewGame=()=>false,autoNewGame=false,appearance,settings,resets}) {
  const model=new MenuState(),menu=document.querySelector('#menu'),settingsNode=document.querySelector('#settings-screen'),gameMode=document.querySelector('#game-mode-screen'),savesNode=document.querySelector('#save-screen'),appearanceNode=document.querySelector('#appearance-screen'),multiplayerNode=document.querySelector('#multiplayer-screen'),startLast=document.querySelector('#start-load-last');
  const initial=document.querySelector('#start-actions'),paused=document.querySelector('#pause-actions'),error=document.querySelector('#capture-error'),status=document.querySelector('#status'),distance=document.querySelector('#session-distance'),distanceLabel=document.querySelector('#session-distance-label'),distanceValue=document.querySelector('#session-distance-value');
  const art=document.querySelector('#menu-art'),frame=document.querySelector('#menu-frame'),hud=document.querySelector('#hud');
@@ -78,8 +78,8 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  function paint(){
   const state=model.state;menu.hidden=state==='playing';settingsNode.hidden=state!=='settings';gameMode.hidden=state!=='game-mode';savesNode.hidden=state!=='saves';appearanceNode.hidden=state!=='appearance';multiplayerNode.hidden=state!=='multiplayer';initial.hidden=!['start-menu','error'].includes(state);menu.classList.toggle('covered',state==='loading');paused.hidden=state!=='pause-menu';distance.hidden=paused.hidden;
   if(hud&&state!=='playing')hud.hidden=true;
-  // Port choice: the start menu shows the garage car on its own stage, not the source figure and art.
-  const car=!model.started&&CAR_STATES.includes(state);showCar?.(car);menu.classList.toggle('showroom',car);
+  // Port choice: the start menu shows the road ahead, not the source figure and art.
+  menu.classList.toggle('road-view',!model.started&&ROAD_STATES.includes(state));
   clutch.disabled=model.pending;gears.disabled=model.pending||!clutch.checked;
   slider.lock(model.pending||model.started||!(state==='start-menu'||state==='settings'&&model.origin==='start-menu'));
   if(state==='settings')settingsScreen.paint();else controlsScreen.cancel();

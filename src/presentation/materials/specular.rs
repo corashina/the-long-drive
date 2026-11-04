@@ -30,10 +30,6 @@ pub struct SpecularMaterial {
         std::sync::Arc<std::sync::Mutex<std::collections::HashSet<bevy::asset::AssetId<Image>>>>,
 }
 impl SpecularMaterial {
-    /// The authored surface with its color, for Bevy PBR copies.
-    pub(crate) fn base(&self) -> &StandardMaterial {
-        &self.base
-    }
     pub(crate) fn shadow_batch_state(&self) -> crate::presentation::shadow_batch::CasterBatchState {
         crate::presentation::shadow_batch::CasterBatchState::opaque_specular(
             self.uniform.flags.x,

@@ -294,7 +294,15 @@ impl GarageRuntime {
             });
         }
         let lighting = &self.lighting;
-        frame.lighting.cycle.clone_from(lighting.cycle.output());
+        if self.started {
+            frame.lighting.cycle.clone_from(lighting.cycle.output());
+        } else {
+            frame.lighting.cycle = self
+                .menu_view
+                .cycle(&reference.lighting.cycle, &lighting.cycle);
+            frame.state.view_camera =
+                PoseRow::new(self.menu_view.pose(&self.stream.origin), PoseRow::ACTIVE);
+        }
         frame.lighting.road_lamp = lighting.road_lamp_output(&reference.lighting);
         frame.lights.clear();
         frame.lights.extend_from_slice(lighting.light_outputs());

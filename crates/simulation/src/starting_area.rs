@@ -35,6 +35,7 @@ pub mod hose;
 mod hud;
 mod hum;
 mod humans;
+mod menu_view;
 mod rabbits;
 mod ragdoll;
 mod reach;
@@ -431,6 +432,8 @@ pub use inventory::InventoryFrame;
 mod save;
 
 pub struct GarageRuntime {
+    /// The camera and day cycle of the start menu, before the game starts.
+    menu_view: menu_view::MenuView,
     pub driving_assists: crate::reference::DrivingAssists,
     pub options: crate::world::GameOptions,
     pub survival: crate::survival::SurvivalState,
@@ -698,6 +701,7 @@ impl GarageRuntime {
             sleep_camera: None,
             other_view: false,
             audio_motion_revision: 0,
+            menu_view: menu_view::MenuView::new(reference, &stream),
             focus: crate::depth_of_field::Focus::new(
                 &reference.render_lighting.postprocessing.depth_of_field,
             ),
