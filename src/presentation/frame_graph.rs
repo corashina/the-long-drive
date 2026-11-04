@@ -888,7 +888,7 @@ fn render_sky(
     let Some(phase) = phases.get(&view.retained_view_entity) else {
         return;
     };
-    // One pass for clear, sky, extras and clouds. The opaque pass loads and resolves it.
+    // One pass for clear, sky, extras and clouds. The last transparent pass resolves it.
     let colors = [Some(RenderPassColorAttachment {
         view: resources.colors.attachment(),
         depth_slice: None,
