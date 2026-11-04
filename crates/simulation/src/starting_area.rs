@@ -963,7 +963,6 @@ impl GarageRuntime {
         if crate::cpu_profile::enabled() {
             crate::host::game_cpu_input_consumed();
         }
-        self.brush_look_probe(reference);
         let factors = self.clock_factors(reference);
         let sleep = self.sleep.output();
         self.lighting.cycle.advance(
@@ -2473,29 +2472,24 @@ fn startup_hash(mut value: u64) -> u64 {
 }
 
 impl GarageRuntime {
-    /// Throwaway probe: after start, aims the view at the low wire brush (5-20 s),
-    /// the high wire brush (20-35 s), then a sponge (35-50 s).
-    fn brush_look_probe(&mut self, reference: &ReferenceManifest) {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static FRAME: AtomicU32 = AtomicU32::new(0);
-        let frame = FRAME.fetch_add(1, Ordering::Relaxed);
-        let rate = (1. / crate::simulation::FIXED_DT) as u32;
-        let slot = match frame / rate {
+    /// Throwaway probe: `seconds` after start (also while paused), aims the view at the low
+    /// wire brush (5-20 s), the high wire brush (20-35 s), then a sponge (35-50 s).
+    /// Returns true when it aimed.
+    pub(crate) fn brush_look_probe(&mut self, reference: &ReferenceManifest, seconds: f64) -> bool {
+        let slot = match seconds as u32 {
             5..20 => 1,
             20..35 => 0,
             35..50 => 3,
-            _ => return,
+            _ => return false,
         };
         let Some(tool) = reference.conditions.brushes.get(slot) else {
-            return;
+            return false;
         };
         let Some(item) = self.area.items.get(tool.item) else {
-            return;
+            return false;
         };
         let target = item.pose.position;
-        if frame % rate == 0 {
-            log::info!("brush-look slot {slot} target {target:?}");
-        }
         self.area.player.look_at(target, &self.physics);
+        true
     }
 }

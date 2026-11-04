@@ -227,6 +227,16 @@ impl SimDriver {
                 self.failed = true;
             }
         }
+        if self.ready && self.runtime.started {
+            // Throwaway brush probe.
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static SECONDS: AtomicU64 = AtomicU64::new(0);
+            let seconds = f64::from_bits(SECONDS.load(Ordering::Relaxed)) + self.delta_seconds;
+            SECONDS.store(seconds.to_bits(), Ordering::Relaxed);
+            if self.runtime.brush_look_probe(reference, seconds) {
+                self.reset_look();
+            }
+        }
         if !self.ready || !self.runtime.started || self.runtime.paused {
             return;
         }
