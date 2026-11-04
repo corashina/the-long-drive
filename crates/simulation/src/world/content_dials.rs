@@ -242,17 +242,8 @@ impl WorldStream {
             if !on_knob || physics.rapier().colliders[*handle].parent() != body {
                 continue;
             }
-            let mut id = ColliderId((physics.rapier().colliders[*handle].user_data >> 64) as u32);
-            if id.0 == 0 {
-                id = interaction.allocate_generated_collider()?;
-                physics.edit_collider(*handle, |collider| {
-                    collider.user_data |= (id.0 as u128) << 64;
-                });
-            }
-            interaction.bind_dial_knob(id, crate::interaction::Knob::Dial);
-            if let Some(icon) = icon {
-                interaction.bind_tune_icon(id, icon);
-            }
+            let id =
+                interaction.bind_knob(physics, *handle, crate::interaction::Knob::Dial, icon)?;
             knobs.push(id);
         }
         let value = self
@@ -456,7 +447,7 @@ impl ContentKind for DialKind {
     }
     fn unbind(binding: &DialBinding, interaction: &mut InteractionState) {
         for knob in &binding.knobs {
-            interaction.remove_dial_knob(*knob);
+            interaction.controls.remove_knob(*knob);
         }
     }
 }

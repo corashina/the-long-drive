@@ -106,14 +106,7 @@ impl WorldStream {
             if !on_crank || physics.rapier().colliders[*handle].parent() != body {
                 continue;
             }
-            let mut id = ColliderId((physics.rapier().colliders[*handle].user_data >> 64) as u32);
-            if id.0 == 0 {
-                id = interaction.allocate_generated_collider()?;
-                physics.edit_collider(*handle, |collider| {
-                    collider.user_data |= (id.0 as u128) << 64;
-                });
-            }
-            interaction.bind_dial_knob(id, Knob::Crank);
+            let id = interaction.bind_knob(physics, *handle, Knob::Crank, None)?;
             knobs.push(id);
         }
         Ok(MusicBoxBinding {
@@ -225,7 +218,7 @@ impl ContentKind for MusicBoxKind {
     }
     fn unbind(binding: &MusicBoxBinding, interaction: &mut InteractionState) {
         for knob in &binding.knobs {
-            interaction.remove_dial_knob(*knob);
+            interaction.controls.remove_knob(*knob);
         }
     }
 }
