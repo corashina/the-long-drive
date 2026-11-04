@@ -190,7 +190,6 @@ impl SourcePostChain {
         source: &TextureView,
         depth: &TextureView,
         extent: [u32; 2],
-        samples: u32,
         record: &PostprocessingRecord,
         dead: &DeadProfile,
         glasses: &[GlassesProfile],
@@ -425,7 +424,6 @@ impl SourcePostChain {
             scene,
             textures.noise,
             extent,
-            samples,
             inputs,
             old_uber,
         )?;
@@ -438,7 +436,6 @@ impl SourcePostChain {
             textures.camera_depth,
             textures.heat_haze_noise,
             extent,
-            samples,
             &record.heat_haze,
             old_haze.as_ref(),
         );
@@ -555,8 +552,7 @@ impl SourcePostChain {
         queue: &RenderQueue,
         cache: &PipelineCache,
         frame: PostFrame,
-        output: &TextureView,
-        resolve: Option<&TextureView>,
+        held: &TextureView,
     ) -> Result<bool, String> {
         if frame.token == 0 || frame.token <= self.completed {
             return Ok(false);
@@ -713,9 +709,10 @@ impl SourcePostChain {
             .heat_haze
             .map(|temperature| self.haze.weight(temperature))
             .filter(|weight| *weight > 0.);
-        let (target, target_resolve) = match haze {
-            Some(_) => (&self.haze.input, None),
-            None => (output, resolve),
+        // The last pass writes the held image.
+        let target = match haze {
+            Some(_) => &self.haze.input,
+            None => held,
         };
         if !self.uber.encode(
             encoder,
@@ -723,7 +720,6 @@ impl SourcePostChain {
             queue,
             cache,
             target,
-            target_resolve,
             exposure_index,
             ldr.is_some(),
             haze.is_some(),
@@ -731,9 +727,9 @@ impl SourcePostChain {
             return Err("Source Uber did not encode a ready pipeline".into());
         }
         if let Some(weight) = haze
-            && !self.haze.encode(
-                encoder, device, queue, cache, output, resolve, weight, frame.time,
-            )
+            && !self
+                .haze
+                .encode(encoder, device, queue, cache, held, weight, frame.time)
         {
             return Err("Source heat haze did not encode a ready pipeline".into());
         }
