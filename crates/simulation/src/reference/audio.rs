@@ -921,8 +921,13 @@ pub struct AudioRecord {
     pub gameplay: AudioGameplayReference,
     /// The full playback reference. An error keeps the game running without audio.
     playback: Result<Arc<AudioReference>, ReferenceError>,
+    /// The manifest text of the record. The browser audio reads it.
+    json: Arc<serde_json::value::RawValue>,
 }
 impl AudioRecord {
+    pub fn json(&self) -> &serde_json::value::RawValue {
+        &self.json
+    }
     pub fn playback(&self) -> Result<&Arc<AudioReference>, ReferenceError> {
         self.playback.as_ref().map_err(Clone::clone)
     }
@@ -939,12 +944,18 @@ impl AudioRecord {
 }
 impl<'de> Deserialize<'de> for AudioRecord {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let raw = serde_json::Value::deserialize(d)?;
+        let json = Arc::<serde_json::value::RawValue>::deserialize(d)?;
+        let raw: serde_json::Value =
+            serde_json::from_str(json.get()).map_err(serde::de::Error::custom)?;
         let gameplay = AudioGameplayReference::parse(&raw).map_err(serde::de::Error::custom)?;
         let playback = AudioReference::deserialize(&raw)
             .map(Arc::new)
             .map_err(|e| ReferenceError(format!("Audio: {e}")));
-        Ok(Self { gameplay, playback })
+        Ok(Self {
+            gameplay,
+            playback,
+            json,
+        })
     }
 }
 #[derive(Clone, Debug, Deserialize)]

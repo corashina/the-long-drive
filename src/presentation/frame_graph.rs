@@ -337,11 +337,11 @@ pub fn spawn_cameras(
     commands: &mut Commands,
     images: &mut Assets<Image>,
     reference: &crate::reference::ReferenceManifest,
-    pose: Transform,
-    fov_degrees: f32,
-    far: f32,
     antialiasing: super::antialiasing::Antialiasing,
 ) {
+    // Each simulation frame sets the pose, field of view and far plane of the player views
+    // (`update_camera`, `sync_sky_camera`). Until the first frame they are 0.
+    let (fov_degrees, far) = (0f32, 0f32);
     let record = &reference.render_lighting;
     let sky = &record.cameras[0];
     commands.spawn((
@@ -363,7 +363,7 @@ pub fn spawn_cameras(
             far: sky.far,
             ..default()
         }),
-        Transform::from_rotation(pose.rotation),
+        Transform::default(),
         antialiasing.msaa(),
         bevy::core_pipeline::tonemapping::Tonemapping::None,
     ));
@@ -445,7 +445,7 @@ pub fn spawn_cameras(
                     ..default()
                 }
             }),
-            pose,
+            Transform::default(),
             samples,
             bevy::core_pipeline::tonemapping::Tonemapping::None,
             SourceSurfaceView {
@@ -478,7 +478,10 @@ pub(crate) fn sync_sky_camera(
     let fov = sim.frame.state.fov_degrees;
     for (mut transform, mut projection) in &mut sky {
         *transform = Transform::from_rotation(main.rotation);
-        super::camera_projection::sync_player_projection(&mut projection, true, fov);
+        // The sky camera keeps its own far plane.
+        if let Projection::Perspective(perspective) = &mut *projection {
+            perspective.fov = fov.to_radians();
+        }
     }
 }
 fn bind_sky_extras(
@@ -1251,7 +1254,7 @@ static THUMBNAIL_TOKEN: AtomicU32 = AtomicU32::new(0);
 pub fn request_thumbnail() {
     THUMBNAIL.store(true, Ordering::Relaxed);
 }
-/// The next encoded main frame is the thumbnail. It has no motion blur.
+/// The next encoded main frame is the thumbnail.
 pub(crate) fn thumbnail_requested() -> bool {
     THUMBNAIL.load(Ordering::Relaxed)
 }

@@ -54,7 +54,7 @@ pub use stream::renderer_world::{
 };
 pub use stream::{
     PresentationAllocation, PresentationGrant, PresentationReport, PublishedSupply,
-    PublishedSurface, Reclaim, SurfaceKey, WorldFrame, WorldRequest, WorldStream,
+    PublishedSurface, Reclaim, SurfaceKey, WorldFrame, WorldRequest, WorldStream, collision_window,
 };
 pub use stream_limits::StreamLimits;
 mod random_starts;

@@ -8,15 +8,17 @@ function fakeWorker(){
   reply:data=>listeners.message({data}),fail:message=>listeners.error({message})};
 }
 
-test('start moves the manifest and resolves with the startup bytes',async()=>{
+test('load moves the manifest, start moves the save and resolves with the load error',async()=>{
  const worker=fakeWorker(),simulation=createSimulation(worker,()=>assert.fail());
- const manifest=new Uint8Array([1,2]),save=new Uint8Array([3]),started=simulation.start(manifest,'hash',2500,1,-1,7,2,save);
- const {data,transfer}=worker.posted[0];
- assert.deepEqual({...data.start,manifest:undefined,save:undefined},{manifest:undefined,hash:'hash',drawDistance:2500,biome:1,startCar:-1,seed:7,options:2,save:undefined});
- assert.deepEqual(transfer,[manifest.buffer,save.buffer]);
- const startup=new Uint8Array([9]);
- worker.reply({startup,loadError:'bad save'});
- assert.deepEqual(await started,{startup,loadError:'bad save'});
+ const manifest=new Uint8Array([1,2]),save=new Uint8Array([3]);
+ simulation.load(manifest);
+ assert.deepEqual(worker.posted[0].transfer,[manifest.buffer]);
+ const started=simulation.start('hash',2500,1,-1,7,2,save);
+ const {data,transfer}=worker.posted[1];
+ assert.deepEqual({...data.start,save:undefined},{hash:'hash',drawDistance:2500,biome:1,startCar:-1,seed:7,options:2,save:undefined});
+ assert.deepEqual(transfer,[save.buffer]);
+ worker.reply({started:true,loadError:'bad save'});
+ assert.deepEqual(await started,{loadError:'bad save'});
 });
 
 test('a command is copied, its frame is read once, and stats reset',()=>{
@@ -40,7 +42,7 @@ test('a command is copied, its frame is read once, and stats reset',()=>{
 
 test('a worker failure fails once, rejects the start and drops later frames',async()=>{
  const worker=fakeWorker(),failures=[],simulation=createSimulation(worker,message=>failures.push(message));
- const started=simulation.start(new Uint8Array(1),'',0,0,-1,0,0,new Uint8Array());
+ const started=simulation.start('',0,0,-1,0,0,new Uint8Array());
  worker.reply({error:'boom'});
  worker.fail('stopped');
  await assert.rejects(started,/boom/);
@@ -60,9 +62,9 @@ test('the frame reports input use to the profile hooks',()=>{
 
 test('a net session before the start waits for it',async()=>{
  const worker=fakeWorker(),simulation=createSimulation(worker,()=>assert.fail());
- const started=simulation.start(new Uint8Array(1),'',0,0,-1,0,0,new Uint8Array());
+ const started=simulation.start('',0,0,-1,0,0,new Uint8Array());
  simulation.netSession(2,1,()=>{});simulation.netPackets(new Uint8Array([1]));simulation.netLeave(3);
  assert.equal(worker.posted.length,1);
- worker.reply({startup:new Uint8Array([9])});await started;
+ worker.reply({started:true});await started;
  assert.deepEqual(worker.posted[1].data,{netSession:{role:2,slot:1}});
 });

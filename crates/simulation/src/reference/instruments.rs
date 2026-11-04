@@ -6,8 +6,10 @@ pub struct MaterialLink {
     pub asset: AssetId,
     pub gltf_material: u32,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+tagged_enum! {
+"MaterialSwitchReference",
+#[derive(Clone, Debug)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum MaterialSwitchReference {
     Absent,
     Renderer {
@@ -15,6 +17,7 @@ pub enum MaterialSwitchReference {
         on: MaterialLink,
         off: MaterialLink,
     },
+}
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

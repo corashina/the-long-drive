@@ -20,7 +20,7 @@ fn first_permit_retains_runtime_and_commits_once_paused() {
     let bytes =
         the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
             .unwrap();
-    let reference = ReferenceManifest::from_runtime_json(&bytes).unwrap();
+    let reference = ReferenceManifest::from_runtime(&bytes).unwrap();
     let mut runtime = GarageRuntime::new(
         &reference,
         the_long_slop::world::GameMode::default(),

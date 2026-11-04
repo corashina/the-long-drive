@@ -3190,9 +3190,10 @@ impl WorldStream {
         let size = f64::from(self.tiles[0].size);
         let x = key.unit[0] as f64 * size;
         let z = -(key.unit[1] as f64 * size);
+        let reach = size * 0.5 + COLLISION_REACH;
         [self.request.player, self.request.vehicle]
             .into_iter()
-            .any(|p| (p[0] - x).abs() <= size * 0.5 + 8. && (p[2] - z).abs() <= size * 0.5 + 8.)
+            .any(|p| (p[0] - x).abs() <= reach && (p[2] - z).abs() <= reach)
     }
     fn prepare_terrain(&mut self, mut should_yield: impl FnMut() -> bool) {
         let _timer = super::stream_profile::Timer::new(super::stream_profile::Stage::Terrain);
@@ -3902,11 +3903,15 @@ impl WorldStream {
             terrain: &self.required.terrain,
             structures: &self.required.structures,
             lights: &self.required.lights,
-            collision_ranges: [
-                window(self.request.player, 8.),
-                window(self.request.vehicle, 8.),
-            ],
+            collision_ranges: self.collision_ranges(),
         }
+    }
+    /// The areas of the player and the car that the stream loads first. The step waits for them.
+    pub fn collision_ranges(&self) -> [WorldBounds; 2] {
+        [
+            collision_window(self.request.player),
+            collision_window(self.request.vehicle),
+        ]
     }
     /// Required roads, terrain and structures: (ready, total).
     pub fn required_progress(&self) -> (u32, u32) {
@@ -5337,6 +5342,12 @@ fn layer_tier(layer: WorldLayer) -> usize {
         WorldLayer::DistantTerrain2 => 2,
         _ => panic!("terrain layer"),
     }
+}
+/// Collision reach around the player and each car. It covers a car and its travel in one step.
+pub const COLLISION_REACH: f64 = 8.;
+/// The area around `point` that a body there needs before the step.
+pub fn collision_window(point: [f64; 3]) -> WorldBounds {
+    window(point, COLLISION_REACH)
 }
 fn window(point: [f64; 3], radius: f64) -> WorldBounds {
     WorldBounds {

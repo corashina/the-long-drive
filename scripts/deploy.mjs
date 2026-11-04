@@ -1,7 +1,8 @@
 // Stages the built game for Cloudflare Pages and uploads it with Wrangler.
 // The WASM packages get a content hash in their path, so browsers cache them as immutable.
-// Files over the Pages size limit go to R2 under their SHA-256. `functions/[[path]].js` serves them on the same site.
-// Each deployment carries its own `r2.json` map, so a dashboard rollback also restores its large files.
+// Files over the Pages size limit and the Brotli WASM files go to R2 under their SHA-256.
+// `functions/[[path]].js` serves them on the same site.
+// Each deployment carries its own `r2.json` map, so a dashboard rollback also restores its R2 files.
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
@@ -9,6 +10,7 @@ import {cp, mkdir, readdir, readFile, rm, stat, writeFile} from 'node:fs/promise
 import {dirname, extname, relative, resolve, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {gunzipSync} from 'node:zlib';
+import {prepareStartupCompression, WASM} from './prepare-http-compression.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // Cloudflare Pages free plan limits.
@@ -19,10 +21,13 @@ const HEADERS = IMMUTABLE.map(path => `/${path}*\n  Cache-Control: public, max-a
 const BUCKET = 'the-long-slop-large';
 const SITE = 'https://the-long-slop.pages.dev/';
 const TYPES = {'.wasm': 'application/wasm', '.json': 'application/json'};
+const KEY = /^[a-f0-9]{64}$/;
 
 const webPath = path => path.split(sep).join('/');
-// The export library and old runtime packages are not part of the site. `stagePackages` copies `pkg`.
-const excluded = path => path === 'assets/library' || path === 'assets/runtime' || path.startsWith('assets/runtime-') || path === 'pkg';
+// The export library, old runtime packages and export evidence are not part of the site. `stagePackages` copies `pkg`.
+// The game reads only `manifest.bin.gz` from `assets/reference`. `material-evidence.json` alone is over 25 MiB.
+const excluded = path => path === 'assets/library' || path === 'assets/runtime' || path.startsWith('assets/runtime-') || path === 'pkg'
+  || /^assets\/reference\/(([\w-]+-evidence|library-selection)\.json|manifest\.json\.gz)$/.test(path);
 
 async function sha256(path) {
   const hash = createHash('sha256');
@@ -70,9 +75,10 @@ async function stagePackages(webRoot, siteRoot) {
 }
 
 // Copies the app, the reference manifest, and the files of the current runtime package.
-// Moves files over 25 MiB out of the site and routes them to the R2 function.
-// Returns their site paths, sources and R2 keys.
-export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot = resolve(projectRoot, '.cache/deploy')} = {}) {
+// Moves files over 25 MiB out of the site. Routes them and the WASM files to the R2 function.
+// Returns the R2 uploads: site path, source and R2 key.
+export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot = resolve(projectRoot, '.cache/deploy'),
+  compressionRoot = resolve(projectRoot, '.cache/http-compression')} = {}) {
   const manifest = JSON.parse(gunzipSync(await readFile(resolve(webRoot, 'assets/reference/manifest.json.gz'))).toString('utf8'));
   const base = manifest.content_base;
   if (!/^assets\/runtime\/[a-zA-Z0-9_-]+\/$/.test(base) || !Array.isArray(manifest.file_catalog?.files) || !Array.isArray(manifest.file_catalog.packs)) {
@@ -93,7 +99,9 @@ export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot
   await writeFile(resolve(siteRoot, '_headers'), HEADERS);
   let count = 0;
   let bytes = 0;
-  const large = [];
+  const uploads = [];
+  // Site path to R2 keys. `raw` is set only when the file is not in the site.
+  const routes = {};
   for await (const path of files(siteRoot)) {
     const {size} = await stat(path);
     bytes += size;
@@ -101,16 +109,26 @@ export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot
       const site = webPath(relative(siteRoot, path));
       // The R2 function marks its files immutable.
       if (!IMMUTABLE.some(prefix => site.startsWith(prefix))) throw Error(`${site} is over 25 MiB and has no content hash.`);
-      large.push({path: site, source: sources.get(site) ?? resolve(webRoot, site), key: await sha256(path)});
+      const key = await sha256(path);
+      uploads.push({path: site, source: sources.get(site) ?? resolve(webRoot, site), key});
+      routes[`/${site}`] = {raw: key};
       await rm(path);
     } else count++;
   }
   if (count + 1 > MAX_FILES) throw Error(`${count + 1} files. The limit is ${MAX_FILES}.`);
-  await writeFile(resolve(siteRoot, 'r2.json'), JSON.stringify(Object.fromEntries(large.map(({path, key}) => [`/${path}`, key]))));
-  // Pages needs one route. `/r2/*` matches no site file.
-  const include = large.length ? large.map(({path}) => `/${path}`) : ['/r2/*'];
-  await writeFile(resolve(siteRoot, '_routes.json'), JSON.stringify({version: 1, include, exclude: []}));
-  return {count, bytes, large};
+  // Reuses the Brotli files of the build, or makes them after a fast build.
+  const compression = await prepareStartupCompression({webRoot, compressionRoot});
+  const staged = new Map([...sources].map(([site, source]) => [source, site]));
+  for (const path of WASM) {
+    const site = staged.get(resolve(webRoot, path));
+    const brotli = compression.files[`/${path}`]?.brotli;
+    if (!site || !KEY.test(brotli?.sha256 ?? '')) throw Error(`No staged Brotli file for ${path}.`);
+    uploads.push({path: site, source: resolve(compressionRoot, brotli.file), key: brotli.sha256});
+    routes[`/${site}`] = {...routes[`/${site}`], br: brotli.sha256};
+  }
+  await writeFile(resolve(siteRoot, 'r2.json'), JSON.stringify(routes));
+  await writeFile(resolve(siteRoot, '_routes.json'), JSON.stringify({version: 1, include: Object.keys(routes), exclude: []}));
+  return {count, bytes, uploads};
 }
 
 function wrangler(args) {
@@ -129,9 +147,9 @@ async function requireAccess() {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await requireAccess();
-  const {count, bytes, large} = await stageSite();
-  console.log(`Staged ${count} files and ${large.length} R2 files, ${(bytes / 1024 / 1024).toFixed(1)} MiB.`);
-  for (const {path, source, key} of large) {
+  const {count, bytes, uploads} = await stageSite();
+  console.log(`Staged ${count} files and ${uploads.length} R2 files, ${(bytes / 1024 / 1024).toFixed(1)} MiB.`);
+  for (const {path, source, key} of uploads) {
     wrangler(['r2', 'object', 'put', `${BUCKET}/${key}`, '--file', source,
       '--content-type', TYPES[extname(path)] ?? 'application/octet-stream', '--remote']);
   }

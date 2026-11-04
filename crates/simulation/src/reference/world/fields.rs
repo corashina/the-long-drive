@@ -4,6 +4,9 @@
 //! A number always has a fraction or exponent (`1.0`), so it differs from an integer.
 //! An array is a JSON array. A record is a JSON object with sorted keys.
 //! A link is `{"$":[file,path_id]}`. Unity field names cannot hold `$`.
+//!
+//! The binary form (postcard) is not self-describing. Fields are a sequence of
+//! (name, value) pairs. A value is an enum with one variant for each kind.
 use super::{SourceId, WorldInitField, WorldValue};
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq};
@@ -16,6 +19,9 @@ const LINK: &str = "$";
 pub struct WorldFields(Vec<WorldInitField>);
 impl Serialize for WorldFields {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if !serializer.is_human_readable() {
+            return serializer.collect_seq(self.0.iter().map(|f| (&f.name, &f.value)));
+        }
         let mut map = serializer.serialize_map(Some(self.0.len()))?;
         for field in &self.0 {
             map.serialize_entry(&field.name, &field.value)?;
@@ -25,6 +31,16 @@ impl Serialize for WorldFields {
 }
 impl<'de> Deserialize<'de> for WorldFields {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        if !deserializer.is_human_readable() {
+            let pairs = Vec::<(String, WorldValue)>::deserialize(deserializer)?;
+            if pairs.windows(2).any(|w| w[0].0 >= w[1].0) {
+                return Err(de::Error::custom("Source fields must be sorted and unique"));
+            }
+            let entries = pairs
+                .into_iter()
+                .map(|(name, value)| WorldInitField { name, value });
+            return Ok(WorldFields(entries.collect()));
+        }
         struct FieldsVisitor;
         impl<'de> Visitor<'de> for FieldsVisitor {
             type Value = WorldFields;
@@ -62,8 +78,45 @@ fn fields<'de, A: MapAccess<'de>>(
     Ok(WorldFields(entries.into_boxed_slice().into_vec()))
 }
 
+/// The binary form of a value.
+#[derive(Serialize)]
+enum BinaryRef<'a> {
+    Empty,
+    Bool(bool),
+    Integer(i64),
+    Number(f64),
+    Text(&'a str),
+    Link(&'a SourceId),
+    Array(&'a [WorldValue]),
+    Record(&'a WorldFields),
+}
+#[derive(Deserialize)]
+enum Binary {
+    Empty,
+    Bool(bool),
+    Integer(i64),
+    Number(f64),
+    Text(String),
+    Link(SourceId),
+    Array(Vec<WorldValue>),
+    Record(WorldFields),
+}
+
 impl Serialize for WorldValue {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if !serializer.is_human_readable() {
+            return match self {
+                Self::Empty => BinaryRef::Empty,
+                Self::Bool(v) => BinaryRef::Bool(*v),
+                Self::Integer(v) => BinaryRef::Integer(*v),
+                Self::Number(v) => BinaryRef::Number(*v),
+                Self::Text(v) => BinaryRef::Text(v),
+                Self::Link(v) => BinaryRef::Link(v),
+                Self::Array(v) => BinaryRef::Array(v),
+                Self::Record(v) => BinaryRef::Record(v),
+            }
+            .serialize(serializer);
+        }
         match self {
             Self::Empty => serializer.serialize_unit(),
             Self::Bool(v) => serializer.serialize_bool(*v),
@@ -88,6 +141,18 @@ impl Serialize for WorldValue {
 }
 impl<'de> Deserialize<'de> for WorldValue {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        if !deserializer.is_human_readable() {
+            return Ok(match Binary::deserialize(deserializer)? {
+                Binary::Empty => Self::Empty,
+                Binary::Bool(v) => Self::Bool(v),
+                Binary::Integer(v) => Self::Integer(v),
+                Binary::Number(v) => Self::Number(v),
+                Binary::Text(v) => Self::Text(v),
+                Binary::Link(v) => Self::Link(v),
+                Binary::Array(v) => Self::Array(v),
+                Binary::Record(v) => Self::Record(v),
+            });
+        }
         deserializer.deserialize_any(ValueVisitor)
     }
 }
@@ -206,5 +271,17 @@ mod tests {
         assert_eq!(serde_json::to_string(&fields).unwrap(), json);
         assert!(serde_json::from_str::<WorldFields>(r#"{"b":1,"a":2}"#).is_err());
         assert!(serde_json::from_str::<WorldFields>(r#"{"a":{"$":["f",1],"b":2}}"#).is_err());
+    }
+
+    #[test]
+    fn binary_values_round_trip() {
+        let json = r#"{"a":null,"b":true,"c":3,"d":3.0,"e":"x","f":[1,{"$":["level1",7]}],"g":{"x":-0.5,"y":{}}}"#;
+        let fields: WorldFields = serde_json::from_str(json).unwrap();
+        let bytes = postcard::to_stdvec(&fields).unwrap();
+        let fields: WorldFields = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(serde_json::to_string(&fields).unwrap(), json);
+        let unsorted =
+            postcard::to_stdvec(&[("b", WorldValue::Empty), ("a", WorldValue::Empty)]).unwrap();
+        assert!(postcard::from_bytes::<WorldFields>(&unsorted).is_err());
     }
 }

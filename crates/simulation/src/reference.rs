@@ -1,5 +1,7 @@
 //! Validated installed-build data. Geometry uses converted body-local meters.
 
+#[macro_use]
+mod tagged;
 pub mod fixed_reservation;
 pub mod package;
 mod packed;
@@ -234,8 +236,10 @@ pub struct BodyRecord {
     pub parent_body: Option<BodyId>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+tagged_enum! {
+"ColliderGeometry",
+#[derive(Clone, Debug)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ColliderGeometry {
     Box {
         center: [f32; 3],
@@ -261,6 +265,7 @@ pub enum ColliderGeometry {
         #[serde(with = "packed::triangles")]
         triangles: Vec<[u32; 3]>,
     },
+}
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -387,8 +392,10 @@ pub struct TurnReference {
     pub max_state: u8,
     pub initial_state: u8,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+tagged_enum! {
+"EndpointReactionReference",
+#[derive(Clone, Debug)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum EndpointReactionReference {
     None,
     Rotation {
@@ -401,13 +408,17 @@ pub enum EndpointReactionReference {
         events: [bool; 4],
     },
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+}
+tagged_enum! {
+"TurnAction",
+#[derive(Clone, Debug)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TurnAction {
     ToggleHandbrake,
     CycleHeadlights,
     InteriorLight,
     ToggleHomeLight { source: SourceId },
+}
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -929,14 +940,14 @@ pub struct PhysicsSettings {
     pub sleep_threshold: f32,
 }
 
-/// The manifest with all world vehicle prototypes is about 146 MB.
+/// The manifest file is about 100 MB unpacked.
 pub const MAX_MANIFEST_BYTES: usize = 384 * 1024 * 1024;
 
 /// The installed export. The manifest is gzip at rest.
 #[cfg(not(target_arch = "wasm32"))]
 pub const INSTALLED_MANIFEST: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../web/assets/reference/manifest.json.gz"
+    "/../../web/assets/reference/manifest.bin.gz"
 );
 
 /// Reads and unpacks a gzip manifest file.
@@ -948,6 +959,56 @@ pub fn read_manifest(path: impl AsRef<std::path::Path>) -> std::io::Result<Vec<u
         .take(MAX_MANIFEST_BYTES as u64 + 1)
         .read_to_end(&mut bytes)?;
     Ok(bytes)
+}
+
+/// Splits the unpacked manifest file into its JSON and its world tables.
+/// The file is a u32 LE JSON length, the JSON, then the postcard world tables.
+pub fn split_manifest(bytes: &[u8]) -> Result<(&[u8], &[u8]), ReferenceError> {
+    let (length, rest) = bytes
+        .split_first_chunk::<4>()
+        .ok_or_else(|| ReferenceError("Manifest has no JSON length".into()))?;
+    let length = u32::from_le_bytes(*length) as usize;
+    require(length <= rest.len(), "manifest JSON length")?;
+    Ok(rest.split_at(length))
+}
+
+/// Joins manifest JSON and world tables into the manifest file.
+pub fn join_manifest(json: &[u8], tables: &[u8]) -> Vec<u8> {
+    let length = u32::try_from(json.len()).expect("manifest JSON under 4 GiB");
+    let mut bytes = Vec::with_capacity(4 + json.len() + tables.len());
+    bytes.extend_from_slice(&length.to_le_bytes());
+    bytes.extend_from_slice(json);
+    bytes.extend_from_slice(tables);
+    bytes
+}
+
+/// Makes the manifest file from the exporter JSON, which holds the world tables.
+pub fn encode_manifest(json: &[u8]) -> Result<Vec<u8>, ReferenceError> {
+    use serde_json::value::RawValue;
+    use std::collections::BTreeMap;
+    let error = |e: serde_json::Error| ReferenceError(e.to_string());
+    let mut top: BTreeMap<&str, &RawValue> = serde_json::from_slice(json).map_err(error)?;
+    let world_json = top
+        .get("world")
+        .ok_or_else(|| ReferenceError("Manifest has no world".into()))?;
+    let mut world: BTreeMap<&str, &RawValue> =
+        serde_json::from_str(world_json.get()).map_err(error)?;
+    let mut table = |name: &str| {
+        world
+            .remove(name)
+            .ok_or_else(|| ReferenceError(format!("World has no {name}")))
+    };
+    let tables: WorldTables = (
+        serde_json::from_str(table("records")?.get()).map_err(error)?,
+        serde_json::from_str(table("prototypes")?.get()).map_err(error)?,
+        serde_json::from_str(table("receipts")?.get()).map_err(error)?,
+    );
+    let tables = postcard::to_stdvec(&tables).map_err(|e| ReferenceError(e.to_string()))?;
+    let world =
+        RawValue::from_string(serde_json::to_string(&world).map_err(error)?).map_err(error)?;
+    top.insert("world", &world);
+    let json = serde_json::to_vec(&top).map_err(error)?;
+    Ok(join_manifest(&json, &tables))
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1154,21 +1215,21 @@ impl ReferenceManifest {
             .filter(|a| a.usage == AssetUsage::UniqueScene)
             .count()
     }
-    pub fn from_json(bytes: &[u8]) -> Result<Self, ReferenceError> {
+    pub fn from_manifest(bytes: &[u8]) -> Result<Self, ReferenceError> {
         let manifest = Self::parse(bytes)?;
         manifest.validate()?;
         Ok(manifest)
     }
 
-    pub fn from_runtime_json(bytes: &[u8]) -> Result<Self, ReferenceError> {
-        let manifest = Self::from_checked_runtime_json(bytes)?;
+    pub fn from_runtime(bytes: &[u8]) -> Result<Self, ReferenceError> {
+        let manifest = Self::from_checked_runtime(bytes)?;
         manifest.validate_gameplay()?;
         Ok(manifest)
     }
 
-    /// Parses runtime bytes that `from_runtime_json` checks in another place.
+    /// Parses runtime bytes that `from_runtime` checks in another place.
     /// The renderer uses it. The simulation worker checks the same bytes.
-    pub fn from_checked_runtime_json(bytes: &[u8]) -> Result<Self, ReferenceError> {
+    pub fn from_checked_runtime(bytes: &[u8]) -> Result<Self, ReferenceError> {
         let mut manifest = Self::parse(bytes)?;
         AudioRecord::check_playback(&mut manifest);
         Ok(manifest)
@@ -1176,8 +1237,12 @@ impl ReferenceManifest {
 
     fn parse(bytes: &[u8]) -> Result<Self, ReferenceError> {
         require(bytes.len() <= MAX_MANIFEST_BYTES, "manifest size")?;
+        let (json, tables) = split_manifest(bytes)?;
         let mut manifest: Self =
-            serde_json::from_slice(bytes).map_err(|e| ReferenceError(e.to_string()))?;
+            serde_json::from_slice(json).map_err(|e| ReferenceError(e.to_string()))?;
+        std::sync::Arc::get_mut(&mut manifest.world)
+            .expect("new world")
+            .decode_tables(tables)?;
         std::sync::Arc::make_mut(&mut manifest.file_catalog).admit()?;
         Ok(manifest)
     }
@@ -2020,5 +2085,23 @@ impl ReferenceManifest {
         wheel_effects::validate(self)?;
         self.conditions.validate(self)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manifest_file_moves_world_tables_to_postcard() {
+        let json = br#"{"world":{"records":[{"source":{"file":"level1","path_id":1},"class_name":"Light","fields":{"a":1.5}}],"prototypes":[],"receipts":[{"file":"level1","path_id":2}],"x":2},"a":1}"#;
+        let bytes = encode_manifest(json).unwrap();
+        let (json, tables) = split_manifest(&bytes).unwrap();
+        assert_eq!(json, br#"{"a":1,"world":{"x":2}}"#);
+        let (records, prototypes, receipts): WorldTables = postcard::from_bytes(tables).unwrap();
+        assert_eq!(records[0].class_name, "Light");
+        assert!(prototypes.is_empty());
+        assert_eq!(receipts[0].path_id, 2);
+        assert!(split_manifest(&[9, 0, 0, 0, b'{']).is_err());
     }
 }

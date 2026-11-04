@@ -9,19 +9,28 @@ from pathlib import Path, PurePosixPath
 
 MAX_U32 = 2**32 - 1
 MAX_STAGING = 32 * 1024 * 1024
-# The runtime manifest is gzip at rest. Each file stays under GitHub's 100 MB limit.
+# The exporter manifest JSON. The tools read it. Gzip at rest.
 MANIFEST = 'manifest.json.gz'
 # A start pack holds at most this many entry bytes. Its gzip file stays under the Pages 25 MiB limit.
 PACK_BYTES = 16 * 1024 * 1024
 # Usages that load as fixed scene roots at startup. Same list as `scene_root` in src/presentation/fixed_assets.rs.
 SCENE_ROOTS = {'unique_scene', 'road_lamp_prototype', 'sky_prototype', 'food_prototype', 'item_prototype',
                'player_prototype', 'ragdoll_prototype', 'sky_traffic', 'creature_prototype'}
+# The game manifest file: the JSON with the world tables as postcard. The game contract makes it.
+RUNTIME_MANIFEST = 'manifest.bin.gz'
 
 
 def write_manifest(output: Path, manifest: dict) -> None:
+    from .export import encode_runtime_manifest
     content = json.dumps(manifest, separators=(',', ':'), allow_nan=False).encode()
     # mtime 0 keeps the file bytes the same for the same manifest.
     (output / MANIFEST).write_bytes(gzip.compress(content, compresslevel=9, mtime=0))
+    runtime = encode_runtime_manifest(content)
+    (output / RUNTIME_MANIFEST).write_bytes(gzip.compress(runtime, compresslevel=9, mtime=0))
+
+
+def runtime_manifest_bytes(output: Path) -> bytes:
+    return gzip.decompress((output / RUNTIME_MANIFEST).read_bytes())
 
 
 def manifest_bytes(output: Path) -> bytes:
@@ -116,7 +125,7 @@ def build_prototype_plan(document: dict, receipts: dict) -> dict:
 
 
 def build_file_catalog(manifest: dict, output: Path) -> dict:
-    excluded = {MANIFEST, 'library-selection.json'}
+    excluded = {MANIFEST, RUNTIME_MANIFEST, 'library-selection.json'}
     files = {f'reference/{path.name}': file_receipt(path, f'reference/{path.name}')
              for path in sorted(output.iterdir()) if path.is_file()
              and path.name not in excluded and not path.name.endswith('-evidence.json')

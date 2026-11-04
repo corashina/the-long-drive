@@ -541,7 +541,7 @@ pub struct GarageRuntime {
     screens_scratch: Vec<ItemId>,
     /// World cars whose plate texts the renderer has.
     plates_sent: Vec<crate::world::GeneratedId>,
-    structure_views: structure_frame::StructureViews,
+    pub(crate) structure_views: structure_frame::StructureViews,
     /// The feedback the renderer last received.
     last_feedback: Option<hud::FeedbackStamp>,
     /// The last rendered frame input.
@@ -960,7 +960,12 @@ impl GarageRuntime {
         if let Err(error) = self.sync_world_activity(reference) {
             self.stream.fail(ReferenceError(error.to_string()));
         }
-        if !self.started || self.paused || self.recovering || !self.world_supported() {
+        // The check reads the stream request, so the request is the current position.
+        let held = !self.started || self.paused || self.recovering || {
+            self.request_focus();
+            !self.world_supported()
+        };
+        if held {
             self.clear_input();
             #[cfg(target_arch = "wasm32")]
             if crate::cpu_profile::enabled() {
@@ -1525,12 +1530,7 @@ impl GarageRuntime {
         }
 
         self.advance_under_map();
-        // An item seat moves the player with the item body, so the player stays the focus.
-        let focus = if let Some(vehicle) = self.area.player.seat_vehicle() {
-            self.physics.snapshot(vehicle).pose.position
-        } else {
-            self.area.player.focus_position(&self.physics)
-        };
+        let focus = self.request_focus();
         let absolute = self.stream.origin.absolute(focus);
         // napszak refreshes CurrentColor under the player each second.
         if self.lighting.cycle.needs_terrain_color(0.) {
@@ -1539,7 +1539,6 @@ impl GarageRuntime {
                 .cycle
                 .set_terrain_color(&reference.lighting.cycle, &color, 0.);
         }
-        self.request_world(absolute);
         self.persistent_world
             .sync(
                 reference,
@@ -2287,6 +2286,17 @@ impl GarageRuntime {
                 .temperature = Some(part.state.temperature);
         }
     }
+    /// Asks the stream for the area of the player focus. Returns the local focus.
+    fn request_focus(&mut self) -> [f32; 3] {
+        // An item seat moves the player with the item body, so the player stays the focus.
+        let focus = if let Some(vehicle) = self.area.player.seat_vehicle() {
+            self.physics.snapshot(vehicle).pose.position
+        } else {
+            self.area.player.focus_position(&self.physics)
+        };
+        self.request_world(self.stream.origin.absolute(focus));
+        focus
+    }
     /// Asks the stream for the area of `absolute` (the player), the cars that hold an area and the kept bodies.
     pub fn request_world(&mut self, absolute: [f64; 3]) {
         let car = self.vehicle.as_ref().map_or(absolute, |key| {
@@ -2343,24 +2353,18 @@ impl GarageRuntime {
         {
             return false;
         }
-        let supported = |point: [f32; 3], padding: f64| {
-            let center = self.stream.origin.absolute(point);
-            let bounds = crate::world::WorldBounds {
-                min: center.map(|v| v - padding),
-                max: center.map(|v| v + padding),
-            };
-            // Source bodies return one sync after their own wider area loads. Wait for them too.
-            self.stream.supports(bounds) && !self.persistent_world.waits_for(bounds)
-        };
-        supported(self.area.player.focus_position(&self.physics), 8.)
+        // Source bodies return one sync after their own wider area loads. Wait for them too.
+        let supported =
+            |bounds| self.stream.supports(bounds) && !self.persistent_world.waits_for(bounds);
+        // The stream loads its collision ranges before other work. The step waits for the same
+        // areas, so a wait never depends on work that waits for the camera view.
+        self.stream.collision_ranges().into_iter().all(supported)
             && self.vehicles.keys().all(|key| {
-                let handle = self.physics.chassis_handle(key);
-                !self.physics.body_active(handle)
-                    || supported(
-                        self.physics.snapshot(key).pose.position,
-                        8. + self.physics.rapier().bodies[handle].linvel().length() as f64
-                            * FIXED_DT as f64,
-                    )
+                let position = self.physics.snapshot(key).pose.position;
+                !self.physics.body_active(self.physics.chassis_handle(key))
+                    || supported(crate::world::collision_window(
+                        self.stream.origin.absolute(position),
+                    ))
             })
     }
     /// Call after source publication, before deciding whether the simulation can advance.

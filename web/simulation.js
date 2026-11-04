@@ -6,7 +6,7 @@ export function createSimulation(worker,onFailure){
   if(failed)return;
   if(data.error!==undefined){fail(data.error);return;}
   if(data.sandbox!==undefined){sandboxWaits.shift()?.(data.sandbox);return;}
-  if(data.startup){started=true;if(netStart){const [role,slot,handler]=netStart;netStart=null;netSession(role,slot,handler);}starting?.resolve({startup:data.startup,loadError:data.loadError});starting=null;return;}
+  if(data.started){started=true;if(netStart){const [role,slot,handler]=netStart;netStart=null;netSession(role,slot,handler);}starting?.resolve({loadError:data.loadError});starting=null;return;}
   frame=data.frame;tickMs+=data.tickMs;ticks++;wasmBytes=data.wasmBytes;
   if(data.net?.length)onNet?.(data.net);
   if(data.clearInput)hooks.clearInput?.();
@@ -23,10 +23,12 @@ export function createSimulation(worker,onFailure){
   // Hooks of the CPU profile. The worker reports input use with the frame.
   hooks(value){hooks=value;},
   profile(enabled){worker.postMessage({cpuProfile:Boolean(enabled)});},
-  // `manifest` and `save` move to the worker. `save` is the save JSON, or empty for a new game.
-  // Resolves with the encoded startup values and why the save did not load.
-  start(manifest,hash,drawDistance,biome,startCar,seed,options,save){
-   return new Promise((resolve,reject)=>{starting={resolve,reject};worker.postMessage({start:{manifest,hash,drawDistance,biome,startCar,seed,options,save}},[manifest.buffer,save.buffer]);});
+  // `manifest` moves to the worker, which parses it before `start`.
+  load(manifest){worker.postMessage({manifest},[manifest.buffer]);},
+  // `save` moves to the worker. It is the save JSON, or empty for a new game.
+  // Resolves with why the save did not load. Commands sent before the start wait in the worker queue.
+  start(hash,drawDistance,biome,startCar,seed,options,save){
+   return new Promise((resolve,reject)=>{starting={resolve,reject};worker.postMessage({start:{hash,drawDistance,biome,startCar,seed,options,save}},[save.buffer]);});
   },
   // The command is a view of WASM memory, so copy it before transfer.
   send(command){

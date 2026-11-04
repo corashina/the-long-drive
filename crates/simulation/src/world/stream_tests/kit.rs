@@ -18,7 +18,7 @@ thread_local! {
 }
 
 pub(crate) fn reference() -> ReferenceManifest {
-    ReferenceManifest::from_runtime_json(
+    ReferenceManifest::from_runtime(
         &crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap(),
     )
     .unwrap()

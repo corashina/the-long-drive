@@ -6,11 +6,8 @@ fn reference() -> &'static WorldReference {
         let path = std::env::var("FRONTIER_MANIFEST")
             .unwrap_or(the_long_slop::reference::INSTALLED_MANIFEST.into());
         let bytes = the_long_slop::reference::read_manifest(path).unwrap();
-        #[derive(serde::Deserialize)]
-        struct Manifest {
-            world: WorldReference,
-        }
-        serde_json::from_slice::<Manifest>(&bytes).unwrap().world
+        let reference = the_long_slop::reference::ReferenceManifest::from_runtime(&bytes).unwrap();
+        std::sync::Arc::unwrap_or_clone(reference.world)
     })
 }
 

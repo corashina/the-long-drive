@@ -1,5 +1,5 @@
 //! One simulation behind encoded commands and frames. The worker module runs it.
-use crate::boundary::{DecodeError, FrameEncoder, SimInit, SimStartup, decode_command};
+use crate::boundary::{DecodeError, FrameEncoder, SimInit, decode_command};
 use crate::driver::SimDriver;
 use crate::reference::{ReferenceError, ReferenceManifest};
 use crate::save::{SaveError, SaveSnapshot, SourceStamp};
@@ -20,10 +20,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(
-        reference: Arc<ReferenceManifest>,
-        init: SimInit,
-    ) -> Result<(Self, SimStartup), ReferenceError> {
+    pub fn new(reference: Arc<ReferenceManifest>, init: SimInit) -> Result<Self, ReferenceError> {
         let source = SourceStamp::new(&reference, init.manifest_sha256);
         let mut load_error = None;
         let saved = (!init.save.is_empty()).then(|| {
@@ -50,8 +47,7 @@ impl Session {
         };
         runtime.set_game_options(init.options);
         let driver = SimDriver::new(runtime, source);
-        let startup = driver.startup();
-        let session = Self {
+        Ok(Self {
             reference,
             driver,
             frame: Default::default(),
@@ -60,8 +56,7 @@ impl Session {
             net_out: Vec::new(),
             load_error,
             sandbox: Default::default(),
-        };
-        Ok((session, startup))
+        })
     }
 
     pub fn load_error(&self) -> Option<&str> {
@@ -119,7 +114,7 @@ mod tests {
     #[ignore = "requires the installed source export"]
     fn tick_answers_a_decodable_frame() {
         let bytes = crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap();
-        let reference = Arc::new(ReferenceManifest::from_runtime_json(&bytes).unwrap());
+        let reference = Arc::new(ReferenceManifest::from_runtime(&bytes).unwrap());
         let init = SimInit {
             mode: Default::default(),
             options: Default::default(),
@@ -127,7 +122,7 @@ mod tests {
             manifest_sha256: String::new(),
             save: Vec::new(),
         };
-        let (mut session, startup) = Session::new(reference, init).unwrap();
+        let mut session = Session::new(reference, init).unwrap();
         let mut command = Vec::new();
         encode_command(
             &SimCommand {
@@ -140,6 +135,7 @@ mod tests {
         let mut frame = SimFrame::default();
         decode(session.tick(&command).unwrap(), &mut frame).unwrap();
         assert_eq!(frame.seq_consumed, 1);
-        assert_eq!(frame.state.session, startup.session);
+        // The renderer reads session 0 as no world yet.
+        assert_ne!(frame.state.session, 0);
     }
 }

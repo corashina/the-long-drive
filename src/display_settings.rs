@@ -49,8 +49,6 @@ pub struct DisplaySettings {
     pub mirrors: u32,
     /// Source `FMirrorDrawDistance`, in meters.
     pub mirror_distance: f32,
-    /// Off skips the blur pass. The source has no such setting.
-    pub motion_blur: bool,
     /// Off removes the shadows of point and spot lights.
     pub lamp_shadows: bool,
     /// "Antialiasing": 0 high, 1 low, 2 off.
@@ -123,7 +121,7 @@ mod tests {
     use super::*;
 
     /// `displayRecord` of the `web/display-settings.js` defaults.
-    const DEFAULTS: &str = r#"{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":0,"mirror_distance":150,"motion_blur":true,"lamp_shadows":true,"antialiasing":1,"ambient_occlusion":0,"reflections":0}"#;
+    const DEFAULTS: &str = r#"{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":0,"mirror_distance":150,"lamp_shadows":true,"antialiasing":1,"ambient_occlusion":0,"reflections":0}"#;
 
     #[test]
     fn browser_record_parses_and_checks_values() {

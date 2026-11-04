@@ -7,7 +7,6 @@ mod performance;
 pub(crate) mod save;
 mod sim_link;
 use crate::browser::*;
-use crate::interaction::labels::vehicle_name;
 use crate::presentation::{
     self,
     camera::DriveCamera,
@@ -33,8 +32,6 @@ pub(crate) struct RuntimeReference(pub Arc<ReferenceManifest>);
 #[derive(Resource)]
 pub(crate) struct Drive {
     link: sim_link::SimLink,
-    /// Renderer setup values of the simulation.
-    startup: simulation::boundary::SimStartup,
     /// Sequence of the last sent command.
     seq: u64,
     /// Sequence of the last command with menu actions. Older frames have a stale pause flag.
@@ -67,85 +64,8 @@ impl Drive {
     }
 }
 
-/// Manifest fields the browser shell reads. Copies them without parsing the world records.
-#[derive(serde::Deserialize, serde::Serialize)]
-struct ManifestShell<'a> {
-    #[serde(borrow)]
-    app_id: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    build_id: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    source_hashes: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    driving: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    settings: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    language: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    ui: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    sleep: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    audio: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    content_base: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    file_catalog: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    items: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    world: WorldShell<'a>,
-    #[serde(borrow)]
-    clothing: ClothingShell<'a>,
-}
-/// The outfit defaults: the segments of each player character.
-#[derive(serde::Deserialize, serde::Serialize)]
-struct ClothingShell<'a> {
-    #[serde(borrow)]
-    characters: Vec<CharacterShell<'a>>,
-}
-#[derive(serde::Deserialize, serde::Serialize)]
-struct CharacterShell<'a> {
-    #[serde(borrow)]
-    segments: &'a serde_json::value::RawValue,
-}
-#[derive(serde::Deserialize, serde::Serialize)]
-struct WorldShell<'a> {
-    #[serde(borrow)]
-    draw_distance: &'a serde_json::value::RawValue,
-    #[serde(borrow)]
-    mirrors: &'a serde_json::value::RawValue,
-    #[serde(borrow, skip_serializing)]
-    startup: Vec<StartupShell<'a>>,
-    /// Start car names in export order. The Game mode start car list shows them.
-    #[serde(skip_deserializing)]
-    start_cars: Vec<String>,
-}
-#[derive(serde::Deserialize)]
-struct StartupShell<'a> {
-    group: &'a str,
-    start_car: bool,
-}
-
 fn js_error(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
-}
-
-#[wasm_bindgen]
-pub fn manifest_shell(reference_json: &[u8]) -> Result<String, JsValue> {
-    let mut shell: ManifestShell = serde_json::from_slice(reference_json).map_err(js_error)?;
-    // Car09 has two start fields. The second one with a name shows "(2)".
-    for startup in shell.world.startup.iter().filter(|s| s.start_car) {
-        let name = vehicle_name(startup.group).unwrap_or(startup.group);
-        let name = if shell.world.start_cars.iter().any(|n| n == name) {
-            format!("{name} (2)")
-        } else {
-            name.to_owned()
-        };
-        shell.world.start_cars.push(name);
-    }
-    serde_json::to_string(&shell).map_err(js_error)
 }
 
 /// The Game mode from the browser. Biome values above 3 read as Mixed.
@@ -170,15 +90,13 @@ thread_local! {
 }
 
 #[wasm_bindgen]
-/// Parses the reference. It runs while the simulation worker parses and checks its copy.
-pub fn prepare(reference_json: &[u8]) -> Result<(), JsValue> {
+/// Parses the reference while the simulation worker parses and checks its copy.
+/// Returns the shell JSON for the browser interface.
+pub fn prepare(manifest: &[u8]) -> Result<String, JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
     console_error_panic_hook::set_once();
-    let reference =
-        Arc::new(ReferenceManifest::from_checked_runtime_json(reference_json).map_err(js_error)?);
-    if let Err(error) = reference.audio.playback() {
-        game_audio_error(&error.to_string());
-    }
+    let reference = Arc::new(ReferenceManifest::from_checked_runtime(manifest).map_err(js_error)?);
+    let shell = crate::manifest_shell::shell(&reference).map_err(js_error)?;
     // The simulation worker checks the reference. Systems need these resources.
     let materials = presentation::materials::load_materials(&reference).map_err(js_error)?;
     let fixed_assets =
@@ -188,12 +106,13 @@ pub fn prepare(reference_json: &[u8]) -> Result<(), JsValue> {
         materials,
         fixed_assets,
     }));
-    Ok(())
+    Ok(shell)
 }
 
 #[wasm_bindgen]
-/// `startup` is the encoded `SimStartup` of the simulation worker. `prepare` comes first.
-pub fn run(startup: &[u8]) -> Result<(), JsValue> {
+/// Starts the renderer. `prepare` comes first. The simulation worker can still be starting:
+/// the first command waits in its queue, and the first frame gives the camera and the world session.
+pub fn run() -> Result<(), JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
     let Prepared {
         reference,
@@ -202,8 +121,10 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
     } = PREPARED
         .take()
         .ok_or_else(|| JsValue::from_str("The reference is not prepared."))?;
-    let startup =
-        simulation::boundary::decode_startup(startup).map_err(|e| JsValue::from_str(&e.0))?;
+    // The audio bridge exists only after `prepare`.
+    if let Err(error) = reference.audio.playback() {
+        game_audio_error(&error.to_string());
+    }
     let mut ledger = crate::ownership::PresentationLedger::default();
     let (fixed, graph) = crate::ownership::fixed::admit_control(
         &mut ledger,
@@ -211,11 +132,8 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
         presentation::readiness::RendererStateHandle::default,
     )
     .map_err(js_error)?;
-    let allocation = presentation::world::runtime::SourcePresentationAllocation::bootstrap(
-        startup.session,
-        fixed,
-        ledger,
-    );
+    let allocation =
+        presentation::world::runtime::SourcePresentationAllocation::bootstrap(fixed, ledger);
     App::new()
         .insert_resource(graph)
         .insert_resource(allocation)
@@ -224,9 +142,12 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
         .insert_resource(RuntimeReference(reference.clone()))
         .init_resource::<save::SaveRequests>()
         .insert_resource(Drive {
-            view: startup.view,
+            // `fill_frame` sets it each frame.
+            view: VehiclePose {
+                position: [0.; 3],
+                rotation: [0., 0., 0., 1.],
+            },
             link: sim_link::SimLink::default(),
-            startup,
             seq: 0,
             action_seq: 0,
             world_ms: 0.,
@@ -383,7 +304,6 @@ fn setup(
     server: Res<AssetServer>,
     gltf_extensions: Res<bevy::gltf::extensions::GltfExtensionHandlers>,
     reference: Res<RuntimeReference>,
-    drive: Res<Drive>,
     antialiasing: Res<presentation::antialiasing::Antialiasing>,
 ) {
     commands.insert_resource(presentation::consumables::ConsumableVisuals::default());
@@ -406,9 +326,6 @@ fn setup(
         &mut commands,
         &mut images,
         &reference.0,
-        presentation::transform(drive.startup.view),
-        drive.startup.fov_degrees,
-        drive.startup.far_plane,
         *antialiasing,
     );
 }
@@ -967,8 +884,8 @@ fn update_camera(
         *transform = frame_camera(state, drive.view);
         presentation::camera_projection::sync_player_projection(
             &mut projection,
-            true,
             state.fov_degrees,
+            state.far_plane,
         );
     }
 }

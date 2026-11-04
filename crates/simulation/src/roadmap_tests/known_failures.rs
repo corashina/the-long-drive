@@ -24,7 +24,7 @@ fn tp_k5_s1_a_stored_save_starts_the_session_and_its_restore_finishes() {
         manifest_sha256: stamp.manifest_sha256.clone(),
         save: serde_json::to_vec(&saved).unwrap(),
     };
-    let (session, _) = Session::new(reference.clone(), init).unwrap();
+    let session = Session::new(reference.clone(), init).unwrap();
     assert_eq!(session.load_error(), None, "the stored save opens");
     drop(session);
     // The restore the session frames run.
@@ -700,5 +700,63 @@ fn tp_k13_driving_away_from_the_start_never_stops_the_car() {
             );
         }
         frame(&mut run, &reference);
+    }
+}
+
+/// K14. The start car rolls forward. Its dashboard is a mounted gauge part with content poses.
+/// The speed needle turns, and the last pose row of each needle and digit is its gauge rotation.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k14_the_start_car_gauges_turn_over_the_part_poses() {
+    use crate::boundary::NodePoseRow;
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let key = run.vehicle.clone().unwrap();
+    let car = run.physics.snapshot(&key).pose;
+    stand_near(&mut run, &reference, car.position, 2.);
+    act(&mut run, &reference, r#"{"action":"seat","seat":"driver"}"#);
+    let handle = run.physics.chassis_handle(&key);
+    let mut out = crate::boundary::SimFrame::default();
+    let mut posed = std::collections::HashMap::new();
+    for _ in 0..100 {
+        run.physics.edit_body(handle, |b| {
+            let forward = b.rotation() * rapier3d::math::Vector::Z;
+            b.set_linvel(forward * 10., true);
+        });
+        frame(&mut run, &reference);
+        run.fill_frame(&reference, 1., &mut out);
+        let gauge = run.powertrain.gauges().next().unwrap();
+        let slot = run.structure_views.slots[&gauge.parent];
+        for row in out.structures.iter().filter(|r| r.slot == slot) {
+            for pose in &out.structure_poses[row.poses[0] as usize..row.poses[1] as usize] {
+                posed.insert(pose.node, pose.kind);
+            }
+        }
+    }
+    let gauge = run.powertrain.gauges().next().unwrap();
+    let speed = gauge
+        .record
+        .needles
+        .iter()
+        .position(|n| n.signal == "speed")
+        .unwrap();
+    let rest = crate::simulation::instruments::needle_angle(&gauge.record.needles[speed], 0.);
+    assert!(
+        gauge.state.needle_angles[speed] != rest,
+        "the speed needle turns"
+    );
+    let digits = gauge
+        .record
+        .counters
+        .iter()
+        .flat_map(|c| &c.digits)
+        .map(|d| d.node);
+    for node in gauge.record.needles.iter().map(|n| n.node).chain(digits) {
+        assert_eq!(
+            posed.get(&node.0),
+            Some(&NodePoseRow::ROTATION),
+            "node {}",
+            node.0
+        );
     }
 }
