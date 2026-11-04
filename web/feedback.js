@@ -71,16 +71,31 @@ export function oldCrosshairColor(bits,colors){
 }
 // Hint templates: `{action}` is the bound key name of a source action in brackets, `<word>` an `ls.w` word.
 // They fill once per binding or language change.
-export const HINTS={translationHelp:'{rmb}+[<mouse>]: <move>\n{scrollup}: Distance\n{looklean}+{scrollup}: Posture',
- rotationHelp:'{rmb}+[<mouse>]: <move>\n{mmb}+[<mouse>]: <rotate>\n{rmb}+{mmb}+[<mouse>]: Roll\n{scrollup}: Distance\n{looklean}+{scrollup}: Posture',
- doorMove:'{lmb}+[<mouse>]: <move>',doorOpen:'{lmb}+[<mouse>]: <openclose>',useLmbSwitch:'{use} / {lmb}: <turnSwitch>',useSwitch:'{use}: <turnSwitch>',useOpen:'{use}: <openclose>',
- tuneLmb:'{use} / {lmb}+[<mouse>]: <tune>',tune:'{use}+[<mouse>]: <tune>',tuneOpen:'{use}+[<mouse>] / {scrollup}: <openclose>',scrollTune:'{scrollup}: <tune>',scrollOpen:'{scrollup}: <openclose>',
- crankLmb:'{use} / {lmb}+[<mouse>]: <crank>',crank:'{use}+[<mouse>]: <crank>'};
-// One prompt line: each `[key]` becomes a key cap, `:` separators drop out.
+export const HINTS={translationHelp:'{rmb}+[Mouse]: <move>\n{scrollup}: Distance\n{looklean}+{scrollup}: Posture',
+ rotationHelp:'{rmb}+[Mouse]: <move>\n{mmb}+[Mouse]: <rotate>\n{rmb}+{mmb}+[Mouse]: Roll\n{scrollup}: Distance\n{looklean}+{scrollup}: Posture',
+ doorMove:'{lmb}+[Mouse]: <move>',doorOpen:'{lmb}+[Mouse]: <openclose>',useLmbSwitch:'{use} / {lmb}: <turnSwitch>',useSwitch:'{use}: <turnSwitch>',useOpen:'{use}: <openclose>',
+ tuneLmb:'{use} / {lmb}+[Mouse]: <tune>',tune:'{use}+[Mouse]: <tune>',tuneOpen:'{use}+[Mouse] / {scrollup}: <openclose>',scrollTune:'{scrollup}: <tune>',scrollOpen:'{scrollup}: <openclose>',
+ crankLmb:'{use} / {lmb}+[Mouse]: <crank>',crank:'{use}+[Mouse]: <crank>'};
+// Mouse icons by key name. `Mouse` is mouse movement. The pressed part uses the `mouse-on` class.
+const MOUSE_BODY='<rect x="6" y="2" width="12" height="20" rx="6"/><path d="M6 10H18"/>',SPLIT='<path d="M12 2V10"/>',WHEEL='<path d="M12 2V4.5M12 8.5V10"/><rect x="10.8" y="4.5" width="2.4" height="4" rx="1.2"';
+const MOUSE_ICONS={
+ LMB:['Left mouse button','5 1 14 22','<path class="mouse-on" d="M12 2A6 6 0 0 0 6 8V10H12Z"/>'+MOUSE_BODY+SPLIT],
+ RMB:['Right mouse button','5 1 14 22','<path class="mouse-on" d="M12 2A6 6 0 0 1 18 8V10H12Z"/>'+MOUSE_BODY+SPLIT],
+ MMB:['Middle mouse button','5 1 14 22',MOUSE_BODY+WHEEL+' class="mouse-on"/>'],
+ Scroll:['Scroll wheel','5 1 19 22',MOUSE_BODY+WHEEL+' class="mouse-on"/><path d="M21 6V14M19.5 7.5L21 6 22.5 7.5M19.5 12.5L21 14 22.5 12.5"/>'],
+ Mouse:['Mouse','0 1 24 22',MOUSE_BODY+WHEEL+'/><path class="mouse-on" d="M3.5 9.5L1 12 3.5 14.5M20.5 9.5L23 12 20.5 14.5"/>']};
+MOUSE_ICONS['-Scroll']=MOUSE_ICONS.Scroll;
+const mouseIcons=new Map();
+function mouseIcon(name){
+ let icon=mouseIcons.get(name);
+ if(!icon){const [label,box,body]=MOUSE_ICONS[name];const t=document.createElement('template');t.innerHTML=`<svg class="mouse" viewBox="${box}" role="img" aria-label="${label}">${body}</svg>`;icon=t.content.firstChild;mouseIcons.set(name,icon);}
+ return icon.cloneNode(true);
+}
+// One prompt line: each `[key]` becomes a key cap or a mouse icon, `:` separators drop out.
 function promptLine(node,text){
  node.replaceChildren();
  for(const part of text.trim().split(/(\[[^\]]*\])/)){
-  if(part.startsWith('[')&&part.endsWith(']')){const k=document.createElement('kbd');k.textContent=part.slice(1,-1);node.append(k);continue;}
+  if(part.startsWith('[')&&part.endsWith(']')){const name=part.slice(1,-1);if(MOUSE_ICONS[name]){node.append(mouseIcon(name));continue;}const k=document.createElement('kbd');k.textContent=name;node.append(k);continue;}
   const t=part.replace(/^\s*:\s*/,' ').replace(/\s*:\s*$/,' ');if(!t.trim()){if(t)node.append(t);continue;}
   const s=document.createElement('span');s.textContent=t.trim();node.append(' ',s,' ');
  }
@@ -100,7 +115,7 @@ export function createFeedback(ui,manifest,settings,actions,language) {
  const families={use:0,pickup:1,mount:2,fill:3};
  const rows=[
   [ACTION.USE,'use','{use}: <openclose>'],
-  [ACTION.DOOR,'door','{lmb}+[<mouse>]: <openclose>'],
+  [ACTION.DOOR,'door','{lmb}+[Mouse]: <openclose>'],
   [ACTION.PICKUP,'pickup','{pickup}: <pickup>'],
   [ACTION.DROP,'drop','{pickup}: Drop'],
   [ACTION.MOUNT,'mount','{mountdismount}: <mount>'],
@@ -111,7 +126,7 @@ export function createFeedback(ui,manifest,settings,actions,language) {
   [ACTION.TAKE_ONE,'takeOne','{use}: <takeone>'],
   [ACTION.PUT_ON,'putOn','Tap {equiprecenter}: <puton>'],
   [ACTION.DRINK,'drink','Hold {lmb}: <drink>'],
-  [ACTION.TUNE,'tune','{use}+[<mouse>] / {scrollup}: <openclose>'],
+  [ACTION.TUNE,'tune','{use}+[Mouse] / {scrollup}: <openclose>'],
   [ACTION.ENTER,'enter','Release {use}: <sit>'],
   [ACTION.EXIT,'exit','{use}: <getoutstand>'],
   [ACTION.SWITCH,'switch','{use}: <turnSwitch>'],
@@ -119,21 +134,21 @@ export function createFeedback(ui,manifest,settings,actions,language) {
   [ACTION.PUSH,'push','{push}: <push>'],
   [ACTION.GRIP,'grip','{push}: Grip'],
   [ACTION.RELEASE_GRIP,'release','{forward}{left}{back}{right}: <push> / {push}: Release'],
-  [ACTION.THROW,'throw','{pickup}: Drop / hold to throw'],
+  [ACTION.THROW,'throw','{pickup}: Drop, hold to throw'],
   [ACTION.SCROLL,'scroll','{scrollup}: <openclose>'],
   [ACTION.HELD_SWITCH,'heldSwitch','{lmb}: Switch flashlight'],
   [ACTION.WASH,'wash','{lmb}: <wash>'],
   [ACTION.SCRUB,'scrub','{lmb}: <scrub>'],
   [ACTION.EQUIP,'equip','Tap {equiprecenter}: <equip>'],
-  [ACTION.RECENTER,'recenter','Hold {equiprecenter}: recenter'],
-  [ACTION.RELEASE_EQUIPMENT,'releaseEquipment','{equiprecenter} or {mmb}: release'],
-  [ACTION.RELEASE_EQUIPMENT_SEATED,'releaseEquipmentSeated','{mmb}: release'],
-  [ACTION.CRANK,'crank','{use}+[<mouse>]: <crank>'],
+  [ACTION.RECENTER,'recenter','Hold {equiprecenter}: Recenter'],
+  [ACTION.RELEASE_EQUIPMENT,'releaseEquipment','{equiprecenter} or {mmb}: Release'],
+  [ACTION.RELEASE_EQUIPMENT_SEATED,'releaseEquipmentSeated','{mmb}: Release'],
+  [ACTION.CRANK,'crank','{use}+[Mouse]: <crank>'],
   [0,'hoseAttach','{mountdismount}: <stickin>',PROMPT.ATTACH],
   [0,'coilUp','{reload}: <coilup>',PROMPT.COIL],
   [0,'drain','{lmb}: <drain>',PROMPT.DRAIN],
-  [0,'breakBarrel','{reload}+[<mouse>]: <breakbarrel>',PROMPT.BREAK_BARREL],
-  [0,'openCylinder','{reload}+[<mouse>]: <opencylinder>',PROMPT.OPEN_CYLINDER],
+  [0,'breakBarrel','{reload}+[Mouse]: <breakbarrel>',PROMPT.BREAK_BARREL],
+  [0,'openCylinder','{reload}+[Mouse]: <opencylinder>',PROMPT.OPEN_CYLINDER],
   [0,'reload','{reload}: <reload>',PROMPT.RELOAD],
   [0,'unload','{use}: <unload>',PROMPT.UNLOAD],
   [0,'binocularsUse','{lmb}: <use>',PROMPT.LOOK],
