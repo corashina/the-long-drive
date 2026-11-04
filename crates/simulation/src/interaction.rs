@@ -260,6 +260,8 @@ pub struct InteractionState {
     wheel_slots: HashMap<WheelSlotId, WheelSlotRule>,
     tire_fits: HashSet<(ItemId, ItemId)>,
     f_gesture_consumed: bool,
+    /// LMB of the last gameplay frame. The fixed input drops the LMB that a tool reserves.
+    frame_lmb: bool,
     source_bindings: HashMap<ColliderId, ActionBinding>,
     pickup_layers: HashMap<ItemId, u32>,
     removal_layers: HashMap<ItemId, u32>,
@@ -610,6 +612,7 @@ impl InteractionState {
             wheel_slots: HashMap::new(),
             tire_fits,
             f_gesture_consumed: false,
+            frame_lmb: false,
             pickup_layers,
             removal_layers,
             usable_items,
@@ -1445,6 +1448,7 @@ impl InteractionState {
         self.seat_action_latched = false;
         self.fill_opening = None;
         self.f_gesture_consumed = false;
+        self.frame_lmb = false;
         self.carry.cancel_input();
         self.push.cancel_input();
         self.latched_mechanism = None;
