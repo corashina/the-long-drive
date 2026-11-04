@@ -5,7 +5,7 @@
 const LEVELS=[0,1,2];
 export const ROWS={
  // Scene resolution percent. 0 is Auto. Then Rust steps the scale on the F3 GPU time.
- scene_scale:{values:[0,100,85,75,67,50],default:100},
+ scene_scale:{values:[0,100,85,75,67,50],default:0},
  // 0 high, 1 medium, 2 low.
  shadows:{values:LEVELS,default:0},
  // 0 high, 1 medium, 2 low. Applies after a reload.
