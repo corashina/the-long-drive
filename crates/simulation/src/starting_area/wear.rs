@@ -221,7 +221,7 @@ impl StartingArea {
             };
             let pose = to_rapier(anchor) * self.wear.rules[item.rule].worn_offset;
             if let Some(body) = self.items.get(item.id).and_then(|i| i.body) {
-                physics.edit_body(body, |b| {
+                physics.follow_body(body, |b| {
                     b.set_position(pose, false);
                     b.set_enabled(false);
                 });
