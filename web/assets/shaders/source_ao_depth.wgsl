@@ -2,7 +2,7 @@
 // Four RGBA16F attachments retain sixteen scalar half-float phases.
 struct DepthParams {
     projection: vec4<f32>, // x = far/near - 1; y = 1
-    control: vec4<u32>, // x = input stride; y = linearize raw depth; z = half store
+    control: vec4<u32>, // x = input stride; y = linearize raw depth
 }
 @group(0) @binding(0) var<uniform> params: DepthParams;
 @group(0) @binding(1) var input_depth: texture_2d<f32>;
@@ -34,23 +34,30 @@ fn load_zero(p: vec2<i32>) -> f32 {
     }
     return textureLoad(input_depth, p, 0).r;
 }
-fn selected_depth(p: vec2<i32>) -> f32 {
-    let raw = load_zero(p * i32(params.control.x));
-    if params.control.y == 0u { return raw; }
+fn linearize(raw: f32) -> f32 {
     if raw == 0.0 { return 100000.0; }
     return 1.0 / fma(params.projection.x, raw, params.projection.y);
 }
+fn selected_depth(p: vec2<i32>) -> f32 {
+    let raw = load_zero(p * i32(params.control.x));
+    if params.control.y == 0u { return raw; }
+    return linearize(raw);
+}
+struct CopyDepth {
+    @location(0) raw: f32,
+    @location(1) linear: f32,
+}
+// One pass writes the raw copy and the full-resolution linear depth (source stride 1, half store).
 @fragment
-fn copy_depth(@builtin(position) position: vec4<f32>) -> @location(0) f32 {
+fn copy_depth(@builtin(position) position: vec4<f32>) -> CopyDepth {
     let size = vec2<i32>(textureDimensions(camera_depth));
     let pixel = clamp(vec2<i32>(floor(position.xy)), vec2(0), size - vec2(1));
-    return textureLoad(camera_depth, pixel, 0).r;
+    let raw = textureLoad(camera_depth, pixel, 0).r;
+    return CopyDepth(raw, half_store(linearize(raw)));
 }
 @fragment
 fn downsample(@builtin(position) position: vec4<f32>) -> @location(0) f32 {
-    let value = selected_depth(vec2<i32>(position.xy));
-    if params.control.z != 0u { return half_store(value); }
-    return value;
+    return selected_depth(vec2<i32>(position.xy));
 }
 struct PhaseRows {
     @location(0) row0: vec4<f32>,

@@ -1,4 +1,4 @@
-//! Source AO depth storage. Allocate once per physical extent.
+//! Source AO depth storage. Allocate once per physical extent and scale count.
 use bevy::prelude::*;
 use bevy::render::{
     render_resource::{binding_types::*, *},
@@ -50,7 +50,7 @@ impl AoDepthTarget {
             std::array::from_fn(|index| {
                 texture.create_view(&TextureViewDescriptor {
                     dimension: Some(TextureViewDimension::D2),
-                    base_array_layer: if array { index as u32 } else { 0 },
+                    base_array_layer: index as u32,
                     array_layer_count: Some(1),
                     ..default()
                 })
@@ -68,12 +68,15 @@ impl AoDepthTarget {
 pub struct AoDepthPass {
     pub copy: AoDepthTarget,
     pub linear: AoDepthTarget,
-    pub low: [AoDepthTarget; 4],
-    pub tiled: [AoDepthTarget; 4],
+    /// One target per scale, finest first.
+    pub low: Vec<AoDepthTarget>,
+    pub tiled: Vec<AoDepthTarget>,
     pub logical_bytes: u64,
-    pipelines: [CachedRenderPipelineId; 4],
-    bindings: [BindGroup; 6],
-    uniforms: [UniformBuffer<DepthParams>; 5],
+    /// The copy (raw and linear depth in one pass), the downsample and the tile pipelines.
+    pipelines: [CachedRenderPipelineId; 3],
+    /// One binding per scale, then the copy binding.
+    bindings: Vec<BindGroup>,
+    uniforms: Vec<UniformBuffer<DepthParams>>,
 }
 impl AoDepthPass {
     pub fn new(
@@ -84,8 +87,12 @@ impl AoDepthPass {
         shader: Handle<Shader>,
         camera_depth: &TextureView,
         extent: [u32; 2],
+        scales: usize,
         previous: Option<&Self>,
     ) -> Result<Self, String> {
+        if !(1..=4).contains(&scales) {
+            return Err("Source AO requires 1 to 4 scales".into());
+        }
         if extent.iter().any(|&x| x == 0 || x > 16384) {
             return Err("Source AO requires a positive physical extent at most 16384".into());
         }
@@ -113,12 +120,14 @@ impl AoDepthPass {
             std::array::from_fn(|level| extent.map(|n| n.div_ceil(1 << level)));
         let copy = AoDepthTarget::new(device, extent, TextureFormat::R32Float, false);
         let linear = AoDepthTarget::new(device, extent, TextureFormat::R16Float, false);
-        let low = std::array::from_fn(|i| {
-            AoDepthTarget::new(device, dimensions[i + 1], TextureFormat::R32Float, false)
-        });
-        let tiled = std::array::from_fn(|i| {
-            AoDepthTarget::new(device, dimensions[i + 3], TextureFormat::Rgba16Float, true)
-        });
+        let low: Vec<_> = (0..scales)
+            .map(|i| AoDepthTarget::new(device, dimensions[i + 1], TextureFormat::R32Float, false))
+            .collect();
+        let tiled: Vec<_> = (0..scales)
+            .map(|i| {
+                AoDepthTarget::new(device, dimensions[i + 3], TextureFormat::Rgba16Float, true)
+            })
+            .collect();
         let area = |e: [u32; 2]| u64::from(e[0]) * u64::from(e[1]);
         let logical_bytes = area(extent) * 6
             + low.iter().map(|t| area(t.extent) * 4).sum::<u64>()
@@ -151,11 +160,13 @@ impl AoDepthPass {
         let pipelines = previous.map_or_else(
             || {
                 std::array::from_fn(|index| {
-                    let (entry, format, count) = match index {
-                        0 => ("copy_depth", TextureFormat::R32Float, 1),
-                        1 => ("downsample", TextureFormat::R32Float, 1),
-                        2 => ("downsample", TextureFormat::R16Float, 1),
-                        _ => ("tile_depth", TextureFormat::Rgba16Float, 4),
+                    let (entry, formats): (_, &[_]) = match index {
+                        0 => (
+                            "copy_depth",
+                            &[TextureFormat::R32Float, TextureFormat::R16Float],
+                        ),
+                        1 => ("downsample", &[TextureFormat::R32Float]),
+                        _ => ("tile_depth", &[TextureFormat::Rgba16Float; 4]),
                     };
                     cache.queue_render_pipeline(RenderPipelineDescriptor {
                         label: Some(format!("source_ao_{entry}_{index}").into()),
@@ -172,8 +183,9 @@ impl AoDepthPass {
                         fragment: Some(FragmentState {
                             shader: shader.clone(),
                             entry_point: Some(entry.into()),
-                            targets: (0..count)
-                                .map(|_| {
+                            targets: formats
+                                .iter()
+                                .map(|&format| {
                                     Some(ColorTargetState {
                                         format,
                                         blend: None,
@@ -189,42 +201,39 @@ impl AoDepthPass {
             },
             |pass| pass.pipelines,
         );
-        let uniforms = std::array::from_fn(|index| {
-            let (stride, linearize, half) = match index {
-                0 => (1, 1, 1),
-                1 => (2, 1, 0),
-                2 => (4, 1, 0),
-                3 => (2, 0, 0),
-                _ => (4, 0, 0),
-            };
-            let mut buffer = UniformBuffer::from(DepthParams {
-                projection: Vec4::ZERO,
-                control: UVec4::new(stride, linearize, half, 0),
-            });
-            buffer.write_buffer(device, queue);
-            buffer
-        });
-        let bindings = std::array::from_fn(|index| {
-            if index == 5 {
-                return device.create_bind_group(
-                    "source_ao_depth_copy",
-                    &cache.get_bind_group_layout(&copy_layout),
-                    &BindGroupEntries::with_indices((
-                        (0, uniforms[4].binding().unwrap()),
-                        (2, camera_depth),
+        // Scales 0 and 1 read the raw copy and linearize. Scales 2 and 3 read the linear scale 1.
+        let uniforms: Vec<_> = (0..scales)
+            .map(|scale| {
+                let stride = if scale % 2 == 0 { 2 } else { 4 };
+                let mut buffer = UniformBuffer::from(DepthParams {
+                    projection: Vec4::ZERO,
+                    control: UVec4::new(stride, u32::from(scale < 2), 0, 0),
+                });
+                buffer.write_buffer(device, queue);
+                buffer
+            })
+            .collect();
+        let mut bindings: Vec<_> = (0..scales)
+            .map(|scale| {
+                device.create_bind_group(
+                    "source_ao_depth",
+                    &cache.get_bind_group_layout(&layout),
+                    &BindGroupEntries::sequential((
+                        uniforms[scale].binding().unwrap(),
+                        if scale < 2 { &copy.view } else { &low[1].view },
+                        camera_depth,
                     )),
-                );
-            }
-            device.create_bind_group(
-                "source_ao_depth",
-                &cache.get_bind_group_layout(&layout),
-                &BindGroupEntries::sequential((
-                    uniforms[index.min(4)].binding().unwrap(),
-                    if index < 3 { &copy.view } else { &low[1].view },
-                    camera_depth,
-                )),
-            )
-        });
+                )
+            })
+            .collect();
+        bindings.push(device.create_bind_group(
+            "source_ao_depth_copy",
+            &cache.get_bind_group_layout(&copy_layout),
+            &BindGroupEntries::with_indices((
+                (0, uniforms[0].binding().unwrap()),
+                (2, camera_depth),
+            )),
+        ));
         Ok(Self {
             copy,
             linear,
@@ -263,11 +272,24 @@ impl AoDepthPass {
             buffer.get_mut().projection = Vec4::new(far / near - 1., 1., 0., 0.);
             buffer.write_buffer(device, queue);
         }
-        self.draw(encoder, cache, 0, 5, &self.copy, false);
-        self.draw(encoder, cache, 2, 0, &self.linear, false);
-        for level in 0..4 {
-            self.draw(encoder, cache, 1, level + 1, &self.low[level], false);
-            self.draw(encoder, cache, 3, level + 1, &self.tiled[level], true);
+        let scales = self.low.len();
+        self.draw(
+            encoder,
+            cache,
+            0,
+            scales,
+            &[&self.copy.view, &self.linear.view],
+        );
+        for scale in 0..scales {
+            self.draw(encoder, cache, 1, scale, &[&self.low[scale].view]);
+            let layers = self.tiled[scale].layers.as_ref().unwrap();
+            self.draw(
+                encoder,
+                cache,
+                2,
+                scale,
+                &[&layers[0], &layers[1], &layers[2], &layers[3]],
+            );
         }
         Ok(true)
     }
@@ -277,15 +299,11 @@ impl AoDepthPass {
         cache: &PipelineCache,
         pipeline: usize,
         binding: usize,
-        target: &AoDepthTarget,
-        array: bool,
+        views: &[&TextureView],
     ) {
         let attachments: [Option<RenderPassColorAttachment>; 4] = std::array::from_fn(|index| {
-            (index == 0 || array).then_some(RenderPassColorAttachment {
-                view: target
-                    .layers
-                    .as_ref()
-                    .map_or(&target.view, |layers| &layers[index]),
+            views.get(index).map(|&view| RenderPassColorAttachment {
+                view,
                 depth_slice: None,
                 resolve_target: None,
                 ops: Operations {
@@ -296,7 +314,7 @@ impl AoDepthPass {
         });
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("source_ao_depth"),
-            color_attachments: &attachments[..if array { 4 } else { 1 }],
+            color_attachments: &attachments[..views.len()],
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
