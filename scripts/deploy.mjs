@@ -12,6 +12,7 @@ const MAX_FILES = 20000;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const HEADERS = '/assets/runtime/*\n  Cache-Control: public, max-age=31536000, immutable\n';
 const BUCKET = 'the-long-slop-large';
+const SITE = 'https://the-long-slop.pages.dev/';
 const TYPES = {'.wasm': 'application/wasm', '.json': 'application/json'};
 
 const webPath = path => path.split(sep).join('/');
@@ -68,7 +69,17 @@ function wrangler(args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
+// The site holds The Long Drive files. Upload only when Cloudflare Access asks for a login.
+async function requireAccess() {
+  const response = await fetch(SITE, {redirect: 'manual'});
+  const location = response.headers.get('location') ?? '';
+  if (!/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com\//.test(location)) {
+    throw Error(`${SITE} does not redirect to a Cloudflare Access login (HTTP ${response.status}). Fix Access before you upload.`);
+  }
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await requireAccess();
   const {count, bytes, large} = await stageSite();
   console.log(`Staged ${count} files and ${large.length} R2 files, ${(bytes / 1024 / 1024).toFixed(1)} MiB.`);
   for (const path of large) {
