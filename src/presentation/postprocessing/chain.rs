@@ -10,7 +10,6 @@ use super::{
     dof::DofPass,
     exposure::ExposurePass,
     grain::{GRAIN_BYTES, GrainPass},
-    heat_haze::HeatHazePass,
     lut::{CURVE_BYTES, LUT_BYTES, LutPass},
     lut_ldr::{LDR_CURVE_BYTES, LutLdrPass, STRIP_BYTES},
     motion_blur::MotionBlurPass,
@@ -41,7 +40,6 @@ pub struct PostShaders {
     pub lut_ldr: Handle<Shader>,
     pub uber: Handle<Shader>,
     pub grain: Handle<Shader>,
-    pub heat_haze: Handle<Shader>,
     pub ao_depth: Handle<Shader>,
     pub ao_render: Handle<Shader>,
     pub ao_upsample: Handle<Shader>,
@@ -173,7 +171,6 @@ pub struct SourcePostChain {
     dead: DeadEffects,
     /// The stack effects in the Uber and bloom uniforms.
     effects: Option<StackEffects>,
-    haze: HeatHazePass,
     main: MainChain,
     stop_nan: bool,
     completed: u32,
@@ -205,37 +202,35 @@ impl SourcePostChain {
         let startup_count = previous.as_ref().map_or(1, |old| old.startup_count);
         let resize_count = previous.as_ref().map_or(0, |old| old.resize_count + 1);
         let completed = previous.as_ref().map_or(0, |old| old.completed);
-        let (mut copy, old_dof, old_main, old_uber, old_taa, old_blur, old_haze, grain, dead) =
-            match previous {
-                Some(old) => (
-                    old.copy,
-                    Some(old.dof),
-                    Some(old.main),
-                    Some(old.uber),
-                    old.taa,
-                    old.blur,
-                    Some(old.haze),
-                    old.grain,
-                    old.dead,
-                ),
-                None => {
-                    let (dead, ignored) = DeadEffects::new(dead, record);
-                    if !ignored.is_empty() {
-                        warn!("DeadV parameters that the port does not blend: {ignored:?}");
-                    }
-                    (
-                        CopyPass::new(device, cache, shaders.copy.clone(), source),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        GrainPass::new(device, queue, cache, shaders.grain.clone()),
-                        dead,
-                    )
+        let (mut copy, old_dof, old_main, old_uber, old_taa, old_blur, grain, dead) = match previous
+        {
+            Some(old) => (
+                old.copy,
+                Some(old.dof),
+                Some(old.main),
+                Some(old.uber),
+                old.taa,
+                old.blur,
+                old.grain,
+                old.dead,
+            ),
+            None => {
+                let (dead, ignored) = DeadEffects::new(dead, record);
+                if !ignored.is_empty() {
+                    warn!("DeadV parameters that the port does not blend: {ignored:?}");
                 }
-            };
+                (
+                    CopyPass::new(device, cache, shaders.copy.clone(), source),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    GrainPass::new(device, queue, cache, shaders.grain.clone()),
+                    dead,
+                )
+            }
+        };
         let dof = DofPass::new(
             device,
             queue,
@@ -415,6 +410,9 @@ impl SourcePostChain {
             strip: main.ldr.output(),
             grain: grain.output(),
             sample_scale: main.bloom.layout.sample_scale,
+            camera_depth: textures.camera_depth,
+            haze_noise: textures.heat_haze_noise,
+            haze: &record.heat_haze,
         };
         let mut uber = UberPass::new(
             device,
@@ -428,17 +426,6 @@ impl SourcePostChain {
             old_uber,
         )?;
         uber.set_post_exposure(main.grading.post_exposure);
-        let haze = HeatHazePass::new(
-            device,
-            queue,
-            cache,
-            shaders.heat_haze.clone(),
-            textures.camera_depth,
-            textures.heat_haze_noise,
-            extent,
-            &record.heat_haze,
-            old_haze.as_ref(),
-        );
         let area = u64::from(extent[0]) * u64::from(extent[1]);
         let logical_bytes = area * 8
             + initial.as_ref().map_or(0, |_| area * 8)
@@ -472,7 +459,6 @@ impl SourcePostChain {
             ],
             dead,
             effects: None,
-            haze,
             main,
             stop_nan,
             completed,
@@ -500,7 +486,6 @@ impl SourcePostChain {
             && self.main.bloom.ready(cache)
             && self.main.lut.ready(cache)
             && self.main.ldr.ready(cache)
-            && self.haze.ready(cache)
     }
     pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
         self.copy
@@ -515,7 +500,6 @@ impl SourcePostChain {
             .or_else(|| self.main.bloom.failure(cache))
             .or_else(|| self.main.lut.failure(cache))
             .or_else(|| self.main.ldr.failure(cache))
-            .or_else(|| self.haze.failure(cache))
     }
     pub fn recreate(&mut self) {
         self.pending = None;
@@ -704,34 +688,17 @@ impl SourcePostChain {
             self.main.ldr.encode(encoder, cache, index);
             self.main.ldr_pending = Some(index);
         }
-        // The heat haze at weight 0 samples texel centers and gives the same image. So it does not run.
-        let haze = frame
-            .heat_haze
-            .map(|temperature| self.haze.weight(temperature))
-            .filter(|weight| *weight > 0.);
-        // The last pass writes the held image.
-        let target = match haze {
-            Some(_) => &self.haze.input,
-            None => held,
-        };
+        self.uber.set_haze(frame.heat_haze, frame.time);
         if !self.uber.encode(
             encoder,
             device,
             queue,
             cache,
-            target,
+            held,
             exposure_index,
             ldr.is_some(),
-            haze.is_some(),
         ) {
             return Err("Source Uber did not encode a ready pipeline".into());
-        }
-        if let Some(weight) = haze
-            && !self
-                .haze
-                .encode(encoder, device, queue, cache, held, weight, frame.time)
-        {
-            return Err("Source heat haze did not encode a ready pipeline".into());
         }
         self.pending = Some(frame.token);
         Ok(true)

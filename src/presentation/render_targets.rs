@@ -8,7 +8,7 @@ use bevy::render::{
 };
 
 pub const HDR_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
-/// The held image. Uber or heat haze writes it, then the canvas shows it.
+/// The held image. Uber writes it, then the canvas shows it.
 pub const HELD_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
 pub const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth24PlusStencil8;
 pub const SHADOW_FORMAT: TextureFormat = TextureFormat::Depth16Unorm;
