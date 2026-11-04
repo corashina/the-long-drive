@@ -1,63 +1,44 @@
 // Terrain tile jobs run in a Web Worker with its own WASM. One job is in flight at a time.
-import {workerClockHandshake,workerDeliveryInterval,workerInputDeliveryInterval} from './cpu-profile.js';
+import {createWorkerLink} from './worker-transport.js';
 export function createTerrain(worker,profile,now=()=>performance.now()){
- let next=0,job=null,result=null,error=null;
- let clock=null,handshakePending=false,profiledJob=false,record=null;
- const profileHandshake=()=>{if(!profile?.enabled||handshakePending)return;const sent=now();worker.postMessage({cpuHandshake:{windowOrigin:profile.timeOrigin,windowSent:sent}});handshakePending=true;};
- worker.addEventListener('message',({data})=>{
-  if(data.cpuHandshake){
-   if(profile?.enabled){clock=workerClockHandshake({...data.cpuHandshake,windowReceived:now()});profile.worker({kind:'terrain',phase:'initialization',clockHandshake:clock,worker:{initializationMs:data.cpuHandshake.initializationMs??null,retainedWasmBytes:data.cpuHandshake.wasmBytes??null}});}
-   handshakePending=false;return;
-  }
-  if(data.id!==job)return;
-  profiledJob=false;
-  // Publish transport ownership before processing optional timing diagnostics.
-  job=null;
-  if(data.error!==undefined)error=data.error;else result=data;
-  if(!profile?.enabled)record=null;
-  if(record){const received=now();record.resultReceived=received;record.worker=data.cpuProfile??null;
-   if(data.cpuProfile){record.outputBytes=data.cpuProfile.outputBytes;record.peakOutstandingTransferBytes=record.inputBytes+record.outputBytes;
-    const returnDelivery=workerDeliveryInterval(clock,{workerSent:data.cpuProfile.resultPostStart,windowReceived:received}),submitDelivery=workerInputDeliveryInterval(clock,{windowSent:record.messageSubmitStart,workerReceived:data.cpuProfile.workerReceived});
-    if(clock?.valid&&data.cpuProfile.workerOrigin!==clock.workerOrigin)for(const interval of [returnDelivery,submitDelivery]){interval.valid=false;interval.valueMs=null;interval.reason='worker-origin-mismatch';interval.raw.reportedWorkerOrigin=Number.isFinite(data.cpuProfile.workerOrigin)?data.cpuProfile.workerOrigin:String(data.cpuProfile.workerOrigin);}
-    record.returnDeliveryMs=returnDelivery.valueMs;record.submitDeliveryMs=submitDelivery.valueMs;record.timing={valid:returnDelivery.valid&&submitDelivery.valid,returnDelivery,submitDelivery};record.clockHandshake=clock;
-   }else record.timing={valid:false,reason:'missing-worker-diagnostics'};
-   if(data.error!==undefined){record.error=data.error;profile.worker(record);record=null;}
-  }
- });
- worker.addEventListener('error',event=>{error=event.message||'The terrain worker stopped.';if(profile?.enabled&&record){record.error=error;profile.worker(record);}record=null;profiledJob=false;handshakePending=false;});
- const ready=()=>{if(!result)throw Error('The terrain worker has no result.');return result;};
- profileHandshake();
+ let next=0,job=null,result=null,record=null;
+ const receive=(data,received)=>{
+  if(data.type!=='result'||data.id!==job)return;
+  job=null;result=data;
+  if(record){link.timing(record,data,received);record.outputBytes=data.vertices.byteLength+data.normals.byteLength+data.tangents.byteLength+data.uv.byteLength+data.colors.byteLength+data.triangles.byteLength;}
+ };
+ // Terrain admits any WASM size.
+ const link=createWorkerLink(worker,'terrain',profile,now,{receive,capacity:Infinity,onFail(failure){if(record){record.error=failure;link.emit(record);}record=null;job=null;result=null;}});
+ // Before the worker is initialized a job waits in the worker queue.
+ const ready=()=>{link.live();if(!result)throw Error('The terrain worker has no result.');return result;};
+ const finish=discarded=>{if(record){link.diagnostic(()=>{record.discarded=discarded;record.totalJobMs=now()-record.mainCopyStart;});link.emit(record);record=null;}};
+ link.profileHandshake();
  return {
-  profileHandshake,
-  profileState:()=>({jobActive:profiledJob,handshakeActive:handshakePending}),
+  profileHandshake:link.profileHandshake,
+  profileState:()=>({jobActive:job!==null&&record!==null,handshakeActive:link.handshakePending()}),
   // The input is a view of WASM memory, so copy it before transfer.
   submit(input){
-   if(job!==null||result)throw Error('The terrain worker is busy.');
+   link.live();if(job!==null||result)throw Error('The terrain worker is busy.');
    next=next+1&0x7fffffff;job=next;
-   if(profile?.enabled){
-    if(!clock)profileHandshake();
-    record={kind:'terrain',id:job,inputBytes:input.byteLength,mainCopyStart:now()};
-   }else record=null;
-   profiledJob=record!==null;
+   record=null;link.diagnostic(()=>{if(!link.clock())link.profileHandshake();record={kind:'terrain',id:job,inputBytes:input.byteLength,mainCopyStart:now()};});
    const copy=input.slice();
-   if(record){record.mainInputCopyMs=now()-record.mainCopyStart;record.messageSubmitStart=now();}
-   worker.postMessage(record?{id:job,input:copy,profileCpu:true}:{id:job,input:copy},[copy.buffer]);
-   if(record)record.messageSubmitMs=now()-record.messageSubmitStart;
+   link.diagnostic(()=>{if(record){record.mainInputCopyMs=now()-record.mainCopyStart;record.messageSubmitStart=now();}});
+   link.post({type:'evaluate',id:job,input:copy,profileCpu:record!==null},[copy.buffer]);
+   link.diagnostic(()=>{if(record)record.messageSubmitMs=now()-record.messageSubmitStart;});
    return job;
   },
-  poll(){if(error!==null)throw Error(error);return result?result.id:job===null?-1:-2;},
+  poll(){link.live();return result?result.id:job===null?-1:-2;},
   vertexCount:()=>ready().vertices.length/3,
   triangleCount:()=>ready().triangles.length/3,
   read(vertices,normals,tangents,uv,colors,triangles){
-   if(!profile?.enabled)record=null;
-   const r=ready();
-   const start=record?now():0;
+   const r=ready();let start;link.diagnostic(()=>{start=now();});
    vertices.set(r.vertices);normals.set(r.normals);tangents.set(r.tangents);
    uv.set(r.uv);colors.set(r.colors);triangles.set(r.triangles);
    result=null;
-   if(record){record.mainResultCopyMs=now()-start;record.resultWaitMs=start-record.resultReceived;record.totalJobMs=now()-record.mainCopyStart;record.discarded=false;profile.worker(record);record=null;}
+   link.diagnostic(()=>{if(record){record.mainResultCopyMs=now()-start;record.resultWaitMs=start-record.resultReceived;}});
+   finish(false);
   },
-  discard(){result=null;if(!profile?.enabled)record=null;if(record){record.discarded=true;record.totalJobMs=now()-record.mainCopyStart;profile.worker(record);record=null;}},
+  discard(){result=null;finish(true);},
  };
 }
 
