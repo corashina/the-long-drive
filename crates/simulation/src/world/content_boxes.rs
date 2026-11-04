@@ -3,7 +3,7 @@
 use super::WorldStream;
 use crate::interaction::items::ItemStore;
 use crate::reference::{ItemId, SourceId};
-use crate::world::{AbsolutePose, GeneratedId, ObjectKey, Placement};
+use crate::world::{AbsolutePose, GeneratedId, Placement};
 use rapier3d::math::{Rotation, Vector};
 use serde::{Deserialize, Serialize};
 
@@ -138,7 +138,7 @@ impl WorldStream {
         let changes = &self.changes;
         self.contents.boxes.retain(|r| {
             changes
-                .get(ObjectKey::Generated(r.id.clone()))
+                .get_generated(&r.id)
                 .is_some_and(|c| c.snapshot.is_none())
         });
         self.boxes.changes = Some(self.changes.revision());

@@ -330,23 +330,7 @@ impl SourceGlassView {
         {
             return Err("Source grab input extent, samples, or copy usage is invalid");
         }
-        if colors.samples > 1 {
-            let attachments = [Some(RenderPassColorAttachment {
-                view: colors.attachment(),
-                depth_slice: None,
-                resolve_target: colors.resolve_target().map(|view| &**view),
-                ops: Operations {
-                    load: LoadOp::Load,
-                    store: StoreOp::Store,
-                },
-            })];
-            // This empty pass resolves accumulated MSAA content without modifying it.
-            drop(encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("source_grab_current_color_resolve"),
-                color_attachments: &attachments,
-                ..default()
-            }));
-        }
+        colors.resolve(encoder);
         encoder.copy_texture_to_texture(
             TexelCopyTextureInfo {
                 texture: &colors.resolved.texture,

@@ -17,6 +17,29 @@ fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     return vec4(uv*2.0-vec2(1.0),0.0,1.0);
 }
 fn clamped(uv: vec2<f32>) -> vec2<f32> { return clamp(uv,vec2(0.0),vec2(1.0)); }
+#ifdef STOP_NAN
+// Installed CopyStd pass1 ran before TAA. It zeroes all RGBA of a texel with a NaN component.
+fn texel(pixel: vec2<i32>) -> vec4<f32> {
+    let last=vec2<i32>(params.extent.xy)-vec2(1);
+    let color=textureLoad(source_color,clamp(pixel,vec2(0),last),0);
+    if any((bitcast<vec4<u32>>(color)&vec4(0x7fffffffu))>vec4(0x7f800000u)) { return vec4(0.0); }
+    return color;
+}
+// Bilinear clamp sample of the NaN-stopped texels.
+fn scene(uv: vec2<f32>) -> vec4<f32> {
+    let position=uv*params.extent.xy-vec2(0.5);
+    let corner=floor(position);
+    let weight=position-corner;
+    let pixel=vec2<i32>(corner);
+    let top=mix(texel(pixel),texel(pixel+vec2(1,0)),weight.x);
+    let bottom=mix(texel(pixel+vec2(0,1)),texel(pixel+vec2(1,1)),weight.x);
+    return mix(top,bottom,weight.y);
+}
+fn scene_texel(position: vec2<f32>) -> vec4<f32> { return texel(vec2<i32>(position)); }
+#else
+fn scene(uv: vec2<f32>) -> vec4<f32> { return textureSampleLevel(source_color,linear_clamp,uv,0.0); }
+fn scene_texel(position: vec2<f32>) -> vec4<f32> { return scene(position*params.extent.zw); }
+#endif
 fn closest_fragment(uv: vec2<f32>) -> vec2<f32> {
     let offsets=array<vec2<f32>,4>(vec2(-1.0,-1.0),vec2(1.0,-1.0),vec2(-1.0,1.0),vec2(1.0,1.0));
     let last=vec2<i32>(params.extent.xy)-vec2(1);
@@ -47,9 +70,9 @@ fn resolve(@builtin(position) position:vec4<f32>)->Resolved {
     let motion_length=length(motion);
     var history=textureSampleLevel(history_color,linear_clamp,clamped(uv-motion),0.0);
     let center_uv=clamped(uv-params.jitter.xy);
-    let top=textureSampleLevel(source_color,linear_clamp,clamped(center_uv-params.extent.zw*0.5),0.0);
-    let bottom=textureSampleLevel(source_color,linear_clamp,clamped(center_uv+params.extent.zw*0.5),0.0);
-    var color=textureSampleLevel(source_color,linear_clamp,center_uv,0.0);
+    let top=scene(clamped(center_uv-params.extent.zw*0.5));
+    let bottom=scene(clamped(center_uv+params.extent.zw*0.5));
+    var color=scene(center_uv);
     let corners=fma(top+bottom,vec4(4.0),-color*2.0);
     let sharpen=fma(-corners,vec4(0.166667),color)*params.blend.w;
     color=clamp(fma(sharpen,vec4(2.718282),color),vec4(0.0),vec4(65472.0));
@@ -71,5 +94,5 @@ fn resolve(@builtin(position) position:vec4<f32>)->Resolved {
 // Source CheckHistory copies current color when the history is invalid.
 @fragment
 fn seed(@builtin(position) position:vec4<f32>)->@location(0) vec4<f32> {
-    return half4(textureSampleLevel(source_color,linear_clamp,position.xy*params.extent.zw,0.0));
+    return half4(scene_texel(position.xy));
 }

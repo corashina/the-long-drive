@@ -133,7 +133,7 @@ impl SaveSnapshot {
             links(
                 self.world
                     .changes
-                    .get(ObjectKey::Generated(release.id.clone()))
+                    .get_generated(&release.id)
                     .is_some_and(|c| c.snapshot.is_none())
                     && !self.world.boxes[..index].iter().any(|r| r.id == release.id),
                 "Broken box without one removal",

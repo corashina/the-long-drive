@@ -148,7 +148,7 @@ impl WorldStream {
             key.children.push((source.clone(), 0));
             let saved = self
                 .changes
-                .get(ObjectKey::Generated(key))
+                .get_generated(&key)
                 .and_then(|r| r.snapshot.as_ref())
                 .map(|s| (s.lamp, s.lamp_broken));
             if let Some((lamp, broken)) = saved {
@@ -331,7 +331,7 @@ impl WorldStream {
     ) -> Result<(), ReferenceError> {
         if let Some(saved) = self
             .changes
-            .get(ObjectKey::Generated(parent.clone()))
+            .get_generated(&parent)
             .and_then(|r| r.snapshot.as_ref())
             .and_then(|s| s.lamp)
         {
