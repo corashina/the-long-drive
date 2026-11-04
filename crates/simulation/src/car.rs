@@ -53,6 +53,8 @@ pub struct WorldCarParts {
     pub plates: Vec<String>,
     /// Source `carscript.blood`.
     pub blood: Option<crate::crash::Blood>,
+    /// `wheelgraphicsscript.T` of each wheel, in wheel order.
+    pub wheel_graphics: Vec<crate::world::wheel_graphics::WheelGraphic>,
 }
 
 /// Car-side state of a car copy. The world change records keep it while the car is retired
@@ -118,6 +120,8 @@ pub struct VehicleRuntime {
     pub blood: Option<crate::crash::Blood>,
     /// Parts mounted on this car. Each step finds them once at its start.
     powertrain: Powertrain,
+    /// `wheelgraphicsscript.T` of each wheel, in wheel order.
+    pub wheel_graphics: Vec<crate::world::wheel_graphics::WheelGraphic>,
     /// Requested headlight state: off, low or high.
     pub requested_headlights: u8,
     /// The item of the `carscript.InteractSwitchLights` usable.
@@ -204,6 +208,7 @@ impl VehicleRuntime {
             horn_hit: None,
             blood: parts.blood,
             powertrain: Powertrain::default(),
+            wheel_graphics: parts.wheel_graphics,
             requested_headlights: 0,
             light_switch: parts.light_switch,
             handbrake_switch: parts.handbrake_switch,
@@ -229,11 +234,17 @@ impl VehicleRuntime {
     ) -> &'a crate::reference::WorldVehicleReference {
         world_vehicle(reference, self.prototype)
     }
-    /// A hash of the state that the car copy presents: gauges, lamp materials and node
-    /// visibility. It changes when the presentation must sync.
-    pub fn presentation_signature(&self) -> u64 {
+    /// A hash of the state that the car copy presents: gauges, lamp materials, node
+    /// visibility and the poses of `wheels`. It changes when the presentation must sync.
+    pub fn presentation_signature(&self, wheels: &[crate::vehicle::WheelState]) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut h = std::hash::DefaultHasher::new();
+        // Steer, suspension and roll move the wheel `T` nodes.
+        for w in wheels {
+            for v in [w.steering, w.suspension_length, w.angle] {
+                v.to_bits().hash(&mut h);
+            }
+        }
         self.requested_headlights.hash(&mut h);
         if let Some(s) = &self.instruments {
             for a in s.needle_angles.iter().chain(&s.digit_angles) {

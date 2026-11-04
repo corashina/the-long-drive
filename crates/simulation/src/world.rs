@@ -191,6 +191,7 @@ mod content_parts;
 mod content_slots;
 pub mod content_vehicles;
 mod content_wheels;
+pub mod wheel_graphics;
 
 mod content_mechanisms;
 
