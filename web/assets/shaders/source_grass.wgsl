@@ -3,14 +3,13 @@
 #endif
 #import "shaders/source_lod.wgsl"::source_lod_keep
 #import bevy_pbr::{mesh_view_bindings::view, view_transformations::position_world_to_clip}
+// Only the color pass reads the lamp mask. The caster layout has no object_lighting binding.
+// naga_oil applies a #define even inside a false #ifdef, so test both defs directly.
 #ifndef SOURCE_CASTER
 #ifndef PREPASS_PIPELINE
-#define SOURCE_GRASS_LAMPS
-#endif
-#endif
-#ifdef SOURCE_GRASS_LAMPS
 #import bevy_pbr::mesh_functions::get_tag
 #import source_view_lighting::object_lighting
+#endif
 #endif
 struct GrassUniform {
     lod: vec4<f32>,
@@ -41,9 +40,11 @@ struct GrassOutput {
     @location(0) world: vec3<f32>,
     @location(1) color: vec4<f32>,
     @location(2) alive: f32,
-#ifdef SOURCE_GRASS_LAMPS
+#ifndef SOURCE_CASTER
+#ifndef PREPASS_PIPELINE
     // Lamps that can reach the grass bounds, low bit first. object_lighting.rs `grass_light_mask` sets them.
     @location(3) @interpolate(flat) lights: vec2<u32>,
+#endif
 #endif
 }
 fn grass_hash(p:vec2<f32>)->f32 { return fract(sin(dot(p,vec2(12.9898,78.233002)))*43758.546875); }
@@ -104,8 +105,10 @@ fn vertex(input:GrassVertex)->GrassOutput {
     out.position=caster_view.clip_from_world*vec4(world,1.);
 #endif
     out.alive=select(1.,0.,distance>grass.fade_lod.y || alpha<grass.options.z);
-#ifdef SOURCE_GRASS_LAMPS
+#ifndef SOURCE_CASTER
+#ifndef PREPASS_PIPELINE
     out.lights=object_lighting[get_tag(input.instance_index)].xy;
+#endif
 #endif
     return out;
 }
