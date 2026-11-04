@@ -277,7 +277,6 @@ impl AsBindGroup for TerrainMaterial {
             return Err(AsBindGroupError::CreateBindGroupDirectly);
         }
         let extension = SourceReceiver {
-            lod_fade: 1.,
             receiver_mask: self.receiver_mask,
         };
         let mut result = extension.unprepared_bind_group(layout, device, &mut params.0, true)?;

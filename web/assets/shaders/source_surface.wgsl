@@ -1,5 +1,5 @@
 #define_import_path source_surface
-#import "shaders/source_lod.wgsl"::source_lod_keep
+#import "shaders/source_lod.wgsl"::source_lod_keep_code
 #import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},
     pbr_fragment::pbr_input_from_vertex_output,
@@ -127,11 +127,11 @@ fn source_base(
 #ifdef VERTEX_TANGENTS
     world_bitangent: vec3<f32>,
 #endif
-    lod_fade: f32,
+    lod: u32,
     color: vec4<f32>,
     player: bool,
 ) -> SourceBase {
-    if !source_lod_keep(in.position.xy, lod_fade) { discard; }
+    if !source_lod_keep_code(in.position.xy, lod) { discard; }
     // Source player_model discards near the camera of a view with `_Dist`. Flag 12 means that the ragdoll has `_Dist` 0.
     // The port keeps body parts more than HEAD_DEPTH in front of the eye, so hands, arms and knees do not open up.
     if player && !source_flag(12u) && source_head_hidden(in.world_position.xyz) { discard; }
@@ -176,16 +176,14 @@ fn depth(
 #ifdef VERTEX_TANGENTS
     @location(8) world_bitangent: vec3<f32>,
 #endif
+    @location(11) @interpolate(flat) source_lod: u32,
 #ifdef SOURCE_GPU_PROPS
-    @location(13) @interpolate(flat) source_fade: f32,
     @location(14) @interpolate(flat) source_color: vec4<f32>,
 #endif
 ) {
 #ifdef SOURCE_GPU_PROPS
-    let lod_fade = source_fade;
     let color = source_color;
 #else
-    let lod_fade = bitcast<f32>(receiver.y);
     let color = source.color;
 #endif
     _ = source_base(
@@ -193,7 +191,7 @@ fn depth(
 #ifdef VERTEX_TANGENTS
         world_bitangent,
 #endif
-        lod_fade, color, source.flags.z == 3u);
+        source_lod, color, source.flags.z == 3u);
 }
 
 @fragment
@@ -207,17 +205,15 @@ fn fragment(
 #ifdef SOURCE_LAMPS
     @location(12) @interpolate(flat) source_lights: vec2<u32>,
 #endif
+    @location(11) @interpolate(flat) source_lod: u32,
 #ifdef SOURCE_GPU_PROPS
-    @location(13) @interpolate(flat) source_fade: f32,
     @location(14) @interpolate(flat) source_color: vec4<f32>,
 #endif
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
 #ifdef SOURCE_GPU_PROPS
-    let lod_fade = source_fade;
     let color = source_color;
 #else
-    let lod_fade = bitcast<f32>(receiver.y);
     let color = source.color;
 #endif
     let player = source.flags.z == 3u;
@@ -226,7 +222,7 @@ fn fragment(
 #ifdef VERTEX_TANGENTS
         world_bitangent,
 #endif
-        lod_fade, color, player);
+        source_lod, color, player);
 #ifdef SOURCE_GPU_PROPS
     // It has the same fields as pbr_input_from_vertex_output, without the mesh uniform flags.
     var pbr = pbr_types::pbr_input_new();

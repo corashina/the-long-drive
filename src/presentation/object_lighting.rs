@@ -15,13 +15,18 @@ use bevy::render::{
 };
 
 /// One packed value per object. It has the same layout as `object_lighting` in source_mesh.wgsl.
-/// x, y: lamp mask, low bit first. z: first probe slot, second slot (0xff: none) << 8, renderer flags << 16.
-/// w: first probe weight bits.
+/// x, y: lamp mask, low bit first. z: first probe slot, second slot (0xff: none) << 8, renderer flags << 16,
+/// LOD code (`lod_code`) << 24. w: first probe weight bits.
 pub type ObjectValue = [u32; 4];
 /// First GPU buffer size, in objects.
 const INITIAL_OBJECTS: u64 = 1024;
 const VALUE_BYTES: u64 = 16;
 const NO_SLOT: u32 = 0xff;
+
+/// Signed LOD crossfade of a primary or specular entity. Without it, the entity has no fade (1).
+/// The fade is in the object value, so a fade change does not prepare the material again.
+#[derive(Component, Clone, Copy, PartialEq)]
+pub struct LodFade(pub f32);
 
 /// Values by slot. A slot belongs to one entity `MeshTag` until the tag goes.
 #[derive(Resource, Default)]
@@ -119,6 +124,7 @@ type ObjectQuery = (
     Option<&'static MeshMaterial3d<SpecularMaterial>>,
     Has<SkinnedMesh>,
     Has<MeshMorphWeights>,
+    Option<&'static LodFade>,
 );
 
 /// Values of the objects that a view draws in this frame. Hidden objects keep their old value.
@@ -145,7 +151,7 @@ fn update_values(
         extents: scene.probe_extents,
     };
     let ObjectLighting { values, dirty, .. } = &mut *lighting;
-    for (tag, renderer, transform, visibility, source, spec, skinned, morphed) in &objects {
+    for (tag, renderer, transform, visibility, source, spec, skinned, morphed, fade) in &objects {
         if !visibility.get() {
             continue;
         }
@@ -175,7 +181,8 @@ fn update_values(
             record.reflection_probe_usage != 0,
         );
         let slot = tag.0 as usize;
-        values[slot] = pack(mask, probe, record.shader_flags());
+        let lod = lod_code(fade.map_or(1., |f| f.0));
+        values[slot] = pack(mask, probe, record.shader_flags(), lod);
         *dirty = if dirty.start == dirty.end {
             slot..slot + 1
         } else {
@@ -184,13 +191,13 @@ fn update_values(
     }
 }
 
-/// Pack a lamp mask, a probe blend and the renderer flags as `ObjectValue`.
-pub fn pack(mask: [u32; 2], probe: ProbeBlend, flags: u32) -> ObjectValue {
+/// Pack a lamp mask, a probe blend, the renderer flags and the LOD code as `ObjectValue`.
+pub fn pack(mask: [u32; 2], probe: ProbeBlend, flags: u32, lod: u32) -> ObjectValue {
     let second = probe.slots[1].unwrap_or(NO_SLOT);
     [
         mask[0],
         mask[1],
-        probe.slots[0].unwrap_or(0) | second << 8 | flags << 16,
+        probe.slots[0].unwrap_or(0) | second << 8 | flags << 16 | lod << 24,
         probe.weight.to_bits(),
     ]
 }
@@ -219,6 +226,16 @@ fn upload_values(
             bytemuck::cast_slice(&values[range]),
         );
     }
+}
+
+/// The LOD dither cells that `fade` keeps: the count of kept cells (0 to 16), and bit 5 when the fade is positive.
+/// It uses the same f32 test as `source_lod_code` in source_lod.wgsl, so both keep the same pixels.
+pub fn lod_code(fade: f32) -> u32 {
+    let sign = if fade > 0. { 1. } else { -1. };
+    let kept = (0..16u32)
+        .filter(|level| fade - (level * 16) as f32 / 255. * sign >= 0.)
+        .count() as u32;
+    kept | u32::from(fade > 0.) << 5
 }
 
 pub struct Probes {

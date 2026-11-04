@@ -16,7 +16,6 @@ use bevy::{
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct SpecularMaterial {
     pub preparation: crate::presentation::gpu_prepare::GpuPreparation,
-    pub lod_fade: f32,
     pub source: SourceId,
     base: StandardMaterial,
     uniform: SourceUniform,
@@ -31,10 +30,7 @@ pub struct SpecularMaterial {
 }
 impl SpecularMaterial {
     pub(crate) fn shadow_batch_state(&self) -> crate::presentation::shadow_batch::CasterBatchState {
-        crate::presentation::shadow_batch::CasterBatchState::opaque_specular(
-            self.uniform.flags.x,
-            self.lod_fade,
-        )
+        crate::presentation::shadow_batch::CasterBatchState::opaque_specular(self.uniform.flags.x)
     }
 
     /// Only a shared material can draw GPU prop rows.
@@ -170,7 +166,6 @@ impl SpecularMaterial {
         let arrays = std::array::from_fn(|i| banks.get(i).unwrap_or(&banks[0]).1.clone());
         Ok(Self {
             preparation: default(),
-            lod_fade: 1.,
             source: record.source.clone(),
             base: StandardMaterial::default(),
             uniform,
@@ -310,7 +305,6 @@ impl AsBindGroup for SpecularMaterial {
             return Err(AsBindGroupError::CreateBindGroupDirectly);
         }
         let extension = SourceReceiver {
-            lod_fade: self.lod_fade,
             receiver_mask: self.receiver_mask,
         };
         let mut result = extension.unprepared_bind_group(layout, device, &mut params.0, true)?;
