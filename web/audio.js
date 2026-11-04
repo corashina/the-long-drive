@@ -58,4 +58,34 @@ export class AudioController {
  dispose(){this.disposed=true;this.epoch++;this.stopRing();this.cache?.dispose();this.bank?.dispose();try{this.context?.close().catch(()=>{});}catch{}this.mixers.clear();}
 }
 export function createAudio(raw){return new AudioController(raw);}
-export function installAudioBridge(target,audio){const position=new Float32Array(3),rotation=new Float32Array(4),frame={power:false,am:false,frequency:0,volume:0,staticGain:0,primary:{clip:null,offsetSeconds:0,gain:0,nextClip:null},secondary:{clip:null,offsetSeconds:0,gain:0,nextClip:null}};target.gameAudioError=message=>audio.fail(Error(message));target.gameAudioSurvivalMaster=(g,r,t)=>audio.survivalMaster(g,r,t);target.gameAudioPlayerEar=(d,c,g,p)=>audio.playerEar(d,c,g,p);target.gameAudioSurvivalEmitter=(k,x,y,z)=>audio.survivalEmitter(k,x,y,z);target.gameAudioSurvival=(k,e,a,c,g,p,x,y,z)=>audio.survival(k,e,a,c,g,p,x,y,z);target.gameAudioBegin=(s,started,paused,t)=>audio.begin(s,started,paused,t);target.gameAudioOriginShift=(x,y,z)=>audio.originShift(x,y,z);target.gameAudioListener=(x,y,z,qx,qy,qz,qw)=>{position[0]=x;position[1]=y;position[2]=z;rotation[0]=qx;rotation[1]=qy;rotation[2]=qz;rotation[3]=qw;audio.listener(position,rotation);};target.gameAudioEmitter=(id,x,y,z,qx,qy,qz,qw,alive)=>{position[0]=x;position[1]=y;position[2]=z;rotation[0]=qx;rotation[1]=qy;rotation[2]=qz;rotation[3]=qw;audio.emitter(id,position,rotation,alive);};target.gameAudioVoice=(id,playing,gain,pitch,looping,clip)=>audio.voice(id,playing,gain,pitch,looping,clip);target.gameAudioEvent=(s,n,b,e,x,y,z,g,p,t)=>audio.event(s,n,b,e,x,y,z,g,p,t);target.gameAudioMixer=(id,db)=>audio.mixer(id,db);target.gameAudioRoute=(id,mixer)=>audio.route(id,mixer);target.gameAudioRadio=(emitter,power,am,frequency,volume,staticGain,pClip,pOffset,pGain,pNext,sClip,sOffset,sGain,sNext)=>{frame.power=power;frame.am=am;frame.frequency=frequency;frame.volume=volume;frame.staticGain=staticGain;frame.primary.clip=pClip||null;frame.primary.offsetSeconds=pOffset;frame.primary.gain=pGain;frame.primary.nextClip=pNext||null;frame.secondary.clip=sClip||null;frame.secondary.offsetSeconds=sOffset;frame.secondary.gain=sGain;frame.secondary.nextClip=sNext||null;audio.radio(emitter,frame);};target.gameAudioEnd=()=>audio.finish();}
+// Opcodes of `gameAudioFrame`. Keep in step with src/app/audio.rs. Arguments follow each opcode.
+export const OP={BEGIN:0,SURVIVAL_MASTER:1,PLAYER_EAR:2,ORIGIN_SHIFT:3,LISTENER:4,SURVIVAL_EMITTER:5,SURVIVAL:6,EMITTER:7,VOICE:8,EVENT:9,MIXER:10,ROUTE:11,RADIO:12,END:13};
+// One Float64Array per frame. It is a view of WASM memory, so read it now and keep no reference.
+export function installAudioBridge(target,audio){
+ const position=new Float32Array(3),rotation=new Float32Array(4),frame={power:false,am:false,frequency:0,volume:0,staticGain:0,primary:{clip:null,offsetSeconds:0,gain:0,nextClip:null},secondary:{clip:null,offsetSeconds:0,gain:0,nextClip:null}};
+ const pose=(b,i)=>{position[0]=b[i];position[1]=b[i+1];position[2]=b[i+2];rotation[0]=b[i+3];rotation[1]=b[i+4];rotation[2]=b[i+5];rotation[3]=b[i+6];};
+ const playback=(p,b,i)=>{p.clip=b[i]||null;p.offsetSeconds=b[i+1];p.gain=b[i+2];p.nextClip=b[i+3]||null;};
+ target.gameAudioError=message=>audio.fail(Error(message));
+ target.gameAudioFrame=b=>{
+  let i=0;const n=b.length;
+  while(i<n){
+   switch(b[i++]){
+    case OP.BEGIN:audio.begin(b[i],b[i+1]!==0,b[i+2]!==0,b[i+3]);i+=4;break;
+    case OP.SURVIVAL_MASTER:audio.survivalMaster(b[i],b[i+1],b[i+2]);i+=3;break;
+    case OP.PLAYER_EAR:audio.playerEar(b[i],b[i+1],b[i+2],b[i+3]);i+=4;break;
+    case OP.ORIGIN_SHIFT:audio.originShift(b[i],b[i+1],b[i+2]);i+=3;break;
+    case OP.LISTENER:pose(b,i);audio.listener(position,rotation);i+=7;break;
+    case OP.SURVIVAL_EMITTER:audio.survivalEmitter(b[i],b[i+1],b[i+2],b[i+3]);i+=4;break;
+    case OP.SURVIVAL:audio.survival(b[i],b[i+1],b[i+2],b[i+3],b[i+4],b[i+5],b[i+6],b[i+7],b[i+8]);i+=9;break;
+    case OP.EMITTER:pose(b,i+1);audio.emitter(b[i],position,rotation,b[i+8]!==0);i+=9;break;
+    case OP.VOICE:audio.voice(b[i],b[i+1]!==0,b[i+2],b[i+3],b[i+4]!==0,b[i+5]);i+=6;break;
+    case OP.EVENT:audio.event(b[i],b[i+1],b[i+2],b[i+3],b[i+4],b[i+5],b[i+6],b[i+7],b[i+8],b[i+9]);i+=10;break;
+    case OP.MIXER:audio.mixer(b[i],b[i+1]);i+=2;break;
+    case OP.ROUTE:audio.route(b[i],b[i+1]);i+=2;break;
+    case OP.RADIO:frame.power=b[i+1]!==0;frame.am=b[i+2]!==0;frame.frequency=b[i+3];frame.volume=b[i+4];frame.staticGain=b[i+5];playback(frame.primary,b,i+6);playback(frame.secondary,b,i+10);audio.radio(b[i],frame);i+=14;break;
+    case OP.END:audio.finish();break;
+    default:audio.fail(Error('Audio frame opcode '+b[i-1]+' unknown'));return;
+   }
+  }
+ };
+}

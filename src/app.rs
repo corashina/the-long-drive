@@ -1,4 +1,5 @@
 pub(crate) use simulation::cpu_profile;
+mod audio;
 mod frame_cpu;
 mod frame_limit;
 pub(crate) use frame_limit::FrameBudget;
@@ -21,7 +22,7 @@ use bevy::gltf::GltfExtras;
 use bevy::prelude::*;
 use presentation::sim_frame::SimFrameResource;
 use simulation::boundary::MouseLook;
-use simulation::boundary::{AudioCall, HudBlock, PoseRow, SimCommand, StateBlock};
+use simulation::boundary::{HudBlock, PoseRow, SimCommand, StateBlock};
 use simulation::host::game_now;
 use simulation::world::metrics::BUDGET_LABELS;
 use std::sync::Arc;
@@ -358,7 +359,7 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
         )
         .add_systems(
             PostUpdate,
-            publish_audio
+            audio::publish_audio
                 .after(bevy::transform::TransformSystems::Propagate)
                 .after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
         )
@@ -1146,123 +1147,4 @@ fn update_hud(mut drive: ResMut<Drive>, mut sim: ResMut<SimFrameResource>) {
         f.weight,
         f.help.into(),
     );
-}
-
-fn publish_audio(
-    mut drive: ResMut<Drive>,
-    sim: Res<SimFrameResource>,
-    visuals: Res<ReferenceVisuals>,
-    globals: Query<(&GlobalTransform, &InheritedVisibility)>,
-    camera: Query<&GlobalTransform, With<DriveCamera>>,
-) {
-    let camera = camera
-        .single()
-        .ok()
-        .map(|c| c.to_scale_rotation_translation());
-    drive.listener = camera.map(|(_, _, p)| p.to_array());
-    for call in &sim.frame.audio {
-        match *call {
-            AudioCall::Begin {
-                session,
-                started,
-                paused,
-                seconds,
-            } => game_audio_begin(session, started, paused, seconds),
-            AudioCall::SurvivalMaster {
-                gain,
-                revision,
-                seconds,
-            } => game_audio_survival_master(gain, revision, seconds),
-            AudioCall::PlayerEar {
-                db,
-                clip,
-                ring,
-                pan,
-            } => game_audio_player_ear(db, clip, ring, pan),
-            AudioCall::OriginShift([x, y, z]) => game_audio_origin_shift(x, y, z),
-            AudioCall::Listener => {
-                if let Some((_, q, p)) = camera {
-                    game_audio_listener(p.x, p.y, p.z, q.x, q.y, q.z, q.w);
-                }
-            }
-            AudioCall::SurvivalEmitter {
-                kind,
-                position: [x, y, z],
-            } => game_audio_survival_emitter(kind, x, y, z),
-            AudioCall::Survival {
-                kind,
-                emitter,
-                action,
-                clip,
-                gain,
-                pitch,
-                position: [x, y, z],
-            } => game_audio_survival(kind, emitter, action, clip, gain, pitch, x, y, z),
-            AudioCall::NodeEmitter { id, node, alive } => {
-                if let Some((global, visibility)) = visuals
-                    .nodes
-                    .get(&node)
-                    .and_then(|&entity| globals.get(entity).ok())
-                {
-                    let (_, q, p) = global.to_scale_rotation_translation();
-                    game_audio_emitter(
-                        id,
-                        p.x,
-                        p.y,
-                        p.z,
-                        q.x,
-                        q.y,
-                        q.z,
-                        q.w,
-                        alive && visibility.get(),
-                    );
-                }
-            }
-            AudioCall::Emitter {
-                id,
-                position: [x, y, z],
-                rotation: [qx, qy, qz, qw],
-                alive,
-            } => game_audio_emitter(id, x, y, z, qx, qy, qz, qw, alive),
-            AudioCall::Mixer { id, db } => game_audio_mixer(id, db),
-            AudioCall::Route { id, mixer } => game_audio_route(id, mixer),
-            AudioCall::Voice {
-                id,
-                playing,
-                gain,
-                pitch,
-                looping,
-                clip,
-            } => game_audio_voice(id, playing, gain, pitch, looping, clip),
-            AudioCall::Event {
-                session,
-                sequence,
-                binding,
-                emitter,
-                position: [x, y, z],
-                gain,
-                pitch,
-                seconds,
-            } => game_audio_event(
-                session, sequence, binding, emitter, x, y, z, gain, pitch, seconds,
-            ),
-            AudioCall::Radio { emitter, frame } => game_audio_radio(
-                emitter,
-                frame.power,
-                frame.am,
-                frame.frequency,
-                frame.volume,
-                frame.static_gain,
-                frame.primary.clip.unwrap_or(0),
-                frame.primary.offset_seconds,
-                frame.primary.gain,
-                frame.primary.next_clip.unwrap_or(0),
-                frame.secondary.clip.unwrap_or(0),
-                frame.secondary.offset_seconds,
-                frame.secondary.gain,
-                frame.secondary.next_clip.unwrap_or(0),
-            ),
-            AudioCall::End => game_audio_end(),
-        }
-    }
 }
