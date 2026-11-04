@@ -56,6 +56,12 @@ async function act(page,actions){
  return replies;
 }
 
+// A startup or runtime failure stops the frames and the world stream. Stop the bench with its message.
+async function checkGame(page){
+ const failure=await page.evaluate(()=>window.gameFailure?.()??null);
+ if(failure)throw new Error('Game failed: '+failure);
+}
+
 async function worldState(page){
  const [reply]=await act(page,[{action:'state',radius:1}]);
  return reply.data;
@@ -100,12 +106,13 @@ async function startGame(browser,o){
  const url=new URL(o.url);url.searchParams.set('sandbox','');
  await page.goto(url.href);
  await until('game start',START_TIMEOUT_MS,()=>page.evaluate(()=>{
-  const failure=document.querySelector('#runtime-error');
-  if(failure&&!failure.hidden)throw new Error(failure.textContent);
+  const failure=window.gameFailure?.();
+  if(failure)throw new Error('Game failed: '+failure);
   return window.gameStartupDone?.()&&window.gameState?.started;
  }));
  // The new game can wait in the pause menu. Resume captures the mouse, as a player click does.
  await until('game play',MOVE_TIMEOUT_MS,async()=>{
+  await checkGame(page);
   if(!await page.evaluate(()=>window.gameState.paused))return true;
   const resume=page.locator('#resume');
   if(await resume.isVisible())await resume.click();
@@ -123,17 +130,32 @@ async function runScene(browser,page,name,cycle,o){
  const build=SCENES[name];
  if(!build)throw new Error('Unknown scene '+name+'. Scenes: '+Object.keys(SCENES).join(', '));
  const replies=await act(page,build({...cycle,town:o.town}));
- await until(name+' world',MOVE_TIMEOUT_MS,async()=>(await worldState(page)).supported);
+ let last;
+ try{
+  await until(name+' world',MOVE_TIMEOUT_MS,async()=>{
+   await checkGame(page);
+   last=await worldState(page);
+   return last.supported;
+  });
+ }catch(error){
+  // The stream state tells which part of the world never got ready.
+  if(last)error.message+=` (pending ${JSON.stringify(last.pending)}, required ready ${last.required_ready}, waiting spawns ${last.world_spawns?.length})`;
+  throw error;
+ }
  await sleep(o.settle*1000);
+ await checkGame(page);
  const trace=o.trace&&name===o.scenes.split(',').at(-1);
  const tracePath=trace?OUT+o.label+'-'+name+'-trace.json':null;
  if(trace)await browser.startTracing(page,{path:tracePath});
  const samples=[];
  for(let i=0;i<o.seconds;i++){
   await sleep(1000);
+  await checkGame(page);
   samples.push(flatten(await page.evaluate(()=>window.gamePerformance())));
  }
  if(trace)await browser.stopTracing();
+ // No frame in the 2 s window: the game stopped drawing, so the GPU values are stale.
+ if(!samples.some(s=>Number.isFinite(s.fps)))throw new Error('No game frames in '+name);
  const state=await worldState(page);
  return {name,moved:replies[0].message,player:state.player,cycle:state.cycle,summary:summarize(samples),samples,trace:tracePath};
 }
@@ -146,14 +168,19 @@ async function bench(o){
   const first=await worldState(page);
   const cycle={noon:first.day_seconds*0.5,night:first.day_seconds+first.night_seconds*0.5};
   const scenes=[];
-  for(const name of o.scenes.split(',')){
-   scenes.push(await runScene(browser,page,name,cycle,o));
-   print(o.label,scenes.at(-1));
-  }
-  const result={label:o.label,seed:o.seed,url:o.url,date:new Date().toISOString(),adapter,scenes,errors};
+  // A failed scene still writes the scenes before it, with the error and the console errors.
+  let failure=null;
+  try{
+   for(const name of o.scenes.split(',')){
+    scenes.push(await runScene(browser,page,name,cycle,o));
+    print(o.label,scenes.at(-1));
+   }
+  }catch(error){failure=error;}
+  const result={label:o.label,seed:o.seed,url:o.url,date:new Date().toISOString(),adapter,scenes,errors,error:failure?.message??null};
   const path=OUT+o.label+'-'+result.date.replace(/[:.]/g,'-')+'.json';
   writeFileSync(path,JSON.stringify(result,null,1));
   console.log('Wrote '+path);
+  if(failure)throw failure;
  }finally{await browser.close();}
 }
 
