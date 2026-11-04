@@ -14,6 +14,7 @@
 #else
 #import source_view_lighting::object_lighting
 #endif
+#import "shaders/source_lod.wgsl"::source_lod_code
 
 struct SourceVertexOutput {
     // This is `clip position` when the struct is used as a vertex stage output
@@ -28,9 +29,9 @@ struct SourceVertexOutput {
 #ifdef SOURCE_LAMPS
     @location(12) @interpolate(flat) source_lights: vec2<u32>,
 #endif
+    // `source_lod_code` of the object LOD fade.
+    @location(11) @interpolate(flat) source_lod: u32,
 #ifdef SOURCE_GPU_PROPS
-    // The row LOD fade replaces the material `lod_fade`.
-    @location(13) @interpolate(flat) source_fade: f32,
     // The row color replaces the material color.
     @location(14) @interpolate(flat) source_color: vec4<f32>,
 #endif
@@ -96,7 +97,7 @@ fn vertex(vertex_no_morph: Vertex) -> SourceVertexOutput {
     // A GPU prop row replaces the mesh uniform. GPU props are not skinned or morphed.
     let prop = prop_row(vertex_no_morph.instance_index);
     let mesh_world_from_local = prop_world_from_local(prop);
-    out.source_fade = prop.fade;
+    out.source_lod = source_lod_code(prop.fade);
     out.source_color = prop.color;
 #else
     let mesh_world_from_local = mesh_functions::get_world_from_local(vertex_no_morph.instance_index);
@@ -180,6 +181,9 @@ fn vertex(vertex_no_morph: Vertex) -> SourceVertexOutput {
     let object = prop_object(vertex_no_morph.instance_index);
 #else
     let object = object_lighting[mesh_functions::get_tag(vertex_no_morph.instance_index)];
+#endif
+#ifndef SOURCE_GPU_PROPS
+    out.source_lod = object.z >> 24u;
 #endif
     let second = (object.z >> 8u) & 0xffu;
     out.source_renderer = vec4(bitcast<f32>(object.w), f32(object.z >> 16u), f32(object.z & 0xffu),

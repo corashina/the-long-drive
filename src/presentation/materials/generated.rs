@@ -17,7 +17,6 @@ pub(super) fn from_base(base: StandardMaterial, mask: u32, reflected: bool) -> S
         preparation: default(),
         base,
         extension: SourceExtension {
-            lod_fade: 1.,
             receiver_mask: mask,
             surface,
         },
