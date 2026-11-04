@@ -25,18 +25,12 @@ fn copy_kill_nan(@builtin(position) position:vec4<f32>)->@location(0) vec4<f32>{
     return half4(color);
 }
 
-// Installed Hidden/BlitCopy. Sample linear RGBA and let the sRGB display attachment encode RGB.
-@fragment
-fn display_copy(@builtin(position) position:vec4<f32>)->@location(0) vec4<f32>{
-    // Native positive-texel stack blit maps screen top to source V=1.
-    let uv=position.xy/vec2<f32>(textureDimensions(source_color));
-    return textureSample(source_color,source_sampler,vec2(uv.x,1.0-uv.y));
-}
-
-// Stretches the held image over the canvas. The scene scale makes the held image smaller than the canvas.
+// Installed Hidden/BlitCopy. Stretches the held image over the canvas.
+// The scene scale makes the held image smaller than the canvas.
+// The held rows are bottom-up, so the canvas top samples V=1. The sRGB views store linear RGBA.
 @fragment
 fn present(@location(0) uv:vec2<f32>)->@location(0) vec4<f32>{
-    return textureSample(source_color,source_sampler,uv);
+    return textureSample(source_color,source_sampler,vec2(uv.x,1.0-uv.y));
 }
 
 // Copies the static shadow tile into the atlas tile. Viewport and scissor select the tile.

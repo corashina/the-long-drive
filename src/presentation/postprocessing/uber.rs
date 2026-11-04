@@ -1,6 +1,7 @@
 //! Camera-local Uber output and persistent noise and exposure bindings.
 use super::grain::GRAIN_SIZE;
 use super::{dither::DitherSequence, pipeline_failure};
+use crate::presentation::render_targets::{HDR_FORMAT, HELD_FORMAT};
 use crate::reference::stack_effects::StackEffects;
 use bevy::prelude::*;
 use bevy::render::{
@@ -48,7 +49,7 @@ pub struct MainInputs<'a> {
 pub struct UberPass {
     uniform: UniformBuffer<Params>,
     bindings: Vec<BindGroup>,
-    /// HDR then LDR grading, each for the world target and for the single-sample heat haze input.
+    /// HDR then LDR grading, each for the held image and for the heat haze input.
     pipelines: [CachedRenderPipelineId; 4],
     sequence: DitherSequence,
     pending: Option<DitherSequence>,
@@ -63,7 +64,6 @@ impl UberPass {
         source: &TextureView,
         noise: [&TextureView; 64],
         extent: [u32; 2],
-        samples: u32,
         input: MainInputs<'_>,
         previous: Option<Self>,
     ) -> Result<Self, String> {
@@ -112,7 +112,13 @@ impl UberPass {
         let layout = BindGroupLayoutDescriptor::new("source_uber", &entries);
         let pipelines = previous.as_ref().map_or_else(
             || {
-                [(false, samples), (false, 1), (true, samples), (true, 1)].map(|(ldr, count)| {
+                [
+                    (false, HELD_FORMAT),
+                    (false, HDR_FORMAT),
+                    (true, HELD_FORMAT),
+                    (true, HDR_FORMAT),
+                ]
+                .map(|(ldr, format)| {
                     let mut shader_defs = vec!["SOURCE_UBER_MAIN".into()];
                     if ldr {
                         shader_defs.push("SOURCE_UBER_LDR".into());
@@ -130,13 +136,12 @@ impl UberPass {
                             entry_point: Some("uber".into()),
                             shader_defs,
                             targets: vec![Some(ColorTargetState {
-                                format: TextureFormat::Rgba16Float,
+                                format,
                                 blend: None,
                                 write_mask: ColorWrites::ALL,
                             })],
                             ..default()
                         }),
-                        multisample: MultisampleState { count, ..default() },
                         ..default()
                     })
                 })
@@ -339,10 +344,9 @@ impl UberPass {
         queue: &RenderQueue,
         cache: &PipelineCache,
         output: &TextureView,
-        resolve: Option<&TextureView>,
         exposure_index: usize,
         ldr: bool,
-        single_sample: bool,
+        haze: bool,
     ) -> bool {
         if !self.ready(cache) || exposure_index > 1 {
             return false;
@@ -355,7 +359,7 @@ impl UberPass {
         let colors = [Some(RenderPassColorAttachment {
             view: output,
             depth_slice: None,
-            resolve_target: resolve.map(|view| &**view),
+            resolve_target: None,
             ops: Operations {
                 load: LoadOp::Load,
                 store: StoreOp::Store,
@@ -366,7 +370,7 @@ impl UberPass {
             color_attachments: &colors,
             ..default()
         });
-        let pipeline = self.pipelines[usize::from(ldr) * 2 + usize::from(single_sample)];
+        let pipeline = self.pipelines[usize::from(ldr) * 2 + usize::from(haze)];
         pass.set_pipeline(cache.get_render_pipeline(pipeline).unwrap());
         pass.set_bind_group(0, &self.bindings[exposure_index * 64 + index], &[]);
         pass.draw(0..3, 0..1);

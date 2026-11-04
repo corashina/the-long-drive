@@ -182,10 +182,11 @@ fn opaque(
             return;
         }
     }
+    // The last transparent pass resolves the color. Nothing reads it before.
     let colors = [Some(RenderPassColorAttachment {
         view: targets.colors.attachment(),
         depth_slice: None,
-        resolve_target: targets.colors.resolve_target().map(|view| &**view),
+        resolve_target: None,
         ops: Operations {
             load: LoadOp::Load,
             store: StoreOp::Store,
@@ -349,15 +350,22 @@ fn transparent(
         return;
     };
     let targets = &targets.0;
-    let colors = [Some(RenderPassColorAttachment {
-        view: targets.colors.attachment(),
-        depth_slice: None,
-        resolve_target: targets.colors.resolve_target().map(|view| &**view),
-        ops: Operations {
-            load: LoadOp::Load,
-            store: StoreOp::Store,
-        },
-    })];
+    // Glass captures resolve their own input. Only the last pass resolves for postprocessing.
+    let attachment = |resolve: bool| {
+        [Some(RenderPassColorAttachment {
+            view: targets.colors.attachment(),
+            depth_slice: None,
+            resolve_target: targets
+                .colors
+                .resolve_target()
+                .filter(|_| resolve)
+                .map(|view| &**view),
+            ops: Operations {
+                load: LoadOp::Load,
+                store: StoreOp::Store,
+            },
+        })]
+    };
     let depth = targets.multisample_depth.as_ref().unwrap_or(&targets.depth);
     SourceTransparentPasses::prepare_draws(world);
     let mut start = 0;
@@ -377,6 +385,7 @@ fn transparent(
             continue;
         }
         let end = order.next_capture(start + 1);
+        let colors = attachment(end == order.len());
         let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("source_transparent"),
             color_attachments: &colors,
@@ -395,6 +404,10 @@ fn transparent(
         }
         drop(pass);
         start = end;
+    }
+    // With no transparent entries, no pass resolved the opaque color.
+    if order.is_empty() {
+        targets.colors.resolve(context.command_encoder());
     }
     let [epoch, base_attempts, base_done, add_attempts, add_done] = lighting.draws();
     if base_attempts != base_done || add_attempts != add_done {

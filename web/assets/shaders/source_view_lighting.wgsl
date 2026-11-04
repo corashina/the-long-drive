@@ -5,7 +5,8 @@ struct SunShadow {
     world_to_shadow: array<mat4x4<f32>, 4>,
     spheres: array<vec4<f32>, 4>,
     radii_squared: vec4<f32>,
-    // x=1-strength, y=inverse atlas extent, z=atlas extent, w=has valid cascades
+    // x=1-strength, y=inverse atlas extent, z=atlas extent,
+    // w=0 no valid cascades, 1 PCF 7x7, 2 PCF 3x3
     params: vec4<f32>,
 }
 struct LampShadow {
@@ -121,6 +122,35 @@ fn filtered_shadow(coord: vec3<f32>) -> f32 {
     }
     return result;
 }
+// 4-tap PCF3x3 tent, the installed UnitySampleShadowmap_PCF3x3Tent. Medium and Low use it.
+fn small_filtered_shadow(coord: vec3<f32>) -> f32 {
+    let texel = coord.xy*lighting.sun_shadow.params.z;
+    let center = floor(texel+.5);
+    let offset = texel-center;
+    let square = (offset+.5)*(offset+.5)*.5;
+    let negative = min(offset,vec2(0.));
+    let positive = max(offset,vec2(0.));
+    // Texel areas under the 3 texel triangle, times 1/2.25.
+    let first = (square-offset)*.44444;
+    let second = (1.-offset-negative*negative)*.44444;
+    let third = (1.+offset-positive*positive)*.44444;
+    let last = square*.44444;
+    let weight_x = vec2(first.x+second.x,third.x+last.x);
+    let weight_y = vec2(first.y+second.y,third.y+last.y);
+    let size = lighting.sun_shadow.params.y;
+    let offset_x = (vec2(second.x,last.x)/weight_x+vec2(-1.5,.5))*size;
+    let offset_y = (vec2(second.y,last.y)/weight_y+vec2(-1.5,.5))*size;
+    let origin = center*size;
+    var result = weight_x.x*weight_y.x*textureSampleCompareLevel(shadow_atlas,shadow_compare,
+        origin+vec2(offset_x.x,offset_y.x),coord.z);
+    result += weight_x.y*weight_y.x*textureSampleCompareLevel(shadow_atlas,shadow_compare,
+        origin+vec2(offset_x.y,offset_y.x),coord.z);
+    result += weight_x.x*weight_y.y*textureSampleCompareLevel(shadow_atlas,shadow_compare,
+        origin+vec2(offset_x.x,offset_y.y),coord.z);
+    result += weight_x.y*weight_y.y*textureSampleCompareLevel(shadow_atlas,shadow_compare,
+        origin+vec2(offset_x.y,offset_y.y),coord.z);
+    return result;
+}
 // Sphere cascades. The installed operation order starts with cascade 1, then adds cascades 0, 2 and 3.
 fn sun_shadow_visibility(world_position: vec3<f32>) -> f32 {
     if(lighting.sun_shadow.params.w==0.) { return 1.; }
@@ -136,7 +166,11 @@ fn sun_shadow_visibility(world_position: vec3<f32>) -> f32 {
     coord = source_mul(lighting.sun_shadow.world_to_shadow[2],world).xyz*weights.z+coord;
     coord = source_mul(lighting.sun_shadow.world_to_shadow[3],world).xyz*weights.w+coord;
     coord.z = (coord.z-dot(weights,vec4<f32>(1.)))+1.;
-    return filtered_shadow(coord)*(1.-lighting.sun_shadow.params.x)+lighting.sun_shadow.params.x;
+    // The filter mode is uniform for the draw, so the branch does not split a quad.
+    var shadow: f32;
+    if(lighting.sun_shadow.params.w==2.) { shadow=small_filtered_shadow(coord); }
+    else { shadow=filtered_shadow(coord); }
+    return shadow*(1.-lighting.sun_shadow.params.x)+lighting.sun_shadow.params.x;
 }
 fn direct_attenuation(world_position: vec3<f32>,view_depth: f32,receive_shadows: bool) -> f32 {
     let cookie_uv=(lighting.cookie_from_world*vec4(world_position,1.0)).xy;

@@ -18,6 +18,8 @@ use std::{
 
 const MIB: usize = 1024 * 1024;
 const MAX_PENDING: usize = 32;
+/// Descriptor selection time per driving step. A longer step stalls the 50 Hz physics.
+const DRIVING_DESCRIPTOR_MS: f64 = 4.;
 /// Focus movement in metres before the structure window refreshes.
 const STRUCTURE_REFRESH_DISTANCE: f32 = 1.0;
 pub const STAGING: usize = 32 * MIB;
@@ -256,6 +258,8 @@ pub struct WorldStream {
     /// wanted structures with unbound contents.
     replay_ids: replay_ids::ReplayIds,
     unbound: Vec<bool>,
+    /// Next prop layer or content unit of descriptor selection.
+    selection_ring: selection_ring::SelectionRing,
     /// Inputs of the current `color_helpers`.
     helper_key: Option<HelperKey>,
     startup: Option<StartupTerrain>,
@@ -866,6 +870,7 @@ impl WorldStream {
             light_keep: Vec::new(),
             replay_ids: Default::default(),
             unbound: Vec::new(),
+            selection_ring: Default::default(),
             helper_key: None,
             startup: None,
             startup_placements: Vec::new(),
@@ -1505,9 +1510,27 @@ impl WorldStream {
         // Placement needs the complete selected road-point set.
         if self.next_road == self.road_candidates.len() {
             timer.next(Stage::DescriptorProps);
-            self.prepare_props();
-            timer.next(Stage::DescriptorContents);
-            self.prepare_contents();
+            let mut ring = std::mem::take(&mut self.selection_ring);
+            ring.tick(
+                |unit| {
+                    match unit {
+                        selection_ring::Unit::PropLayer => self.prepare_prop_layer(),
+                        selection_ring::Unit::Contents => {
+                            timer.next(Stage::DescriptorContents);
+                            self.prepare_contents();
+                        }
+                    }
+                    self.failure.is_none()
+                },
+                || {
+                    #[cfg(target_arch = "wasm32")]
+                    let elapsed = crate::host::game_now() - started;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let elapsed = started.elapsed().as_secs_f64() * 1000.;
+                    elapsed >= budget_ms
+                },
+            );
+            self.selection_ring = ring;
         }
     }
     /// Keep payload construction and renderer publication downstream from source selection.
@@ -1561,13 +1584,17 @@ impl WorldStream {
         let started = crate::host::game_now();
         #[cfg(not(target_arch = "wasm32"))]
         let started = std::time::Instant::now();
-        // Zero requests one driving step. Bound its terrain work to a 1 ms slice.
-        // Loading keeps its supplied budget, including time spent on descriptors.
-        let limit_ms = if budget_ms == 0. { 1. } else { budget_ms };
+        // Zero requests one driving step. Bound its descriptor selection to a 4 ms slice and
+        // its terrain work to a 1 ms slice. Loading keeps its supplied budget for both.
+        let (descriptor_ms, limit_ms) = if budget_ms == 0. {
+            (DRIVING_DESCRIPTOR_MS, 1.)
+        } else {
+            (budget_ms, budget_ms)
+        };
         let mut timer =
             super::stream_profile::Timer::new(super::stream_profile::Stage::StreamDescriptors);
         self.poll_road_work();
-        self.prepare_descriptors(budget_ms);
+        self.prepare_descriptors(descriptor_ms);
         timer.next(super::stream_profile::Stage::StreamGeometry);
         self.prepare_geometry(|| {
             #[cfg(target_arch = "wasm32")]
@@ -1878,14 +1905,6 @@ impl WorldStream {
                 },
                 object_seed: 0,
             });
-        }
-    }
-    fn prepare_props(&mut self) {
-        for _ in 0..4 {
-            self.prepare_prop_layer();
-            if self.failure.is_some() {
-                break;
-            }
         }
     }
     fn prepare_prop_layer(&mut self) {
@@ -5263,6 +5282,8 @@ pub mod renderer_world;
 mod pending_structures;
 #[path = "replay_ids.rs"]
 mod replay_ids;
+#[path = "selection_ring.rs"]
+mod selection_ring;
 #[path = "structure_list.rs"]
 mod structure_list;
 
