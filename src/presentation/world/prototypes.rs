@@ -395,6 +395,7 @@ impl SourcePrototypes {
         plans: &mut Assets<SourcePlan>,
         meshes: &mut Assets<Mesh>,
         skins: &mut Assets<SkinnedMeshInverseBindposes>,
+        uploads: &mut crate::presentation::upload_budget::UploadBudget,
     ) -> Result<(), ReferenceError> {
         let session = stream.frame().request.session;
         for entry in &mut self.entries {
@@ -456,12 +457,17 @@ impl SourcePrototypes {
                             entry.source.file, entry.source.path_id
                         )));
                     }
-                    let Some(loaded) = assets.get(asset) else {
+                    if !assets.contains(asset.id()) {
                         continue;
-                    };
+                    }
                     if entry.retired {
                         completed = Some(index);
                         break;
+                    }
+                    // Untracked: the move is not a new prototype version.
+                    let loaded = assets.get_mut_untracked(asset.id()).unwrap();
+                    for mesh in std::mem::take(&mut loaded.pending) {
+                        loaded.meshes.push(uploads.add(meshes, mesh));
                     }
                     if !loaded.meshes.iter().all(|mesh| meshes.contains(mesh.id()))
                         || !loaded

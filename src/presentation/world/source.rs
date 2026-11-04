@@ -187,6 +187,7 @@ impl SourceWorldVisuals {
         meshes: &mut Assets<Mesh>,
         pipelines: &mut WorldPipelines,
         fixed: &SourceFixedAssets,
+        uploads: &mut crate::presentation::upload_budget::UploadBudget,
     ) -> Result<(), ReferenceError> {
         self.retire_stale(stream, facts, meshes)?;
         let Some((request, surface)) = stream.prepared_surface() else {
@@ -223,7 +224,7 @@ impl SourceWorldVisuals {
                         .ok_or_else(|| ReferenceError("Missing terrain renderer state".into()))?
                 };
                 let (mesh, record) = surface_mesh(surface, range.clone(), record);
-                handles.push(meshes.add(mesh));
+                handles.push(uploads.add(meshes, mesh));
                 records.push(record);
             }
             let tickets = (0..handles.len()).map(|_| None).collect();

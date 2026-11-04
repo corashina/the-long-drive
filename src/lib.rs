@@ -68,6 +68,10 @@ mod node_plan_tests;
 #[allow(dead_code)]
 mod gpu_props_tests;
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "presentation/upload_budget.rs"]
+mod upload_budget_tests;
+
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "presentation/world/grass_worker.rs"]
 pub mod grass_worker;

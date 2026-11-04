@@ -35,6 +35,7 @@ pub(crate) mod sim_frame;
 pub mod sky_traffic;
 pub mod spawned;
 pub mod temporal;
+pub mod upload_budget;
 pub mod world;
 pub mod world_metrics;
 

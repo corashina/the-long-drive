@@ -82,6 +82,7 @@ pub struct WorldPresentation<'w, 's> {
     pub assets: ResMut<'w, Assets<SourceGltf>>,
     pub plans: ResMut<'w, Assets<super::preflight::SourcePlan>>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
+    pub uploads: ResMut<'w, crate::presentation::upload_budget::UploadBudget>,
     pub skins: ResMut<'w, Assets<SkinnedMeshInverseBindposes>>,
     pub batches: ResMut<'w, Assets<crate::presentation::texture_batches::SourceTextureBatch>>,
     pub chains: ResMut<'w, Assets<crate::presentation::primary_image::SourcePrimaryImage>>,
@@ -337,6 +338,7 @@ impl WorldPresentation<'_, '_> {
             &mut self.plans,
             &mut self.meshes,
             &mut self.skins,
+            &mut self.uploads,
         ) {
             failure.get_or_insert(error);
         }
@@ -513,6 +515,7 @@ impl WorldPresentation<'_, '_> {
             &mut self.meshes,
             &mut self.pipelines,
             &self.fixed,
+            &mut self.uploads,
         )?;
         timer.next(crate::world::stream_profile::Stage::Lamps);
         let lamps = super::lamps::source_lamp_admission(
@@ -617,6 +620,7 @@ impl WorldPresentation<'_, '_> {
             &mut self.materials.grass,
             &mut self.pipelines,
             &self.fixed,
+            &mut self.uploads,
         )?;
         timer.next(crate::world::stream_profile::Stage::FinalCleanup);
         self.instances.retire(
