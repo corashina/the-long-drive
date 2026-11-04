@@ -18,7 +18,6 @@ pub mod light_dither;
 pub mod lighting;
 pub mod materials;
 pub mod mechanisms;
-pub mod menu_car;
 mod mirror_turns;
 pub mod mirrors;
 pub mod motion_vectors;

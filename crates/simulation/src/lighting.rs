@@ -169,6 +169,22 @@ impl CycleState {
     pub fn set_cycle_seconds(&mut self, seconds: f64) {
         self.cycle_seconds = seconds;
     }
+    /// The output at cycle `seconds` with the sun yaw replaced by `sun_yaw` degrees. The clouds,
+    /// stars and terrain color stay. The start menu view uses it.
+    pub fn output_at(&self, reference: &CycleReference, seconds: f64, sun_yaw: f32) -> CycleOutput {
+        let mut output = evaluate(
+            reference,
+            self.fog_modifier,
+            seconds,
+            self.elapsed_seconds,
+            self.cloud_coordinate,
+            self.star_rotation,
+            self.terrain_color,
+        );
+        output.grading_temperature = self.output.grading_temperature;
+        output.directional_euler_degrees[1] = sun_yaw;
+        output
+    }
     /// Source `napszak.t`.
     pub fn cycle_seconds(&self) -> f64 {
         self.cycle_seconds
@@ -344,6 +360,11 @@ impl CycleState {
     pub fn output(&self) -> &CycleOutput {
         &self.output
     }
+}
+
+/// Source directional pitch in degrees at cycle `seconds`.
+pub fn sun_pitch(reference: &CycleReference, seconds: f64) -> f32 {
+    evaluate(reference, 1., seconds, 0., 0., 0., [0.; 4]).directional_euler_degrees[0]
 }
 
 fn evaluate(

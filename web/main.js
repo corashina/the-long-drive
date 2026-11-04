@@ -290,11 +290,9 @@ async function load(){
  window.addEventListener('pagehide',()=>audio.dispose());
  window.addEventListener('beforeunload',event=>{if(menu?.model.started&&!reloading)event.preventDefault();});
  const appearance=createAppearance({target:window,document,canvas,edit:outfit,characters:manifest.clothing.characters,language});
- // Rust reads this once per frame. The start car stage shows while it is true.
- let carShown=false;window.gameMenuCar=()=>carShown;
  // Source tab resets of the controls that keep their own storage.
  const resets={graphics:[()=>slider.reset()],controls:[()=>drivingSettings.resetMouse()]};
- menu=createMenu({canvas,language,appearance,showCar:shown=>{carShown=shown;},settings,resets,defaultAssists:manifest.driving.default_assists,ui:manifest.ui,bindings,saveSession,buildId:manifest.build_id,thumbnail:()=>lastThumbnail,sleeping:()=>sleeping,seated:()=>window.gameState.seated,guest:()=>multiplayer?.role===ROLE.GUEST,slider,audio,onNewGame:()=>seed.reroll(),reloadNewGame,autoNewGame:newGameSeed!==undefined,onPause:()=>thumbnail.capture().then(blob=>{lastThumbnail=blob;}),clearInput:()=>input.clear(),queueAction:a=>{actions=a;}});
+ menu=createMenu({canvas,language,appearance,settings,resets,defaultAssists:manifest.driving.default_assists,ui:manifest.ui,bindings,saveSession,buildId:manifest.build_id,thumbnail:()=>lastThumbnail,sleeping:()=>sleeping,seated:()=>window.gameState.seated,guest:()=>multiplayer?.role===ROLE.GUEST,slider,audio,onNewGame:()=>seed.reroll(),reloadNewGame,autoNewGame:newGameSeed!==undefined,onPause:()=>thumbnail.capture().then(blob=>{lastThumbnail=blob;}),clearInput:()=>input.clear(),queueAction:a=>{actions=a;}});
  multiplayer=createMultiplayer({document,target:window,Peer:window.peerjs.Peer,buildId:manifest.build_id,exportHash:manifestHash,simulation,saveSession,menu,outfit,storage:()=>localStorage,
   room:joinRoom,joined:(save,error)=>joined({save,error,operation:'join'}),reloadJoin:room=>reloadWith(JOIN_KEY,JSON.stringify(room)),
   audio,media:navigator.mediaDevices,voiceKeys:()=>actionIds.voicechat===undefined?[]:settings.values.inputs[actionIds.voicechat]});
