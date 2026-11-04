@@ -195,6 +195,10 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .multiplayer-body label {display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;padding:2px 4px;border-bottom:1px solid var(--seam-soft);}
 .multiplayer-body label input[type=checkbox] {order:1;}
 .multiplayer-body fieldset {display:flex;flex-direction:column;gap:6px;margin:0;padding:0;border:0;}
+.multiplayer-body legend {padding:8px 4px 2px;font-weight:700;color:var(--paint);}
+.multiplayer-body [hidden] {display:none;}
+#net-room {text-transform:uppercase;}
+#net-host-hint {color:var(--dust);}
 .multiplayer-body fieldset > button {align-self:flex-start;margin-top:6px;}
 .multiplayer-body p {margin:4px 0;}
 .multiplayer-body ul {margin:0;padding-left:20px;}
