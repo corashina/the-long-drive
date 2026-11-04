@@ -74,6 +74,8 @@ struct Rebind {
     reflected: bool,
     has_lod: bool,
     source_position: Vec3,
+    /// Built before the contents spawned. Without a material row, the renderer keeps its material.
+    early: bool,
 }
 struct Renderer {
     material_source: Option<crate::reference::SourceId>,
@@ -898,27 +900,28 @@ impl SourceInstances {
                                         && flat.on_root(node.index as usize)
                                         && local.is_some()
                                         && !writer;
-                                    let rebind = stream
-                                        .appearance(&placement.id)
-                                        .iter()
-                                        .any(|a| {
+                                    // Without spawned contents, any renderer can still get a condition look.
+                                    let early = !stream.has_contents(&placement.id);
+                                    let rebind = (early
+                                        || stream.appearance(&placement.id).iter().any(|a| {
                                             a.node == source_node.source
                                                 && a.active.is_none()
                                                 && (a.material.is_some()
                                                     || a.color.is_some()
                                                     || a.color_material.is_some())
+                                        }))
+                                    .then(|| {
+                                        Box::new(Rebind {
+                                            primitive: primitive.clone(),
+                                            record: record.clone(),
+                                            layer: source_node.layer,
+                                            receive,
+                                            reflected: world.determinant() < 0.,
+                                            has_lod,
+                                            source_position,
+                                            early,
                                         })
-                                        .then(|| {
-                                            Box::new(Rebind {
-                                                primitive: primitive.clone(),
-                                                record: record.clone(),
-                                                layer: source_node.layer,
-                                                receive,
-                                                reflected: world.determinant() < 0.,
-                                                has_lod,
-                                                source_position,
-                                            })
-                                        });
+                                    });
                                     let Some(mut binding) = materials.bind(
                                         stream.frame().request.session,
                                         prototype,
@@ -1640,7 +1643,8 @@ impl SourceInstances {
                     .iter()
                     .find(|c| c.node as usize == renderer.node)
                     .map(|c| c.color);
-                if selected != renderer.material_source.as_ref()
+                if (selected.is_some() || !rebind.early)
+                    && selected != renderer.material_source.as_ref()
                     && !renderer
                         .variants
                         .iter()
