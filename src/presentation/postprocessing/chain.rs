@@ -9,6 +9,7 @@ use super::{
     copy::CopyPass,
     dof::DofPass,
     exposure::ExposurePass,
+    grain::{GRAIN_BYTES, GrainPass},
     heat_haze::HeatHazePass,
     lut::{CURVE_BYTES, LUT_BYTES, LutPass},
     lut_ldr::{LDR_CURVE_BYTES, LutLdrPass, STRIP_BYTES},
@@ -18,9 +19,10 @@ use super::{
 };
 use crate::display_settings::Lut;
 use crate::reference::postprocessing::{
-    DeadGrading, DeadProfile, GlassesProfile, GradingSaturation, GradingSettings, Lens,
-    PostprocessingRecord, Tonemapper,
+    DeadProfile, GlassesProfile, GradingSaturation, GradingSettings, Lens, PostprocessingRecord,
+    Tonemapper,
 };
+use crate::reference::stack_effects::{DeadEffects, StackEffects};
 use bevy::prelude::*;
 use bevy::render::{
     render_resource::*,
@@ -38,6 +40,7 @@ pub struct PostShaders {
     pub lut: Handle<Shader>,
     pub lut_ldr: Handle<Shader>,
     pub uber: Handle<Shader>,
+    pub grain: Handle<Shader>,
     pub heat_haze: Handle<Shader>,
     pub ao_depth: Handle<Shader>,
     pub ao_render: Handle<Shader>,
@@ -80,7 +83,7 @@ pub struct PostFrame {
     pub delta_seconds: f32,
     /// Main-view grading temperature. None keeps the applied value.
     pub grading_temperature: Option<f32>,
-    /// `DeadV` weight over the main grading, 0 to 1.
+    /// `DeadV` weight over the main stack, 0 to 1.
     pub dead_weight: f32,
     /// `PPVSunGlasses` lens: index in `clothing.glasses_profiles`. None is no lens grading.
     pub glasses: Option<u32>,
@@ -142,12 +145,10 @@ struct MainChain {
     saturation: GradingSaturation,
     /// Main grading with the applied temperature and saturation.
     base: GradingSettings,
-    dead: DeadGrading,
     /// `clothing.glasses_profiles`.
     profiles: Vec<GlassesProfile>,
-    /// Lens and dead weight of the applied grading.
+    /// Lens of the applied grading.
     glasses: Option<u32>,
-    dead_weight: f32,
     /// Grading and tonemapper in the LUT and Uber.
     grading: GradingSettings,
     tonemapper: Tonemapper,
@@ -165,6 +166,12 @@ pub struct SourcePostChain {
     lenses: [Lens; 2],
     blur: Option<MotionBlurPass>,
     uber: UberPass,
+    grain: GrainPass,
+    /// The main stack without and with the binocular volume.
+    stacks: [StackEffects; 2],
+    dead: DeadEffects,
+    /// The stack effects in the Uber and bloom uniforms.
+    effects: Option<StackEffects>,
     haze: HeatHazePass,
     main: MainChain,
     stop_nan: bool,
@@ -199,26 +206,37 @@ impl SourcePostChain {
         let resize_count = previous.as_ref().map_or(0, |old| old.resize_count + 1);
         let completed = previous.as_ref().map_or(0, |old| old.completed);
         let initial = ColorTarget::new(device, extent);
-        let (mut copy, old_dof, old_main, old_uber, old_taa, old_blur, old_haze) = match previous {
-            Some(old) => (
-                old.copy,
-                Some(old.dof),
-                Some(old.main),
-                Some(old.uber),
-                old.taa,
-                old.blur,
-                Some(old.haze),
-            ),
-            None => (
-                CopyPass::new(device, cache, shaders.copy.clone(), source),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
-        };
+        let (mut copy, old_dof, old_main, old_uber, old_taa, old_blur, old_haze, grain, dead) =
+            match previous {
+                Some(old) => (
+                    old.copy,
+                    Some(old.dof),
+                    Some(old.main),
+                    Some(old.uber),
+                    old.taa,
+                    old.blur,
+                    Some(old.haze),
+                    old.grain,
+                    old.dead,
+                ),
+                None => {
+                    let (dead, ignored) = DeadEffects::new(dead, record);
+                    if !ignored.is_empty() {
+                        warn!("DeadV parameters that the port does not blend: {ignored:?}");
+                    }
+                    (
+                        CopyPass::new(device, cache, shaders.copy.clone(), source),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        GrainPass::new(device, queue, cache, shaders.grain.clone()),
+                        dead,
+                    )
+                }
+            };
         let dof = DofPass::new(
             device,
             queue,
@@ -282,39 +300,29 @@ impl SourcePostChain {
                         Some((old.ldr, old.ldr_baked)),
                         (
                             old.base,
-                            old.dead,
                             old.profiles,
                             old.glasses,
-                            old.dead_weight,
                             old.grading,
                             old.tonemapper,
                         ),
                     ),
-                    None => {
-                        let (dead, ignored) = DeadGrading::new(dead);
-                        if !ignored.is_empty() {
-                            warn!("DeadV parameters without a main stack effect: {ignored:?}");
-                        }
+                    None => (
+                        None,
+                        None,
+                        None,
+                        None,
+                        false,
+                        None,
                         (
+                            record.grading,
+                            glasses.to_vec(),
                             None,
-                            None,
-                            None,
-                            None,
-                            false,
-                            None,
-                            (
-                                record.grading,
-                                dead,
-                                glasses.to_vec(),
-                                None,
-                                0.,
-                                record.grading,
-                                Tonemapper::Neutral,
-                            ),
-                        )
-                    }
+                            record.grading,
+                            Tonemapper::Neutral,
+                        ),
+                    ),
                 };
-            let (base, dead, profiles, glasses, dead_weight, grading, tonemapper) = grading;
+            let (base, profiles, glasses, grading, tonemapper) = grading;
             let histogram = HistogramPasses::new(
                 device,
                 queue,
@@ -387,10 +395,8 @@ impl SourcePostChain {
                 ldr_pending: None,
                 saturation: record.saturation,
                 base,
-                dead,
                 profiles,
                 glasses,
-                dead_weight,
                 grading,
                 tonemapper,
             }
@@ -403,6 +409,7 @@ impl SourcePostChain {
             vignette_mask: textures.vignette_mask,
             lut: main.lut.output(),
             strip: main.ldr.output(),
+            grain: grain.output(),
             sample_scale: main.bloom.layout.sample_scale,
         };
         let mut uber = UberPass::new(
@@ -414,7 +421,6 @@ impl SourcePostChain {
             textures.noise,
             extent,
             samples,
-            record,
             inputs,
             old_uber,
         )?;
@@ -440,6 +446,7 @@ impl SourcePostChain {
             + CURVE_BYTES
             + STRIP_BYTES
             + LDR_CURVE_BYTES
+            + GRAIN_BYTES
             + taa.as_ref().map_or(0, |taa| taa.logical_bytes)
             + dof.logical_bytes
             + blur.as_ref().map_or(0, |blur| blur.layout.logical_bytes());
@@ -455,6 +462,13 @@ impl SourcePostChain {
             lenses: [record.depth_of_field.lens, record.binoculars.depth_of_field],
             blur,
             uber,
+            grain,
+            stacks: [
+                StackEffects::main(record, false),
+                StackEffects::main(record, true),
+            ],
+            dead,
+            effects: None,
             haze,
             main,
             stop_nan,
@@ -477,6 +491,7 @@ impl SourcePostChain {
             && self.dof.ready(cache)
             && self.blur.as_ref().is_none_or(|blur| blur.ready(cache))
             && self.uber.ready(cache)
+            && self.grain.ready(cache)
             && self.main.histogram.ready(cache)
             && self.main.exposure.ready(cache)
             && self.main.bloom.ready(cache)
@@ -491,6 +506,7 @@ impl SourcePostChain {
             .or_else(|| self.dof.failure(cache))
             .or_else(|| self.blur.as_ref().and_then(|blur| blur.failure(cache)))
             .or_else(|| self.uber.failure(cache))
+            .or_else(|| self.grain.failure(cache))
             .or_else(|| self.main.histogram.failure(cache))
             .or_else(|| self.main.exposure.failure(cache))
             .or_else(|| self.main.bloom.failure(cache))
@@ -607,9 +623,31 @@ impl SourcePostChain {
             .exposure
             .output_index()
             .ok_or("Source exposure output is missing")?;
+        if !(0. ..=1.).contains(&frame.dead_weight) {
+            return Err("Invalid source dead weight".into());
+        }
+        // The binocular volume, then `DeadV` over the main stack.
+        let mut effects = self.stacks[usize::from(frame.binoculars)];
+        self.dead.blend(&mut effects, frame.dead_weight);
+        if self.effects != Some(effects) {
+            self.uber.set_effects(&effects);
+            self.main.bloom.set_threshold(
+                device,
+                queue,
+                effects.bloom.threshold,
+                effects.bloom.soft_knee,
+            );
+            self.effects = Some(effects);
+        }
+        if effects.grain.on() {
+            let offset = self
+                .grain
+                .encode(encoder, device, queue, cache, frame.time)
+                .ok_or("Source grain did not encode a ready pipeline")?;
+            self.uber.set_grain_offset(offset);
+        }
         self.main.bloom.encode(encoder, cache, exposure_index);
-        let mut changed =
-            frame.glasses != self.main.glasses || frame.dead_weight != self.main.dead_weight;
+        let mut changed = frame.glasses != self.main.glasses;
         if let Some(temperature) = frame.grading_temperature {
             if !temperature.is_finite() {
                 return Err("Invalid source grading temperature".into());
@@ -625,12 +663,9 @@ impl SourcePostChain {
         };
         changed |= saturation != self.main.base.saturation;
         self.main.base.saturation = saturation;
-        if !(0. ..=1.).contains(&frame.dead_weight) {
-            return Err("Invalid source dead weight".into());
-        }
         if changed {
-            // The lens overrides the main grading, then `DeadV` blends on top.
-            let (mut grading, tonemapper) = match frame.glasses {
+            // The lens overrides the main grading.
+            let (grading, tonemapper) = match frame.glasses {
                 Some(index) => self.main.base.with_glasses(
                     self.main
                         .profiles
@@ -639,9 +674,7 @@ impl SourcePostChain {
                 ),
                 None => (self.main.base, Tonemapper::Neutral),
             };
-            self.main.dead.blend(&mut grading, frame.dead_weight);
             self.main.glasses = frame.glasses;
-            self.main.dead_weight = frame.dead_weight;
             if grading != self.main.grading || tonemapper != self.main.tonemapper {
                 self.main
                     .lut
@@ -657,13 +690,13 @@ impl SourcePostChain {
         if !self.main.lut_baked {
             self.main.lut.encode(encoder, cache);
         }
-        // ILUT 1 and 2 set LDR grading. The lens and `DeadV` override gradingMode with HDR.
+        // ILUT 1 and 2 set LDR grading. The lens overrides gradingMode with HDR.
         let ldr = match frame.lut {
             Lut::Default => None,
             Lut::C64 => Some(0),
             Lut::Sepia => Some(1),
         }
-        .filter(|_| frame.glasses.is_none() && frame.dead_weight == 0.);
+        .filter(|_| frame.glasses.is_none());
         self.main.ldr_pending = None;
         if let Some(index) = ldr
             && self.main.ldr_baked != Some(index)
@@ -676,7 +709,6 @@ impl SourcePostChain {
             .heat_haze
             .map(|temperature| self.haze.weight(temperature))
             .filter(|weight| *weight > 0.);
-        self.uber.set_binoculars(frame.binoculars);
         let (target, target_resolve) = match haze {
             Some(_) => (&self.haze.input, None),
             None => (output, resolve),
@@ -718,6 +750,7 @@ impl SourcePostChain {
             self.main.ldr_baked = Some(index);
         }
         self.uber.completed();
+        self.grain.completed();
         self.completed = token;
         self.pending = None;
         true
