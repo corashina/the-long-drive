@@ -33,12 +33,16 @@ struct SpawnedInstance {
     body_to_scene: rapier3d::math::Pose,
     /// Private materials of emissive renderer nodes.
     emissive: Vec<(NodeId, Handle<SourceMaterial>)>,
+    /// `SpawnedVisuals::sync_stamp` of the last frame that had this item.
+    seen: u64,
 }
 
 #[derive(Resource, Default)]
 pub struct SpawnedVisuals {
     instances: HashMap<ItemId, SpawnedInstance>,
     generation: u64,
+    /// Count of `sync` runs. An instance with an older `seen` has no item in the frame.
+    sync_stamp: u64,
 }
 
 impl SpawnedVisuals {
@@ -236,17 +240,12 @@ pub(crate) fn sync(
     }
     let manifest = &reference.0;
     let items = frame.spawned();
-    let stale: Vec<ItemId> = spawned
-        .instances
-        .keys()
-        .copied()
-        .filter(|id| !items.iter().any(|item| item.id == *id))
-        .collect();
-    for id in stale {
-        let instance = spawned.instances.remove(&id).unwrap();
-        commands.entity(instance.root).despawn();
-    }
+    spawned.sync_stamp += 1;
+    let stamp = spawned.sync_stamp;
     for item in items {
+        if let Some(instance) = spawned.instances.get_mut(&item.id) {
+            instance.seen = stamp;
+        }
         let Some((_, current)) = frame.pose(PoseKey::Item(item.id)) else {
             continue;
         };
@@ -313,6 +312,7 @@ pub(crate) fn sync(
                     skin_pending: skin_body(manifest, prototype) == Some(body.node),
                     body_to_scene: body_local.inverse() * to_rapier(root_pose).inverse(),
                     emissive: Vec::new(),
+                    seen: stamp,
                 },
             );
             continue;
@@ -401,4 +401,12 @@ pub(crate) fn sync(
             spawned.instances.get_mut(&item.id).unwrap().skin_pending = false;
         }
     }
+    // Items that left the frame.
+    spawned.instances.retain(|_, instance| {
+        let kept = instance.seen == stamp;
+        if !kept {
+            commands.entity(instance.root).despawn();
+        }
+        kept
+    });
 }

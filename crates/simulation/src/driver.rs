@@ -322,6 +322,9 @@ impl SimDriver {
             .step_world(reference, &mut self.world, budget_ms)
             .and_then(|grant| {
                 self.grant = grant;
+                let _timer = crate::world::stream_profile::Timer::new(
+                    crate::world::stream_profile::Stage::Activity,
+                );
                 runtime.align_startup(reference)?;
                 if runtime.has_deferred_save_links() {
                     runtime
@@ -443,6 +446,7 @@ impl SimDriver {
         self.look = player.look(&self.runtime.physics);
         self.look.gain = gain;
         self.look.position[1] = player.view(&self.runtime.physics).camera_pose.position;
+        self.look.brush = u32::from(self.runtime.area.interaction.brush_in_hand());
     }
 
     /// Puts both steps of the look at the player view.

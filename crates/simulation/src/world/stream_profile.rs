@@ -45,8 +45,18 @@ pub enum Stage {
     ContentCables,
     ContentAdvance,
     ContentSelect,
+    /// `Driver::advance_world` after `step_world`: startup alignment, saved restore, world activity, recovery.
+    Activity,
+    /// Sub-stages of `DescriptorProps` and `ContentSelect`. Their items are list lengths.
+    PropHelpers,
+    PropAdvance,
+    PropSelect,
+    SelectChanged,
+    SelectUnbound,
+    SelectInstances,
+    SelectLights,
 }
-const STAGES: usize = 38;
+const STAGES: usize = 46;
 const NAMES: [&str; STAGES] = [
     "Cleanup",
     "FixedInputs",
@@ -86,6 +96,14 @@ const NAMES: [&str; STAGES] = [
     "ContentCables",
     "ContentAdvance",
     "ContentSelect",
+    "Activity",
+    "PropHelpers",
+    "PropAdvance",
+    "PropSelect",
+    "SelectChanged",
+    "SelectUnbound",
+    "SelectInstances",
+    "SelectLights",
 ];
 #[derive(Clone, Copy, Default, serde::Serialize)]
 struct Measurement {
@@ -203,7 +221,7 @@ pub fn streaming_profile_audit() -> String {
         "stages": &NAMES[..],
         "measurements": measurements,
         "retainedBytes": std::mem::size_of_val(&*samples) + std::mem::size_of_val(&*values),
-        "nested_stages": ["StreamDescriptors", "StreamGeometry", "Terrain", "Road", "RoadPacking", "RoadResult", "RoadPublication", "DescriptorSelection", "DescriptorPlan", "DescriptorRoads", "DescriptorProps", "DescriptorContents", "ContentCables", "ContentAdvance", "ContentSelect"],
+        "nested_stages": ["StreamDescriptors", "StreamGeometry", "Terrain", "Road", "RoadPacking", "RoadResult", "RoadPublication", "DescriptorSelection", "DescriptorPlan", "DescriptorRoads", "DescriptorProps", "DescriptorContents", "ContentCables", "ContentAdvance", "ContentSelect", "PropHelpers", "PropAdvance", "PropSelect", "SelectChanged", "SelectUnbound", "SelectInstances", "SelectLights"],
     }))
     .expect("streaming measurements serialize")
 }

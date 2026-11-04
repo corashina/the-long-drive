@@ -9,6 +9,7 @@ pub mod copy;
 pub mod dither;
 pub mod dof;
 pub mod exposure;
+pub mod grain;
 pub mod heat_haze;
 pub mod lut;
 pub mod lut_ldr;

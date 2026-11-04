@@ -6,10 +6,11 @@ use crate::interaction::items::{ItemLocation, ItemState, ItemStore};
 use crate::reference::{
     ItemId, ReferenceError, ReferenceManifest, SourceId, Transform, WorldPrototypeReference,
 };
+use crate::vehicle::{from_rapier, to_rapier};
 use crate::world::stream::content_index::{ContentSlot, InstanceSelection};
 use crate::world::{ContentIndex, GeneratedId, NodeAppearance, ObjectKey};
 use bevy_platform::collections::HashMap;
-use rapier3d::math::Rotation;
+use rapier3d::math::{Pose, Rotation};
 use rapier3d::prelude::RigidBodyHandle;
 use std::collections::BTreeMap;
 
@@ -208,7 +209,12 @@ impl StructureViews {
         // World car gauges and lamps change on a still car too.
         let signatures = vehicles
             .iter()
-            .map(|(key, v)| (physics.chassis_handle(key), v.presentation_signature()))
+            .map(|(key, v)| {
+                (
+                    physics.chassis_handle(key),
+                    v.presentation_signature(physics.wheel_states(key)),
+                )
+            })
             .chain(stream.trailers().map(|(body, l)| (body, l.signature())));
         for (body, signature) in signatures {
             for &slot in self.bodies.get(&body).into_iter().flatten() {
@@ -383,10 +389,11 @@ impl StructureViews {
         // The car runtime of a car copy.
         let car = prototype.vehicle.as_ref().and_then(|record| {
             let handle = structure.bodies.get(record.body as usize)?;
-            Some((record, vehicles.get(physics.vehicle_of(*handle)?)?))
+            let key = physics.vehicle_of(*handle)?;
+            Some((record, vehicles.get(key)?, physics.wheel_states(key)))
         });
-        if let Some((_, vehicle)) = car {
-            entry.signature = vehicle.presentation_signature();
+        if let Some((_, vehicle, wheels)) = car {
+            entry.signature = vehicle.presentation_signature(wheels);
         }
         // The lamp state of a trailer copy.
         let trailer = prototype.trailer.as_ref().and_then(|record| {
@@ -461,13 +468,19 @@ impl StructureViews {
                 local(node, pose);
             }
         }
+        // Source `wheelgraphicsscript.Graphics`: car wheel `T` nodes steer and roll.
+        if let Some((_, vehicle, wheels)) = car {
+            for (g, wheel) in vehicle.wheel_graphics.iter().zip(wheels) {
+                local(g.node, g.pose(wheel).0);
+            }
+        }
         if let Some(dial) = stream.dial(id) {
             for n in dial.nodes() {
                 local(n.node, n.pose);
             }
         }
         // Source `carscript.Transmission`: the lever pose in its parent space.
-        if let Some((record, vehicle)) = car
+        if let Some((record, vehicle, _)) = car
             && let (Some(r), Some(lever)) = (&record.lever, &vehicle.lever)
         {
             local(
@@ -480,14 +493,14 @@ impl StructureViews {
             );
         }
         // Source `carscript.UpdPedal`: car pedals and handbrake lever.
-        if let Some((record, vehicle)) = car {
+        if let Some((record, vehicle, _)) = car {
             let rest = |n: u32| prototype.nodes[n as usize].transform;
             for (n, pose) in vehicle.control_pedals.poses(&record.control_pedals, rest) {
                 local(n as usize, pose);
             }
         }
         // Source `bikepedalscript.UpdPedals`: turned pedals and level feet holders.
-        if let Some((record, vehicle)) = car
+        if let Some((record, vehicle, _)) = car
             && let Some(r) = &record.pedals
         {
             use crate::simulation::pedals::{feet_holder_rotation, turned};
@@ -605,7 +618,7 @@ impl StructureViews {
                 poses.push(rotation_row(node.0, e));
             }
         }
-        if let Some((record, vehicle)) = car
+        if let Some((record, vehicle, _)) = car
             && let (Some(r), Some(state)) = (&record.instruments, &vehicle.instruments)
         {
             let needles = r.needles.iter().zip(&state.needle_angles).map(|(n, &a)| {
@@ -622,8 +635,15 @@ impl StructureViews {
                 poses.push(rotation_row(node.0, e));
             }
         }
+        // Parts placed after the physics step take the blend move of the car body.
+        let anchor = car
+            .and_then(|(record, _, _)| structure.bodies.get(record.body as usize))
+            .or(structure.bodies.first());
+        let moved = anchor.map_or(Pose::IDENTITY, |handle| {
+            physics.presented_move(*handle, inputs.alpha)
+        });
         for (body, handle) in prototype.bodies.iter().enumerate().zip(&structure.bodies) {
-            let pose = physics.presented_pose(*handle, inputs.alpha);
+            let pose = physics.presented_pose_or(*handle, inputs.alpha, moved);
             poses.push(NodePoseRow {
                 node: body.0 as u32,
                 kind: NodePoseRow::BODY,
@@ -645,6 +665,7 @@ impl StructureViews {
         }
         for node in 0..prototype.nodes.len() {
             if let Some(pose) = content.node_pose(node) {
+                let pose = from_rapier(&(moved * to_rapier(pose)));
                 poses.push(NodePoseRow {
                     node: node as u32,
                     kind: NodePoseRow::CONTENT,
@@ -670,14 +691,14 @@ impl StructureViews {
         let cobwebs = stream.cobweb_hidden(id);
         let start = frame.hidden_nodes.len() as u32;
         // Source washtriggerscript GotDirty and GotClean set the car blood nodes active.
-        let blood = |n: usize| car.and_then(|(_, v)| v.blood.as_ref()?.visible(n as u32));
+        let blood = |n: usize| car.and_then(|(_, v, _)| v.blood.as_ref()?.visible(n as u32));
         for i in 0..prototype.nodes.len() {
             let enabled = active_food(prototype, i, appearance, reference, food, blood)
                 && !cobwebs.contains(&i)
                 && tool.is_none_or(|t| t.hidden != Some(i))
                 && !self.gun_hidden.contains(&(i as u32))
                 && car
-                    .and_then(|(record, v)| v.node_visible(record, i as u32))
+                    .and_then(|(record, v, _)| v.node_visible(record, i as u32))
                     .or_else(|| {
                         trailer.and_then(|(_, l)| {
                             l.visibility()
@@ -695,7 +716,7 @@ impl StructureViews {
         let start = frame.node_materials.len() as u32;
         for (i, node) in prototype.nodes.iter().enumerate() {
             let selected = car
-                .and_then(|(record, v)| v.renderer_material(record, i as u32))
+                .and_then(|(record, v, _)| v.renderer_material(record, i as u32))
                 .or_else(|| {
                     let (record, lights) = trailer?;
                     lights

@@ -570,6 +570,11 @@ impl PhysicsWorld {
         }
     }
 
+    /// Wheel states of vehicle `key`, in wheel order. Empty if `key` has no vehicle.
+    pub fn wheel_states(&self, key: &ObjectKey) -> &[WheelState] {
+        self.vehicles.get(key).map_or(&[], |v| v.wheels.wheels())
+    }
+
     /// Wheel centers in the chassis body frame, in wheel order. None if `key` has no vehicle.
     pub fn wheel_centers(&self, key: &ObjectKey) -> Option<impl Iterator<Item = Vector> + '_> {
         let vehicle = self.vehicles.get(key)?;

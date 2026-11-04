@@ -193,6 +193,7 @@ pub struct LightingShaders {
     pub lut: Handle<Shader>,
     pub lut_ldr: Handle<Shader>,
     pub uber: Handle<Shader>,
+    pub grain: Handle<Shader>,
     pub heat_haze: Handle<Shader>,
     pub ao_depth: Handle<Shader>,
     pub ao_render: Handle<Shader>,
@@ -206,7 +207,7 @@ pub struct LightingShaders {
     pub motion_blur: Handle<Shader>,
 }
 impl LightingShaders {
-    pub(crate) fn handles(&self) -> [&Handle<Shader>; 27] {
+    pub(crate) fn handles(&self) -> [&Handle<Shader>; 28] {
         [
             &self.lighting,
             &self.cloud,
@@ -224,6 +225,7 @@ impl LightingShaders {
             &self.lut,
             &self.lut_ldr,
             &self.uber,
+            &self.grain,
             &self.heat_haze,
             &self.ao_depth,
             &self.ao_render,

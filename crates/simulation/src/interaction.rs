@@ -313,6 +313,18 @@ struct TankRules {
 }
 
 impl InteractionState {
+    /// `RightHandPos` of a one-hand Tab item that is not a weapon, in its root frame.
+    /// The port places such an item so that this grip sits at `RH`, on the right side.
+    pub fn tab_grip(&self, id: ItemId) -> Option<rapier3d::math::Pose> {
+        let rule = self.carry.rule(id)?;
+        if rule.double_hand
+            || self.melee.weapon_for(&rule.source).is_some()
+            || self.guns.weapon_for(&rule.source).is_some()
+        {
+            return None;
+        }
+        self.carry.hand_grips(id)[1]
+    }
     pub fn set_settings(&mut self, settings: crate::reference::PlayerSettings) {
         self.scroll_sensitivity = settings.scroll;
         self.mechanisms.scroll_sensitivity = settings.scroll;
