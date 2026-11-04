@@ -228,7 +228,8 @@ impl SimDriver {
             }
         }
         if self.ready && self.runtime.started {
-            // Throwaway brush probe.
+            // Throwaway brush probe: the game runs even when headless Chrome cannot lock the mouse.
+            self.runtime.paused = false;
             use std::sync::atomic::{AtomicU64, Ordering};
             static SECONDS: AtomicU64 = AtomicU64::new(0);
             let seconds = f64::from_bits(SECONDS.load(Ordering::Relaxed)) + self.delta_seconds;
