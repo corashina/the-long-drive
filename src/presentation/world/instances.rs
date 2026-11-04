@@ -13,7 +13,10 @@ use crate::ownership::PresentationLedger;
 use crate::world::stream::content_index::InstanceSelection;
 use crate::world::{RendererFact, RendererFacts};
 use crate::{
-    presentation::materials::{SourceShadowMode, grass::settings::settings_from_source},
+    presentation::materials::{
+        SourceShadowMode,
+        grass::settings::{quality, settings_from_source},
+    },
     presentation::renderer_visibility::CameraHidden,
     reference::{ReferenceError, ReferenceManifest, WorldPrototypeReference},
     world::{Placement, RendererWorld},
@@ -1184,7 +1187,7 @@ impl SourceInstances {
                                                 Arc::clone(&patches),
                                                 settings,
                                                 handle.clone(),
-                                                shadow != 0,
+                                                shadow != 0 && quality().shadow_cascades != 0,
                                                 bounds,
                                             )?;
                                         }

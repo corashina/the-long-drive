@@ -6,6 +6,7 @@ use bevy::ecs as bevy_ecs;
 use bevy::prelude::*;
 use bevy::render::{
     mesh::{RenderMesh, RenderMeshBufferInfo, allocator::MeshAllocator},
+    render_phase::TrackedRenderPass,
     render_resource::{binding_types::*, *},
     renderer::{RenderDevice, RenderQueue},
     texture::GpuImage,
@@ -199,14 +200,12 @@ impl CloudPass {
         cache.get_render_pipeline(self.pipeline).is_some()
     }
     /// Encode after the procedural sky into the same source MSAA attachments.
-    pub fn encode(
-        &self,
-        encoder: &mut CommandEncoder,
-        cache: &PipelineCache,
-        allocator: &MeshAllocator,
-        color: &TextureView,
-        resolve: Option<&TextureView>,
-        depth: &TextureView,
+    /// Draw high then low clouds into a pass that the caller owns.
+    pub fn draw<'a>(
+        &'a self,
+        pass: &mut TrackedRenderPass<'a>,
+        cache: &'a PipelineCache,
+        allocator: &'a MeshAllocator,
     ) -> bool {
         let Some(pipeline) = cache.get_render_pipeline(self.pipeline) else {
             return false;
@@ -214,30 +213,8 @@ impl CloudPass {
         let Some(vertices) = allocator.mesh_vertex_slice(&self.mesh) else {
             return false;
         };
-        let colors = [Some(RenderPassColorAttachment {
-            view: color,
-            depth_slice: None,
-            resolve_target: resolve.map(|view| &**view),
-            ops: Operations {
-                load: LoadOp::Load,
-                store: StoreOp::Store,
-            },
-        })];
-        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("source_clouds_high_then_low"),
-            color_attachments: &colors,
-            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                view: depth,
-                depth_ops: Some(Operations {
-                    load: LoadOp::Load,
-                    store: StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            ..default()
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_vertex_buffer(0, *vertices.buffer.slice(..));
+        pass.set_render_pipeline(pipeline);
+        pass.set_vertex_buffer(0, vertices.buffer.slice(..));
         for index in self.order {
             pass.set_bind_group(0, &self.bindings[index].group, &[]);
             pass.draw(

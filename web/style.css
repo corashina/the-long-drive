@@ -159,6 +159,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #loading-details h2 {margin:0 0 12px;font-size:22px;font-weight:800;}
 #loading-details progress {display:block;width:100%;height:10px;accent-color:var(--paint);}
 #loading-details p {margin:10px 0 0;white-space:pre-line;}
+#loading-elapsed {text-align:center;}
 #loading-steps {list-style:none;margin:14px 0 0;padding:0;display:grid;gap:4px;}
 #loading-steps li {display:grid;grid-template-columns:1.4em minmax(0,1fr) auto;gap:8px;color:#9a9a9a;}
 #loading-steps li[data-state=active] {color:var(--bleach);}

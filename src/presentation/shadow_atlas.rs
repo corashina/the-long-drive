@@ -1,18 +1,18 @@
 //! Source four-cascade atlas dispatch over the persistent caster phase of each tile bit.
+//! Only the world view draws the sun atlas. Probe faces and mirrors sample it.
 use super::{
     lamp_shadows::{LampShadowUniform, LampShadows, TILES, tile_bit},
     lighting_assets::LightingRenderAssets,
     materials::MaterialLoading,
     readiness::RendererStateHandle,
     render_bundles::BundleTarget,
-    render_targets::{SHADOW_FORMAT, SourceViewTargets},
+    render_targets::{SHADOW_FORMAT, SunAtlas},
     shadow_phase::{CasterSet, ShadowBundles, ShadowDrawState, SourceShadow},
     shadow_queue::ShadowQueues,
     shadow_scene::ShadowScene,
     shadow_tiles::{ShadowTileViews, TILE_BITS},
     static_draws::StaticDraws,
-    surface_graph::SurfaceViewTargets,
-    surface_views::{SourceSurfaceView, WORLD_VIEWS},
+    surface_views::{SourceSurfaceView, SurfaceResources, WORLD_VIEWS},
     view_frame::SourceViewFrame,
 };
 use crate::reference::{
@@ -30,18 +30,18 @@ use bevy::render::{
 use bevy::{ecs as bevy_ecs, prelude::*};
 use std::sync::Arc;
 
-/// The cascade plan of one view for one frame. Atlas, caster slots and collector read it.
+/// The cascade plan of the world view for one frame. Atlas, caster slots and collector read it.
 #[derive(Component)]
 pub struct ShadowCadence {
-    targets: Arc<SourceViewTargets>,
-    /// The static atlas of `targets`, for the tile copy.
+    atlas: Arc<SunAtlas>,
+    /// The static atlas of `atlas`, for the tile copy.
     restore: BindGroup,
     history: CascadeHistory,
     pub plan: CascadePlan,
-    /// The static lamp atlas, for the face copy. Only the world view has it.
-    lamp_restore: Option<BindGroup>,
+    /// The static lamp atlas, for the face copy.
+    lamp_restore: BindGroup,
     lamp_history: LampHistory,
-    /// Lamp face tiles that draw or refresh this frame. Only the world view draws lamp faces.
+    /// Lamp face tiles that draw or refresh this frame.
     pub lamp: LampPlan,
     pub frame: u32,
     /// Changes when a tile gets a different fit.
@@ -57,20 +57,18 @@ impl ShadowCadence {
         encoded: u32,
         lamps: &LampShadows,
     ) {
-        if index < WORLD_VIEWS && self.lamp_restore.is_some() {
-            let current = std::array::from_fn(|tile| {
-                let (slot, face) = (tile / 6, tile % 6);
-                let uniform = &lamps.uniforms[slot];
-                (face < lamps.faces(slot)).then(|| LampFace {
-                    clip_from_world: uniform.faces[face].to_cols_array().map(f32::to_bits),
-                    point: uniform.point(),
-                    contents: scene.lamp_contents[tile],
-                })
-            });
-            self.lamp =
-                self.lamp_history
-                    .plan(encoded != self.frame, &current, &scene.lamp_animated);
-        }
+        let current = std::array::from_fn(|tile| {
+            let (slot, face) = (tile / 6, tile % 6);
+            let uniform = &lamps.uniforms[slot];
+            (face < lamps.faces(slot)).then(|| LampFace {
+                clip_from_world: uniform.faces[face].to_cols_array().map(f32::to_bits),
+                point: uniform.point(),
+                contents: scene.lamp_contents[tile],
+            })
+        });
+        self.lamp = self
+            .lamp_history
+            .plan(encoded != self.frame, &current, &scene.lamp_animated);
         self.plan = CascadePlan::ALL;
         let Some(fit) = &scene.fits[index] else {
             // The next fit renders all cascades.
@@ -89,9 +87,7 @@ impl ShadowCadence {
             animated: std::array::from_fn(|i| scene.animated_tiles[index] >> i & 1 != 0),
             forced: encoded != self.frame,
         };
-        if index < WORLD_VIEWS {
-            self.plan = plan_tiles(frame, &self.history, &current);
-        }
+        self.plan = plan_tiles(frame, &self.history, &current);
         self.revision += u64::from(self.history.commit(&self.plan, &current));
         self.frame = frame;
     }
@@ -105,11 +101,10 @@ pub(crate) fn plan_cascades(
     device: Res<RenderDevice>,
     cache: Res<PipelineCache>,
     lamps: Res<LampShadows>,
-    resources: Option<Res<super::surface_views::SurfaceResources>>,
+    resources: Option<Res<SurfaceResources>>,
     mut views: Query<(
         Entity,
         &SourceSurfaceView,
-        &SurfaceViewTargets,
         Option<&ShadowDrawState>,
         Option<&mut ShadowCadence>,
     )>,
@@ -117,9 +112,10 @@ pub(crate) fn plan_cascades(
     if scene.frame == 0 || scene.frame != frame.frame {
         return;
     }
-    let Some(assets) = assets else {
+    let (Some(assets), Some(resources)) = (assets, resources) else {
         return;
     };
+    let atlas = &resources.targets.sun;
     let shadows = &assets.record.lights[0].shadows;
     let split = assets.record.shadows.split_fractions;
     let epoch = CascadeEpoch {
@@ -136,12 +132,12 @@ pub(crate) fn plan_cascades(
         ]
         .map(f32::to_bits),
     };
-    for (entity, view, targets, state, cadence) in &mut views {
-        if frame.views[view.index].is_none() {
+    for (entity, view, state, cadence) in &mut views {
+        if view.index >= WORLD_VIEWS || frame.views[view.index].is_none() {
             continue;
         }
         let encoded = state.map_or(0, ShadowDrawState::encoded_frame);
-        if let Some(mut cadence) = cadence.filter(|c| Arc::ptr_eq(&c.targets, &targets.0)) {
+        if let Some(mut cadence) = cadence.filter(|c| Arc::ptr_eq(&c.atlas, atlas)) {
             cadence.update(frame.frame, &scene, view.index, epoch, encoded, &lamps);
             continue;
         }
@@ -150,22 +146,17 @@ pub(crate) fn plan_cascades(
         let restore = device.create_bind_group(
             "source_shadow_restore",
             &layout,
-            &BindGroupEntries::with_indices(((2, &targets.0.static_atlas.attachment),)),
+            &BindGroupEntries::with_indices(((2, &atlas.static_atlas.attachment),)),
         );
-        let lamp_restore = resources
-            .as_ref()
-            .filter(|_| view.index < WORLD_VIEWS)
-            .map(|r| {
-                device.create_bind_group(
-                    "source_lamp_shadow_restore",
-                    &layout,
-                    &BindGroupEntries::with_indices(
-                        ((2, &r.targets.lamp_static_atlas.attachment),),
-                    ),
-                )
-            });
+        let lamp_restore = device.create_bind_group(
+            "source_lamp_shadow_restore",
+            &layout,
+            &BindGroupEntries::with_indices(
+                ((2, &resources.targets.lamp_static_atlas.attachment),),
+            ),
+        );
         let mut cadence = ShadowCadence {
-            targets: targets.0.clone(),
+            atlas: atlas.clone(),
             restore,
             history: CascadeHistory::default(),
             plan: CascadePlan::ALL,
@@ -330,7 +321,6 @@ fn draw_casters<'w>(
 pub(crate) fn render_atlas(
     world: &World,
     view: ViewQuery<(
-        &SurfaceViewTargets,
         &ShadowDrawState,
         &SourceSurfaceView,
         &ShadowCadence,
@@ -345,23 +335,25 @@ pub(crate) fn render_atlas(
     status: Res<RendererStateHandle>,
     loading: Res<MaterialLoading>,
     lamps: Res<LampShadows>,
-    resources: Res<super::surface_views::SurfaceResources>,
+    resources: Res<SurfaceResources>,
     mut context: RenderContext,
 ) {
     if !loading.is_ready() || status.failure().is_some() {
         return;
     }
     let entity = view.entity();
-    let (targets, state, source, cadence, bundles, tiles) = view.into_inner();
+    let (state, source, cadence, bundles, tiles) = view.into_inner();
     if frame.views[source.index].is_none()
         || cadence.frame != frame.frame
+        // A resize replaces the atlas after the plan. The surfaces bind the new one.
+        || !Arc::ptr_eq(&cadence.atlas, &resources.targets.sun)
         || queues.frame != frame.frame
         || !queues.ready[source.index]
     {
         return;
     }
     let mut tile_phases = [None; TILE_BITS];
-    for bit in 0..tiles.count {
+    for bit in 0..TILE_BITS {
         let Some(phase) = phases.get(&tiles.retained[bit]) else {
             return;
         };
@@ -389,13 +381,13 @@ pub(crate) fn render_atlas(
     let draws = StaticDraws::new(world);
     let casters = (&tile_phases, entity, &draws, state, bundles);
     let viewport = |pass: &mut TrackedRenderPass, cascade| {
-        set_rect(pass, tile_rect(targets.0.atlas_size, cascade));
+        set_rect(pass, tile_rect(cadence.atlas.size, cascade));
     };
     // Static casters and GPU props draw into the static tile.
     if cadence.plan.draw.contains(&true) {
         let mut pass = context.begin_tracked_render_pass(tile_pass(
             "source_shadow_static_atlas",
-            &targets.0.static_atlas.attachment,
+            &cadence.atlas.static_atlas.attachment,
         ));
         for cascade in (0..4).filter(|&c| cadence.plan.draw[c]) {
             viewport(&mut pass, cascade);
@@ -426,7 +418,7 @@ pub(crate) fn render_atlas(
     if cadence.plan.refresh.contains(&true) {
         let mut pass = context.begin_tracked_render_pass(tile_pass(
             "source_shadow_atlas",
-            &targets.0.atlas.attachment,
+            &cadence.atlas.atlas.attachment,
         ));
         for cascade in (0..4).filter(|&c| cadence.plan.refresh[c]) {
             viewport(&mut pass, cascade);
@@ -481,9 +473,7 @@ pub(crate) fn render_atlas(
         }
     }
     // The atlas face copies the static face, then the animated casters draw.
-    if let Some(lamp_restore) = &cadence.lamp_restore
-        && (4..TILES).any(lamp_refresh)
-    {
+    if (4..TILES).any(lamp_refresh) {
         let mut pass = context.begin_tracked_render_pass(tile_pass(
             "source_lamp_shadow_atlas",
             &resources.targets.lamp_atlas.attachment,
@@ -491,7 +481,7 @@ pub(crate) fn render_atlas(
         for tile in (4..TILES).filter(|tile| lamp_refresh(*tile)) {
             lamp_viewport(&mut pass, tile);
             pass.set_render_pipeline(restore);
-            pass.set_bind_group(0, lamp_restore, &[]);
+            pass.set_bind_group(0, &cadence.lamp_restore, &[]);
             pass.draw(0..3, 0..1);
             if let Err(error) = draw_casters(world, &mut pass, casters, tile, CasterSet::Animated) {
                 status.fail(format!("Source lamp shadow draw: {error}"));

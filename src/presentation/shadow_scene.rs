@@ -1,5 +1,5 @@
 //! Source candidate membership is independent of camera-visible phase lists.
-use super::surface_views::VIEW_COUNT;
+use super::surface_views::WORLD_VIEWS;
 use super::{
     lighting_assets::LightingAssets,
     lighting_scene::{SourceSceneLighting, SourceWorldOrigin},
@@ -34,18 +34,19 @@ pub enum CasterKey {
     Row(u32),
 }
 
+/// Sun shadow casters of each world view. Probe faces and mirrors sample the world view shadows.
 #[derive(Resource, Default)]
 pub struct ShadowScene {
     pub frame: u32,
     pub origin: [f64; 3],
     capacity: usize,
     pub caster_data: CasterData<CasterKey>,
-    pub masks: [Vec<u8>; VIEW_COUNT],
+    pub masks: [Vec<u8>; WORLD_VIEWS],
     /// Rows that can have a nonzero mask in each view, in row order. Other masks are zero.
-    pub marked: [Vec<u32>; VIEW_COUNT],
-    pub fits: [Option<ShadowFit>; VIEW_COUNT],
-    pub candidates: [usize; VIEW_COUNT],
-    pub split_counts: [[usize; 4]; VIEW_COUNT],
+    pub marked: [Vec<u32>; WORLD_VIEWS],
+    pub fits: [Option<ShadowFit>; WORLD_VIEWS],
+    pub candidates: [usize; WORLD_VIEWS],
+    pub split_counts: [[usize; 4]; WORLD_VIEWS],
     pub shadow_only: usize,
     bounds: WorldBoundsCache<Entity>,
     /// Renderers already reported with nonfinite bounds.
@@ -60,8 +61,8 @@ pub struct ShadowScene {
     /// Row slots with changed shadow inputs. It keeps its storage across frames.
     row_changes: Vec<u32>,
     casters_ready: bool,
-    views: [ShadowViewCache; VIEW_COUNT],
-    mask_revisions: [u64; VIEW_COUNT],
+    views: [ShadowViewCache; WORLD_VIEWS],
+    mask_revisions: [u64; WORLD_VIEWS],
     /// Changes when a lamp bit of the world view masks changes.
     lamp_revision: u64,
     /// Pose hash of each caster row: identity, transform, bounds, assets and cast state.
@@ -75,13 +76,15 @@ pub struct ShadowScene {
     /// Held sun rotation of the shadow fit. It follows the sun in steps of `SUN_STEP`.
     pub sun: Quat,
     /// Static caster content counter of each view and cascade. It changes when the static tile content would change.
-    pub contents: [[u64; 4]; VIEW_COUNT],
+    pub contents: [[u64; 4]; WORLD_VIEWS],
     /// Cascade bits of each view with an animated caster.
-    pub animated_tiles: [u8; VIEW_COUNT],
+    pub animated_tiles: [u8; WORLD_VIEWS],
     /// Caster rows read again this frame. It keeps its storage across frames.
     touched: Vec<u32>,
     /// Caster rows that change each frame, in row order. It keeps its storage across frames.
     pub animated: Vec<u32>,
+    /// Grass caster rows, in row order. Their sun bits keep only the grass shadow cascades.
+    grass: Vec<u32>,
     /// Entity rows with a nonzero mask in any view. It keeps its storage across frames.
     visible: Vec<u32>,
 }
@@ -134,9 +137,9 @@ pub(super) fn prepare_scene(
     lamps: Res<super::lamp_shadows::LampShadows>,
 ) {
     scene.frame = 0;
-    scene.fits = [None; VIEW_COUNT];
-    scene.candidates = [0; VIEW_COUNT];
-    scene.split_counts = [[0; 4]; VIEW_COUNT];
+    scene.fits = [None; WORLD_VIEWS];
+    scene.candidates = [0; WORLD_VIEWS];
+    scene.split_counts = [[0; 4]; WORLD_VIEWS];
     let was_ready = scene.casters_ready;
     scene.casters_ready = false;
     if !frame.required_views_ready()
@@ -207,6 +210,7 @@ pub(super) fn prepare_scene(
         scene.poses.clear();
         scene.bounds.clear();
         scene.animated.clear();
+        scene.grass.clear();
         for mesh in &meshes {
             let edited = changes.edited.contains(mesh.entity);
             if let Err(error) = update_caster(scene, &materials, mesh, true, edited) {
@@ -245,7 +249,8 @@ pub(super) fn prepare_scene(
         scene.sun = live.sun_rotation;
     }
     let light_basis = super::shadow_queue::light_basis(scene.sun).map(|v| v.to_array());
-    for index in 0..VIEW_COUNT {
+    let grass_cascades = super::materials::grass::settings::quality().shadow_cascades;
+    for index in 0..WORLD_VIEWS {
         let Some(v) = frame.views[index] else {
             scene.masks[index].clear();
             scene.marked[index].clear();
@@ -280,6 +285,7 @@ pub(super) fn prepare_scene(
             shadow_strength: light.shadows.strength,
         };
         scene.masks[index].resize(scene.caster_data.casters.len(), 0);
+        let revision = scene.views[index].revision();
         match scene.views[index].prepare(
             scene.caster_data.revision(),
             &scene.caster_data.casters,
@@ -306,6 +312,13 @@ pub(super) fn prepare_scene(
             }
         }
         scene.mask_revisions[index] = scene.views[index].revision();
+        // A new preparation writes all sun bits again. Grass keeps only its cascades.
+        if scene.mask_revisions[index] != revision {
+            let keep = grass_cascades | !0b1111;
+            for &row in &scene.grass {
+                scene.masks[index][row as usize] &= keep;
+            }
+        }
         scene.marked[index].clear();
         scene.marked[index].extend_from_slice(scene.views[index].rows());
         let masks = &scene.masks[index];
@@ -480,7 +493,12 @@ fn update_caster(
         if animated {
             scene.animated.push(row);
         }
-    } else if animated != scene.animated.binary_search(&row).is_ok() {
+        if mesh.grass.is_some() {
+            scene.grass.push(row);
+        }
+    } else if animated != scene.animated.binary_search(&row).is_ok()
+        || mesh.grass.is_some() != scene.grass.binary_search(&row).is_ok()
+    {
         return Ok(false);
     }
     // Animated casters draw in each refresh, so their changes keep the static tile.
@@ -582,7 +600,7 @@ pub fn extract_scene(
         "Source shadow extraction capacity changed"
     );
     output.caster_data.extract_from(&input.caster_data);
-    for i in 0..VIEW_COUNT {
+    for i in 0..WORLD_VIEWS {
         if output.mask_revisions[i] != input.mask_revisions[i] {
             output.masks[i].clear();
             output.masks[i].extend_from_slice(&input.masks[i]);

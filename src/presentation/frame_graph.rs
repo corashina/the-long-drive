@@ -24,7 +24,10 @@ use bevy::render::camera::CameraRenderGraph;
 use bevy::render::{
     Render, RenderApp, RenderSystems,
     extract_component::ExtractComponent,
-    render_phase::{DrawFunctions, PhaseItem, SortedPhaseItem, ViewSortedRenderPhases},
+    render_phase::{
+        DrawFunctions, DrawFunctionsInternal, PhaseItem, SortedPhaseItem, TrackedRenderPass,
+        ViewSortedRenderPhases,
+    },
     render_resource::*,
     renderer::{
         RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue, ViewQuery,
@@ -389,6 +392,11 @@ pub fn spawn_cameras(
         views: [None; super::surface_views::MIRROR_COUNT],
         images: super::mirrors::slot_images(images),
     });
+    // Probe faces and mirrors (order 10 + index) sample the sun atlas of the world view.
+    assert!(
+        (record.cameras[2].order as isize) < 10 + PROBE_START as isize,
+        "The world view must render before the probe faces and mirrors"
+    );
     for index in 0..VIEW_COUNT {
         let (near, far, fov, mask, order, samples) = if index < WORLD_VIEWS {
             let world = super::camera::world_camera_settings(fov_degrees, far);
@@ -439,8 +447,6 @@ pub fn spawn_cameras(
                 near,
                 far,
                 clip_from_world: Mat4::IDENTITY,
-                shadow_fade: Vec4::ZERO,
-                shadow_fade_center: Vec4::ZERO,
             },
         ));
         if index == 0 {
@@ -822,40 +828,15 @@ fn begin_frame(frame: Res<SourceViewFrame>, progress: Res<RendererStateHandle>) 
     state.audit.sky = false;
     state.audit.presented = false;
 }
-fn draw_extras(
+fn draw_extras<'w>(
     kind: u32,
-    phase: &bevy::render::render_phase::SortedRenderPhase<Transparent3d>,
-    world: &World,
+    phase: &'w bevy::render::render_phase::SortedRenderPhase<Transparent3d>,
+    world: &'w World,
     view: Entity,
-    context: &mut RenderContext,
-    targets: &super::render_targets::SourceColorTargets,
-    depth: &TextureView,
+    pass: &mut TrackedRenderPass<'w>,
+    functions: &mut DrawFunctionsInternal<Transparent3d>,
     extras: &SkyExtras,
 ) -> Result<(), String> {
-    let colors = [Some(RenderPassColorAttachment {
-        view: targets.attachment(),
-        depth_slice: None,
-        resolve_target: targets.resolve_target().map(|v| &**v),
-        ops: Operations {
-            load: LoadOp::Load,
-            store: StoreOp::Store,
-        },
-    })];
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-        label: Some("source_sky_extras"),
-        color_attachments: &colors,
-        depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-            view: depth,
-            depth_ops: Some(Operations {
-                load: LoadOp::Load,
-                store: StoreOp::Store,
-            }),
-            stencil_ops: None,
-        }),
-        ..default()
-    });
-    let mut functions = world.resource::<DrawFunctions<Transparent3d>>().write();
-    functions.prepare(world);
     for item in phase.items.values() {
         if extras
             .0
@@ -865,7 +846,7 @@ fn draw_extras(
             functions
                 .get_mut(item.draw_function())
                 .ok_or("Source sky draw function missing")?
-                .draw(world, &mut pass, view, item)
+                .draw(world, pass, view, item)
                 .map_err(|e| format!("Source sky extra: {e:?}"))?;
         }
     }
@@ -910,90 +891,57 @@ fn render_sky(
     let Some(phase) = phases.get(&view.retained_view_entity) else {
         return;
     };
+    // One pass for clear, sky, extras and clouds. The last transparent pass resolves it.
     let colors = [Some(RenderPassColorAttachment {
         view: resources.colors.attachment(),
         depth_slice: None,
-        resolve_target: resources.colors.resolve_target().map(|v| &**v),
+        resolve_target: None,
         ops: Operations {
             load: LoadOp::Clear(LinearRgba::BLACK.into()),
             store: StoreOp::Store,
         },
     })];
-    drop(
-        context
-            .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
-                label: Some("source_world_clear"),
-                color_attachments: &colors,
-                depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                    view: &resources.sky_depth,
-                    depth_ops: Some(Operations {
-                        load: LoadOp::Clear(0.),
-                        store: StoreOp::Store,
-                    }),
-                    stencil_ops: Some(Operations {
-                        load: LoadOp::Clear(0),
-                        store: StoreOp::Store,
-                    }),
-                }),
-                ..default()
+    let mut functions = world.resource::<DrawFunctions<Transparent3d>>().write();
+    functions.prepare(world);
+    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        label: Some("source_sky"),
+        color_attachments: &colors,
+        depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+            view: &resources.sky_depth,
+            depth_ops: Some(Operations {
+                load: LoadOp::Clear(0.),
+                store: StoreOp::Discard,
             }),
-    );
-    if !sky.encode(
-        0,
-        context.command_encoder(),
-        &cache,
-        resources.colors.attachment(),
-        resources.colors.resolve_target(),
-        &resources.sky_depth,
-    ) {
+            stencil_ops: Some(Operations {
+                load: LoadOp::Clear(0),
+                store: StoreOp::Discard,
+            }),
+        }),
+        ..default()
+    });
+    if !sky.draw(0, &mut pass, &cache) {
         return;
     }
-    if let Err(error) = draw_extras(
-        3,
-        phase,
-        world,
-        entity,
-        &mut context,
-        &resources.colors,
-        &resources.sky_depth,
-        &extras,
-    ) {
+    if let Err(error) = draw_extras(3, phase, world, entity, &mut pass, &mut functions, &extras) {
         status.fail(error);
         return;
     }
-    if !clouds.encode(
-        context.command_encoder(),
-        &cache,
-        &allocator,
-        resources.colors.attachment(),
-        resources.colors.resolve_target(),
-        &resources.sky_depth,
-    ) {
+    if !clouds.draw(&mut pass, &cache, &allocator) {
         return;
     }
-    if let Err(error) = draw_extras(
-        4,
-        phase,
-        world,
-        entity,
-        &mut context,
-        &resources.colors,
-        &resources.sky_depth,
-        &extras,
-    ) {
+    if let Err(error) = draw_extras(4, phase, world, entity, &mut pass, &mut functions, &extras) {
         status.fail(error);
         return;
     }
+    drop(pass);
     progress.lock().audit.sky = true;
 }
 fn finish_surface(
     view: ViewQuery<(
         &SourceSurfaceView,
         &ViewTarget,
-        &super::shadow_collector::CollectorView,
         &super::source_lighting::SourceViewLighting,
-        &super::shadow_phase::ShadowDrawState,
+        Option<&super::shadow_phase::ShadowDrawState>,
         &super::surface_graph::SurfaceViewTargets,
         &super::stained_glass::SourceGlassView,
     )>,
@@ -1006,20 +954,23 @@ fn finish_surface(
     effects: Res<super::source_effects::SourceEffects>,
     status: Res<RendererStateHandle>,
     props: Res<super::prop_draws::PropDraws>,
+    sun: Res<super::shadow_collector::SunShadow>,
     mirrors: Option<Res<MirrorCopy>>,
     mirror_frame: Res<super::mirrors::MirrorFrame>,
     gpu_images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
     mut context: RenderContext,
 ) {
-    let (source, target, collector, lighting, shadow, targets, glass) = view.into_inner();
-    if collector.encoded_frame() != frame.frame || glass.audit().frame != frame.frame {
+    let (source, target, lighting, shadow, targets, glass) = view.into_inner();
+    if sun.encoded_frame() != frame.frame || glass.audit().frame != frame.frame {
         return;
     }
     if status.failure().is_some() {
         return;
     }
     let mut state = progress.lock();
-    let (shadow_epoch, shadow_attempts, shadow_issued) = shadow.counts();
+    // Only world views draw shadows. The other views sample them.
+    let (shadow_epoch, shadow_attempts, shadow_issued) =
+        shadow.map_or_else(Default::default, |s| s.counts());
     state.audit.views[source.index] = ViewAudit {
         frame: frame.frame,
         glass: glass.audit(),
@@ -1028,10 +979,10 @@ fn finish_surface(
         shadow_epoch,
         shadow_attempts,
         shadow_issued,
-        shadow_instances: shadow.instance_counts(),
+        shadow_instances: shadow.map_or_else(Default::default, |s| s.instance_counts()),
         props: props.audit(source.index),
-        collector_frame: collector.encoded_frame(),
-        atlas_size: targets.0.atlas_size,
+        collector_frame: sun.encoded_frame(),
+        atlas_size: surfaces.targets.sun.size,
         physical_extent: [targets.0.colors.width, targets.0.colors.height],
         native_extent: frame.views[source.index].unwrap().native_extent.to_array(),
         projection: frame.views[source.index]
@@ -1375,8 +1326,8 @@ struct GpuBoundary {
     transparent_phases: u32,
     shadow_phases: u32,
     shadow_scene_frame: u32,
-    shadow_candidates: [usize; super::surface_views::VIEW_COUNT],
-    shadow_split_counts: [[usize; 4]; super::surface_views::VIEW_COUNT],
+    shadow_candidates: [usize; super::surface_views::WORLD_VIEWS],
+    shadow_split_counts: [[usize; 4]; super::surface_views::WORLD_VIEWS],
     shadow_offscreen_casters: usize,
     shadow_queue_frame: u32,
     shadow_specializations: usize,
@@ -1729,14 +1680,32 @@ fn render_capture_sky(
         return;
     }
     // Sky bindings share the surface view index.
-    if sky.encode(
-        source.index,
-        context.command_encoder(),
-        &cache,
-        targets.0.colors.attachment(),
-        None,
-        &targets.0.depth.attachment,
-    ) && probe_view(source.index)
+    let colors = [Some(RenderPassColorAttachment {
+        view: targets.0.colors.attachment(),
+        depth_slice: None,
+        resolve_target: None,
+        ops: Operations {
+            load: LoadOp::Load,
+            store: StoreOp::Store,
+        },
+    })];
+    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        label: Some("source_capture_sky"),
+        color_attachments: &colors,
+        depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+            view: &targets.0.depth.attachment,
+            depth_ops: Some(Operations {
+                load: LoadOp::Load,
+                store: StoreOp::Store,
+            }),
+            stencil_ops: None,
+        }),
+        ..default()
+    });
+    let drawn = sky.draw(source.index, &mut pass, &cache);
+    drop(pass);
+    if drawn
+        && probe_view(source.index)
         && let Some(probe) = probe.as_ref()
     {
         probe.probes[frame.probe_index].sky_frames[source.index - PROBE_START]

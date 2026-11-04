@@ -21,12 +21,15 @@ pub struct BoxRelease {
 pub struct BoxReleases {
     spawner: Option<SourceId>,
     released: Vec<BoxRelease>,
+    /// Bumps when `released` changes.
+    revision: u64,
 }
 impl BoxReleases {
     pub fn new(spawner: SourceId) -> Self {
         Self {
             spawner: Some(spawner),
             released: Vec::new(),
+            revision: 0,
         }
     }
     /// True when `child` is a content copy of the box `parent`.
@@ -55,7 +58,11 @@ impl BoxReleases {
             return false;
         }
         self.released.push(release);
+        self.revision = self.revision.wrapping_add(1);
         true
+    }
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
     /// Moves released content from the generated box pose to the break pose.
     pub fn place(&self, placement: &mut Placement) {
@@ -67,10 +74,15 @@ impl BoxReleases {
         &self.released
     }
     pub fn retain(&mut self, keep: impl FnMut(&BoxRelease) -> bool) {
+        let count = self.released.len();
         self.released.retain(keep);
+        if self.released.len() != count {
+            self.revision = self.revision.wrapping_add(1);
+        }
     }
     pub fn restore(&mut self, released: &[BoxRelease]) {
         self.released.clear();
+        self.revision = self.revision.wrapping_add(1);
         for release in released {
             self.release(release.clone());
         }

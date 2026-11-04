@@ -27,7 +27,8 @@ export const ROWS={
  // The default is TAA only. 4x MSAA multiplies the HDR color, depth and resolve bandwidth. The Ultra preset sets high.
  antialiasing:{values:LEVELS,default:1},
  ambient_occlusion:{default:true},
- reflections:{default:true},
+ // 0 high (a probe job each frame), 1 low (a probe job every 2nd frame), 2 off.
+ reflections:{values:LEVELS,default:0},
 };
 const NAMES=Object.keys(ROWS);
 const POSITIONS=1000;
