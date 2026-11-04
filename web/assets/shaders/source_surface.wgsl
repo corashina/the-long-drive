@@ -113,6 +113,14 @@ struct SourceBase {
     albedo: vec3<f32>,
     alpha: f32,
 }
+// Forward reach of the player head volume from the eye, in meters.
+const HEAD_DEPTH: f32 = 0.12;
+// The player body part inside the `_Dist` sphere and behind the HEAD_DEPTH plane: head, neck and the eye's own surroundings.
+fn source_head_hidden(position: vec3<f32>) -> bool {
+    let offset = position - mesh_view_bindings::view.world_position;
+    let depth = dot(offset, -mesh_view_bindings::view.world_from_view[2].xyz);
+    return length(offset) < lighting.near_far.z && depth < HEAD_DEPTH;
+}
 // Every discard of the surface fragment. The depth prepass calls it too, so both passes keep the same samples.
 fn source_base(
     in: VertexOutput,
@@ -125,7 +133,8 @@ fn source_base(
 ) -> SourceBase {
     if !source_lod_keep(in.position.xy, lod_fade) { discard; }
     // Source player_model discards near the camera of a view with `_Dist`. Flag 12 means that the ragdoll has `_Dist` 0.
-    if player && !source_flag(12u) && length(in.world_position.xyz - mesh_view_bindings::view.world_position) < lighting.near_far.z { discard; }
+    // The port keeps body parts more than HEAD_DEPTH in front of the eye, so hands, arms and knees do not open up.
+    if player && !source_flag(12u) && source_head_hidden(in.world_position.xyz) { discard; }
     var base: SourceBase;
     base.uv = vec2(0.0);
 #ifdef VERTEX_UVS_A
