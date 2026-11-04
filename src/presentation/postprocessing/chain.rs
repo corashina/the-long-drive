@@ -158,7 +158,8 @@ pub struct SourcePostChain {
     pub logical_bytes: u64,
     pub startup_count: u32,
     pub resize_count: u32,
-    initial: ColorTarget,
+    /// The copy output without TAA. TAA reads the source and stops NaNs itself.
+    initial: Option<ColorTarget>,
     copy: CopyPass,
     taa: Option<TaaPass>,
     dof: DofPass,
@@ -205,7 +206,6 @@ impl SourcePostChain {
         let startup_count = previous.as_ref().map_or(1, |old| old.startup_count);
         let resize_count = previous.as_ref().map_or(0, |old| old.resize_count + 1);
         let completed = previous.as_ref().map_or(0, |old| old.completed);
-        let initial = ColorTarget::new(device, extent);
         let (mut copy, old_dof, old_main, old_uber, old_taa, old_blur, old_haze, grain, dead) =
             match previous {
                 Some(old) => (
@@ -259,16 +259,21 @@ impl SourcePostChain {
                     queue,
                     cache,
                     shaders.taa.clone(),
-                    &initial.view,
+                    source,
                     depth,
                     inputs.motion,
                     extent,
                     settings,
+                    stop_nan,
                     old_taa,
                 )
             })
             .transpose()?;
-        let scene = taa.as_ref().map_or(&initial.view, |taa| taa.output());
+        let initial = taa.is_none().then(|| ColorTarget::new(device, extent));
+        let scene = match (&taa, &initial) {
+            (Some(taa), _) => taa.output(),
+            (None, initial) => &initial.as_ref().unwrap().view,
+        };
         let blur = motion
             .as_ref()
             .and_then(|inputs| Some((inputs, inputs.blur?)))
@@ -438,7 +443,8 @@ impl SourcePostChain {
             old_haze.as_ref(),
         );
         let area = u64::from(extent[0]) * u64::from(extent[1]);
-        let logical_bytes = area * 16
+        let logical_bytes = area * 8
+            + initial.as_ref().map_or(0, |_| area * 8)
             + main.histogram.layout.logical_bytes()
             + 8
             + main.bloom.layout.logical_bytes()
@@ -565,8 +571,6 @@ impl SourcePostChain {
         let dof_input = frame.focus.map(|_| self.dof.raw());
         if let Some(taa) = self.taa.as_mut() {
             let motion = frame.motion.ok_or("Source TAA has no view motion")?;
-            self.copy
-                .encode(encoder, cache, &self.initial.view, self.stop_nan);
             taa.encode(
                 encoder,
                 device,
@@ -580,14 +584,14 @@ impl SourcePostChain {
             self.copy.encode(
                 encoder,
                 cache,
-                dof_input.unwrap_or(&self.initial.view),
+                dof_input.unwrap_or(&self.initial.as_ref().unwrap().view),
                 self.stop_nan,
             );
         }
         if let Some(focus) = frame.focus {
             let scene = match self.taa.as_ref() {
                 Some(taa) => taa.output(),
-                None => &self.initial.view,
+                None => &self.initial.as_ref().unwrap().view,
             };
             // The CoC temporal filter runs with TAA only.
             let jitter = frame
