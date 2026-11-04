@@ -56,9 +56,11 @@ document.addEventListener('visibilitychange',startupVisibilityChanged);
 window.addEventListener('blur',startupBlurred);
 function stopStartupEnvironment(){startupVisibilityChanged();document.removeEventListener('visibilitychange',startupVisibilityChanged);window.removeEventListener('blur',startupBlurred);}
 cpuProfile.enable(startupCpuProfile);
-let rustCpuProfile,profileStep=0,startupRenderTrace=startupCpuProfile?observeRenderMainThread():null;
+let rustCpuProfile,rustCpuAudit,profileStep=0,startupRenderTrace=startupCpuProfile?observeRenderMainThread():null;
 window.gameCpuProfile=enabled=>{cpuProfile.enable(enabled);profileStep=0;rustCpuProfile?.(enabled);simulation.profile(enabled);if(enabled)grassClients.profileHandshake();};
 window.gameCpuProfileSnapshot=()=>cpuProfile.snapshot();
+// Main thread Rust stages, in the format of the worker `profile` sandbox reply.
+window.gameMainCpuAudit=()=>rustCpuAudit?JSON.parse(rustCpuAudit()):null;
 window.gameCpuInstrumentationState=()=>({browserEnabled:cpuProfile.enabled,grass:grassClients.profileState(),startupRenderTraceActive:startupRenderTrace!==null});
 window.gameCpuStartupRenderTrace=()=>{const trace=startupRenderTrace?.stop()??null;startupRenderTrace=null;return trace;};
 window.gameCpuInputConsumed=()=>input?.consume(++profileStep);
@@ -236,9 +238,9 @@ async function load(){
  if(!response.ok)throw Error('Cannot load reference manifest (HTTP '+response.status+').');
  const bytes=await downloadManifest(response);
  loading.step('code',0);
- const [{default:init,prepare,run,manifest_shell,source_render_failure,source_render_audit,cpu_profile,request_thumbnail,wake_frame},module]=await code;
+ const [{default:init,prepare,run,manifest_shell,source_render_failure,source_render_audit,cpu_profile,cpu_profile_audit,request_thumbnail,wake_frame},module]=await code;
  const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;
- rustCpuProfile=cpu_profile;if(startupCpuProfile)rustCpuProfile(true);
+ rustCpuProfile=cpu_profile;rustCpuAudit=cpu_profile_audit;if(startupCpuProfile)rustCpuProfile(true);
  window.gameThumbnailFrame=()=>thumbnail.frame();thumbnail.connect(request_thumbnail);
  // Rust copies only the shell fields, so JS does not parse the world records.
  startup.begin('shell');const text=manifest_shell(bytes),manifest=JSON.parse(text);startup.end('shell');

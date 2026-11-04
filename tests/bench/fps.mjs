@@ -82,8 +82,8 @@ function percentile(values,p){
  return sorted[Math.min(sorted.length-1,Math.floor(p*sorted.length))];
 }
 
-// Worker CPU stages with calls, most total time first. `audit` is the `profile` sandbox reply.
-function workerStages(audit){
+// CPU stages with calls, most total time first. `audit` is a Rust `cpu_profile_audit`.
+function cpuStages(audit){
  const rows=(names,values)=>names.map((name,i)=>({name,...values[i]}));
  return [...rows(audit.stages,audit.measurements),...rows(audit.streaming.stages,audit.streaming.measurements)]
   .filter(r=>r.calls>0).sort((a,b)=>b.total_ms-a.total_ms)
@@ -215,13 +215,14 @@ async function runScene(browser,page,name,cycle,o){
  if(!playing.length)throw new Error(`The game left play in ${name}: ${samples.at(-1).menu} ${samples.at(-1).menuStatus}`);
  // No frame in the 2 s window: the game stopped drawing, so the GPU values are stale.
  if(!playing.some(s=>Number.isFinite(s.fps)))throw new Error('No game frames in '+name);
- // Worker CPU stages for 5 s. The profile has a cost, so it starts after the samples.
+ // Worker and main thread CPU stages for 5 s. The profile has a cost, so it starts after the samples.
  await page.evaluate(()=>window.gameCpuProfile(true));
  await sleep(5000);
  const [profile]=await act(page,[{action:'profile'}]);
+ const main=await page.evaluate(()=>window.gameMainCpuAudit());
  await page.evaluate(()=>window.gameCpuProfile(false));
  const state=await worldState(page);
- return {name,moved:replies[0].message,player:state.player,cycle:state.cycle,summary:summarize(playing),menuSamples:samples.length-playing.length,worker:workerStages(profile.data),samples,trace:tracePath};
+ return {name,moved:replies[0].message,player:state.player,cycle:state.cycle,summary:summarize(playing),menuSamples:samples.length-playing.length,worker:cpuStages(profile.data),main:cpuStages(main),samples,trace:tracePath};
 }
 
 async function bench(o){
@@ -257,8 +258,13 @@ function print(label,scene){
   const {median,p90}=scene.summary[field];
   console.log(`  ${field.padEnd(15)} median ${show(median).padStart(9)}   p90 ${show(p90).padStart(9)}`);
  }
- console.log('  worker stages (5 s profile): calls, mean ms, max ms, mean items');
- for(const r of scene.worker.slice(0,16))console.log(`    ${r.name.padEnd(22)} ${String(r.calls).padStart(5)} ${show(r.meanMs).padStart(8)} ${show(r.maxMs).padStart(8)} ${show(r.items).padStart(8)}`);
+ printStages('worker',scene.worker);
+ printStages('main',scene.main);
+}
+
+function printStages(thread,stages){
+ console.log(`  ${thread} stages (5 s profile): calls, mean ms, max ms, mean items`);
+ for(const r of stages.slice(0,16))console.log(`    ${r.name.padEnd(22)} ${String(r.calls).padStart(5)} ${show(r.meanMs).padStart(8)} ${show(r.maxMs).padStart(8)} ${show(r.items).padStart(8)}`);
 }
 
 // Median of each field in A and B, with the change in percent.
