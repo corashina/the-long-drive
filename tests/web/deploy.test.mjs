@@ -31,6 +31,8 @@ async function fixture(t) {
   await put(web, 'assets/runtime/old/world/a.bc', 'c');
   await put(web, 'assets/runtime-tmp/world/a.bc', 'd');
   await put(web, 'assets/library/big.bin', 'e');
+  await put(web, 'assets/reference/material-evidence.json', 'f');
+  await put(web, 'assets/reference/library-selection.json', 'g');
   return {web, site: join(root, 'site')};
 }
 
@@ -46,7 +48,8 @@ test('stages the app and only the catalog files of the current package', async t
   for (const path of ['index.html', 'assets/reference/manifest.json.gz', 'assets/runtime/current/world/a.bc']) {
     assert.ok(await exists(join(site, path)), path);
   }
-  for (const path of ['assets/runtime/current/world/unused.bc', 'assets/runtime/old', 'assets/runtime-tmp', 'assets/library']) {
+  for (const path of ['assets/runtime/current/world/unused.bc', 'assets/runtime/old', 'assets/runtime-tmp', 'assets/library',
+    'assets/reference/material-evidence.json', 'assets/reference/library-selection.json']) {
     assert.ok(!await exists(join(site, path)), path);
   }
   const headers = await readFile(join(site, '_headers'), 'utf8');

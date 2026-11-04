@@ -21,8 +21,10 @@ const SITE = 'https://the-long-slop.pages.dev/';
 const TYPES = {'.wasm': 'application/wasm', '.json': 'application/json'};
 
 const webPath = path => path.split(sep).join('/');
-// The export library and old runtime packages are not part of the site. `stagePackages` copies `pkg`.
-const excluded = path => path === 'assets/library' || path === 'assets/runtime' || path.startsWith('assets/runtime-') || path === 'pkg';
+// The export library, old runtime packages and export evidence are not part of the site. `stagePackages` copies `pkg`.
+// The game reads only `manifest.json.gz` from `assets/reference`. `material-evidence.json` alone is over 25 MiB.
+const excluded = path => path === 'assets/library' || path === 'assets/runtime' || path.startsWith('assets/runtime-') || path === 'pkg'
+  || /^assets\/reference\/([\w-]+-evidence|library-selection)\.json$/.test(path);
 
 async function sha256(path) {
   const hash = createHash('sha256');
