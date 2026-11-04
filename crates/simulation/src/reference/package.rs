@@ -19,12 +19,26 @@ pub struct PlanReceipt {
     pub input: FileReceipt,
 }
 
+/// A gzip start pack: the plain concatenation of `files`. Only the browser reads packs.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackReceipt {
+    pub file: String,
+    pub bytes: u32,
+    pub sha256: String,
+    pub files: Vec<String>,
+}
+
+/// Entry bytes of one start pack. Same limit as `PACK_BYTES` in the exporter.
+const PACK_BYTES: u64 = 16 * 1024 * 1024;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FileCatalog {
     pub files: Vec<FileReceipt>,
     pub plans: Vec<PlanReceipt>,
     pub dependency_staging_reserve: u32,
+    pub packs: Vec<PackReceipt>,
     #[serde(skip)]
     paths: HashMap<String, usize>,
     #[serde(skip)]
@@ -103,6 +117,21 @@ impl FileCatalog {
                 "duplicate plan receipt",
             )?;
         }
+        let mut packed = std::collections::HashSet::new();
+        for (index, pack) in self.packs.iter().enumerate() {
+            require(
+                pack.file == format!("packs/start-{index}.gz")
+                    && lowercase_hash(&pack.sha256)
+                    && !pack.files.is_empty(),
+                "pack receipt",
+            )?;
+            let mut bytes = 0u64;
+            for name in &pack.files {
+                bytes += u64::from(self.file(name)?.bytes);
+                require(packed.insert(name.as_str()), "duplicate pack entry")?;
+            }
+            require(bytes <= PACK_BYTES, "pack entry bytes")?;
+        }
         Ok(())
     }
     pub fn file(&self, path: &str) -> Result<&FileReceipt, ReferenceError> {
@@ -140,6 +169,17 @@ impl FileCatalog {
             + self.files.capacity() * size_of::<FileReceipt>()
             + self.plans.capacity() * size_of::<PlanReceipt>()
             + self
+                .packs
+                .iter()
+                .map(|p| {
+                    size_of::<PackReceipt>()
+                        + p.file.capacity()
+                        + p.sha256.capacity()
+                        + p.files.capacity() * size_of::<String>()
+                        + p.files.iter().map(String::capacity).sum::<usize>()
+                })
+                .sum::<usize>()
+            + self
                 .files
                 .iter()
                 .map(FileReceipt::retained_bytes)
@@ -156,5 +196,36 @@ impl FileCatalog {
                         + map.keys().map(String::capacity).sum::<usize>()
                 })
                 .sum::<usize>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn catalog(packs: serde_json::Value) -> Result<(), ReferenceError> {
+        let hash = "a".repeat(64);
+        let mut catalog: FileCatalog = serde_json::from_value(serde_json::json!({
+            "files": [{"file": "reference/a.bin", "bytes": 3, "sha256": hash, "image_size": null}],
+            "plans": [],
+            "dependency_staging_reserve": 1,
+            "packs": packs,
+        }))
+        .unwrap();
+        catalog.admit()
+    }
+
+    #[test]
+    fn packs_need_known_unique_entries() {
+        let pack = |files: &[&str]| serde_json::json!({"file": "packs/start-0.gz", "bytes": 9, "sha256": "b".repeat(64), "files": files});
+        assert!(catalog(serde_json::json!([pack(&["reference/a.bin"])])).is_ok());
+        assert!(catalog(serde_json::json!([pack(&["reference/b.bin"])])).is_err());
+        assert!(
+            catalog(serde_json::json!([pack(&[
+                "reference/a.bin",
+                "reference/a.bin"
+            ])]))
+            .is_err()
+        );
     }
 }

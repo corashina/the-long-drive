@@ -81,13 +81,14 @@ export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot
   compressionRoot = resolve(projectRoot, '.cache/http-compression')} = {}) {
   const manifest = JSON.parse(gunzipSync(await readFile(resolve(webRoot, 'assets/reference/manifest.json.gz'))).toString('utf8'));
   const base = manifest.content_base;
-  if (!/^assets\/runtime\/[a-zA-Z0-9_-]+\/$/.test(base) || !Array.isArray(manifest.file_catalog?.files)) {
+  if (!/^assets\/runtime\/[a-zA-Z0-9_-]+\/$/.test(base) || !Array.isArray(manifest.file_catalog?.files) || !Array.isArray(manifest.file_catalog.packs)) {
     throw Error('Invalid runtime package catalog.');
   }
   await rm(siteRoot, {recursive: true, force: true});
   await cp(webRoot, siteRoot, {recursive: true, filter: source => !excluded(webPath(relative(webRoot, source)))});
   const packageRoot = resolve(webRoot, base);
-  for (const {file} of manifest.file_catalog.files) {
+  // Start packs are package files too. Each one stays under the Pages file limit.
+  for (const {file} of [...manifest.file_catalog.files, ...manifest.file_catalog.packs]) {
     const source = resolve(packageRoot, file);
     if (typeof file !== 'string' || !source.startsWith(packageRoot + sep)) throw Error(`Invalid catalog file: ${file}`);
     const target = resolve(siteRoot, base, file);

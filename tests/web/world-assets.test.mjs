@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {createServer} from 'node:http';
-import {brotliCompressSync} from 'node:zlib';
-import {configureAssetCatalog, readAsset} from '../../web/world-assets.js';
+import {brotliCompressSync, gzipSync} from 'node:zlib';
+import {configureAssetCatalog, readAsset, startPackMeasurements} from '../../web/world-assets.js';
 
 const base = 'assets/runtime/test/';
 const blocks = Uint8Array.from({length: 8192}, (_, i) => i % 251);
@@ -29,7 +29,7 @@ test('real fetch checks decoded Brotli bytes against the receipt', {timeout: 500
   const origin = `http://127.0.0.1:${server.address().port}/`;
   const fetch = globalThis.fetch;
   const fetched = [];
-  configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1}, value => fetched.push(value));
+  configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: []}, value => fetched.push(value));
   globalThis.fetch = (url, options) => fetch(new URL(url, origin), options);
   try {
     await t.test('fetch decodes the body and keeps the encoded Content-Length', async () => {
@@ -81,7 +81,7 @@ test('real fetch checks decoded Brotli bytes against the receipt', {timeout: 500
     });
   } finally {
     globalThis.fetch = fetch;
-    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1});
+    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: []});
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
   }
@@ -117,5 +117,47 @@ test('invalid declared length cancels an encoded body before reading', async () 
     }
   } finally {
     globalThis.fetch = fetch;
+  }
+});
+
+test('start pack gives each entry once, then the file loads alone', async () => {
+  const fetch = globalThis.fetch;
+  const other = Uint8Array.from({length: 300}, (_, i) => (i * 7) % 256);
+  const second = {file: 'reference/other.bin', bytes: other.length,
+    sha256: createHash('sha256').update(other).digest('hex'), image_size: null};
+  const pack = gzipSync(Uint8Array.from([...blocks, ...other]));
+  const catalog = {files: [receipt, second], plans: [], dependency_staging_reserve: 1,
+    packs: [{file: 'packs/start-0.gz', bytes: pack.length, sha256: 'a'.repeat(64), files: [receipt.file, second.file]}]};
+  const urls = [];
+  globalThis.fetch = async url => {
+    urls.push(url);
+    return new Response(url.endsWith('.gz') ? pack : blocks);
+  };
+  try {
+    configureAssetCatalog(base, catalog);
+    assert.deepEqual(await readAsset(base, second), other);
+    assert.deepEqual(await readAsset(base, receipt), blocks);
+    assert.deepEqual(urls, [base + 'packs/start-0.gz']);
+    assert.deepEqual(await readAsset(base, receipt), blocks);
+    assert.deepEqual(urls, [base + 'packs/start-0.gz', base + receipt.file]);
+    assert.equal(startPackMeasurements.read, 2);
+    // The second entry had a waiting read, so only the first one was held.
+    assert.equal(startPackMeasurements.heldPeakBytes, blocks.length);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
+test('a bad start pack entry rejects its read', async () => {
+  const fetch = globalThis.fetch;
+  const pack = gzipSync(new Uint8Array(blocks.length));
+  globalThis.fetch = async () => new Response(pack);
+  try {
+    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1,
+      packs: [{file: 'packs/start-0.gz', bytes: pack.length, sha256: 'a'.repeat(64), files: [receipt.file]}]});
+    await assert.rejects(readAsset(base, receipt), /SHA-256 mismatch/);
+  } finally {
+    globalThis.fetch = fetch;
+    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: []});
   }
 });
