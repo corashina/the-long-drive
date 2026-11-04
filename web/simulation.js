@@ -32,14 +32,14 @@ export function createSimulation(worker,onFailure){
   send(command){
    if(failed)return;const copy=command.slice(),transfer=[copy.buffer];
    let net=null;
-   if(netIn.length){net=joinPackets(netIn);netIn=[];transfer.push(net.buffer);}
+   if(netIn.length){net=concat(netIn);netIn=[];transfer.push(net.buffer);}
    worker.postMessage({command:copy,net},transfer);
   },
   // Multiplayer: `role` 0 off, 1 host, 2 guest. `handler` takes the outbound packets of each frame.
   netSession,
   netLeave(slot){if(started)worker.postMessage({netLeave:slot});},
-  // One inbound packet. It goes with the next command.
-  netPacket(packet){if(onNet)netIn.push(packet);},
+  // A batch of inbound packets, each with a u16 length. It goes with the next command.
+  netPackets(batch){if(onNet)netIn.push(batch);},
   // A JSON array of `simulation::sandbox` actions. Resolves with the JSON array of replies.
   sandbox(json){return new Promise(resolve=>{sandboxWaits.push(resolve);worker.postMessage({sandbox:json});});},
   frameLength:()=>frame?frame.length:-1,
@@ -49,11 +49,10 @@ export function createSimulation(worker,onFailure){
  };
 }
 
-// Packets with a u16 length each, as `simulation::net` reads them.
-export function joinPackets(packets){
- const out=new Uint8Array(packets.reduce((n,p)=>n+2+p.length,0));
+function concat(batches){
+ const out=new Uint8Array(batches.reduce((n,b)=>n+b.length,0));
  let at=0;
- for(const p of packets){out[at]=p.length&255;out[at+1]=p.length>>8;out.set(p,at+2);at+=2+p.length;}
+ for(const b of batches){out.set(b,at);at+=b.length;}
  return out;
 }
 
