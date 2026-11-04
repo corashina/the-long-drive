@@ -195,9 +195,9 @@ impl WorldStream {
                 lamps
                     .iter()
                     .any(|b| b.control == *control && &b.parent == parent)
-                    && structures.iter().any(|s| &s.placement.id == parent)
+                    && structures.contains(parent)
             }
-            BreakKind::Prop { parent } => structures.iter().any(|s| &s.placement.id == parent),
+            BreakKind::Prop { parent } => structures.contains(parent),
         });
         // A content item whose world prototype holds a breakablescript without a lamp.
         for content in active {
@@ -254,7 +254,7 @@ impl WorldStream {
         });
         // Rescans follow content changes, not frames.
         let props: Vec<(&SourceId, usize)> = props.collect();
-        for instance in structures {
+        for instance in structures.iter() {
             if let Some(&(_, record)) = props
                 .iter()
                 .find(|(p, _)| *p == &instance.placement.prototype)
