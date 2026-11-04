@@ -110,7 +110,7 @@ impl FrameResources {
 struct HeldImage {
     texture: Texture,
     view: TextureView,
-    /// Copies `held` to the canvas.
+    /// Stretches `held` over the canvas.
     copy: FrameCopy,
     filled: AtomicBool,
 }
@@ -646,7 +646,7 @@ fn prepare_frame(
             assets.shaders.copy.clone(),
             &held_view,
             format,
-            "copy",
+            "present",
         ),
         texture: held_texture,
         view: held_view,
