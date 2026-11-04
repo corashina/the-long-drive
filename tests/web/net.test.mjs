@@ -1,16 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createNet,ROLE,STATUS,PREFIX,TIMEOUT_MS,TICK_MS,RELIABLE} from '../../web/net.js';
-import {joinPackets} from '../../web/simulation.js';
+import {createNet,ROLE,STATUS,PREFIX,TIMEOUT_MS,TICK_MS,RELIABLE,DATAGRAM,datagrams} from '../../web/net.js';
+
+// Packets with a u16 length each. `reliable` sets bit `RELIABLE` of each length.
+function joinPackets(packets,reliable=false){
+ const out=new Uint8Array(packets.reduce((n,p)=>n+2+p.length,0));
+ let at=0;
+ for(const p of packets){out[at]=p.length&255;out[at+1]=p.length>>8|(reliable?RELIABLE>>8:0);out.set(p,at+2);at+=2+p.length;}
+ return out;
+}
+function unbatch(batch){
+ const packets=[];
+ for(let at=0;at+2<=batch.length;){const n=batch[at]|batch[at+1]<<8;packets.push([...batch.subarray(at+2,at+2+n)]);at+=2+n;}
+ return packets;
+}
 
 // A PeerJS stand-in. Peers meet in one in-memory broker. Messages pass at once.
 function broker(){
- const peers=new Map(),muted=new Set();let next=0;
+ const peers=new Map(),muted=new Set(),sent={};let next=0;
  const handlers=()=>{const h={};return {h,on:(e,fn)=>{(h[e]??=[]).push(fn);},fire:(e,...a)=>(h[e]??[]).forEach(fn=>fn(...a))};};
  function conn(local,remote,label){
   const a=handlers(),b=handlers();
-  const ends=[{...a,peer:remote,label,open:true,send:m=>{if(!muted.has(local))b.fire('data',m);},close(){if(this.open){this.open=false;b.fire('close');}}},
-   {...b,peer:local,label,open:true,send:m=>{if(!muted.has(remote))a.fire('data',m);},close(){if(this.open){this.open=false;a.fire('close');}}}];
+  const ends=[{...a,peer:remote,label,open:true,send:m=>{sent[label]=(sent[label]??0)+1;if(!muted.has(local))b.fire('data',m);},close(){if(this.open){this.open=false;b.fire('close');}}},
+   {...b,peer:local,label,open:true,send:m=>{sent[label]=(sent[label]??0)+1;if(!muted.has(remote))a.fire('data',m);},close(){if(this.open){this.open=false;a.fire('close');}}}];
   return ends;
  }
  class Peer{
@@ -35,14 +47,14 @@ function broker(){
   }
   destroy(){peers.delete(this.id);}
  }
- return {Peer,peers,muted};
+ return {Peer,peers,muted,sent};
 }
 const tick=()=>new Promise(r=>setTimeout(r,0));
 function setup(Peer,clock,extra={}){
  const events={packets:[],leaves:[],status:[],chat:[],saves:[],sessions:[],looks:[],voices:[]};let timer=null;
  const net=createNet({Peer,buildId:'b1',exportHash:'h1',capture:async()=>'{"world":1}',now:()=>clock.t,
   setTimer:fn=>{timer=fn;return 1;},clearTimer:()=>{timer=null;},...extra,
-  on:{packet:p=>events.packets.push([...p]),leave:s=>events.leaves.push(s),status:s=>events.status.push(s),chat:c=>events.chat.push(c),
+  on:{packets:b=>events.packets.push(...unbatch(b)),leave:s=>events.leaves.push(s),status:s=>events.status.push(s),chat:c=>events.chat.push(c),
    save:b=>events.saves.push(new TextDecoder().decode(b)),session:(r,s)=>events.sessions.push([r,s]),looks:l=>events.looks.push(l),voice:(slot,stream)=>events.voices.push([slot,stream])}});
  return {net,events,run:()=>timer?.()};
 }
@@ -66,13 +78,37 @@ test('the host forwards guest packets to the other guests and not back',async()=
  assert.deepEqual(host.events.chat,[{name:'A',text:'hi'}]);
 });
 
+test('a frame of packets goes as one message per connection, and the host forwards it as one',async()=>{
+ const {Peer,sent}=broker(),clock={t:0};
+ const host=setup(Peer,clock),a=setup(Peer,clock),b=setup(Peer,clock);
+ const code=await host.net.host({name:'H'});
+ a.net.join({code,name:'A'});b.net.join({code,name:'B'});
+ for(let i=0;i<10;i++)await tick();
+ const before={...sent};
+ const fast=[[10,5,1],[11,5,2,3]].map(p=>new Uint8Array(p)),sure=[[29,5,4]].map(p=>new Uint8Array(p));
+ const outbox=new Uint8Array([...joinPackets(fast),...joinPackets(sure,true),...joinPackets(fast.slice(0,1))]);
+ a.net.send(outbox);
+ // A sends 1 pose and 1 reliable message. The host forwards each as 1 message to B.
+ assert.equal(sent.pose-(before.pose??0),2);
+ assert.equal(sent.reliable-(before.reliable??0),2);
+ assert.deepEqual(b.events.packets,[[10,1,1],[11,1,2,3],[10,1,1],[29,1,4]]);
+ assert.deepEqual(host.events.packets,b.events.packets);
+});
+
+test('a large batch splits at packet ends into datagrams',()=>{
+ const big=new Uint8Array(600),parts=[];
+ datagrams(joinPackets([big,big,big,new Uint8Array(2000)]),part=>parts.push(part.length));
+ assert.deepEqual(parts,[602,602,602,2002]);
+ assert.ok(parts.slice(0,3).every(n=>n<=DATAGRAM));
+});
+
 test('reliable packets ride the reliable connection and the host forwards them',async()=>{
  const {Peer}=broker(),clock={t:0};
  const host=setup(Peer,clock),a=setup(Peer,clock),b=setup(Peer,clock);
  const code=await host.net.host({name:'H'});
  a.net.join({code,name:'A'});b.net.join({code,name:'B'});
  for(let i=0;i<10;i++)await tick();
- const reliable=bytes=>{const out=joinPackets([new Uint8Array(bytes)]);out[1]|=RELIABLE>>8;return out;};
+ const reliable=bytes=>joinPackets([new Uint8Array(bytes)],true);
  a.net.send(reliable([29,5,1]));
  assert.deepEqual(host.events.packets,[[29,1,1]]);
  assert.deepEqual(b.events.packets,[[29,1,1]]);

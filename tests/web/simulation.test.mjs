@@ -61,7 +61,7 @@ test('the frame reports input use to the profile hooks',()=>{
 test('a net session before the start waits for it',async()=>{
  const worker=fakeWorker(),simulation=createSimulation(worker,()=>assert.fail());
  const started=simulation.start(new Uint8Array(1),'',0,0,-1,0,0,new Uint8Array());
- simulation.netSession(2,1,()=>{});simulation.netPacket(new Uint8Array([1]));simulation.netLeave(3);
+ simulation.netSession(2,1,()=>{});simulation.netPackets(new Uint8Array([1]));simulation.netLeave(3);
  assert.equal(worker.posted.length,1);
  worker.reply({startup:new Uint8Array([9])});await started;
  assert.deepEqual(worker.posted[1].data,{netSession:{role:2,slot:1}});

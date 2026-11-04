@@ -71,7 +71,7 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
   node.textContent=names.get(slot)??'';node.hidden=false;node.classList.toggle('speaking',output.speaking(slot));node.style.transform=`translate(${x}px,${y}px) translate(-50%,-100%)`;
  }
  const net=createNet({Peer,buildId,exportHash,capture:()=>saveSession.share(),on:{
-  packet:packet=>simulation.netPacket(packet),
+  packets:batch=>simulation.netPackets(batch),
   voice:(slot,stream)=>{if(voice.on||!stream)output.stream(slot,stream);},
   leave:slot=>{simulation.netLeave(slot);labelNodes.get(slot)?.remove();labelNodes.delete(slot);},
   looks:looks=>{
