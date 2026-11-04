@@ -163,9 +163,13 @@ def spare_prefab(source, catalog, node):
     if len(matches)!=1:raise ValueError('{}:{} spare wheel: {} rimtire prefab matches'.format(*key(node['reader']),len(matches)))
     return matches[0]
 
-# Start scene roots that draw: the outhouse, the bus stop, the well, the phone booth, the post and the road signs.
+# Start scene roots in TerrainGenerationSettings.EnableAfterStart that draw: the outhouse, the bus stop, the well, the phone booth and the post.
 # Each scene root is its own world structure prototype. The scene copies of the well and others differ from their prefabs.
-SCENE_STRUCTURES = (22027,34628,21371,35796,37348,32066)
+# ROADSIGNS1 is a StartObjsFix root but stays inactive under the inactive ForRunden.
+SCENE_STRUCTURES = (22027,34628,21371,35796,37348)
+# EnableAfterStart item GameObjects outside StartSpawnItems: the start letter Kezdolevel in the post, and OnWell, whose children lie on the well.
+ENABLED_ITEMS = 231
+ENABLED_ITEM_GROUP = 52
 
 def start_row(source, catalog, root, group, random_options):
     """The startup row of one scene item copy and its catalog item index, or None without tosaveitemscript.
@@ -181,7 +185,7 @@ def start_row(source, catalog, root, group, random_options):
         'random_options':random_options,**start_state(source,root,prefab),'buried':bool(data['buried'])},index
 
 def start_items(source, catalog):
-    """One startup row per active StartSpawnItems copy outside START_OWNED."""
+    """One startup row per active StartSpawnItems copy outside START_OWNED, and per ENABLED_ITEMS copy."""
     group=source.get('level1',START_ITEMS)
     # TerrainGenerationSettings.StartDateItems copies are seasonal. The game has no seasonal content.
     terrain=source.get('level1',64898)
@@ -194,6 +198,11 @@ def start_items(source, catalog):
         if any(c.type.name=='ConfigurableJoint' for c in components):continue
         found=start_row(source,catalog,root,'StartSpawnItems',[])
         if found:rows.append(found[0]);indices.append(found[1])
+    well=source.transform_for(source.get('level1',ENABLED_ITEM_GROUP))
+    for root in [source.transform_for(source.get('level1',ENABLED_ITEMS))]+[source.resolve(well,c) for c in source.read(well)['m_Children']]:
+        found=start_row(source,catalog,root,'StartSpawnItems',[])
+        if not found:raise ValueError('{}:{} enabled start item has no tosaveitemscript'.format(*key(root)))
+        rows.append(found[0]);indices.append(found[1])
     return rows,indices
 
 def random_start_items(source, catalog, settings_owner, settings):
