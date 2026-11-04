@@ -95,10 +95,7 @@ impl Session {
     pub fn sandbox(&mut self, json: &str) -> String {
         self.sandbox.queued.push(json.to_owned());
         crate::sandbox::run(&mut self.driver.runtime, &self.reference, &mut self.sandbox);
-        format!(
-            "[{}]",
-            self.sandbox.replies.drain(..).collect::<Vec<_>>().join(",")
-        )
+        format!("[{}]", self.sandbox.replies.drain(..).collect::<Vec<_>>().join(","))
     }
 
     /// Runs one encoded command. Returns the encoded frame.
