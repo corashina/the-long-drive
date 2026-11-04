@@ -198,44 +198,61 @@ impl FrameInput {
         self.carry.wheel = 0.;
         self
     }
+    /// Adds a later frame. The field pattern does not compile when a new field has no merge rule.
     pub fn merge(&mut self, frame: Self) {
-        self.held = frame.held;
-        self.pressed |= frame.pressed;
-        self.released |= frame.released;
-        self.player_held = frame.player_held;
-        self.player_pressed |= frame.player_pressed;
-        self.player_released |= frame.player_released;
-        self.inventory_held = frame.inventory_held;
-        self.inventory_released |= frame.inventory_released;
-        self.gamepad = frame.gamepad;
+        let Self {
+            held,
+            pressed,
+            released,
+            player_held,
+            player_pressed,
+            player_released,
+            inventory_held,
+            inventory_released,
+            mouse,
+            drive_mouse,
+            wheel,
+            carry,
+            typing,
+            gamepad,
+        } = frame;
+        self.held = held;
+        self.pressed |= pressed;
+        self.released |= released;
+        self.player_held = player_held;
+        self.player_pressed |= player_pressed;
+        self.player_released |= player_released;
+        self.inventory_held = inventory_held;
+        self.inventory_released |= inventory_released;
+        self.gamepad = gamepad;
         for (pending, delta) in self
             .mouse
             .iter_mut()
             .chain(&mut self.drive_mouse)
-            .zip(frame.mouse.into_iter().chain(frame.drive_mouse))
+            .zip(mouse.into_iter().chain(drive_mouse))
         {
             if delta.is_finite() {
                 *pending += delta;
             }
         }
-        if frame.wheel.is_finite() {
-            self.wheel += frame.wheel;
+        if wheel.is_finite() {
+            self.wheel += wheel;
         }
-        if self.carry.owner != frame.carry.owner {
+        if self.carry.owner != carry.owner {
             self.carry = CarryDeltas {
-                owner: frame.carry.owner,
+                owner: carry.owner,
                 ..CarryDeltas::default()
             };
         }
-        for (pending, delta) in self.carry.mouse.iter_mut().zip(frame.carry.mouse) {
+        for (pending, delta) in self.carry.mouse.iter_mut().zip(carry.mouse) {
             if delta.is_finite() {
                 *pending += delta;
             }
         }
-        if frame.carry.wheel.is_finite() {
-            self.carry.wheel += frame.carry.wheel;
+        if carry.wheel.is_finite() {
+            self.carry.wheel += carry.wheel;
         }
-        self.typing.merge(&frame.typing);
+        self.typing.merge(&typing);
     }
 
     /// Retains active skipped input, cancels blocked skipped input, or consumes a frame.
