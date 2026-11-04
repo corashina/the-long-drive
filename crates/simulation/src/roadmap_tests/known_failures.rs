@@ -647,3 +647,58 @@ fn tp_k12_a_paint_spray_in_the_hand_owns_lmb() {
     );
     assert_eq!(area.interaction.lmb_owner(), Some(LmbOwner::CleaningTool));
 }
+
+/// K13. The start car drives away from the start along the road at 25 m/s. Each 100 m the
+/// road plan rereads about 256 candidates. The step never holds for 1 s, so the car does not
+/// stop in place while the world loads.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k13_driving_away_from_the_start_never_stops_the_car() {
+    use crate::simulation::FIXED_DT;
+    const SPEED: f64 = 25.;
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let key = run.vehicle.clone().unwrap();
+    let car = run.physics.snapshot(&key).pose;
+    stand_near(&mut run, &reference, car.position, 2.);
+    act(&mut run, &reference, r#"{"action":"seat","seat":"driver"}"#);
+    let start = run.stream.origin.absolute(car.position)[2] - 40.;
+    let (mut travelled, mut held) = (0., 0);
+    while travelled < 2000. {
+        if run.world_supported() {
+            held = 0;
+            travelled += SPEED * f64::from(FIXED_DT);
+            let point = run
+                .stream
+                .road_surface_points()
+                .find(|p| p[2] <= start - travelled)
+                .expect("the road reaches the car");
+            let mut position = run.stream.origin.local(point);
+            position[1] += 1.;
+            run.physics.reset_preserving_wheels(
+                &key,
+                crate::vehicle::VehiclePose {
+                    position,
+                    rotation: car.rotation,
+                },
+            );
+            run.physics.refresh_queries();
+        } else {
+            held += 1;
+            let absolute = run
+                .stream
+                .origin
+                .absolute(run.physics.snapshot(&key).pose.position);
+            let bounds = crate::world::WorldBounds {
+                min: absolute.map(|v| v - 8.),
+                max: absolute.map(|v| v + 8.),
+            };
+            assert!(
+                held < 50,
+                "the step holds at {travelled:.0} m: {:?}",
+                run.stream.support_gap(bounds)
+            );
+        }
+        frame(&mut run, &reference);
+    }
+}

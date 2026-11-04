@@ -1569,9 +1569,7 @@ impl WorldStream {
             }
         }
         timer.next(Stage::DescriptorRoads);
-        if self.next_road < self.road_candidates.len() {
-            self.discover_road();
-        }
+        self.discover_roads();
         // Placement needs the complete selected road-point set.
         if self.next_road == self.road_candidates.len() {
             timer.next(Stage::DescriptorProps);
@@ -2675,28 +2673,54 @@ impl WorldStream {
         self.selection_inputs = self.contents.input_revision();
         Ok(())
     }
-    fn discover_road(&mut self) {
-        if self.available_external_jobs() == 0 {
-            return;
+    /// Discovers road candidates until they replay 8 road segments or one waits.
+    /// A plan change rereads every candidate. Selected and buffered segments replay nothing,
+    /// so a new plan near known roads completes in one update.
+    fn discover_roads(&mut self) {
+        let mut budget = 8usize;
+        while self.next_road < self.road_candidates.len() {
+            let before = self.next_road;
+            let work = self.discover_road();
+            budget = budget.saturating_sub(work);
+            if self.failure.is_some() || self.next_road == before || budget == 0 {
+                return;
+            }
         }
+        // Known segments skip the pole refresh. Refresh once for the complete selection.
+        self.refresh_poles();
+        if self.metrics().generated_objects > self.limits.objects {
+            self.failure = Some(format!(
+                "Source object count exceeds {}",
+                self.limits.objects
+            ));
+        }
+    }
+    /// Reads the next road candidate. Returns the count of replayed road segments.
+    fn discover_road(&mut self) -> usize {
         let index = self.road_candidates[self.next_road];
         let existing = self
             .selected_roads
             .iter()
             .position(|r| r.segment.index == index);
+        let mut work = 0;
         let segment = if let Some(i) = existing {
             self.selected_roads[i].segment
         } else {
+            // Only a new segment replays the road. A selected one needs no job slot.
+            if self.available_external_jobs() == 0 {
+                return work;
+            }
             let segment = match self.roads.prepare_segment(index, 8) {
                 Ok(segment) => segment,
                 Err(error) => {
                     self.failure = Some(error.0);
-                    return;
+                    return work;
                 }
             };
-            self.last_road_work = self.roads.replay_work();
+            work = self.roads.replay_work();
+            self.last_road_work += work;
             let Some(segment) = segment else {
-                return;
+                return work;
             };
             segment
         };
@@ -2714,7 +2738,30 @@ impl WorldStream {
             });
         if !selected {
             self.next_road += 1;
-            return;
+            return work;
+        }
+        // A selected segment with its light keeps its light, cable and pole. It adds no object.
+        if let Some(i) = existing
+            && self
+                .lights
+                .iter()
+                .any(|l| l.id == self.selected_roads[i].light.id)
+        {
+            self.wanted_lights.push(index);
+            if geometry {
+                if self.wanted_roads.len() == self.limits.roads {
+                    self.failure = Some(format!("Source road count exceeds {}", self.limits.roads));
+                    return work;
+                }
+                self.wanted_roads.push(index);
+                append_road_points(
+                    &mut self.road_points,
+                    segment,
+                    self.reference.road.def_point_range,
+                );
+            }
+            self.next_road += 1;
+            return work;
         }
         let old_light = self
             .lights
@@ -2749,7 +2796,7 @@ impl WorldStream {
                 "Source road {index} object budget exceeded: requested {required}, limit {}",
                 self.limits.objects
             ));
-            return;
+            return work;
         }
         if existing.is_none() {
             if self.selected_roads.len() >= self.limits.roads {
@@ -2757,7 +2804,7 @@ impl WorldStream {
                     "Selected road descriptors exceed {} roads",
                     self.limits.roads
                 ));
-                return;
+                return work;
             }
             // Source roadGenScript links rope i to segment i + 1. The index prepares ahead of selection.
             let next = if index + 1 < super::road::ROAD_SEGMENTS {
@@ -2765,12 +2812,13 @@ impl WorldStream {
                     Ok(next) => next,
                     Err(error) => {
                         self.failure = Some(error.0);
-                        return;
+                        return work;
                     }
                 };
                 self.last_road_work += self.roads.replay_work();
+                work += self.roads.replay_work();
                 let Some(next) = next else {
-                    return;
+                    return work;
                 };
                 Some(next)
             } else {
@@ -2800,15 +2848,15 @@ impl WorldStream {
                 + 2 * light_heap
                 + cable_bytes;
             if !self.admit_generation(bytes) {
-                return;
+                return work;
             }
             if self.selected_roads.try_reserve_exact(1).is_err() {
                 self.failure = Some("Selected road descriptor allocation failed".into());
-                return;
+                return work;
             }
             if self.wanted_structures.try_reserve_exact(1).is_err() {
                 self.failure = Some("Selected pole placement allocation failed".into());
-                return;
+                return work;
             }
             let light = self.road_light.place(&self.reference, &segment);
             let mut cable = Vec::new();
@@ -2852,12 +2900,12 @@ impl WorldStream {
                 "Source object count exceeds {}",
                 self.limits.objects
             ));
-            return;
+            return work;
         }
         if geometry {
             if self.wanted_roads.len() == self.limits.roads {
                 self.failure = Some(format!("Source road count exceeds {}", self.limits.roads));
-                return;
+                return work;
             }
             self.wanted_roads.push(index);
             append_road_points(
@@ -2867,6 +2915,7 @@ impl WorldStream {
             );
         }
         self.next_road += 1;
+        work
     }
     fn road_failure(&mut self, error: ReferenceError) {
         self.road_worker.dispose();
