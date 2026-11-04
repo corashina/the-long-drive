@@ -284,7 +284,6 @@ impl AudioState {
             broadcasts: crate::simulation::radio::RadioBroadcasts::new(
                 &reference.radio,
                 &reference.clips,
-                [0, 0],
             ),
             portable_radio_slots: vec![
                 [None; PORTABLE_RADIO_SLOTS];
@@ -969,7 +968,6 @@ impl AudioState {
         self.broadcasts = crate::simulation::radio::RadioBroadcasts::new(
             &self.reference.radio,
             &self.reference.clips,
-            [0, 0],
         );
         self.portable_radio_slots.fill([None; PORTABLE_RADIO_SLOTS]);
         self.session = session;

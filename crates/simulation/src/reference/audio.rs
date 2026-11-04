@@ -56,8 +56,7 @@ record!(AudioControlReference { source: SourceId, node: NodeId, mechanism: Optio
 record!(RadioStationReference {
     id: u32, band: String, frequency: f32, name: String, custom: bool, content: String,
     initial_music: bool, start_time: f32, initial_time: f32, initial_max_time: f32, initial_gain: f32,
-    music: Vec<u32>, talk: Vec<u32>, music_gains: Vec<f32>, talk_gains: Vec<f32>,
-    music_holidays: Vec<u8>, talk_holidays: Vec<u8>
+    music: Vec<u32>, talk: Vec<u32>, music_gains: Vec<f32>, talk_gains: Vec<f32>
 });
 record!(RadioClockReference {
     kind: String,
@@ -71,7 +70,7 @@ record!(RadioAudioReference {
     constants: BTreeMap<String, f32>, fm_tolerance: f32, am_tolerance: f32,
     electronics_cutoff: f32, time_correction_seconds: f32, late_seek_margin_seconds: f32,
     custom_gain: f32, clock: RadioClockReference, stations: Vec<RadioStationReference>, methods: Vec<AudioMethod>,
-    tuning_repeat_seconds: f32, holiday_ranges: [[u8;4];2]
+    tuning_repeat_seconds: f32
 });
 // radioscript SS, SC and SC2 settings shared by the world radios in `sources` (portable and car radios).
 record!(PortableRadioAudioReference { sources: Vec<SourceId>, voices: [AudioVoiceReference; 3] });
@@ -626,8 +625,6 @@ impl AudioReference {
                         .chain(s.talk.iter())
                         .all(|c| clips.contains(c))
                     && values(s.music_gains.iter().chain(s.talk_gains.iter()).copied())
-                    && s.music_holidays.len() == s.music.len()
-                    && s.talk_holidays.len() == s.talk.len()
                     && if s.custom {
                         s.content == "external" && s.music.is_empty() && s.talk.is_empty()
                     } else {
@@ -693,14 +690,7 @@ impl AudioReference {
                 && s.local_position.is_none_or(values)
         };
         require(
-            r.tuning_repeat_seconds.is_finite()
-                && r.tuning_repeat_seconds > 0.
-                && r.holiday_ranges.iter().all(|&[sm, sd, em, ed]| {
-                    (1..=12).contains(&sm)
-                        && (1..=31).contains(&sd)
-                        && (1..=12).contains(&em)
-                        && (1..=31).contains(&ed)
-                }),
+            r.tuning_repeat_seconds.is_finite() && r.tuning_repeat_seconds > 0.,
             "audio radio source controls",
         )?;
         for i in &self.interiors {

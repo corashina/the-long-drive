@@ -18,7 +18,7 @@ macro_rules! record {
 record!(AcquisitionReference {
     stations: Vec<StationAcquisitionReference>, categories: Vec<CategoryReference>,
     r#box: BoxAcquisitionReference, packs: Vec<PackAcquisitionReference>,
-    startup_packs: Vec<StartupPackReference>, holiday_pumpkin: SourceId, holiday_startup: HolidayPumpkinReference,
+    startup_packs: Vec<StartupPackReference>,
     pack_item_id: u32, cigarette_item_id: u32, evidence: AcquisitionEvidence, rules: AcquisitionRules
 });
 record!(AcquisitionEvidence { assembly_sha256: String, text_sha256: String, methods: Vec<AcquisitionMethod> });
@@ -77,7 +77,6 @@ record!(InvalidCategory {
 });
 record!(StationFlyers {
     force: bool,
-    halloween: bool,
     vertical_offset: f32,
     vertical_scale: f32,
     horizontal: [f32; 2],
@@ -90,7 +89,7 @@ record!(AcquisitionTableEntry {
     threshold: f32
 });
 record!(OrdinaryAcquisitionReference {
-    source: SourceId, marker: AcquisitionMarker, dont_spawn: bool, holiday: u32,
+    source: SourceId, marker: AcquisitionMarker, dont_spawn: bool,
     building_affects_this: bool, chance: f32, spawned: bool, entries: Vec<OrdinaryAcquisitionEntry>
 });
 record!(OrdinaryAcquisitionEntry {
@@ -174,12 +173,6 @@ fn pack_start_car(pack: i64) -> &'static str {
         "StartCar02"
     }
 }
-record!(HolidayPumpkinReference {
-    source: SourceId, pose: AcquisitionPose, active: bool, save: SourceId, item_id: u32, body: SourceId, pickup: SourceId,
-    manual_start: bool, started: bool, loaded: bool, buried: bool, car: Option<SourceId>, fixed_in_car: u32,
-    prototype: PrototypeId, wearable: SourceId, terrain: SourceId, start: [u32;2], end: [u32;2],
-    inclusive: bool, local_calendar: bool, new_game_only: bool, multiplayer: bool
-});
 pub(super) fn source_is(s: &SourceId, file: &str, id: i64) -> bool {
     s.file == file && s.path_id == id
 }
@@ -294,9 +287,7 @@ impl AcquisitionReference {
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         self.rules.validate()?;
         require(
-            self.pack_item_id == 74
-                && self.cigarette_item_id == 230
-                && source_is(&self.holiday_pumpkin, "level1", 82),
+            self.pack_item_id == 74 && self.cigarette_item_id == 230,
             "acquisition identities",
         )?;
         require(
@@ -385,7 +376,6 @@ impl AcquisitionReference {
             let f = &s.flyers;
             require(
                 !f.force
-                    && f.halloween
                     && f.vertical_offset == 10.
                     && f.vertical_scale == 5.
                     && f.horizontal == [6., 16.]
@@ -406,7 +396,7 @@ impl AcquisitionReference {
                 "acquisition building startup",
             )?;
             require(
-                s.ordinary.len() == [33, 37, 236][index]
+                s.ordinary.len() == [31, 36, 235][index]
                     && s.ordinary
                         .iter()
                         .map(|o| &o.source)
@@ -420,7 +410,6 @@ impl AcquisitionReference {
                 require(
                     valid_source(&o.source)
                         && valid_marker(&o.marker, s.asset, m)
-                        && o.holiday <= 2
                         && (0.0..=1.).contains(&o.chance)
                         && !o.spawned,
                     "ordinary acquisition source",
@@ -497,7 +486,7 @@ impl AcquisitionReference {
                 == "9919a9eeddcce23bb4ff86e890437f32b4a3ef3c10af2efe3b8d889d894dd62e"
                 && self.evidence.text_sha256
                     == "22ddc62b91954205d90ff513232f39becebbc58a71b718685075f91f64b1f3ee"
-                && self.evidence.methods.len() == 46
+                && self.evidence.methods.len() == 45
                 && self
                     .evidence
                     .methods
@@ -510,7 +499,7 @@ impl AcquisitionReference {
                     .map(|e| (&e.owner, &e.signature))
                     .collect::<HashSet<_>>()
                     .len()
-                    == 46,
+                    == 45,
             "acquisition checked methods",
         )?;
         Ok(())
@@ -676,33 +665,6 @@ impl AcquisitionReference {
                 "startup pack initialization",
             )?;
         }
-        let h = &self.holiday_startup;
-        prototype(&h.prototype, Some(92), m)?;
-        require(
-            h.source == self.holiday_pumpkin
-                && source_is(&h.wearable, "level1", 79857)
-                && source_is(&h.terrain, "level1", 64898)
-                && source_is(&h.pose.source, "level1", 21449)
-                && valid_pose(&h.pose)
-                && h.start == [10, 15]
-                && h.end == [11, 15]
-                && h.inclusive
-                && h.local_calendar
-                && h.new_game_only
-                && !h.multiplayer
-                && !h.started
-                && !h.loaded
-                && !h.buried
-                && h.car.is_none()
-                && h.fixed_in_car == 0
-                && h.item_id == 92
-                && source_is(&h.save, "level1", 72331)
-                && source_is(&h.body, "level1", 50268)
-                && source_is(&h.pickup, "level1", 80624)
-                && h.active
-                && h.manual_start,
-            "holiday startup source",
-        )?;
         Ok(())
     }
 }

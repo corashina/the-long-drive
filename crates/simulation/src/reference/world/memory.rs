@@ -220,7 +220,7 @@ fields!(WorldDitherReference:engine_sha256,creator_sha256,binding_sha256,propert
 
 fields!(WorldInitialMaterial:controller,renderer,node,material);
 
-fields!(WorldSpawnContext:classification,engine_sha256,clock_input,initial_state,startup_state,startup_draws,date);
+fields!(WorldSpawnContext:classification,engine_sha256,clock_input,initial_state,startup_state,startup_draws);
 
 fields!(WorldInitialization:nodes,components);
 fields!(WorldInitNode:source,owner,parent,children,components,active,pose);

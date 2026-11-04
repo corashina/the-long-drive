@@ -13,8 +13,6 @@ use serde_json::{Value, json};
 thread_local! {
     /// Surface renderer claim kept across frames, as the WASM presentation keeps it.
     static CLAIM: std::cell::RefCell<Option<(WorldRequest, SurfaceKey)>> = const { std::cell::RefCell::new(None) };
-    /// Local month and day of the next new game, as the browser sends it.
-    static CALENDAR: std::cell::Cell<[u8; 2]> = const { std::cell::Cell::new([1, 1]) };
     /// Sandbox state across `act` calls, as the `?sandbox` page keeps it.
     static SANDBOX: std::cell::RefCell<Sandbox> = std::cell::RefCell::new(Sandbox::default());
 }
@@ -190,7 +188,7 @@ pub(crate) fn prepare_step_for_views(
         )
         .unwrap();
     assert!(stream.failure.is_none(), "{:?}", stream.failure);
-    run.align_startup(reference, CALENDAR.get()).unwrap();
+    run.align_startup(reference).unwrap();
 }
 
 /// Publishes until the required world is ready. The run does not step.
