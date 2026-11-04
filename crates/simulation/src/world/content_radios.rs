@@ -8,9 +8,9 @@ use crate::interaction::{InteractionState, Knob};
 use crate::reference::{ColliderId, ItemId, ReferenceError, SourceId, Transform, UiReference};
 use crate::simulation::radio::{RadioControl, RadioState};
 use crate::vehicle::{PhysicsWorld, to_rapier};
+use crate::world::GeneratedId;
 use crate::world::spawn_appearance::NodeAppearance;
 use crate::world::spawn_rules::*;
-use crate::world::{GeneratedId, ObjectKey};
 use rapier3d::glamx::{Affine3A, Quat, Vec3};
 
 pub struct RadioBinding {
@@ -71,7 +71,7 @@ fn saved_controls(
     parent: &GeneratedId,
 ) -> Option<crate::save::RadioSnapshot> {
     changes
-        .get(ObjectKey::Generated(parent.clone()))
+        .get_generated(&parent)
         .and_then(|c| c.snapshot.as_ref())
         .and_then(|s| s.radio)
 }

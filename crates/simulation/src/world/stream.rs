@@ -399,7 +399,7 @@ impl WorldStream {
             .iter()
             .filter(|r| {
                 changes
-                    .get(super::ObjectKey::Generated(r.id.clone()))
+                    .get_generated(&r.id)
                     .is_some_and(|c| c.snapshot.is_none())
             })
             .cloned()
@@ -1762,12 +1762,7 @@ impl WorldStream {
                 .any(|f| source_distance_squared(f, p.pose.position) < radius * radius)
         };
         let changes = &self.changes;
-        let wanted = |p: &Placement| {
-            near(p)
-                && changes
-                    .get(super::ObjectKey::Generated(p.id.clone()))
-                    .is_none()
-        };
+        let wanted = |p: &Placement| near(p) && changes.get_generated(&p.id).is_none();
         let active = &self.contents.active();
         self.wanted_structures.retain(|p| {
             p.id.layer != WorldLayer::Startup
@@ -4300,7 +4295,7 @@ impl WorldStream {
             for (key, id) in [(tank_key, tank), (cap_key, cap)] {
                 if let Some(change) = self
                     .changes
-                    .get(super::ObjectKey::Generated(key))
+                    .get_generated(&key)
                     .and_then(|c| c.snapshot.as_ref())
                 {
                     items.restore_generated(id, change)?;

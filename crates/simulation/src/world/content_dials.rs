@@ -8,8 +8,8 @@ use crate::interaction::items::ItemStore;
 use crate::reference::{ColliderId, ItemId, ReferenceError, SourceId, Transform, UiReference};
 use crate::simulation::dials::*;
 use crate::vehicle::PhysicsWorld;
+use crate::world::GeneratedId;
 use crate::world::spawn_rules::*;
-use crate::world::{GeneratedId, ObjectKey};
 use rapier3d::math::{Rotation, Vector};
 
 /// A source transform whose local rotation is rewritten as Euler angles.
@@ -248,7 +248,7 @@ impl WorldStream {
         }
         let value = self
             .changes
-            .get(ObjectKey::Generated(parent.clone()))
+            .get_generated(&parent)
             .and_then(|c| c.snapshot.as_ref())
             .and_then(|s| s.dial)
             .unwrap_or(0.);

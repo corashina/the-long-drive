@@ -13,9 +13,9 @@ use crate::reference::{
 use crate::simulation::dials::{inverse_lerp, lerp, unity_euler};
 use crate::simulation::metal_detector::{DetectorRules, MetalDetector};
 use crate::vehicle::{PhysicsWorld, to_rapier};
+use crate::world::GeneratedId;
 use crate::world::spawn_rules::*;
 use crate::world::unity_random::UnityRandom;
-use crate::world::{GeneratedId, ObjectKey};
 use rapier3d::math::Pose;
 
 /// meterscript `mutatok` row of meterType: mutatoscript without lerpAngle.
@@ -206,7 +206,7 @@ impl WorldStream {
         let mut on = integer(u, "currentTurnState")? != 0;
         if let Some(saved) = self
             .changes
-            .get(ObjectKey::Generated(parent.clone()))
+            .get_generated(&parent)
             .and_then(|c| c.snapshot.as_ref())
             .and_then(|s| s.detector)
         {
