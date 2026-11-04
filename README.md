@@ -72,6 +72,32 @@ node scripts/prepare-http-compression.mjs
 
 The server negotiates Brotli for WASM and current package JSON. It keeps images and package receipts unchanged.
 
+## Host on Cloudflare Pages
+
+Cloudflare Pages serves the game from a free global CDN. Multiplayer still uses the public PeerJS servers.
+Make a release build first. Sign in to Cloudflare once:
+
+```powershell
+npx wrangler login
+```
+
+Upload the game:
+
+```powershell
+node scripts/deploy.mjs
+```
+
+The script stages `web/` in `.cache/deploy`. It keeps the app, the reference manifest, and the catalog files of the current runtime package.
+It stops if a file is larger than 25 MiB or the site has more than 20,000 files.
+The first upload asks to create the `the-long-slop` project. Set `PAGES_PROJECT` to use another project name.
+The site opens at `https://the-long-slop.pages.dev`.
+
+The site contains files from The Long Drive. Keep it for friends only:
+
+1. In the Cloudflare dashboard, open Zero Trust, then Access, then Applications.
+2. Add a self-hosted application for `the-long-slop.pages.dev` and `*.the-long-slop.pages.dev`.
+3. Add an Allow policy with the email addresses of your friends. The free plan allows 50 users.
+
 ## FPS bench
 
 The bench records F3 values in fixed scenes: garage at noon, road 2 km out at noon, first road building at night.
