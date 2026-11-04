@@ -454,11 +454,10 @@ fn validate_source_cameras(
 
 /// Source cameras own their D24S8 depth. Keep Camera3d for Bevy mesh/light preparation.
 fn remove_builtin_phases(world: &mut World) {
-    let (depth, sort) = world.resource_scope(
-        |world, mut schedules: Mut<bevy::ecs::schedule::Schedules>| {
-            let schedule = schedules
-                .get_mut(bevy::render::Render)
-                .expect("render schedule");
+    // Schedule scope keeps `Schedules` in the world. A first build reads it.
+    let (depth, sort) = world.schedule_scope(
+        bevy::render::Render,
+        |world, schedule: &mut bevy::ecs::schedule::Schedule| {
             let depth = schedule.remove_systems_in_set(
                 bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures,
                 world,
