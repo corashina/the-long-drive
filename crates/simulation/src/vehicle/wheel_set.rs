@@ -141,7 +141,12 @@ impl WheelSet {
             }
         }
         let gravity = physics.gravity.length();
-        let sprung_mass = physics.bodies[own].mass() / self.wheels.len() as f32;
+        let body = &physics.bodies[own];
+        let sprung = SprungMasses::new(
+            &self.wheels,
+            body.mass_properties().local_mprops.local_com,
+            body.mass(),
+        );
         for (((wheel, collider), contact), torques) in self
             .wheels
             .iter_mut()
@@ -161,7 +166,7 @@ impl WheelSet {
                 up,
                 axle: pose.rotation * Rotation::from_rotation_y(wheel.steering) * Vector::X,
                 velocity: relative_velocity(&physics.bodies, own, ground, point),
-                sprung_mass,
+                sprung_mass: sprung.get(wheel.connection),
                 gravity,
             };
             *contact = wheel::solve(wheel, collider, frame, *torques, FIXED_DT)
@@ -225,6 +230,55 @@ impl WheelSet {
     }
 }
 
+/// Source PhysX sprung masses (Unity `WheelCollider.sprungMass`). The body mass is split
+/// over the wheels so that their loads balance the centre of mass. Each wheel then rests
+/// at its target position. An equal split lets the heavy end sink into its wheels.
+struct SprungMasses {
+    /// Mass at the centre of mass and its change per metre along body x and z.
+    coefficients: Vector,
+    center_of_mass: Vector,
+    /// Sum of the clamped masses scaled to the body mass.
+    scale: f32,
+}
+
+impl SprungMasses {
+    /// Small ridge term in m^2. It ignores a wheel layout without spread on one axis (a bike).
+    const RIDGE: f32 = 1e-3;
+
+    /// The smallest set of masses that balances the body mass about the centre of mass.
+    fn new(wheels: &[WheelState], center_of_mass: Vector, mass: f32) -> Self {
+        let mut gram =
+            rapier3d::math::Matrix::from_diagonal(Vector::new(0.0, Self::RIDGE, Self::RIDGE));
+        for wheel in wheels {
+            let row = Self::row(wheel.connection, center_of_mass);
+            gram += rapier3d::math::Matrix::from_cols(row * row.x, row * row.y, row * row.z);
+        }
+        let coefficients = gram.inverse() * Vector::new(mass, 0.0, 0.0);
+        let mut masses = Self {
+            coefficients,
+            center_of_mass,
+            scale: 1.0,
+        };
+        let total: f32 = wheels.iter().map(|w| masses.get(w.connection)).sum();
+        masses.scale = if total > 0.0 { mass / total } else { 0.0 };
+        if masses.scale == 0.0 {
+            masses.coefficients = Vector::new(mass / wheels.len().max(1) as f32, 0.0, 0.0);
+            masses.scale = 1.0;
+        }
+        masses
+    }
+
+    fn row(connection: Vector, center_of_mass: Vector) -> Vector {
+        let offset = connection - center_of_mass;
+        Vector::new(1.0, offset.x, offset.z)
+    }
+
+    fn get(&self, connection: Vector) -> f32 {
+        let row = Self::row(connection, self.center_of_mass);
+        row.dot(self.coefficients).max(0.0) * self.scale
+    }
+}
+
 /// Source rest position is targetPosition of the travel below the connection.
 fn rest(collider: &WheelColliderReference) -> f32 {
     collider.suspension_distance * collider.target_position
@@ -269,4 +323,44 @@ fn inverse_mass_at(body: &rapier3d::prelude::RigidBody, point: Vector, direction
     let arm = (point - props.world_com).cross(direction);
     (props.effective_inv_mass * direction * direction).element_sum()
         + arm.dot(props.effective_world_inv_inertia * arm)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vehicle::collider_profile;
+
+    fn wheels(points: &[(f32, f32)]) -> Vec<WheelState> {
+        let car = crate::vehicle::car_prototype_fixture();
+        let collider = &car.vehicle.as_ref().unwrap().wheels[0].collider;
+        points
+            .iter()
+            .map(|&(x, z)| WheelState::new(Vector::new(x, 0.3, z), collider_profile(collider), 0.1))
+            .collect()
+    }
+
+    /// A rear-heavy car puts more load on its rear wheels. The loads balance the centre of mass.
+    #[test]
+    fn sprung_masses_balance_the_centre_of_mass() {
+        let set = wheels(&[(-0.7, -1.2), (0.7, -1.2), (-0.7, 1.2), (0.7, 1.2)]);
+        let com = Vector::new(0.05, 0.4, 0.4);
+        let masses = SprungMasses::new(&set, com, 900.0);
+        let loads: Vec<_> = set.iter().map(|w| masses.get(w.connection)).collect();
+        assert!((loads.iter().sum::<f32>() - 900.0).abs() < 0.01);
+        let moment = set
+            .iter()
+            .zip(&loads)
+            .fold(Vector::ZERO, |sum, (w, m)| sum + (w.connection - com) * *m);
+        assert!(moment.x.abs() < 0.5 && moment.z.abs() < 0.5, "{moment:?}");
+        assert!(loads[2] > loads[0] && loads[1] > loads[0]);
+    }
+
+    /// Wheels on one line (a bike) split the mass along the line only.
+    #[test]
+    fn sprung_masses_of_a_bike() {
+        let set = wheels(&[(0.0, -0.7), (0.0, 0.7)]);
+        let masses = SprungMasses::new(&set, Vector::new(0.0, 0.5, -0.35), 200.0);
+        assert!((masses.get(set[0].connection) - 150.0).abs() < 0.5);
+        assert!((masses.get(set[1].connection) - 50.0).abs() < 0.5);
+    }
 }
