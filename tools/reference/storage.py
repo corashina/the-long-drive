@@ -7,9 +7,10 @@ from .collision import quaternion_product
 from .managed_code import managed_code, class_code, method, require
 
 # Car mountStuff types 3 (trunk) and 4 (hood room) wait for a closed part in their one gate slot.
-# World prototype mountStuff: Box, Fridge, Raklap (pallet), Coffin (4). Car volumes come from each car prefab.
+# World prototype mountStuff: Box, Fridge, Raklap (pallet), Coffin (4), loose bike basket (Bike01Kosar) and bike bag (BikeTaska).
+# Car volumes come from each car prefab.
 PROTOTYPE_FILE='sharedassets1.assets'
-PROTOTYPE_VOLUMES=(146589,146111,133282,144518,150537,134531,153699)
+PROTOTYPE_VOLUMES=(146589,146111,133282,144518,150537,134531,153699,158370,158371)
 SETTING=2
 MASK=8388609
 DROP_DELAY=1.

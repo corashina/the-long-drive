@@ -141,14 +141,14 @@ def start_placements(source, settings_owner, settings, catalog, cars):
             prototype=_source_root(source,source.get(row['source']['file'],row['source']['path_id']))
         if key(prototype) not in cars:raise ValueError('{}:{} {}: start car prefab is not an allowed car'.format(*key(prototype),field))
         rows.append({'group':field,'source':source_id(car['reader']),'pose':world_pose(source,car['reader']),
-            'prototype':source_id(prototype),'start_car':True,**start_state(source,car['reader'],prototype),'buried':False})
+            'prototype':source_id(prototype),'start_car':True,'random_options':[],**start_state(source,car['reader'],prototype),'buried':False})
         # Each group holds the spare rim and tire of its car. Source DestroyOthers keeps the picked group only.
         top=source.transform_for(group)
         spares=[n for n in source.hierarchy(top) if n['parent'] is not None and key(n['parent'])==key(top) and 'wheelscript' in script_classes(source,[n])]
         if len(spares)!=1:raise ValueError('{}:{} {}: {} spare wheels in the start car group'.format(*key(group),field,len(spares)))
         spare=spares[0]['reader'];prefab=spare_prefab(source,catalog,spares[0])
         rows.append({'group':field,'source':source_id(spare),'pose':world_pose(source,spare),
-            'prototype':source_id(prefab),'start_car':False,**start_state(source,spare,prefab),'buried':False})
+            'prototype':source_id(prefab),'start_car':False,'random_options':[],**start_state(source,spare,prefab),'buried':False})
     return rows
 
 def spare_prefab(source, catalog, node):
@@ -163,9 +163,21 @@ def spare_prefab(source, catalog, node):
     if len(matches)!=1:raise ValueError('{}:{} spare wheel: {} rimtire prefab matches'.format(*key(node['reader']),len(matches)))
     return matches[0]
 
+def start_row(source, catalog, root, group, random_options):
+    """The startup row of one scene item copy and its catalog item index, or None without tosaveitemscript.
+    The copy keeps its scene pose and scene state. The row prototype is its catalog prefab. recover_world sets it after selection."""
+    _,components=source.components(root)
+    save=[c for c in components if c.type.name=='MonoBehaviour' and source.class_name(c)=='tosaveitemscript']
+    if not save:return None
+    data=source.read(save[0]);index=data['id']
+    if not 0<=index<len(catalog['items']):raise ValueError('{}:{} start item has no catalog item'.format(*key(save[0])))
+    item=catalog['items'][index]
+    prefab=_source_root(source,source.get(item['source']['file'],item['source']['path_id']))
+    return {'group':group,'source':source_id(root),'pose':world_pose(source,root),'prototype':None,'start_car':False,
+        'random_options':random_options,**start_state(source,root,prefab),'buried':bool(data['buried'])},index
+
 def start_items(source, catalog):
-    """One startup row per active StartSpawnItems copy outside START_OWNED. The copy keeps its scene pose
-    and scene state. The row prototype is its catalog prefab. recover_world sets the prototype after selection."""
+    """One startup row per active StartSpawnItems copy outside START_OWNED."""
     group=source.get('level1',START_ITEMS)
     # TerrainGenerationSettings.StartDateItems copies are seasonal. The game has no seasonal content.
     terrain=source.get('level1',64898)
@@ -174,17 +186,44 @@ def start_items(source, catalog):
     for child in source.read(group)['m_Children']:
         root=source.resolve(group,child);go,components=source.components(root)
         if not source.read(go)['m_IsActive'] or key(go)[1] in START_OWNED or key(go) in seasonal:continue
-        save=[c for c in components if c.type.name=='MonoBehaviour' and source.class_name(c)=='tosaveitemscript']
-        if not save:continue
         # Hanging copies (air fresheners, a sausage) have a scene ConfigurableJoint to a holder body. The port does not support them yet.
         if any(c.type.name=='ConfigurableJoint' for c in components):continue
-        data=source.read(save[0]);index=data['id']
-        if not 0<=index<len(catalog['items']):raise ValueError('{}:{} start item has no catalog item'.format(*key(save[0])))
-        item=catalog['items'][index]
-        prefab=_source_root(source,source.get(item['source']['file'],item['source']['path_id']))
-        rows.append({'group':'StartSpawnItems','source':source_id(root),'pose':world_pose(source,root),'prototype':None,
-            'start_car':False,**start_state(source,root,prefab),'buried':bool(data['buried'])})
-        indices.append(index)
+        found=start_row(source,catalog,root,'StartSpawnItems',[])
+        if found:rows.append(found[0]);indices.append(found[1])
+    return rows,indices
+
+def random_start_items(source, catalog, settings_owner, settings):
+    """Source TerrainGenerationSettings.randomStarts. A new game activates one random option per group.
+    One row per item copy below an option. `random_options` lists each (group, option) pair the copy needs:
+    the B1 and B2 options are inside the Bike03Start option."""
+    options={}
+    for g,entry in enumerate(settings['randomStarts']):
+        if len(entry['objs'])<2:raise ValueError(f'randomStarts[{g}] has fewer than two options')
+        for o,pointer in enumerate(entry['objs']):
+            options[key(source.transform_for(source.resolve(settings_owner,pointer)))]=[g,o]
+    group=('level1',START_ITEMS)
+    rows=[];indices=[];seen=set();used=set()
+    for top in options:
+        # An item copy or an inactive node that is not an option hides its subtree.
+        blocked=set()
+        for node in source.hierarchy(source.get(*top)):
+            identity=key(node['reader'])
+            if node['parent'] is not None and key(node['parent']) in blocked:blocked.add(identity);continue
+            if identity in options:continue
+            if not source.read(node['game_object'])['m_IsActive']:blocked.add(identity);continue
+            chain=[];current=node['reader']
+            while key(current)!=group:
+                if key(current) in options:chain.append(options[key(current)])
+                current=source.resolve(current,source.read(current)['m_Father'])
+                if current is None:raise ValueError('{}:{} random start copy is outside StartSpawnItems'.format(*identity))
+            found=start_row(source,catalog,node['reader'],'randomStarts',sorted(chain))
+            if not found:continue
+            blocked.add(identity)
+            if identity in seen:continue
+            seen.add(identity);used.update(tuple(p) for p in chain)
+            rows.append(found[0]);indices.append(found[1])
+    missing=[p for p in options.values() if tuple(p) not in used]
+    if missing:raise ValueError(f'randomStarts options without item rows: {missing}')
     return rows,indices
 
 def start_state(source, copy, prototype):
@@ -347,7 +386,7 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
     print('Selecting world source records',flush=True)
     selected=Selection(source,reader)
     settings_owner=source.get('level1',64898)
-    settings=required_record(source,settings_owner,('roadGens','terranGenerator','roadBuildingGeneration','objGeneration','mountainGeneration','desertTowerGeneration','desertBuildingGeneration','Terrain','DistantTerrain','DistantTerrain2',*START_CARS))
+    settings=required_record(source,settings_owner,('roadGens','terranGenerator','roadBuildingGeneration','objGeneration','mountainGeneration','desertTowerGeneration','desertBuildingGeneration','Terrain','DistantTerrain','DistantTerrain2','randomStarts',*START_CARS))
     road_owner=source.get('level1',64771)
     road=required_record(source,road_owner,('settings','terrainGenerator','prefabs','noises','roadBoneNum','roadBoneLength','length'))
     if [key(source.resolve(settings_owner,p)) for p in settings['roadGens']] != [key(road_owner)]:
@@ -430,13 +469,15 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
     for field in ('StartObjs','StartObjsFix','StartObjsDonTMoveOnLoad'):
         for pointer in settings[field]:
             root=source.resolve(settings_owner,pointer)
-            startup.append({'group':field,'source':source_id(root),'pose':world_pose(source,root),'prototype':None,'start_car':False,'conditions':[],'tanks':[],'buried':False})
+            startup.append({'group':field,'source':source_id(root),'pose':world_pose(source,root),'prototype':None,'start_car':False,'random_options':[],'conditions':[],'tanks':[],'buried':False})
             selected.transform_chain(root)
     # Start car candidates. Startup frames ignore these groups. The vehicle binder spawns the picked one.
     starts=start_placements(source,settings_owner,settings,catalog,cars)
     for row in starts:selected.transform_chain(source.get(row['source']['file'],row['source']['path_id']))
     startup.extend(starts)
     items,item_indices=start_items(source,catalog)
+    randoms,random_indices=random_start_items(source,catalog,settings_owner,settings)
+    items+=randoms;item_indices+=random_indices
     for row in items:selected.transform_chain(source.get(row['source']['file'],row['source']['path_id']))
     startup.extend(items)
     start_roots={(r['source']['file'],r['source']['path_id']) for r in starts}

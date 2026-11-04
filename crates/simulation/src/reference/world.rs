@@ -541,6 +541,9 @@ pub struct WorldStartupReference {
     pub prototype: Option<SourceId>,
     /// A start car candidate.
     pub start_car: bool,
+    /// Source `randomStarts` (group, option) pairs. A `randomStarts` row spawns only when
+    /// a new game picks each option. Other rows have none.
+    pub random_options: Vec<[u32; 2]>,
     /// Scene start fields of prefab conditions. Start cars start worn. Their prefabs start new.
     pub conditions: Vec<WorldStartCondition>,
     /// Scene fluids of prefab tanks that differ from the prefab.
@@ -828,6 +831,10 @@ impl WorldReference {
         (id.layer == crate::world::WorldLayer::Startup && id.children.is_empty())
             .then(|| self.startup.get(id.ordinal as usize))
             .flatten()
+    }
+    /// The placement of a start car candidate. Other startup vehicles, such as the bike kit, are not start cars.
+    pub fn start_car_placement(&self, id: &crate::world::GeneratedId) -> bool {
+        self.startup_row(id).is_some_and(|row| row.start_car)
     }
     /// Every set material binds as a world prototype material. Desert materials are unique.
     fn validate_biome_material_sets(

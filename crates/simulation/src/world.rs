@@ -57,6 +57,7 @@ pub use stream::{
     PublishedSurface, Reclaim, SurfaceKey, WorldFrame, WorldRequest, WorldStream,
 };
 pub use stream_limits::StreamLimits;
+mod random_starts;
 mod start_car;
 pub use start_car::{StartCar, StartCarChoice, menu_random, start_fields};
 mod startup;
