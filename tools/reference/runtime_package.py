@@ -11,6 +11,11 @@ MAX_U32 = 2**32 - 1
 MAX_STAGING = 32 * 1024 * 1024
 # The runtime manifest is gzip at rest. Each file stays under GitHub's 100 MB limit.
 MANIFEST = 'manifest.json.gz'
+# A start pack holds at most this many entry bytes. Its gzip file stays under the Pages 25 MiB limit.
+PACK_BYTES = 16 * 1024 * 1024
+# Usages that load as fixed scene roots at startup. Same list as `scene_root` in src/presentation/fixed_assets.rs.
+SCENE_ROOTS = {'unique_scene', 'road_lamp_prototype', 'sky_prototype', 'food_prototype', 'item_prototype',
+               'player_prototype', 'ragdoll_prototype', 'sky_traffic', 'creature_prototype'}
 
 
 def write_manifest(output: Path, manifest: dict) -> None:
@@ -146,8 +151,46 @@ def build_file_catalog(manifest: dict, output: Path) -> dict:
         asset['dependencies'] = [files[entry['file']] for entry in asset['dependencies']]
     if 'render_lighting' in manifest:
         manifest['render_lighting']['dependencies'] = [files[entry['file']] for entry in manifest['render_lighting']['dependencies']]
+    packs = build_start_packs(start_files(manifest, {p['asset_file']: p['input']['file'] for p in plans}), files, output)
     return {'files': [files[name] for name in sorted(files)], 'plans': plans,
-            'dependency_staging_reserve': reserve}
+            'dependency_staging_reserve': reserve, 'packs': packs}
+
+
+def start_files(manifest, plans):
+    """Files of the interface and of "Load garage assets", in about the order the game reads them."""
+    names = [sprite['path'] for sprite in manifest.get('ui', {}).get('sprites', [])]
+    for asset in manifest['assets']:
+        if asset['usage'] in SCENE_ROOTS:
+            names += [plans[asset['path']], asset['path'], *(entry['file'] for entry in asset['dependencies'])]
+    names += [chunk['data']['path'] for texture in manifest['lighting']['textures'] for chunk in texture['chunks']]
+    names += [entry['file'] for entry in manifest.get('render_lighting', {}).get('dependencies', [])]
+    return list(dict.fromkeys(names))
+
+
+def build_start_packs(names, files, output):
+    """Write gzip packs of the start files. A pack is the plain concatenation of its entries."""
+    root = output / 'packs'
+    shutil.rmtree(root, ignore_errors=True)
+    groups, size = [], PACK_BYTES
+    for name in names:
+        bytes_ = files[name]['bytes']
+        if bytes_ > PACK_BYTES:
+            continue
+        if size + bytes_ > PACK_BYTES:
+            groups.append([])
+            size = 0
+        groups[-1].append(name)
+        size += bytes_
+    packs = []
+    for index, group in enumerate(groups):
+        root.mkdir(exist_ok=True)
+        path = root / f'start-{index}.gz'
+        content = b''.join((output / name.removeprefix('reference/')).read_bytes() for name in group)
+        # mtime 0 keeps the file bytes the same for the same entries.
+        path.write_bytes(gzip.compress(content, compresslevel=9, mtime=0))
+        receipt = file_receipt(path, f'packs/{path.name}')
+        packs.append({'file': receipt['file'], 'bytes': receipt['bytes'], 'sha256': receipt['sha256'], 'files': group})
+    return packs
 
 
 def package_id(manifest):
@@ -196,6 +239,10 @@ def _write_package(manifest, output, destination):
             target.parent.mkdir(parents=True, exist_ok=True)
             # Staging and the package share one volume. Exports never change a written file.
             target.hardlink_to(source)
+        for pack in manifest['file_catalog']['packs']:
+            target = pending / pack['file']
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.hardlink_to(output / pack['file'])
         verify_package(manifest, pending)
         pending.rename(destination)
     finally:
@@ -206,9 +253,14 @@ def _write_package(manifest, output, destination):
 def verify_package(manifest, root):
     if manifest['content_base'] != f'assets/runtime/{package_id(manifest)}/':
         raise ValueError('Runtime package identity differs')
-    expected = {receipt['file'] for receipt in manifest['file_catalog']['files']}
+    packs = manifest['file_catalog']['packs']
+    expected = {receipt['file'] for receipt in manifest['file_catalog']['files']} | {pack['file'] for pack in packs}
     if {path.relative_to(root).as_posix() for path in root.rglob('*') if path.is_file()} != expected:
         raise ValueError('Runtime package file set differs')
     for receipt in manifest['file_catalog']['files']:
         if file_receipt(root / receipt['file'], receipt['file']) != receipt:
             raise ValueError(f"Runtime package receipt differs: {receipt['file']}")
+    for pack in packs:
+        receipt = file_receipt(root / pack['file'], pack['file'])
+        if (receipt['bytes'], receipt['sha256']) != (pack['bytes'], pack['sha256']):
+            raise ValueError(f"Runtime package receipt differs: {pack['file']}")

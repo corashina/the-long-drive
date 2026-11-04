@@ -276,6 +276,11 @@ def verify_reference(output: Path, library) -> None:
         if file_receipt(output / name, receipt['file']) != receipt:
             raise ValueError('Runtime file receipt differs')
         names.add(name)
+    for pack in manifest['file_catalog']['packs']:
+        receipt = file_receipt(output / pack['file'], pack['file'])
+        if (receipt['bytes'], receipt['sha256']) != (pack['bytes'], pack['sha256']):
+            raise ValueError('Runtime pack receipt differs')
+        names.add(pack['file'])
     if {p.relative_to(output).as_posix() for p in output.rglob('*') if p.is_file()} != names:
         raise ValueError('Unselected files in runtime')
 

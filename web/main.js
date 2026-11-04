@@ -76,7 +76,7 @@ import {createSimulation,installSimulationBridge} from './simulation.js';
 import {createMultiplayer} from './multiplayer.js';
 import {ROLE} from './net.js';
 import {installGrassBridge} from './grass.js';
-import {configureAssetCatalog,readAsset,worldBootstrapMeasurements,worldInputBytes,worldInputMetadataBytes,setAssetCpuProfile} from './world-assets.js';
+import {configureAssetCatalog,readAsset,releaseStartPacks,startPackMeasurements,worldBootstrapMeasurements,worldInputBytes,worldInputMetadataBytes,setAssetCpuProfile} from './world-assets.js';
 setAssetCpuProfile(cpuProfile);
 // Start the simulation worker and its WASM download early.
 const simulation=createSimulation(new Worker(new URL('./simulation-worker.js',import.meta.url),{type:'module'}),message=>fail(message));
@@ -96,7 +96,7 @@ function fetched(record){
  if(!entry){startup.fetched({...record,cache:'unknown',downloadMs:null});return;}
  startup.fetched({...record,cache:entry.transferSize===0?'hit':'miss',downloadMs:entry.responseEnd-entry.requestStart});
 }
-window.gameStartupTrace=()=>startup.snapshot();
+window.gameStartupTrace=()=>({...startup.snapshot(),startPacks:{...startPackMeasurements}});
 window.gameStartupDone=()=>startupDone;
 window.gameStartupFailureDetails=json=>{startupFailureDetails=JSON.parse(json);};
 window.gameStartupStage=(stage,started)=>{if(started){startup.begin(stage);cpuProfile.begin(stage);}else{startup.end(stage);cpuProfile.end(stage);}};
@@ -202,7 +202,7 @@ function fail(message,notifyRenderer=true){if(failed)return;failed=true;failure=
 function finishStartup(){if(failed||startupDone||!startupReady||!input||!menu)return;startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.finish({inputReady:true});startupDone=true;}
 window.gameFailure=message=>fail(message,false);
 window.gameLoading=()=>{if(failed)return;loading.start(true);menu.loading();};
-window.gameReady=()=>{if(failed||!worldAdmitted)return;if(initialReadyMs===null)initialReadyMs=performance.now()-bootStarted;loading.finish();menu.ready();multiplayer?.ready();startupReady=true;finishStartup();};
+window.gameReady=()=>{if(failed||!worldAdmitted)return;if(initialReadyMs===null)initialReadyMs=performance.now()-bootStarted;releaseStartPacks();loading.finish();menu.ready();multiplayer?.ready();startupReady=true;finishStartup();};
 window.addEventListener('error',event=>fail(event.message||'The runtime stopped.'));
 window.addEventListener('unhandledrejection',event=>fail(event.reason?.message||String(event.reason)));
 const mebibytes=bytes=>Math.round(bytes/1048576).toLocaleString('en-US');

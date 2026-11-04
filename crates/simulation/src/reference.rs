@@ -4,7 +4,7 @@ pub mod fixed_reservation;
 pub mod package;
 mod packed;
 pub mod prototype_plan;
-pub use package::{FileCatalog, FileReceipt, PlanReceipt};
+pub use package::{FileCatalog, FileReceipt, PackReceipt, PlanReceipt};
 
 pub mod player;
 pub use player::*;

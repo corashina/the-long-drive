@@ -19,7 +19,7 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'deploy-'));
   t.after(() => rm(root, {recursive: true, force: true}));
   const web = join(root, 'web');
-  const manifest = {content_base: 'assets/runtime/current/', file_catalog: {files: [{file: 'world/a.bc'}]}};
+  const manifest = {content_base: 'assets/runtime/current/', file_catalog: {files: [{file: 'world/a.bc'}], packs: [{file: 'packs/start-0.gz'}]}};
   await put(web, 'assets/reference/manifest.json.gz', gzipSync(JSON.stringify(manifest)));
   await put(web, 'index.html', '<html>');
   await put(web, 'main.js', "import('./pkg/the_long_slop.js');fetch('./pkg/the_long_slop_bg.wasm');");
@@ -27,6 +27,7 @@ async function fixture(t) {
   await put(web, 'pkg/the_long_slop_bg.wasm');
   await put(web, 'pkg/the_long_slop.d.ts');
   await put(web, 'assets/runtime/current/world/a.bc', 'a');
+  await put(web, 'assets/runtime/current/packs/start-0.gz', 'p');
   await put(web, 'assets/runtime/current/world/unused.bc', 'b');
   await put(web, 'assets/runtime/old/world/a.bc', 'c');
   await put(web, 'assets/runtime-tmp/world/a.bc', 'd');
@@ -43,7 +44,7 @@ test('stages the app and only the catalog files of the current package', async t
   const {web, site} = await fixture(t);
   const {large} = await stageSite({webRoot: web, siteRoot: site});
   assert.deepEqual(large, []);
-  for (const path of ['index.html', 'assets/reference/manifest.json.gz', 'assets/runtime/current/world/a.bc']) {
+  for (const path of ['index.html', 'assets/reference/manifest.json.gz', 'assets/runtime/current/world/a.bc', 'assets/runtime/current/packs/start-0.gz']) {
     assert.ok(await exists(join(site, path)), path);
   }
   for (const path of ['assets/runtime/current/world/unused.bc', 'assets/runtime/old', 'assets/runtime-tmp', 'assets/library']) {
