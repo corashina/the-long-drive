@@ -34,7 +34,7 @@ struct Entry {
 /// Slots of the published structures and the inputs that select a new view.
 #[derive(Default)]
 pub struct StructureViews {
-    slots: HashMap<GeneratedId, u32>,
+    pub(crate) slots: HashMap<GeneratedId, u32>,
     entries: Vec<Option<Entry>>,
     free: Vec<u32>,
     stamp: u64,
@@ -433,6 +433,47 @@ impl StructureViews {
         }
         let poses = &mut frame.structure_poses;
         let start = poses.len() as u32;
+        // Body and content rows come first. Local and rotation rows then turn nodes on top of them.
+        // Parts placed after the physics step take the blend move of the car body.
+        let anchor = car
+            .and_then(|(record, _, _)| structure.bodies.get(record.body as usize))
+            .or(structure.bodies.first());
+        let moved = anchor.map_or(Pose::IDENTITY, |handle| {
+            physics.presented_move(*handle, inputs.alpha)
+        });
+        for (body, handle) in prototype.bodies.iter().enumerate().zip(&structure.bodies) {
+            let pose = physics.presented_pose_or(*handle, inputs.alpha, moved);
+            poses.push(NodePoseRow {
+                node: body.0 as u32,
+                kind: NodePoseRow::BODY,
+                translation: pose.translation.to_array(),
+                rotation: pose.rotation.to_array(),
+                scale: [1.; 3],
+            });
+        }
+        let tool = stream.tool_look(id);
+        // In drotkefescript, the brush model slides on the contact.
+        if let Some((node, pose)) = tool.and_then(|t| t.model) {
+            poses.push(NodePoseRow {
+                node: node as u32,
+                kind: NodePoseRow::CONTENT,
+                translation: pose.position,
+                rotation: pose.rotation,
+                scale: [1.; 3],
+            });
+        }
+        for node in 0..prototype.nodes.len() {
+            if let Some(pose) = content.node_pose(node) {
+                let pose = from_rapier(&(moved * to_rapier(pose)));
+                poses.push(NodePoseRow {
+                    node: node as u32,
+                    kind: NodePoseRow::CONTENT,
+                    translation: pose.position,
+                    rotation: pose.rotation,
+                    scale: [1.; 3],
+                });
+            }
+        }
         let mut local = |node: usize, pose: Transform| {
             poses.push(NodePoseRow {
                 node: node as u32,
@@ -633,46 +674,6 @@ impl StructureViews {
                 .map(|(d, &a)| (d.node, digit_euler(d.axis, d.inv, a)));
             for (node, e) in needles.chain(digits) {
                 poses.push(rotation_row(node.0, e));
-            }
-        }
-        // Parts placed after the physics step take the blend move of the car body.
-        let anchor = car
-            .and_then(|(record, _, _)| structure.bodies.get(record.body as usize))
-            .or(structure.bodies.first());
-        let moved = anchor.map_or(Pose::IDENTITY, |handle| {
-            physics.presented_move(*handle, inputs.alpha)
-        });
-        for (body, handle) in prototype.bodies.iter().enumerate().zip(&structure.bodies) {
-            let pose = physics.presented_pose_or(*handle, inputs.alpha, moved);
-            poses.push(NodePoseRow {
-                node: body.0 as u32,
-                kind: NodePoseRow::BODY,
-                translation: pose.translation.to_array(),
-                rotation: pose.rotation.to_array(),
-                scale: [1.; 3],
-            });
-        }
-        let tool = stream.tool_look(id);
-        // In drotkefescript, the brush model slides on the contact.
-        if let Some((node, pose)) = tool.and_then(|t| t.model) {
-            poses.push(NodePoseRow {
-                node: node as u32,
-                kind: NodePoseRow::CONTENT,
-                translation: pose.position,
-                rotation: pose.rotation,
-                scale: [1.; 3],
-            });
-        }
-        for node in 0..prototype.nodes.len() {
-            if let Some(pose) = content.node_pose(node) {
-                let pose = from_rapier(&(moved * to_rapier(pose)));
-                poses.push(NodePoseRow {
-                    node: node as u32,
-                    kind: NodePoseRow::CONTENT,
-                    translation: pose.position,
-                    rotation: pose.rotation,
-                    scale: [1.; 3],
-                });
             }
         }
         row.poses = [start, poses.len() as u32];

@@ -541,7 +541,7 @@ pub struct GarageRuntime {
     screens_scratch: Vec<ItemId>,
     /// World cars whose plate texts the renderer has.
     plates_sent: Vec<crate::world::GeneratedId>,
-    structure_views: structure_frame::StructureViews,
+    pub(crate) structure_views: structure_frame::StructureViews,
     /// The feedback the renderer last received.
     last_feedback: Option<hud::FeedbackStamp>,
     /// The last rendered frame input.
