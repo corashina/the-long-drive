@@ -53,7 +53,7 @@ export function createPerformance(readWasmBytes,readRender,watchRender,readDrawD
  const root=document.querySelector('#performance'),values=document.querySelector('#performance-values');
  const timings=new FrameTimings();let lastPaint=-Infinity,stopped=false,benched=false;
  const ms=value=>value.toFixed(1),mib=bytes=>Number.isFinite(bytes)?(bytes/1048576).toFixed(1)+' MiB':'unavailable';
- function reset(){timings.reset();lastPaint=-Infinity;values.textContent='Waiting for game frames...';}
+ function reset(){timings.reset();lastPaint=-Infinity;values.textContent='Waiting for game frames…';}
  const key=event=>{
   if(event.code!=='F3'||event.repeat||event.ctrlKey||event.altKey||event.metaKey)return;
   event.preventDefault();root.hidden=!root.hidden;lastPaint=-Infinity;watchRender(!root.hidden||benched);

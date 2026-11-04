@@ -22,7 +22,8 @@ export function wordTable(record,name){
 export function createLanguage(record,settings,doc){
  let current=settings.values.language,words=wordTable(record,current);
  const listeners=new Set();
- function apply(){for(const n of doc.querySelectorAll('[data-w]'))n.textContent=words[n.dataset.w];}
+ // The page language marks English words for Title Case (style.css). Other word files have no language code.
+ function apply(){doc.documentElement.lang=current===ENGLISH?'en':'';for(const n of doc.querySelectorAll('[data-w]'))n.textContent=words[n.dataset.w];}
  settings.listen(v=>{
   if(v.language===current)return;
   current=v.language;words=wordTable(record,current);apply();

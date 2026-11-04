@@ -10,7 +10,7 @@ export function createControlsScreen(root,resetAll,settings,language,bindings){
  let waiting=null;
  function paint(){
   const inputs=settings.values.inputs;
-  for(const c of cells)c.button.textContent=c===waiting?'...':keyName(inputs[c.action][c.key]);
+  for(const c of cells)c.button.textContent=c===waiting?'…':keyName(inputs[c.action][c.key]);
  }
  function finish(code){
   const c=waiting;waiting=null;

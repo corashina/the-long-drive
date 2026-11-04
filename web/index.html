@@ -1,10 +1,11 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>The Long Slop</title><link rel="stylesheet" href="./style.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#000000"><title>The Long Slop</title><link rel="stylesheet" href="./style.css"></head>
 <body><main>
+<h1 class="visually-hidden" translate="no">The Long Slop</h1>
 <canvas id="game" aria-label="Garage and desert" tabindex="0"></canvas>
 <aside id="performance" aria-label="Performance counters">
-<pre id="performance-values">Waiting for game frames...</pre>
+<pre id="performance-values">Waiting for game frames…</pre>
 <p>F3: show/hide. Timing window: 2 seconds.<br>World memory shows render reserves.<br>GPU reserve is an estimate.</p>
 </aside>
 <div id="death-shade" aria-hidden="true" hidden></div>
@@ -32,7 +33,7 @@
 <div class="menu-foot"><button id="settings-reset" data-w="mreset" type="button">Reset</button><button id="back" data-w="mback" type="button">Back</button></div></div></section>
 <section id="game-mode-screen" class="menu-screen" aria-labelledby="game-mode-title" hidden><div class="menu-panel menu-panel-narrow">
 <h2 id="game-mode-title">Game mode</h2>
-<div class="menu-body"><div class="settings-list"><label for="biome"><span data-w="biome">Biome</span> <select id="biome"><option value="0" data-w="mixed">Mixed</option><option value="1" data-w="desert">Desert</option><option value="2" data-w="mwinter">Winter</option><option value="3" data-w="grass">Grass</option></select></label><label for="start-car">Start car <select id="start-car"><option value="-1" data-w="mrandom">Random</option></select></label><label for="seed"><span data-w="mseed">Seed</span> <input id="seed" type="text" inputmode="numeric" autocomplete="off"></label><label for="peaceful"><input id="peaceful" type="checkbox"><span data-w="mpeaceful">Peaceful enemies</span></label><label for="survival-mode"><input id="survival-mode" type="checkbox"><span data-w="survivalmode">Survival</span></label><label for="homesick"><input id="homesick" type="checkbox">Homesick</label></div></div>
+<div class="menu-body"><div class="settings-list"><label for="biome"><span data-w="biome">Biome</span> <select id="biome"><option value="0" data-w="mixed">Mixed</option><option value="1" data-w="desert">Desert</option><option value="2" data-w="mwinter">Winter</option><option value="3" data-w="grass">Grass</option></select></label><label for="start-car">Start car <select id="start-car"><option value="-1" data-w="mrandom">Random</option></select></label><label for="seed"><span data-w="mseed">Seed</span> <input id="seed" type="text" inputmode="numeric" autocomplete="off" spellcheck="false"></label><label for="peaceful"><input id="peaceful" type="checkbox"><span data-w="mpeaceful">Peaceful enemies</span></label><label for="survival-mode"><input id="survival-mode" type="checkbox"><span data-w="survivalmode">Survival</span></label><label for="homesick"><input id="homesick" type="checkbox">Homesick</label></div></div>
 <div class="menu-foot"><button id="game-mode-back" data-w="mback" type="button">Back</button></div></div></section>
 <section id="save-screen" class="menu-screen" aria-labelledby="save-title" hidden><div class="menu-panel menu-panel-wide">
 <h2 id="save-title" data-w="hsaveload">Saves</h2>
@@ -68,8 +69,8 @@
 <h2 id="multiplayer-title" data-w="multiplayer">Multiplayer</h2>
 <div class="menu-body multiplayer-body">
 <label for="net-name"><span data-w="mname">Name</span> <input id="net-name" type="text" maxlength="32" autocomplete="off" spellcheck="false"></label>
-<fieldset id="net-host"><legend>Host</legend><label for="net-max"><span data-w="xmaxplayers">Max players</span> <input id="net-max" type="number" min="2" max="8" value="8"></label><label for="net-host-password"><span data-w="xpassword">Password</span> <input id="net-host-password" type="password" autocomplete="new-password" placeholder="Optional"></label><button id="net-host-start" data-w="xcreate" type="button">Host game</button><p id="net-host-hint">Start or load a game to host it.</p><p id="net-code-row">Room code: <strong id="net-code">-</strong></p></fieldset>
-<fieldset id="net-join"><legend><span data-w="xjoin">Join</span></legend><label for="net-room">Room code <input id="net-room" type="text" maxlength="6" autocomplete="off" spellcheck="false" placeholder="ABCDEF"></label><label for="net-join-password"><span data-w="xpassword">Password</span> <input id="net-join-password" type="password" autocomplete="off" placeholder="If the room has one"></label><button id="net-join-start" data-w="xjoin" type="button">Join game</button></fieldset>
+<fieldset id="net-host"><legend>Host</legend><label for="net-max"><span data-w="xmaxplayers">Max players</span> <input id="net-max" type="number" min="2" max="8" value="8"></label><label for="net-host-password"><span data-w="xpassword">Password</span> <input id="net-host-password" type="password" autocomplete="new-password" placeholder="Optional…"></label><button id="net-host-start" data-w="xcreate" type="button">Host game</button><p id="net-host-hint">Start or load a game to host it.</p><p id="net-code-row">Room code: <strong id="net-code">-</strong></p></fieldset>
+<fieldset id="net-join"><legend><span data-w="xjoin">Join</span></legend><label for="net-room">Room code <input id="net-room" type="text" maxlength="6" autocomplete="off" spellcheck="false" placeholder="ABCDEF…"></label><label for="net-join-password"><span data-w="xpassword">Password</span> <input id="net-join-password" type="password" autocomplete="off" placeholder="If the room has one…"></label><button id="net-join-start" data-w="xjoin" type="button">Join game</button></fieldset>
 <fieldset id="net-voice-chat"><legend><span data-w="xvoicechat">Voice chat</span></legend><label for="net-voice"><input id="net-voice" type="checkbox"> <span data-w="xvoicechat">Voice chat</span></label><label for="net-voice-mode">Mode <select id="net-voice-mode"><option value="pushToTalk">Push to talk</option><option value="toggle">Toggle</option><option value="continous">Continuous</option></select></label></fieldset>
 <button id="net-leave" data-w="xdisconnect" type="button" hidden>Leave</button>
 <p id="net-status" role="status"></p>
