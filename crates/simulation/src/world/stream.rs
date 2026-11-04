@@ -2192,6 +2192,7 @@ impl WorldStream {
             budget,
             pending,
             reservation,
+            self.ledger.staging_limit(),
         ) {
             self.failure = Some(error.0);
             return;

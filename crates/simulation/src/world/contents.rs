@@ -403,6 +403,7 @@ impl SourceContents {
         budget: usize,
         pending: usize,
         staging: usize,
+        staging_limit: usize,
     ) -> Result<(), ReferenceError> {
         self.bytes.set(None);
         let initial_pending = self.pending_requests();
@@ -479,10 +480,15 @@ impl SourceContents {
                 + existing.map_or(0, |c| {
                     spawned_heap(&c.content) + c.content.inputs.retained_bytes()
                 });
-            if bound > staging.saturating_sub(self.scan_retained().saturating_sub(cursor_before)) {
+            // Only a cursor that can never fit fails. Staging room is transient: the
+            // remaining structures get their cursors in a later update.
+            if bound > staging_limit {
                 return Err(ReferenceError(
                     "Source caller cursor exceeds staging".into(),
                 ));
+            }
+            if bound > staging.saturating_sub(self.scan_retained().saturating_sub(cursor_before)) {
+                break;
             }
             self.cursors
                 .try_reserve_exact(1)
@@ -1715,6 +1721,7 @@ mod tests {
                 1,
                 1,
                 1,
+                crate::world::stream::STAGING,
             )
             .unwrap();
         assert_eq!(scans.production_scans(), [5, 5, 5, 5]);
@@ -1751,6 +1758,7 @@ mod tests {
                 128,
                 128,
                 32 * 1024 * 1024,
+                crate::world::stream::STAGING,
             )
             .unwrap();
         assert_eq!(scans.production_scans(), [5, 6, 6, 6]);
@@ -1826,6 +1834,7 @@ mod tests {
                 1,
                 1,
                 staging - 1,
+                crate::world::stream::STAGING,
             )
             .unwrap_err();
         assert_eq!(error.0, "Source continuation queues exceed staging");
@@ -1847,6 +1856,7 @@ mod tests {
                 1,
                 1,
                 staging,
+                crate::world::stream::STAGING,
             )
             .unwrap();
         assert_eq!(scans.production_scans(), [5, 6]);
