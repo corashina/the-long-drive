@@ -60,6 +60,19 @@ pub(crate) fn accept_structure(stream: &mut WorldStream, id: &crate::world::Gene
         .unwrap();
 }
 
+/// Ledger credit and job audit of `stream`, for a stalled stream.
+pub(crate) fn stream_audit(stream: &WorldStream) -> String {
+    format!(
+        "credit {:?}\nused {:?}\nlast wait {:?}\nown jobs {}, pending bytes {}\naudit {}",
+        stream.ledger.credit(),
+        stream.ledger.used(),
+        stream.ledger.last_wait(),
+        stream.own_jobs(),
+        stream.generation_pending_bytes(),
+        stream.startup_job_audit(),
+    )
+}
+
 /// Renderer loads hold `bytes` of staging credit until the next call.
 pub(crate) fn hold_renderer_staging(stream: &mut WorldStream, bytes: usize) {
     stream.ledger.hold_staging(bytes);

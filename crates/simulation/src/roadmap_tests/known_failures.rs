@@ -702,6 +702,7 @@ fn tp_k13_driving_away_from_the_start_never_stops_the_car() {
                     run.stream.support_gap(bounds),
                     run.persistent_world.waits_for(bounds),
                 );
+                println!("{}", stream_audit(&run.stream));
             }
             assert!(held < 250, "the step holds at {travelled:.0} m");
         }
