@@ -610,6 +610,7 @@ impl WorldStream {
                             Some(crate::interaction::items::FoodState {
                                 prototype_index,
                                 bite: food.index,
+                                look: Default::default(),
                             });
                         let handles: Vec<_> = instance
                             .colliders

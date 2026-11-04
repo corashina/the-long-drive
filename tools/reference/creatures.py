@@ -81,8 +81,7 @@ def prepare_creatures(source, roots):
     # The eye renderers use neither material at start. gltf.py adds them to the rabbit asset.
     nyul = component(source, root, 'nyulscript')
     d = source.read(nyul)
-    source.extra_root_materials = {key(root): [source.resolve(nyul, d[f]) for f in ('EyeEvil', 'EyeGreen')]}
-    source.extra_material_indices = {}
+    source.extra_root_materials[key(root)] = [source.resolve(nyul, d[f]) for f in ('EyeEvil', 'EyeGreen')]
 
 
 def ray_direction(euler):

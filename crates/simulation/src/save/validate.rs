@@ -109,6 +109,7 @@ impl SaveSnapshot {
                     && !(source.destroy_on_end && record.bite == source.bites),
                 "Food progress",
             )?;
+            data(source.valid_look(record.look), "Food look")?;
             absolute(&record.pose)?;
         }
         crate::starting_area::cigarettes::validate_save(

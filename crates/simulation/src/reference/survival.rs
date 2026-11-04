@@ -85,6 +85,32 @@ pub struct FoodReference {
     pub max_particle: u32,
     pub sound: u8,
     pub text: u32,
+    /// Source `partconditionscript` of the food root. Only the turd has one.
+    pub look: Option<FoodLookReference>,
+}
+/// Source `partconditionscript` with `randomStart`, `UseMatList` and `UseGoList`. `FStart` picks a state in
+/// `state_range` and one of `variants`. `Refresh` puts `materials[state]` on every renderer and shows only the
+/// selected variant.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FoodLookReference {
+    pub source: SourceId,
+    pub materials: Vec<MaterialBindingReference>,
+    pub renderers: Vec<NodeId>,
+    pub variants: Vec<NodeId>,
+    pub state_range: [u8; 2],
+}
+impl FoodReference {
+    /// A food without a look has the zero look.
+    pub fn valid_look(&self, look: crate::interaction::items::FoodLook) -> bool {
+        match &self.look {
+            Some(v) => {
+                (v.state_range[0]..=v.state_range[1]).contains(&look.state)
+                    && usize::from(look.variant) < v.variants.len()
+            }
+            None => look == Default::default(),
+        }
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -313,6 +339,18 @@ impl SurvivalReference {
                             .iter()
                             .all(|id| m.nodes.iter().any(|n| n.id == *id && n.asset == f.asset)),
                     "food part",
+                )?;
+            }
+            if let Some(look) = &f.look {
+                let in_asset =
+                    |id: &NodeId| m.nodes.iter().any(|n| n.id == *id && n.asset == f.asset);
+                require(
+                    look.state_range[0] <= look.state_range[1]
+                        && usize::from(look.state_range[1]) < look.materials.len()
+                        && look.materials.iter().all(|v| v.asset == f.asset)
+                        && (2..=usize::from(u8::MAX)).contains(&look.variants.len())
+                        && look.renderers.iter().chain(&look.variants).all(in_asset),
+                    "food look",
                 )?;
             }
             for c in &f.colliders {

@@ -6,6 +6,7 @@ use simulation::boundary::{
     ParticleRow, PoseKey, PoseRow, RopeAim, SimFrame, SpawnData,
 };
 use simulation::conditions::ConditionState;
+use simulation::interaction::items::FoodLook;
 use simulation::reference::{ConditionId, ItemId, NodeId, SourceId};
 use simulation::starting_area::spawned::SpawnedItem;
 use simulation::vehicle::VehiclePose;
@@ -240,11 +241,11 @@ impl SimFrameResource {
             PoseKey::Body(_) => None,
         })
     }
-    /// Food prototype index and bite of `item`.
-    pub fn food(&self, item: ItemId) -> Option<(usize, u8)> {
+    /// Food prototype index, bite and look of `item`.
+    pub fn food(&self, item: ItemId) -> Option<(usize, u8, FoodLook)> {
         match self.poses.get(&PoseKey::Item(item))?.1 {
-            SpawnData::Food { prototype } => {
-                Some((prototype as usize, self.item(item)?.bite as u8))
+            SpawnData::Food { prototype, look } => {
+                Some((prototype as usize, self.item(item)?.bite as u8, look))
             }
             _ => None,
         }

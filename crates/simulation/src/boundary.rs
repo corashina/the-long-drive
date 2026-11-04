@@ -933,7 +933,10 @@ pub enum SpawnData {
     /// A spawned item prototype body.
     Spawned(SpawnedItem),
     /// A food item that is not world content.
-    Food { prototype: u32 },
+    Food {
+        prototype: u32,
+        look: crate::interaction::items::FoodLook,
+    },
 }
 
 /// What a pose handle stands for.
@@ -1598,6 +1601,7 @@ impl FramePoses {
                 {
                     SpawnData::Food {
                         prototype: food.prototype_index as u32,
+                        look: food.look,
                     }
                 } else {
                     SpawnData::Bound

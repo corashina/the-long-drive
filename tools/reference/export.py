@@ -304,6 +304,9 @@ def _export_selected(source, output: Path, library, snapshot) -> None:
     from .particles import recover_particles, recover_outlet_particles
     from .audio import recover_ambient
     from .weather import recover_weather
+    # State materials that no renderer uses at start, by asset root. gltf.py fills the indices.
+    source.extra_root_materials={}
+    source.extra_material_indices={}
     prepare_food(source, roots)
     food_roots=roots.pop('food')
     from .world import LADA

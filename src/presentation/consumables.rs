@@ -24,6 +24,8 @@ struct FoodInstance {
     nodes: Vec<(NodeId, Entity)>,
     primitives: Vec<Entity>,
     source_root: rapier3d::math::Pose,
+    /// The look material is on the renderer primitives.
+    look_applied: bool,
 }
 
 #[derive(Resource, Default)]
@@ -34,6 +36,8 @@ pub struct ConsumableVisuals {
     warmups: Vec<FoodInstance>,
     /// Food warmup requests are queued. Material loading seals after this.
     pub warmed: bool,
+    /// Look materials by food prototype and look state. Empty for a food without a look.
+    looks: Vec<Vec<Handle<SourceMaterial>>>,
 }
 
 impl ConsumableVisuals {}
@@ -54,6 +58,7 @@ pub(crate) fn sync(
         return;
     }
     let manifest = &reference.0;
+    let food = &mut *food;
     let starter = manifest.survival.starter_food;
     // An eaten starter food leaves the frame.
     let starter_food = frame.food(starter);
@@ -73,7 +78,7 @@ pub(crate) fn sync(
                 set_visibility(
                     &mut visibility,
                     entity,
-                    starter_food.is_some_and(|(prototype, bite)| {
+                    starter_food.is_some_and(|(prototype, bite, _)| {
                         index == bite as usize
                             && index < manifest.survival.foods[prototype].bites as usize
                     }),
@@ -92,7 +97,7 @@ pub(crate) fn sync(
         if id == starter || !matches!(data, SpawnData::Food { .. }) {
             continue;
         }
-        let Some((prototype_index, bite)) = frame.food(id) else {
+        let Some((prototype_index, bite, look)) = frame.food(id) else {
             continue;
         };
         let Some(pose) = frame.interpolated(PoseKey::Item(id)) else {
@@ -142,6 +147,31 @@ pub(crate) fn sync(
                 if let Some(&(_, entity)) = instance.nodes.iter().find(|(id, _)| id == node) {
                     set_visibility(&mut visibility, entity, index == bite as usize);
                 }
+            }
+        }
+        // Source `partconditionscript.Refresh`: the state material on every renderer, one variant shown.
+        if let Some(reference) = &prototype.look {
+            for (index, node) in reference.variants.iter().enumerate() {
+                if let Some(&(_, entity)) = instance.nodes.iter().find(|(id, _)| id == node) {
+                    set_visibility(&mut visibility, entity, index == usize::from(look.variant));
+                }
+            }
+            if !instance.look_applied
+                && let Some(material) = food
+                    .looks
+                    .get(prototype_index)
+                    .and_then(|v| v.get(usize::from(look.state)))
+            {
+                for node in &reference.renderers {
+                    if let Some(&(_, entity)) = instance.nodes.iter().find(|(id, _)| id == node) {
+                        for primitive in graph.primitives(entity) {
+                            commands
+                                .entity(primitive)
+                                .insert(MeshMaterial3d(material.clone()));
+                        }
+                    }
+                }
+                instance.look_applied = true;
             }
         }
     }
@@ -206,6 +236,7 @@ impl FoodInstance {
             nodes: Vec::new(),
             primitives: Vec::new(),
             source_root,
+            look_applied: false,
         }
     }
 
@@ -272,6 +303,11 @@ pub(crate) fn warm_up(
         With<super::renderer_visibility::SourceRenderer>,
     >,
     mut visibility: Query<&mut Visibility>,
+    placement: Query<(
+        &GlobalTransform,
+        Option<&bevy::camera::visibility::RenderLayers>,
+    )>,
+    mut source_assets: ResMut<Assets<SourceMaterial>>,
 ) {
     let food = &mut *food;
     if food.warmed {
@@ -339,6 +375,74 @@ pub(crate) fn warm_up(
             ));
             lighting.warmups.push(primitive);
         }
+    }
+    // Look materials draw on no primitive at start. Make them now and warm their pipelines far away.
+    food.looks = Vec::with_capacity(manifest.survival.foods.len());
+    for prototype in &manifest.survival.foods {
+        let Some(look) = &prototype.look else {
+            food.looks.push(Vec::new());
+            continue;
+        };
+        let instance = &food.warmups[assets.iter().position(|a| *a == prototype.asset).unwrap()];
+        let receivers: Vec<(Entity, Handle<Mesh>, bool, u32)> = look
+            .renderers
+            .iter()
+            .filter_map(|node| instance.nodes.iter().find(|(id, _)| id == node))
+            .flat_map(|(_, entity)| graph.primitives(*entity))
+            .map(|primitive| {
+                let (global, layers) = placement.get(primitive).unwrap();
+                let mask = layers.map_or(1, |layers| {
+                    layers.iter().fold(0u32, |bits, layer| {
+                        bits | 1u32.checked_shl(layer as u32).unwrap_or(0)
+                    })
+                });
+                let mesh = parts.get(primitive).unwrap().0.0.clone();
+                (
+                    primitive,
+                    mesh,
+                    global.affine().matrix3.determinant() < 0.,
+                    mask,
+                )
+            })
+            .collect();
+        let Some(&(_, _, reflected, mask)) = receivers.first() else {
+            error!("Food look {}: no renderer primitives", prototype.root.0);
+            food.looks.push(Vec::new());
+            continue;
+        };
+        if receivers.iter().any(|r| (r.2, r.3) != (reflected, mask)) {
+            error!("Food look {}: mixed renderer layers", prototype.root.0);
+        }
+        let handles: Vec<_> = look
+            .materials
+            .iter()
+            .map(|m| {
+                source_assets.add(super::materials::authored_material(
+                    (m.asset, m.gltf_material),
+                    reflected,
+                    mask,
+                    &materials,
+                ))
+            })
+            .collect();
+        for (_, mesh, _, _) in &receivers {
+            for handle in &handles {
+                let warm = commands
+                    .spawn((
+                        Mesh3d(mesh.clone()),
+                        MeshMaterial3d(handle.clone()),
+                        super::renderer_visibility::SourceMaterialWarmup,
+                        Transform::from_translation(Vec3::splat(1_000_000.)),
+                        Visibility::Visible,
+                        bevy::light::NotShadowCaster,
+                        bevy::camera::visibility::NoFrustumCulling,
+                    ))
+                    .id();
+                loading.warm(mesh.id(), handle.id().untyped(), "food look".into());
+                lighting.warmups.push(warm);
+            }
+        }
+        food.looks.push(handles);
     }
     food.warmed = true;
 }
