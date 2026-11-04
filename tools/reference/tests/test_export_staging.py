@@ -39,3 +39,22 @@ class ExportStagingTests(unittest.TestCase):
                 self.assertEqual((recovery/'evidence').read_bytes(), b'keep')
                 self.assertEqual(stages[0].exists(), failure == 'promote')
                 if failure == 'promote': self.assertEqual((stages[0]/'new').read_bytes(), b'new')
+
+
+class PrunePackagesTests(unittest.TestCase):
+    def test_keeps_current_and_newest_older_package(self):
+        import os
+        from tools.reference.runtime_package import prune_packages
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            names = [c * 64 for c in 'abcd']
+            for age, name in enumerate(names):
+                (runtime / name).mkdir()
+                os.utime(runtime / name, (1000 - age, 1000 - age))
+            (runtime / '.package-pending').mkdir()
+            prune_packages(runtime / names[2])
+            self.assertEqual(sorted(p.name for p in runtime.iterdir()), sorted(['.package-pending', names[0], names[2]]))
+
+
+if __name__ == '__main__':
+    unittest.main()

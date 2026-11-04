@@ -46,6 +46,12 @@ def converted_transform(data):
             'scale': list(vector(data['m_LocalScale']))}
 
 
+def save_gltf(document, path):
+    """Write compact glTF JSON. Each buffer already names its written .bin file."""
+    if any(buffer.uri is None for buffer in document.buffers): raise ValueError('glTF buffer has no file')
+    Path(path).write_text(document.gltf_to_json(separators=(',', ':'), indent=None), encoding='utf-8')
+
+
 class GltfBuilder:
     def __init__(self, source, output):
         import pygltflib as gl
@@ -460,7 +466,7 @@ class GltfExporter(GltfBuilder):
         if self.binary:
             self.document.buffers.append(gl.Buffer(uri=self.output.with_suffix('.bin').name,byteLength=len(self.binary)))
             self.output.with_suffix('.bin').write_bytes(self.binary)
-        self.document.save_json(str(self.output))
+        save_gltf(self.document, self.output)
         check_gltf(self.output)
         paths={buffer.uri for buffer in self.document.buffers}|{image.uri for image in self.document.images}
         from .runtime_package import file_receipt
