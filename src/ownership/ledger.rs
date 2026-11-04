@@ -43,11 +43,13 @@ impl PresentationLedger {
         over.zip(extra, |over, extra| if extra > 0 { over } else { 0 })
             == PresentationAllocation::default()
     }
-    /// Takes `claims` pending claims if the credit holds them.
+    /// Takes `claims` pending claims if the credit holds them. While own stream work waits for
+    /// pending room, no new claim starts. A finished claim then gives its credit back at the
+    /// report, and work that requeues each frame, such as Grass, cannot keep it.
     pub fn can_request_independent(&mut self, claims: usize) -> bool {
         let total = self.used.pending + claims;
         self.want.pending = self.want.pending.max(total);
-        total <= self.credit.pending
+        !self.reclaim.pending && total <= self.credit.pending
     }
     /// Free job slots. Asks for one more, so the report keeps a free slot in the credit.
     pub fn available_external_jobs(&mut self) -> usize {

@@ -966,6 +966,8 @@ impl GarageRuntime {
             !self.world_supported()
         };
         if held {
+            // A held step draws the last pose. Interpolation toward it would shake the car.
+            self.area.begin_step();
             self.clear_input();
             #[cfg(target_arch = "wasm32")]
             if crate::cpu_profile::enabled() {
