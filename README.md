@@ -75,12 +75,15 @@ The server negotiates Brotli for WASM and current package JSON. It keeps images 
 ## Host on Cloudflare Pages
 
 Cloudflare Pages serves the game from a free global CDN. Multiplayer still uses the public PeerJS servers.
-Make a release build first. Sign in to Cloudflare once:
+Make a release build first. Enable R2 in the Cloudflare dashboard. Then prepare the account once:
 
 ```powershell
 npx wrangler login
+npx wrangler pages project create the-long-slop --production-branch main
+npx wrangler r2 bucket create the-long-slop-large
 ```
 
+If Wrangler offers to make a Worker instead of a Pages project, refuse. Add `--force` to make the Pages project.
 Upload the game:
 
 ```powershell
@@ -88,8 +91,9 @@ node scripts/deploy.mjs
 ```
 
 The script stages `web/` in `.cache/deploy`. It keeps the app, the reference manifest, and the catalog files of the current runtime package.
-It stops if a file is larger than 25 MiB or the site has more than 20,000 files.
-The first upload asks to create the `the-long-slop` project. Set `PAGES_PROJECT` to use another project name.
+Pages accepts files up to 25 MiB. The script puts larger files, such as the main WASM, in the R2 bucket.
+`functions/[[path]].js` serves them from the same site. [wrangler.toml](wrangler.toml) binds the bucket.
+The script stops if the site has more than 20,000 files.
 The site opens at `https://the-long-slop.pages.dev`.
 
 The site contains files from The Long Drive. Keep it for friends only:
