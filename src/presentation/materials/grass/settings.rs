@@ -11,21 +11,25 @@ pub struct GrassQuality {
     pub thin_start: f32,
     /// Share of blades that stay at the fade end.
     pub thin_floor: f32,
+    /// Sun cascade bits that grass casts into. Far cascades are too coarse for blades.
+    pub shadow_cascades: u8,
 }
-/// High keeps the source spacing and fade. Lower steps make blades sparser, fade them nearer
-/// and thin them out sooner with distance.
+/// High keeps the source spacing and fade. Grass casts only into cascade 0.
+/// Lower steps make blades sparser, fade them nearer and thin them out sooner with distance.
+/// Their grass casts no shadow.
 pub fn quality() -> GrassQuality {
-    let (spacing, distance, thin_start, thin_floor) = match crate::display_settings::loaded().grass
-    {
-        0 => (1., 1., 0.5, 0.5),
-        1 => (1.5, 0.75, 0.4, 0.35),
-        _ => (2., 0.5, 0.3, 0.2),
-    };
+    let (spacing, distance, thin_start, thin_floor, shadow_cascades) =
+        match crate::display_settings::loaded().grass {
+            0 => (1., 1., 0.5, 0.5, 0b0001),
+            1 => (1.5, 0.75, 0.4, 0.35, 0),
+            _ => (2., 0.5, 0.3, 0.2, 0),
+        };
     GrassQuality {
         spacing,
         distance,
         thin_start,
         thin_floor,
+        shadow_cascades,
     }
 }
 
