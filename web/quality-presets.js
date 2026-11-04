@@ -1,11 +1,12 @@
 // Quality presets: one Graphics tab select that sets display rows of `ROWS`.
-// High is the row defaults. Medium and Low lower the most expensive rows first.
+// High is the row defaults. Ultra adds 4x MSAA to High. Medium and Low lower the most expensive rows first.
 // A row change by hand that leaves the preset values sets the preset to Custom.
 import {ROWS} from './display-settings.js';
 const NAMES=['shadows','lamp_shadows','ambient_occlusion','antialiasing','motion_blur','reflections','mirrors','grass','scene_scale'];
 const high={};
 for(const name of NAMES)high[name]=ROWS[name].default;
 export const PRESETS={
+ ultra:{...high,antialiasing:0},
  high,
  medium:{...high,shadows:1,lamp_shadows:false,antialiasing:1,grass:1},
  low:{shadows:2,lamp_shadows:false,ambient_occlusion:false,antialiasing:2,motion_blur:false,reflections:false,mirrors:false,grass:2,scene_scale:75},

@@ -24,7 +24,8 @@ export const ROWS={
  motion_blur:{default:true},
  lamp_shadows:{default:true},
  // 0 high (4x MSAA and TAA), 1 low (TAA only), 2 off. Applies after a reload.
- antialiasing:{values:LEVELS,default:0},
+ // The default is TAA only. 4x MSAA multiplies the HDR color, depth and resolve bandwidth. The Ultra preset sets high.
+ antialiasing:{values:LEVELS,default:1},
  ambient_occlusion:{default:true},
  reflections:{default:true},
 };
