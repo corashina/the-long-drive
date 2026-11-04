@@ -198,6 +198,8 @@ async function runScene(browser,page,name,cycle,o){
   if(last)error.message+=` (pending ${JSON.stringify(last.pending)}, required ready ${last.required_ready}, waiting spawns ${last.world_spawns?.length})`;
   throw error;
  }
+ // The first read starts the renderer audit, so the settle time refreshes its counts.
+ await page.evaluate(()=>window.gamePerformance());
  await sleep(o.settle*1000);
  await checkGame(page);
  await until(name+' play',MOVE_TIMEOUT_MS,async()=>(await resumePlay(page))?.state==='playing');

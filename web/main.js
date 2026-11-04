@@ -103,8 +103,8 @@ window.gameStartupStage=(stage,started)=>{if(started){startup.begin(stage);cpuPr
 window.gameLoadingProgress=(...counts)=>loading.progress(...counts);
 window.gameLoadingBudget=(name,used,limit,unit)=>loading.budget(name,used,limit,unit);
 const bootStarted=performance.now();
-let wasmMemory,renderAudit,initialReadyMs=null,peakFrameMs=0,lastFrameTime=null,measureRequested=false;
-const performancePanel=createPerformance(()=>wasmMemory?.buffer.byteLength,()=>renderAudit&&JSON.parse(renderAudit()),()=>worldDrawDistance,()=>simulation.stats());
+let wasmMemory,renderAudit,watchRenderAudit,renderAuditWatched=false,initialReadyMs=null,peakFrameMs=0,lastFrameTime=null,measureRequested=false;
+const performancePanel=createPerformance(()=>wasmMemory?.buffer.byteLength,()=>renderAudit&&JSON.parse(renderAudit()),on=>{renderAuditWatched=on;watchRenderAudit?.(on);},()=>worldDrawDistance,()=>simulation.stats());
 window.gamePerformanceFrame=(physicsMs,worldMs,updateMs,renderMs)=>performancePanel.frame(performance.now(),physicsMs,worldMs,updateMs,renderMs);
 window.gamePerformanceCounters=performancePanel.counters;
 window.gamePerformance=()=>performancePanel.snapshot();
@@ -241,8 +241,8 @@ async function load(){
  if(!response.ok)throw Error('Cannot load reference manifest (HTTP '+response.status+').');
  const bytes=await downloadManifest(response);
  loading.step('code',0);
- const [{default:init,prepare,run,manifest_shell,source_render_failure,source_render_audit,cpu_profile,cpu_profile_audit,request_thumbnail,wake_frame},module]=await code;
- const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;
+ const [{default:init,prepare,run,manifest_shell,source_render_failure,source_render_audit,watch_render_audit,cpu_profile,cpu_profile_audit,request_thumbnail,wake_frame},module]=await code;
+ const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;watchRenderAudit=watch_render_audit;watch_render_audit(renderAuditWatched);
  rustCpuProfile=cpu_profile;rustCpuAudit=cpu_profile_audit;if(startupCpuProfile)rustCpuProfile(true);
  window.gameThumbnailFrame=()=>thumbnail.frame();thumbnail.connect(request_thumbnail);
  // Rust copies only the shell fields, so JS does not parse the world records.
