@@ -1,10 +1,11 @@
 // The simulation runs in a Web Worker. One command is in flight. The renderer reads each frame once.
 export function createSimulation(worker,onFailure){
- let frame=null,failed=false,starting=null,started=false,netStart=null,tickMs=0,ticks=0,wasmBytes=0,hooks={},netIn=[],onNet=null;
+ let frame=null,sandboxWaits=[],failed=false,starting=null,started=false,netStart=null,tickMs=0,ticks=0,wasmBytes=0,hooks={},netIn=[],onNet=null;
  const fail=message=>{if(failed)return;failed=true;frame=null;starting?.reject(Error(message));starting=null;onFailure(message);};
  worker.addEventListener('message',({data})=>{
   if(failed)return;
   if(data.error!==undefined){fail(data.error);return;}
+  if(data.sandbox!==undefined){sandboxWaits.shift()?.(data.sandbox);return;}
   if(data.startup){started=true;if(netStart){const [role,slot,handler]=netStart;netStart=null;netSession(role,slot,handler);}starting?.resolve({startup:data.startup,loadError:data.loadError});starting=null;return;}
   frame=data.frame;tickMs+=data.tickMs;ticks++;wasmBytes=data.wasmBytes;
   if(data.net?.length)onNet?.(data.net);
@@ -39,6 +40,8 @@ export function createSimulation(worker,onFailure){
   netLeave(slot){if(started)worker.postMessage({netLeave:slot});},
   // One inbound packet. It goes with the next command.
   netPacket(packet){if(onNet)netIn.push(packet);},
+  // A JSON array of `simulation::sandbox` actions. Resolves with the JSON array of replies.
+  sandbox(json){return new Promise(resolve=>{sandboxWaits.push(resolve);worker.postMessage({sandbox:json});});},
   frameLength:()=>frame?frame.length:-1,
   read(out){out.set(frame);frame=null;},
   // Average tick time since the last read, and the worker WASM memory.

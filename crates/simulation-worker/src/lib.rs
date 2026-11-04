@@ -61,6 +61,13 @@ pub fn tick(command: &[u8]) -> Result<Vec<u8>, JsValue> {
     })?
 }
 
+/// Runs a JSON array of sandbox actions (`simulation::sandbox`). Returns the JSON replies.
+/// The page offers it only with `?sandbox`.
+#[wasm_bindgen]
+pub fn sandbox(json: &str) -> Result<String, JsValue> {
+    with_session(|s| s.sandbox(json))
+}
+
 fn with_session<T>(f: impl FnOnce(&mut Session) -> T) -> Result<T, JsValue> {
     SESSION.with_borrow_mut(|session| {
         session
