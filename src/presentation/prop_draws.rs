@@ -9,7 +9,7 @@ use super::{
     shadow_cache::SpecializationKey,
     shadow_scene::ShadowScene,
     surface_pass::SurfacePasses,
-    surface_views::{SourceSurfaceView, VIEW_COUNT},
+    surface_views::{SourceSurfaceView, VIEW_COUNT, WORLD_VIEWS},
     view_frame::SourceViewFrame,
     world::gpu_props::{KEY_WORD, NO_BATCH, PropBatch, ROW_WORDS, word_batch},
 };
@@ -686,8 +686,11 @@ impl PropDraws {
             self.batch_revision.unwrap_or(0),
             rows,
         );
-        let mask_key = (scene.mask_revision(index), structure);
-        if view.masks != Some(mask_key) {
+        // Only world views have shadow masks. Probe face and mirror masks stay zero.
+        let mask_key = (index < WORLD_VIEWS).then(|| (scene.mask_revision(index), structure));
+        if let Some(mask_key) = mask_key
+            && view.masks != Some(mask_key)
+        {
             // A mask change keeps the structure. Then only old and new slots change.
             let full = view.masks.is_none_or(|(_, old)| old != structure);
             view.masks = Some(mask_key);

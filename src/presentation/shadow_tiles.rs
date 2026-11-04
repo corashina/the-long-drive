@@ -1,4 +1,5 @@
-//! One render-world view for each shadow tile bit of a source view.
+//! One render-world view for each shadow tile bit of a world view.
+//! Probe faces and mirrors sample the world view shadows, so they have no tile views.
 //! Each tile view owns the binned caster phase of its bit, so equal casters batch in each tile.
 //! Bevy preprocesses directional light views with their camera. The tile views use that path.
 use super::surface_views::{SourceSurfaceView, WORLD_VIEWS};
@@ -10,13 +11,12 @@ use bevy::{ecs as bevy_ecs, prelude::*};
 /// Caster mask bits: 4 sun cascades, then 4 lamp slots.
 pub const TILE_BITS: usize = LAMP_BIT as usize + LAMP_SLOTS;
 
-/// The tile views of one source view. Only the world view has lamp slots.
+/// The tile views of one world view.
 #[derive(Component)]
 pub struct ShadowTileViews {
     parent: RetainedViewEntity,
     entities: [Entity; TILE_BITS],
     pub retained: [RetainedViewEntity; TILE_BITS],
-    pub count: usize,
 }
 
 fn tile_view(parent: &ExtractedView, bit: usize) -> ExtractedView {
@@ -46,11 +46,14 @@ pub(crate) fn prepare_tile_views(
     )>,
 ) {
     for (entity, source, view, tiles, lights) in &mut views {
+        if source.index >= WORLD_VIEWS {
+            continue;
+        }
         let entities = match tiles {
             Some(mut tiles) => {
                 if tiles.parent != view.retained_view_entity {
                     tiles.parent = view.retained_view_entity;
-                    for bit in 0..tiles.count {
+                    for bit in 0..TILE_BITS {
                         let tile = tile_view(view, bit);
                         tiles.retained[bit] = tile.retained_view_entity;
                         commands.entity(tiles.entities[bit]).insert(tile);
@@ -59,19 +62,17 @@ pub(crate) fn prepare_tile_views(
                 tiles.entities
             }
             None => {
-                let tiles = spawn_tiles(&mut commands, entity, source.index, view);
+                let tiles = spawn_tiles(&mut commands, entity, view);
                 let entities = tiles.entities;
                 commands.entity(entity).insert(tiles);
                 entities
             }
         };
-        let count = tile_count(source.index);
-        let entities = &entities[..count];
         // Link in the spawn frame too, so the first atlas draw has preprocessed instances.
         match lights {
             Some(mut lights) => {
                 if !lights.lights.contains(&entities[0]) {
-                    lights.lights.extend_from_slice(entities);
+                    lights.lights.extend_from_slice(&entities);
                 }
             }
             None => {
@@ -83,24 +84,10 @@ pub(crate) fn prepare_tile_views(
     }
 }
 
-fn tile_count(index: usize) -> usize {
-    if index < WORLD_VIEWS {
-        TILE_BITS
-    } else {
-        LAMP_BIT as usize
-    }
-}
-
-fn spawn_tiles(
-    commands: &mut Commands,
-    parent: Entity,
-    index: usize,
-    view: &ExtractedView,
-) -> ShadowTileViews {
-    let count = tile_count(index);
+fn spawn_tiles(commands: &mut Commands, parent: Entity, view: &ExtractedView) -> ShadowTileViews {
     let mut entities = [Entity::PLACEHOLDER; TILE_BITS];
     let mut retained = [view.retained_view_entity; TILE_BITS];
-    for bit in 0..count {
+    for bit in 0..TILE_BITS {
         let tile = tile_view(view, bit);
         retained[bit] = tile.retained_view_entity;
         entities[bit] = commands
@@ -118,7 +105,6 @@ fn spawn_tiles(
         parent: view.retained_view_entity,
         entities,
         retained,
-        count,
     }
 }
 
