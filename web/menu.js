@@ -3,7 +3,7 @@ import {createSettingsScreen} from './settings-screen.js';
 import {createControlsScreen} from './controls-screen.js';
 import {canLoadLast} from './save-session.js';
 export const ACTIONS={PAUSE:2,CONTINUE:4,RECOVER:16};
-const pendingText={save:'Saving...',load:'Loading...',loadLast:'Loading...',remove:'Deleting...',newGame:'Starting a new game...'};
+const pendingText={save:'Saving…',load:'Loading…',loadLast:'Loading…',remove:'Deleting…',newGame:'Starting a new game…'};
 // Result texts confirm a menu action. They clear when play continues.
 const resultText={join:'Joined the game.',save:'Save complete.',load:'Game loaded.',loadLast:'Game loaded.',remove:'Save deleted.',newGame:''};
 const SUBSCREENS=['settings','game-mode','saves','appearance','multiplayer'];

@@ -40,7 +40,7 @@ const autosave=createAutosave(),autosaveNotice=document.querySelector('#autosave
 const toggles={autosave:false,inCar:false};
 let autosaving=false,noticeTimer=0;
 async function runAutosave(){
- autosaving=true;clearTimeout(noticeTimer);autosaveNotice.textContent='Autosaving...';autosaveNotice.hidden=false;
+ autosaving=true;clearTimeout(noticeTimer);autosaveNotice.textContent='Autosaving…';autosaveNotice.hidden=false;
  try{const blob=await thumbnail.capture();if(!saveSession.pending)await saveSession.save(AUTOSAVE,blob,{autosave:true});autosaveNotice.hidden=true;}
  catch(error){autosaveNotice.textContent=error?.message??String(error);noticeTimer=setTimeout(()=>{autosaveNotice.hidden=true;},3000);}
  finally{autosave.reset(performance.now()/1000);autosaving=false;}

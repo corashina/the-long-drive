@@ -96,11 +96,11 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
  target.gameRemoteLabel=label;
  target.gameRemoteVoice=(slot,x,y,z,alive)=>output.place(slot,x,y,z,alive);
  hostButton.addEventListener('click',async()=>{
-  storeName();say('Opening a room...');
+  storeName();say('Opening a room…');
   try{const value=await net.host({maxPlayers:Number(max.value),password:hostPassword.value,name:name.value,outfit:outfit.outfit});code.textContent=value;say(`Room code: ${value}`);}
   catch{say('Cannot reach the connection server.');}
  });
- joinButton.addEventListener('click',()=>{storeName();say('Connecting...');reloadJoin({code:room.value.trim().toUpperCase(),name:name.value,password:joinPassword.value});});
+ joinButton.addEventListener('click',()=>{storeName();say('Connecting…');reloadJoin({code:room.value.trim().toUpperCase(),name:name.value,password:joinPassword.value});});
  for(const node of [room,joinPassword])node.addEventListener('keydown',event=>{if(event.code==='Enter'&&!joinButton.disabled)joinButton.click();});
  leaveButton.addEventListener('click',()=>{net.leave();say('Left the game.');});
  // Enter opens the chat line while playing. Enter sends it, Escape closes it.
@@ -116,7 +116,7 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
  target.addEventListener('pagehide',()=>net.leave());
  for(const id of ['#multiplayer','#start-multiplayer'])$(id).addEventListener('click',paint);
  paint();
- if(joinRoom){room.value=joinRoom.code;joinPassword.value=joinRoom.password;say('Connecting...');net.join({...joinRoom,outfit:outfit.outfit});}
+ if(joinRoom){room.value=joinRoom.code;joinPassword.value=joinRoom.password;say('Connecting…');net.join({...joinRoom,outfit:outfit.outfit});}
  return {
   get role(){return net.role;},
   // The game input pauses while the chat line is open.

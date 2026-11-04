@@ -4,7 +4,7 @@
 @font-face {font-family:"Overpass";src:url("./fonts/Overpass-cyrillic.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap;ascent-override:88%;descent-override:30%;line-gap-override:0%;unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;}
 /* The menu looks like a desert highway. Panels are warm asphalt, text is sun-bleached, and road paint yellow is the one accent.
    The Overpass font comes from the Highway Gothic road sign letters. A dashed lane line marks each menu window, but not the start menu. */
-:root {--asphalt:#272420;--asphalt-glass:#272420d9;--shoulder:#34302b;--seam:#4a443c;--seam-soft:#34302b;--dust:#a39783;--bleach:#efe6d2;--paint:#f2b230;--paint-hi:#ffc54f;--ink:#211a0d;
+:root {--asphalt:#272420;--asphalt-glass:#272420d9;--shoulder:#34302b;--seam:#4a443c;--seam-soft:#34302b;--edge:#7a7062;--dust:#a39783;--bleach:#efe6d2;--paint:#f2b230;--paint-hi:#ffc54f;--ink:#211a0d;
  --menu-font:"Overpass","Liberation Sans",Arial,sans-serif;--lane:repeating-linear-gradient(90deg,var(--paint) 0 34px,transparent 34px 58px);}
 :root {color-scheme:dark;font-family:Arial,sans-serif;color:var(--bleach);background:#000;}
 * {box-sizing:border-box;}
@@ -12,6 +12,7 @@ body {margin:0;}
 main {position:relative;width:100vw;height:100dvh;overflow:hidden;}
 #game {display:block;width:100%;height:100%;outline:none;}
 [hidden] {display:none!important;}
+.visually-hidden {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;}
 ::selection {background:var(--paint);color:var(--ink);}
 #menu,#menu-art,#menu-frame {position:absolute;inset:0;}
 #menu {font-family:var(--menu-font);transition:background-color .6s;}
@@ -21,7 +22,10 @@ main {position:relative;width:100vw;height:100dvh;overflow:hidden;}
 #menu-art {z-index:0;}#menu-frame {z-index:1;}
 #status,#capture-error {position:absolute;left:24px;right:24px;top:24px;font-size:clamp(16px,2vw,30px);color:#fff;text-shadow:2px 2px 2px #000;overflow-wrap:anywhere;}
 #capture-error {top:74px;max-width:900px;}
-button {font:inherit;position:absolute;padding:0;border:0;color:#fff;cursor:pointer;background-color:transparent;text-shadow:2px 2px 2px #000;}
+button {font:inherit;position:absolute;padding:0;border:0;color:#fff;cursor:pointer;background-color:transparent;text-shadow:2px 2px 2px #000;touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
+/* English buttons and headings use Title Case. language.js sets the page language. Save names and key names keep their case. */
+:root:lang(en) :is(button:not(.save-tile,.key-cell),.menu-panel > h2,#appearance-title,.menu-screen h3,.menu-screen legend) {text-transform:capitalize;}
+:is(.menu-panel > h2,#appearance-title,.menu-screen h3,#loading-details h2) {text-wrap:balance;}
 button:hover:enabled {filter:brightness(1.18);}
 button:active:enabled {filter:brightness(.85);}
 button:disabled {opacity:.45;cursor:default;}
@@ -31,19 +35,19 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #performance-values {margin:0;font:inherit;white-space:pre-wrap;}
 #performance p {margin:8px 0 0;color:#bbb;font:11px/1.4 Arial,sans-serif;}
 /* Pause menu: one column of buttons over the dimmed world. */
-.pause-menu {position:absolute;z-index:2;inset:0;display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100% - 32px));height:fit-content;max-height:calc(100dvh - 32px);margin:auto;overflow:auto;}
+.pause-menu {position:absolute;z-index:2;inset:0;display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100% - 32px));height:fit-content;max-height:calc(100dvh - 32px);margin:auto;overflow:auto;overscroll-behavior:contain;}
 .pause-menu button {position:static;height:46px;padding:0 18px;border-left-width:3px;border:1px solid var(--seam);border-radius:4px;background:var(--asphalt-glass);color:var(--bleach);font-size:18px;text-align:left;text-shadow:none;transition:background-color .15s,border-color .15s;}
 .pause-menu button:hover:enabled {border-color:var(--paint);background:var(--shoulder);filter:none;}
 .pause-menu #resume {border-color:var(--paint);background:var(--paint);color:var(--ink);font-weight:700;}
 .pause-menu #resume:hover:enabled {background:var(--paint-hi);}
-/* The menu focuses its main button on open. An outline there looks like a stray line, so focus shows as the hover border. */
-:is(.pause-menu,.start-primary) button:focus-visible {outline:none;border-color:var(--paint);}
+/* Keyboard focus shows as the hover border and a light ring. The ring also shows on the paint-filled main button. */
+:is(.pause-menu,.start-primary) button:focus-visible {outline:2px solid var(--bleach);outline-offset:3px;border-color:var(--paint);}
 /* Start menu: the garage car turns on its stage (canvas) in the middle. The buttons sit centered under it. */
 #menu.road-view :is(#menu-art,#menu-frame) {display:none;}
 /* The road view stays clear. Only the bottom darkens under the buttons. */
 #menu.road-view::before {content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(transparent 70%,#0008);}
 #menu.road-view :is(#status,#capture-error) {left:50%;right:auto;width:min(900px,calc(100% - 32px));transform:translateX(-50%);text-align:center;}
-.start-menu {position:absolute;z-index:2;left:50%;bottom:clamp(24px,7vh,72px);display:grid;justify-items:center;gap:22px;width:min(760px,calc(100% - 32px));transform:translateX(-50%);animation:start-in .7s ease-out .15s backwards;}
+.start-menu {position:absolute;z-index:2;left:50%;bottom:max(clamp(24px,7vh,72px),env(safe-area-inset-bottom));display:grid;justify-items:center;gap:22px;width:min(760px,calc(100% - 32px));transform:translateX(-50%);animation:start-in .7s ease-out .15s backwards;}
 @keyframes start-in {from {opacity:0;transform:translate(-50%,18px);}}
 .start-menu button {position:static;text-shadow:none;transition:background-color .15s,border-color .15s,color .15s;}
 .start-menu button:hover:enabled {filter:none;}
@@ -52,11 +56,11 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .start-primary button:hover:enabled {border-color:var(--paint);background:var(--shoulder);}
 .start-primary #new-game {border-color:var(--paint);background:var(--paint);color:var(--ink);font-weight:800;}
 .start-primary #new-game:hover:enabled {background:var(--paint-hi);}
-.start-secondary {display:flex;flex-wrap:wrap;justify-content:center;gap:4px 32px;}
-.start-secondary button {padding:6px 2px;font-weight:500;border-bottom:2px solid transparent;color:var(--bleach);font-size:17px;}
+.start-secondary {display:flex;flex-wrap:wrap;justify-content:center;gap:0 32px;}
+.start-secondary button {min-height:44px;padding:10px 2px;font-weight:500;border-bottom:2px solid transparent;color:var(--bleach);font-size:17px;}
 .start-secondary button:hover:enabled {border-bottom-color:var(--paint);color:#fff;}
 @media (max-width:640px) {.start-primary {flex-direction:column;align-items:stretch;}.start-primary button {max-width:none;flex:0 0 48px;height:48px;}.start-secondary {gap:4px 20px;}}
-@media (prefers-reduced-motion:reduce) {.start-menu {animation:none;}}
+@media (prefers-reduced-motion:reduce) {.start-menu {animation:none;}#menu {transition:none;}}
 /* Pause menu: the session distance is a large readout in the lower right corner. */
 #session-distance {position:absolute;z-index:2;right:clamp(16px,6vw,96px);bottom:clamp(16px,7vh,72px);display:grid;padding:16px 24px 14px;border:3px solid var(--bleach);border-radius:10px;background:var(--asphalt);box-shadow:0 0 0 5px var(--asphalt),0 12px 40px #0009;text-align:right;}
 #session-distance-label {color:var(--dust);font-size:16px;font-weight:600;}
@@ -64,7 +68,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #menu:has(#settings-screen:not([hidden]),#game-mode-screen:not([hidden]),#multiplayer-screen:not([hidden])) #status {visibility:hidden;}
 /* Menu screens (Settings, Game mode, Saves, Multiplayer): a solid window in the middle of a dimmed screen. */
 .menu-screen {position:absolute;inset:0;z-index:3;display:grid;place-items:center;padding:16px;background:#000b;}
-.menu-panel {position:relative;display:flex;flex-direction:column;border-radius:6px;overflow:hidden;width:min(880px,100%);max-height:calc(100dvh - 32px);background:var(--asphalt);border:1px solid var(--seam);box-shadow:0 20px 60px #000c;font:400 17px/1.35 var(--menu-font);color:var(--bleach);text-shadow:none;}
+.menu-panel {position:relative;display:flex;flex-direction:column;border-radius:6px;overflow:hidden;width:min(880px,100%);max-height:calc(100dvh - 32px);background:var(--asphalt);border:1px solid var(--seam);box-shadow:0 20px 60px #000c;font:400 17px/1.35 var(--menu-font);font-variant-numeric:tabular-nums;color:var(--bleach);text-shadow:none;}
 #settings-screen .menu-panel {height:min(760px,calc(100dvh - 32px));}
 .menu-panel-narrow {width:min(520px,100%);}
 .menu-panel-wide {width:min(1080px,100%);height:min(820px,calc(100dvh - 32px));}
@@ -72,9 +76,10 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .menu-panel > h2 {margin:0;padding:24px 22px 0;font-size:30px;font-weight:800;line-height:1.1;color:var(--bleach);}
 .menu-panel-narrow .menu-body {padding-top:10px;}
 #settings-tabs {display:flex;flex-wrap:wrap;gap:0 26px;margin:14px 22px 0;border-bottom:1px solid var(--seam);}
-#settings-tabs button {position:static;padding:10px 0 8px;margin-bottom:-1px;border-bottom:3px solid transparent;color:var(--dust);font-weight:600;text-shadow:none;}
+#settings-tabs button {position:static;min-height:44px;padding:10px 0 8px;margin-bottom:-1px;border-bottom:3px solid transparent;color:var(--dust);font-weight:600;text-shadow:none;}
+#settings-tabs button:hover:enabled {color:var(--bleach);filter:none;}
 #settings-tabs button.selected {color:var(--bleach);border-bottom-color:var(--paint);}
-.menu-body {flex:1;min-height:0;overflow:auto;padding:4px 22px 16px;}
+.menu-body {flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:4px 22px 16px;}
 .settings-columns {display:grid;grid-template-columns:1fr 1fr;gap:0 28px;}
 .menu-screen h3,.menu-screen legend {margin:18px 0 4px;padding:0;font-size:15px;font-weight:700;color:var(--paint);}
 .settings-list {display:flex;flex-direction:column;}
@@ -91,11 +96,12 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .setting-slider input[type=number] {width:4.5em;}
 .menu-screen input[type=range] {width:150px;accent-color:var(--paint);}
 .menu-screen output {min-width:4.5em;text-align:right;color:var(--dust);}
-.menu-screen :is(select,input[type=number],input[type=text],input[type=password]),.menu-screen button:not([role=tab],.save-tile) {position:static;min-width:0;height:32px;padding:0 12px;background:var(--shoulder);border:1px solid var(--seam);color:var(--bleach);font:inherit;text-shadow:none;border-radius:3px;}
+.menu-screen :is(select,input[type=number],input[type=text],input[type=password]),.menu-screen button:not([role=tab],.save-tile) {position:static;min-width:0;height:32px;padding:0 12px;background:var(--shoulder);border:1px solid var(--edge);color:var(--bleach);font:inherit;text-shadow:none;border-radius:3px;}
+:is(.menu-screen,.appearance-panel) option {background-color:var(--shoulder);color:var(--bleach);}
 .menu-screen select {min-width:150px;}
-.menu-screen input[type=checkbox] {appearance:none;flex:none;position:relative;margin:0;width:38px;height:20px;border-radius:10px;background:var(--seam);cursor:pointer;}
+.menu-screen input[type=checkbox] {appearance:none;flex:none;position:relative;margin:0;width:38px;height:20px;border-radius:10px;background:var(--seam);box-shadow:inset 0 0 0 1px var(--edge);cursor:pointer;}
 .menu-screen input[type=checkbox]::after {content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--dust);}
-.menu-screen input[type=checkbox]:checked {background:var(--paint);}
+.menu-screen input[type=checkbox]:checked {background:var(--paint);box-shadow:none;}
 .menu-screen input[type=checkbox]:checked::after {left:21px;background:var(--ink);}
 .menu-screen input:focus-visible,.menu-screen select:focus-visible {outline:2px solid var(--paint);outline-offset:2px;}
 .menu-screen label:has(input:disabled) {opacity:.45;cursor:default;}
@@ -110,10 +116,10 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #draw-distance-value {min-width:5.5em;}
 #appearance-screen {position:absolute;inset:0;z-index:2;}
 #menu:has(#appearance-screen:not([hidden])) :is(#menu-art,#menu-frame,#status) {display:none;}
-.appearance-panel {border-top:4px solid transparent;border-image:var(--lane) 4;border-image-width:4px 0 0 0;position:absolute;left:0;top:0;bottom:0;width:min(440px,45vw);display:flex;flex-direction:column;gap:12px;padding:20px 24px;overflow:auto;background:var(--asphalt);border-right:1px solid var(--seam);box-shadow:20px 0 60px #0008;font:400 17px/1.35 var(--menu-font);color:var(--bleach);text-shadow:none;}
+.appearance-panel {border-top:4px solid transparent;border-image:var(--lane) 4;border-image-width:4px 0 0 0;position:absolute;left:0;top:0;bottom:0;width:min(440px,45vw);display:flex;flex-direction:column;gap:12px;padding:20px 24px;overflow:auto;overscroll-behavior:contain;background:var(--asphalt);border-right:1px solid var(--seam);box-shadow:20px 0 60px #0008;font:400 17px/1.35 var(--menu-font);font-variant-numeric:tabular-nums;color:var(--bleach);text-shadow:none;}
 #appearance-title {margin:0;font-size:30px;font-weight:800;color:var(--bleach);}
 .appearance-panel label {display:flex;align-items:center;justify-content:space-between;gap:12px;}
-.appearance-panel select {min-width:150px;height:32px;border-radius:3px;padding:0 12px;background:var(--shoulder);border:1px solid var(--seam);font:inherit;color:var(--bleach);}
+.appearance-panel select {min-width:150px;height:32px;border-radius:3px;padding:0 12px;background:var(--shoulder);border:1px solid var(--edge);font:inherit;color:var(--bleach);}
 .appearance-panel input[type=range] {width:60%;height:16px;appearance:none;border-radius:8px;accent-color:var(--paint);}
 .appearance-panel label {min-height:36px;border-bottom:1px solid var(--seam-soft);}
 #appearance-parts {display:grid;grid-auto-flow:column;grid-template-columns:1fr 1fr;gap:8px 12px;}
@@ -154,7 +160,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #save-toggles label {display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;padding:2px 4px;border-bottom:1px solid var(--seam-soft);cursor:pointer;}
 #save-toggles label input {order:1;}
 #runtime-error {position:absolute;left:16px;right:16px;top:16px;margin:0;padding:16px;background:#4b211d;color:#fff;overflow-wrap:anywhere;}
-#loading-details {position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100% - 48px));max-height:calc(100% - 170px);overflow:auto;padding:24px 22px 20px;border-radius:6px;background:var(--asphalt-glass);color:var(--bleach);font:400 16px/1.45 var(--menu-font);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
+#loading-details {position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100% - 48px));max-height:calc(100% - 170px);overflow:auto;overscroll-behavior:contain;padding:24px 22px 20px;border-radius:6px;background:var(--asphalt-glass);color:var(--bleach);font:400 16px/1.45 var(--menu-font);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
 #loading-details::before {content:"";position:sticky;display:block;top:-24px;height:4px;margin:-24px -22px 20px;background:var(--lane);}
 #loading-details h2 {margin:0 0 12px;font-size:22px;font-weight:800;}
 #loading-details progress {display:block;width:100%;height:10px;accent-color:var(--paint);}
@@ -182,7 +188,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #crosshair .old-crosshair {mask-size:100% 100%;-webkit-mask-size:100% 100%;}
 #weapon-crosshair {position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);mask-size:contain;mask-repeat:no-repeat;mask-position:center;-webkit-mask-size:contain;-webkit-mask-repeat:no-repeat;-webkit-mask-position:center;pointer-events:none;}
 /* Key prompts, carry help and car help: one stack in the lower right corner. */
-#hud-corner {position:absolute;right:32px;bottom:32px;display:flex;flex-direction:column;align-items:flex-end;gap:.6em;font-family:var(--menu-font);line-height:1.2;text-shadow:none;}
+#hud-corner {position:absolute;right:max(32px,env(safe-area-inset-right));bottom:max(32px,env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:flex-end;gap:.6em;font-family:var(--menu-font);line-height:1.2;text-shadow:none;}
 #prompts,#carry-help,#help-text {display:flex;flex-direction:column;align-items:flex-end;gap:.3em;}
 :is(#prompts,#carry-help,#help-text)[hidden],.prompt[hidden],#prompts:not(:has(.prompt:not([hidden]))) {display:none;}
 .prompt {display:flex;align-items:center;gap:.35em;margin:0;padding:.3em .7em;white-space:nowrap;color:var(--bleach);background:var(--asphalt-glass);border:1px solid var(--seam);border-radius:3px;}
