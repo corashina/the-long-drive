@@ -382,9 +382,11 @@ def vehicle_record(source, hierarchy, bodies, colliders, asset, material_indices
         if identity not in graphics:raise ValueError(f'Wheel slot missing: {identity}')
         reader=source.get(*identity);graphic,raw=graphics[identity]
         linked=source.resolve(graphic,raw['car']);slot=source.resolve(graphic,raw['slot'])
-        if linked is None or key(linked)!=key(car_reader) or slot is None:raise ValueError('Unresolved driving wheel hub link')
+        # Graphics moves T to the WheelCollider world pose. The slot mount rides on T.
+        T=proto.link(graphic,raw['T'])
+        if linked is None or key(linked)!=key(car_reader) or slot is None or T is None:raise ValueError('Unresolved driving wheel hub link')
         wheels.append({'source':source_id(reader),'node':proto.node(reader),'collider':wheel_collider_record(source.read(reader)),
-            'slot':proto.node(slot),'mount':proto.link(slot,source.read(slot)['T']) or proto.node(slot),
+            'graphic':T,'slot':proto.node(slot),'mount':proto.link(slot,source.read(slot)['T']) or proto.node(slot),
             **{name:identity in roles[name] for name in ('steer','drive','brake','handbrake')},
             'sideways_stiffness_modifier':raw['sideStiffnessModifier']})
     # Driver roles of primary seats. The runtime binds the seats from the prototype.
