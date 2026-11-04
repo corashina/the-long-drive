@@ -139,9 +139,11 @@ impl SpecularMaterial {
             if slot == 1 && !normal {
                 continue;
             }
-            let (binding, image) = textures
-                .binding(&record.source, name)
-                .ok_or_else(|| ReferenceError(format!("Specular texture not ready: {name}")))?;
+            // `bind` checked readiness, so a missing slot is a null texture.
+            // The shader then reads the slot default, as Unity does.
+            let Some((binding, image)) = textures.binding(&record.source, name) else {
+                continue;
+            };
             let bank = match banks.iter().position(|(id, _)| *id == binding.array) {
                 Some(index) => index,
                 None => {
@@ -161,6 +163,9 @@ impl SpecularMaterial {
                 .sampling(binding.array)
                 .ok_or_else(|| ReferenceError("Missing source specular sampler".into()))?;
             uniform.sampling[slot] = Vec4::new(0., sampling.x, sampling.y, sampling.z);
+        }
+        if banks.is_empty() {
+            return Err(ReferenceError("Specular material has no texture".into()));
         }
         let array_count = banks.len() as u8;
         let arrays = std::array::from_fn(|i| banks.get(i).unwrap_or(&banks[0]).1.clone());
