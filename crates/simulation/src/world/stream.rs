@@ -3644,6 +3644,10 @@ impl WorldStream {
     }
     /// Source `roads[0].OneCoord(position)` with Y at `above` over the base terrain height
     /// (`GetTerrainHeightWorld(pb1: true, pb2: false, pb3: false)`). It uses absolute coordinates.
+    /// Absolute road surface points, one per road bone from the road start. Use it only at setup.
+    pub fn road_surface_points(&self) -> impl Iterator<Item = [f64; 3]> + '_ {
+        self.roads.surface_points()
+    }
     pub fn road_point(&self, position: [f64; 3], above: f32) -> [f64; 3] {
         // OneCoord projects onto the identity world's forward axis. Source Z is the negated world Z.
         let z = -position[2] as f32;
