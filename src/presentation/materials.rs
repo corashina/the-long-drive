@@ -277,7 +277,9 @@ impl MaterialLoading {
             state,
             sealed: pending.sealed,
             request_count: pending.requests.len() as u32,
-            warmed_queued: warmed.is_some_and(|warmed| warmed.queued),
+            warmed_queued: warmed.is_some_and(|warmed| {
+                warmed.final_pass && warmed.all_queued(pending.requests.len())
+            }),
             warmed_id_count: warmed.map_or(0, |warmed| warmed.ids.len() as u32),
             ready_pipeline_count: warmed.map_or(0, |warmed| {
                 warmed
@@ -326,7 +328,19 @@ struct LoadingData {
 #[derive(Resource, Default)]
 pub(crate) struct WarmedPipelines {
     pub(crate) ids: Vec<(CachedRenderPipelineId, String)>,
-    queued: bool,
+    seen: HashSet<CachedRenderPipelineId>,
+    /// Per request: its pipelines are queued for all view keys.
+    queued: Vec<bool>,
+    /// All requests before this index are queued.
+    next: usize,
+    view_keys: Vec<MeshPipelineKey>,
+    /// The pass after the seal, with the final material keys, has started.
+    final_pass: bool,
+}
+impl WarmedPipelines {
+    fn all_queued(&self, requests: usize) -> bool {
+        self.next == requests
+    }
 }
 
 impl SourceMaterials {
@@ -1100,145 +1114,54 @@ fn make_material(
     }
 }
 
+/// Queues the pipelines of each request as soon as its mesh and material are prepared.
+/// Compilation then overlaps the asset downloads. Ready waits for the seal and every pipeline.
 fn prewarm_materials(world: &mut World) {
     let Some(loading) = world.get_resource::<MaterialLoading>().cloned() else {
         return;
     };
     let mut pending = loading.0.lock().unwrap();
-    if !pending.sealed || pending.state != RenderingState::Loading {
+    if pending.state != RenderingState::Loading {
         return;
     }
-    if !world.resource::<WarmedPipelines>().queued {
-        if pending.requests.iter().any(|request| {
-            world
-                .resource::<RenderAssets<RenderMesh>>()
-                .get(request.mesh)
-                .is_none()
-                || world
-                    .resource::<ErasedRenderAssets<PreparedMaterial>>()
-                    .get(request.material)
-                    .is_none()
-        }) {
-            return;
-        }
-        let view_keys: Vec<_> = world.resource::<ViewKeyCache>().values().copied().collect();
-        if view_keys.is_empty() {
-            return;
-        }
-        let mut work = Vec::new();
-        for request in &pending.requests {
-            let Some(mesh) = world
-                .resource::<RenderAssets<RenderMesh>>()
-                .get(request.mesh)
-            else {
-                return;
-            };
-            let Some(material) = world
-                .resource::<ErasedRenderAssets<PreparedMaterial>>()
-                .get(request.material)
-            else {
-                return;
-            };
-            for view_key in &view_keys {
-                let bits: MeshPipelineKey = material.properties.mesh_pipeline_key_bits.downcast();
-                let mesh_key = *view_key
-                    | MeshPipelineKey::from_bits_retain(mesh.key_bits.bits())
-                    | bits
-                    | alpha_mode_pipeline_key(
-                        material.properties.alpha_mode,
-                        &Msaa::from_samples(view_key.msaa_samples()),
-                    );
-                work.push((
-                    ErasedMaterialPipelineKey {
-                        type_id: request.material.type_id(),
-                        mesh_key: ErasedMeshPipelineKey::new(mesh_key),
-                        material_key: material.properties.material_key.clone(),
-                    },
-                    mesh.layout.clone(),
-                    material.properties.clone(),
-                    request.label.clone(),
-                ));
-            }
-        }
-        let mut ids = Vec::new();
-        let mut seen = HashSet::new();
-        for (key, layout, properties, label) in work {
-            let mesh_key: MeshPipelineKey = key.mesh_key.downcast();
-            let mut descriptor = match world
-                .resource::<MeshPipeline>()
-                .specialize(mesh_key, &layout)
-            {
-                Ok(descriptor) => descriptor,
-                Err(error) => {
-                    pending.state = RenderingState::Failed(format!("{label}: {error}"));
-                    return;
-                }
-            };
-            descriptor
-                .layout
-                .push(properties.material_layout.as_ref().unwrap().clone());
-            descriptor.layout[0] = super::source_lighting::source_camera_layout();
-            descriptor.layout[1] = super::source_lighting::surface_lighting_layout();
-            let limits = world.resource::<RenderDevice>().limits();
-            // Source outputs occupy locations 0..11, with conditional gaps.
-            let varying_locations = 12;
-            if varying_locations > limits.max_inter_stage_shader_variables {
-                pending.state = RenderingState::Failed(format!(
-                    "{label}: source shader needs {varying_locations} varying locations; device limit is {}",
-                    limits.max_inter_stage_shader_variables
-                ));
-                return;
-            }
-            let mut textures = 0;
-            let mut samplers = 0;
-            let mut uniforms = 0;
-            for layout in &descriptor.layout {
-                for entry in &layout.entries {
-                    if entry.visibility.contains(ShaderStages::FRAGMENT) {
-                        match entry.ty {
-                            BindingType::Texture { .. } => {
-                                textures += entry.count.map_or(1, |count| count.get())
-                            }
-                            BindingType::Sampler(_) => samplers += 1,
-                            BindingType::Buffer {
-                                ty: BufferBindingType::Uniform,
-                                ..
-                            } => uniforms += 1,
-                            _ => {}
-                        }
-                    }
-                }
-            }
-            if textures > limits.max_sampled_textures_per_shader_stage
-                || samplers > limits.max_samplers_per_shader_stage
-                || uniforms > limits.max_uniform_buffers_per_shader_stage
-            {
-                pending.state = RenderingState::Failed(format!(
-                    "{label}: layout requires {textures} textures, {samplers} samplers, {uniforms} uniforms; limits are {}, {}, {}",
-                    limits.max_sampled_textures_per_shader_stage,
-                    limits.max_samplers_per_shader_stage,
-                    limits.max_uniform_buffers_per_shader_stage
-                ));
-                return;
-            }
-            let id = match base_specialize(world, key, &layout, &properties) {
-                Ok(id) => id,
-                Err(error) => {
-                    pending.state = RenderingState::Failed(format!("{label}: {error}"));
-                    return;
-                }
-            };
-            if seen.insert(id) {
-                info!(
-                    "Source pipeline: {textures} fragment textures, {samplers} samplers, {uniforms} uniforms, {varying_locations} varying locations (upper bound; device limit {})",
-                    limits.max_inter_stage_shader_variables
-                );
-                ids.push((id, label));
-            }
-        }
-        let mut warmed = world.resource_mut::<WarmedPipelines>();
-        warmed.ids = ids;
-        warmed.queued = true;
+    let keys = world.resource::<ViewKeyCache>();
+    if keys.is_empty() {
+        return;
+    }
+    let warmed = world.resource::<WarmedPipelines>();
+    let new_view = keys.values().any(|key| !warmed.view_keys.contains(key));
+    let mut warmed = std::mem::take(&mut *world.resource_mut::<WarmedPipelines>());
+    if new_view {
+        // A new view key needs the pipelines of every request again.
+        warmed.view_keys.clear();
+        warmed
+            .view_keys
+            .extend(world.resource::<ViewKeyCache>().values().copied());
+        warmed.queued.clear();
+        warmed.next = 0;
+    }
+    if !pending.sealed {
+        warmed.final_pass = false;
+    }
+    warmed.queued.resize(pending.requests.len(), false);
+    let mut result = queue_prewarm(world, &pending.requests, &mut warmed);
+    let all = pending.requests.len();
+    if result.is_ok() && pending.sealed && !warmed.final_pass && warmed.all_queued(all) {
+        // A material can change its key before the seal. Queue each request again with its final key.
+        // Unchanged keys return the cached pipeline.
+        warmed.final_pass = true;
+        warmed.queued.fill(false);
+        warmed.next = 0;
+        result = queue_prewarm(world, &pending.requests, &mut warmed);
+    }
+    let done = warmed.final_pass && warmed.all_queued(all);
+    *world.resource_mut::<WarmedPipelines>() = warmed;
+    if let Err(error) = result {
+        pending.state = RenderingState::Failed(error);
+        return;
+    }
+    if !pending.sealed || !done {
+        return;
     }
     let cache = world.resource::<PipelineCache>();
     for (id, label) in &world.resource::<WarmedPipelines>().ids {
@@ -1260,6 +1183,113 @@ fn prewarm_materials(world: &mut World) {
         world.resource::<WarmedPipelines>().ids.len()
     );
     pending.state = RenderingState::Ready;
+}
+
+/// Queues the pipelines of the prepared requests that are not queued yet.
+fn queue_prewarm(
+    world: &mut World,
+    requests: &[PipelineRequest],
+    warmed: &mut WarmedPipelines,
+) -> Result<(), String> {
+    let mut work = Vec::new();
+    let meshes = world.resource::<RenderAssets<RenderMesh>>();
+    let materials = world.resource::<ErasedRenderAssets<PreparedMaterial>>();
+    for (index, request) in requests.iter().enumerate().skip(warmed.next) {
+        if warmed.queued[index] {
+            continue;
+        }
+        let (Some(mesh), Some(material)) =
+            (meshes.get(request.mesh), materials.get(request.material))
+        else {
+            continue;
+        };
+        warmed.queued[index] = true;
+        for view_key in &warmed.view_keys {
+            let bits: MeshPipelineKey = material.properties.mesh_pipeline_key_bits.downcast();
+            let mesh_key = *view_key
+                | MeshPipelineKey::from_bits_retain(mesh.key_bits.bits())
+                | bits
+                | alpha_mode_pipeline_key(
+                    material.properties.alpha_mode,
+                    &Msaa::from_samples(view_key.msaa_samples()),
+                );
+            work.push((
+                ErasedMaterialPipelineKey {
+                    type_id: request.material.type_id(),
+                    mesh_key: ErasedMeshPipelineKey::new(mesh_key),
+                    material_key: material.properties.material_key.clone(),
+                },
+                mesh.layout.clone(),
+                material.properties.clone(),
+                request.label.clone(),
+            ));
+        }
+    }
+    for (key, layout, properties, label) in work {
+        let mesh_key: MeshPipelineKey = key.mesh_key.downcast();
+        let mut descriptor = world
+            .resource::<MeshPipeline>()
+            .specialize(mesh_key, &layout)
+            .map_err(|error| format!("{label}: {error}"))?;
+        descriptor
+            .layout
+            .push(properties.material_layout.as_ref().unwrap().clone());
+        descriptor.layout[0] = super::source_lighting::source_camera_layout();
+        descriptor.layout[1] = super::source_lighting::surface_lighting_layout();
+        let limits = world.resource::<RenderDevice>().limits();
+        // Source outputs occupy locations 0..11, with conditional gaps.
+        let varying_locations = 12;
+        if varying_locations > limits.max_inter_stage_shader_variables {
+            return Err(format!(
+                "{label}: source shader needs {varying_locations} varying locations; device limit is {}",
+                limits.max_inter_stage_shader_variables
+            ));
+        }
+        let mut textures = 0;
+        let mut samplers = 0;
+        let mut uniforms = 0;
+        for layout in &descriptor.layout {
+            for entry in &layout.entries {
+                if entry.visibility.contains(ShaderStages::FRAGMENT) {
+                    match entry.ty {
+                        BindingType::Texture { .. } => {
+                            textures += entry.count.map_or(1, |count| count.get())
+                        }
+                        BindingType::Sampler(_) => samplers += 1,
+                        BindingType::Buffer {
+                            ty: BufferBindingType::Uniform,
+                            ..
+                        } => uniforms += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+        if textures > limits.max_sampled_textures_per_shader_stage
+            || samplers > limits.max_samplers_per_shader_stage
+            || uniforms > limits.max_uniform_buffers_per_shader_stage
+        {
+            return Err(format!(
+                "{label}: layout requires {textures} textures, {samplers} samplers, {uniforms} uniforms; limits are {}, {}, {}",
+                limits.max_sampled_textures_per_shader_stage,
+                limits.max_samplers_per_shader_stage,
+                limits.max_uniform_buffers_per_shader_stage
+            ));
+        }
+        let id = base_specialize(world, key, &layout, &properties)
+            .map_err(|error| format!("{label}: {error}"))?;
+        if warmed.seen.insert(id) {
+            info!(
+                "Source pipeline: {textures} fragment textures, {samplers} samplers, {uniforms} uniforms, {varying_locations} varying locations (upper bound; device limit {})",
+                limits.max_inter_stage_shader_variables
+            );
+            warmed.ids.push((id, label));
+        }
+    }
+    while warmed.next < requests.len() && warmed.queued[warmed.next] {
+        warmed.next += 1;
+    }
+    Ok(())
 }
 
 impl Default for SourceSurface {
