@@ -668,7 +668,6 @@ fn read_input(
         options,
         player_settings,
         old_heat_haze: display.old_heat_haze,
-        calendar: local_calendar(),
         measure: game_measure_requested(),
         world: std::mem::take(&mut drive.world),
         save: requests.take_commands(),

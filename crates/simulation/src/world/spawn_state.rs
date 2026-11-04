@@ -13,7 +13,6 @@ use std::sync::Arc;
 pub struct SpawnContext {
     pub current_car: i32,
     pub peaceful_enemies: i32,
-    pub date: [i32; 3],
     pub chance_bits: Option<u32>,
 }
 /// A `GeneratedId` whose sources index `SpawnHistory::sources`.

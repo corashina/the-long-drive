@@ -50,7 +50,6 @@ pub struct SimDriver {
     /// The renderer shows the garage.
     pub(crate) ready: bool,
     delta_seconds: f64,
-    pub(crate) calendar: [u8; 2],
     /// The browser asked for a world measurement.
     measure: bool,
     /// A failure that the next frame reports. The driver stops the storage startup after it.
@@ -100,7 +99,6 @@ impl SimDriver {
             skip_elapsed: false,
             ready: false,
             delta_seconds: 0.,
-            calendar: [1, 1],
             measure: false,
             failure: None,
             failed: false,
@@ -148,7 +146,6 @@ impl SimDriver {
     fn accept_input(&mut self, reference: &ReferenceManifest, command: SimCommand) {
         self.delta_seconds = command.delta_seconds;
         self.listener = command.listener;
-        self.calendar = command.calendar;
         self.ready = command.ready;
         self.accepted_seq = command.seq;
         self.measure |= command.measure;
@@ -256,10 +253,6 @@ impl SimDriver {
         let started = now();
         #[cfg(target_arch = "wasm32")]
         let _profile = crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::Physics);
-        if let Some(audio) = &mut self.runtime.audio {
-            let [month, day] = self.calendar;
-            audio.broadcasts.calendar(month, day);
-        }
         let real = self.delta_seconds as f32;
         let delta = real * self.runtime.clock_factors(reference).time_scale;
         self.runtime.area.interaction.conditions.update(delta, true);
@@ -329,7 +322,7 @@ impl SimDriver {
             .step_world(reference, &mut self.world, budget_ms)
             .and_then(|grant| {
                 self.grant = grant;
-                runtime.align_startup(reference, self.calendar)?;
+                runtime.align_startup(reference)?;
                 if runtime.has_deferred_save_links() {
                     runtime
                         .advance_saved_restore(reference)

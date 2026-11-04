@@ -566,14 +566,7 @@ impl GarageRuntime {
         mode: crate::world::GameMode,
         draw_distance: f32,
     ) -> Result<Self, ReferenceError> {
-        Self::new_candidate(
-            reference,
-            true,
-            mode.seed,
-            new_game_date(reference),
-            mode,
-            draw_distance,
-        )
+        Self::new_candidate(reference, true, mode.seed, mode, draw_distance)
     }
     /// Test runtime in the default game mode at the export default draw distance.
     #[cfg(test)]
@@ -588,7 +581,6 @@ impl GarageRuntime {
         reference: &ReferenceManifest,
         stream_world: bool,
         seed: i32,
-        date: [i32; 3],
         mode: crate::world::GameMode,
         draw_distance: f32,
     ) -> Result<Self, ReferenceError> {
@@ -597,7 +589,7 @@ impl GarageRuntime {
         let mut physics = PhysicsWorld::new(reference);
 
         let mut area = StartingArea::new(reference, &mut physics, [0.0; 3])?;
-        let mut stream = WorldStream::new(reference, seed, date, mode, distances)?;
+        let mut stream = WorldStream::new(reference, seed, mode, distances)?;
         if stream_world {
             let spawn = reference.area.player_spawn.translation.map(f64::from);
             stream.request_at(spawn, spawn);
@@ -1169,16 +1161,16 @@ impl GarageRuntime {
         }
         if let Some(action) = self.area.interaction.mechanisms.take_control_action() {
             match action {
-                crate::interaction::mechanisms::ControlAction::ToggleHandbrake(lever) => {
+                crate::interaction::mechanisms::ControlAction::ToggleHandbrake(switch) => {
                     if let Some(vehicle) = self
                         .vehicles
                         .values_mut()
-                        .find(|v| v.handbrake_lever == Some(lever))
+                        .find(|v| v.handbrake_switch == Some(switch))
                     {
                         vehicle.handbrake = !vehicle.handbrake;
                         if let Some(key) = self.area.player.seat_vehicle().cloned()
                             && self.area.player.driving()
-                            && self.vehicles[&key].handbrake_lever == Some(lever)
+                            && self.vehicles[&key].handbrake_switch == Some(switch)
                         {
                             self.reach_seated_car(
                                 reference,
@@ -1436,7 +1428,16 @@ impl GarageRuntime {
                         previous,
                         current,
                         tune,
-                    } => audio.cap(id, previous, current, tune),
+                    } => {
+                        if audio.imported_cap(id) {
+                            audio.cap(id, previous, current, tune);
+                        } else if let Some((clips, cap)) = self.area.interaction.cap_clips(id)
+                            && let Some(item) = self.area.items.get(cap)
+                        {
+                            let position = self.stream.origin.absolute(item.pose.position);
+                            audio.generated_cap(clips, previous, current, tune, position);
+                        }
+                    }
                 }
             }
             // szankoScript.Update sets the slide volume and pitch of each sled in use.
@@ -2364,12 +2365,7 @@ impl GarageRuntime {
         }
         Ok(())
     }
-    /// `calendar` is the local month and day.
-    pub fn align_startup(
-        &mut self,
-        reference: &ReferenceManifest,
-        calendar: [u8; 2],
-    ) -> Result<bool, ReferenceError> {
+    pub fn align_startup(&mut self, reference: &ReferenceManifest) -> Result<bool, ReferenceError> {
         if self.startup_aligned {
             return Ok(true);
         }
@@ -2394,46 +2390,8 @@ impl GarageRuntime {
             startup,
             self.area.origin,
         )?;
-        // Source StartDateItems: the pumpkin of a new game in its holiday.
-        let h = &reference.acquisition.holiday_startup;
-        let pumpkin = if holiday_pumpkin(h.start, h.end, calendar) {
-            let parent = h
-                .pose
-                .parent
-                .as_ref()
-                .ok_or_else(|| ReferenceError("Holiday pumpkin parent".into()))?;
-            let pose = crate::world::source_world_pose(
-                &reference.world,
-                startup,
-                parent,
-                &[h.pose.transform],
-            )?;
-            let prototype = reference
-                .item_prototypes
-                .iter()
-                .position(|p| p.source == h.prototype.0)
-                .ok_or_else(|| ReferenceError("Holiday pumpkin prototype".into()))?;
-            Some((prototype, pose))
-        } else {
-            None
-        };
         for (pose, count) in packs {
             self.spawn_pack(reference, pose, count)?;
-        }
-        if let Some((prototype, pose)) = pumpkin {
-            let pose = VehiclePose {
-                position: std::array::from_fn(|i| {
-                    (pose.position[i] as f64 - self.area.origin[i]) as f32
-                }),
-                rotation: pose.rotation,
-            };
-            spawned::spawn_prototype(
-                reference,
-                &mut self.area,
-                &mut self.physics,
-                prototype,
-                pose,
-            )?;
         }
         self.physics.refresh_queries();
         self.area.items.sync_poses(&self.physics);
@@ -2442,13 +2400,6 @@ impl GarageRuntime {
         self.startup_aligned = true;
         Ok(true)
     }
-}
-
-/// The start pumpkin spawns from `start` to `end`, both inclusive.
-fn holiday_pumpkin(start: [u32; 2], end: [u32; 2], calendar: [u8; 2]) -> bool {
-    let [sm, sd] = start.map(|v| v as u8);
-    let [em, ed] = end.map(|v| v as u8);
-    crate::simulation::radio::in_holiday(calendar, [sm, sd, em, ed])
 }
 
 /// Source `carscript.InteractSwitchLights` of the world car whose switch usable is `switch`.
@@ -2504,21 +2455,6 @@ fn transport_body(
     });
 }
 
-/// Today's local date as year, month, day.
-#[cfg(target_arch = "wasm32")]
-fn new_game_date(_: &ReferenceManifest) -> [i32; 3] {
-    let today = js_sys::Date::new_0();
-    [
-        today.get_full_year() as i32,
-        today.get_month() as i32 + 1,
-        today.get_date() as i32,
-    ]
-}
-/// Native builds use the fixed reference date, so tests stay deterministic.
-#[cfg(not(target_arch = "wasm32"))]
-fn new_game_date(reference: &ReferenceManifest) -> [i32; 3] {
-    reference.world.spawn_context.date
-}
 pub(crate) fn start_sample(seed: u64, attempt: u64) -> f32 {
     (startup_hash(seed ^ attempt) >> 40) as f32 / 16_777_216.0
 }

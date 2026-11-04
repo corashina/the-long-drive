@@ -121,6 +121,9 @@ def recover_station_graphs(source, manifest, code):
                         'radius': [d['minRadius'], d['maxRadius']], 'vertical': [d['minOffsetty'], d['maxOffsetty']],
                         'table': table(reader, d['spawn'])})
                     continue
+                # Holiday spawners are seasonal. The game has no seasonal content.
+                if d['holiday']:
+                    continue
                 entries, threshold = [], 0
                 for item in d['items']:
                     threshold += item['chance'] or 1
@@ -140,14 +143,14 @@ def recover_station_graphs(source, manifest, code):
                             'no_mixed_fluids': bool(item['noMixedFluids']), 'override_mix_chance': bool(item['overrideMixChance']),
                             'mix_chance': item['mixChance']}})
                 ordinary.append({'source': source_id(reader), 'marker': marker(record['reader']),
-                    'dont_spawn': bool(d['dontSpawn']), 'holiday': d['holiday'],
+                    'dont_spawn': bool(d['dontSpawn']),
                     'building_affects_this': bool(d['buildingAffectsThis']), 'chance': d['chanceToSpawn'],
                     'spawned': bool(d['spawned']), 'entries': entries})
         stations.append({'source': source_id(go), 'building': source_id(building), 'asset': station['asset'],
             'root': 0, 'item_spawn_distance': distance,
             'building_chance': [bd['minRandomSpawn'], bd['maxRandomSpawn']],
             'initial_items_spawned': bool(bd['itemsSpawned']),
-            'flyers': {'force':bool(bd['forceRandomFlyer']), 'halloween':bool(bd['randomFlyerOnHalloween']),
+            'flyers': {'force':bool(bd['forceRandomFlyer']),
                 'vertical_offset':bd['randomFlyerOffsetty'], 'vertical_scale':bd['randomFlyerVertical'],
                 'horizontal':[bd['randomFlyerHorizontalMin'],bd['randomFlyerHorizontalMax']],
                 'prefab':source_id(source.resolve(main,source.read(main)['randomFlyerPrefab'])), 'supported':True},
@@ -195,7 +198,6 @@ METHODS = {
     'animationEventScript': ['public override void OnStateEnter(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)', 'public override void OnStateExit(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)'],
     'fpscontroller': ['public void usePickedUpStuff(pickupable pP, bool hand)'],
     'TerrainGenerationSettings': ['public void FStart()', 'public void DestroyOthers(GameObject selectedCar)', 'public void CheckCar(GameObject selectedCar, GameObject other)'],
-    'mainscript': ['public static bool CheckHoliday(holiday _h)'],
     'settingsscript': ['private void RefreshInMain(bool _changeRes)'],
 }
 
@@ -284,11 +286,8 @@ def recover_acquisition(source, manifest):
                  pack=source_id(cigi),cigarette_prefab=ptr(cigi,source.read(cigi),'prefab'),
                  ammo=ammo(component(source,root,'ammoscript')))
         startup_packs.append(s)
-    pumpkin=source.get('level1',82);holiday=startup(pumpkin)
-    holiday.update(prototype=prototypes[92]['id'], wearable={'file':'level1','path_id':79857}, terrain=source_id(terrain),
-                   start=[10,15],end=[11,15],inclusive=True,local_calendar=True,new_game_only=True,multiplayer=False)
     return {'stations':stations,'categories':categories,'box':box,'packs':packs,
-        'startup_packs':startup_packs,'holiday_pumpkin':source_id(pumpkin),'holiday_startup':holiday,
+        'startup_packs':startup_packs,
         'pack_item_id':74,'cigarette_item_id':230,'evidence':evidence, 'rules':recover_rules(code)}
 
 

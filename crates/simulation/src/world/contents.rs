@@ -246,8 +246,7 @@ impl SourceContents {
     }
 
     /// `current_car` is the source `carTypeToCarID` of the start car.
-    /// `date` is the session date as year, month, day.
-    pub fn new(reference: &WorldReference, current_car: i32, date: [i32; 3]) -> Self {
+    pub fn new(reference: &WorldReference, current_car: i32) -> Self {
         Self {
             rules: SourceRules::new(reference),
             state: SourceSpawnState::supplied_controlled_startup(
@@ -255,7 +254,6 @@ impl SourceContents {
                 SpawnContext {
                     current_car,
                     peaceful_enemies: 1,
-                    date,
                     chance_bits: None,
                 },
             ),
@@ -1598,7 +1596,7 @@ mod tests {
     }
 
     fn cursors(reference: &WorldReference) -> SourceContents {
-        let mut contents = SourceContents::new(reference, 1, reference.spawn_context.date);
+        let mut contents = SourceContents::new(reference, 1);
         let prototype = reference.buildings.types[0].prototype.clone();
         let building = contents
             .rules

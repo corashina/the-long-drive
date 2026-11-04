@@ -466,15 +466,23 @@ impl MechanismState {
     pub fn take_control_action(&mut self) -> Option<ControlAction> {
         self.control_action.take()
     }
+    /// fpscontroller: left click turns every `turnable` usable, as E does.
     pub fn primary_switch(&self, item: ItemId) -> bool {
         self.items.get(&item).is_some_and(|i| {
-            self.controls[*i].enabled
-                && self.controls[*i].reference.turn.as_ref().is_some_and(|t| {
-                    matches!(
-                        t.action,
-                        TurnAction::ToggleHomeLight { .. } | TurnAction::ToggleHandbrake
-                    )
-                })
+            self.controls[*i].enabled && self.controls[*i].reference.turn.is_some()
+        })
+    }
+    /// The HUD name of a switch usable. None: the item is not a switch.
+    pub fn turn_label(&self, item: ItemId) -> Option<&'static str> {
+        let turn = self.controls[*self.items.get(&item)?]
+            .reference
+            .turn
+            .as_ref()?;
+        Some(match turn.action {
+            TurnAction::ToggleHandbrake => "Handbrake",
+            TurnAction::CycleHeadlights => "Headlights",
+            TurnAction::InteriorLight => "Cabin light",
+            TurnAction::ToggleHomeLight { .. } => "Light switch",
         })
     }
     pub fn turn_state(&self, item: ItemId) -> Option<u8> {

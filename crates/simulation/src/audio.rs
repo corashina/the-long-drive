@@ -284,7 +284,6 @@ impl AudioState {
             broadcasts: crate::simulation::radio::RadioBroadcasts::new(
                 &reference.radio,
                 &reference.clips,
-                [0, 0],
             ),
             portable_radio_slots: vec![
                 [None; PORTABLE_RADIO_SLOTS];
@@ -765,6 +764,52 @@ impl AudioState {
             self.emit(b, gain, self.game_seconds);
         }
     }
+    /// Source `tankcapscript.USE` and `TUNE` of a generated cap: `PlayClipAtPoint` at the cap.
+    /// It has the group and settings of the Break row, so it plays through it.
+    pub fn generated_cap(
+        &mut self,
+        clips: &crate::interaction::CapClips,
+        previous: f32,
+        current: f32,
+        tune: Option<f32>,
+        position: [f64; 3],
+    ) {
+        let (clip, gain) = if let Some(delta) = tune {
+            if previous <= 0. || previous >= 1. || delta == 0. {
+                return;
+            }
+            (&clips.tune, delta.abs())
+        } else if previous != current {
+            if current > 0. {
+                (&clips.open, clips.open_volume)
+            } else {
+                (&clips.close, clips.close_volume)
+            }
+        } else {
+            return;
+        };
+        let Some(clip) = clip
+            .as_ref()
+            .and_then(|clip| self.reference.clips.iter().find(|c| &c.source == clip))
+            .map(|c| c.id)
+        else {
+            return;
+        };
+        self.survival_event(SurvivalAudioEvent {
+            session: self.session,
+            emitter: 0,
+            kind: AudioKind::Break,
+            action: AudioAction::Start,
+            clip,
+            gain,
+            pitch: 1.,
+            position,
+        });
+    }
+    /// True when the opening plays through an imported fluid audio row.
+    pub fn imported_cap(&self, id: crate::reference::OpeningId) -> bool {
+        self.fluid_openings.contains_key(&id)
+    }
     pub fn mechanism(&mut self, item: ItemId, previous: f32, current: f32, dt: f32) {
         self.mechanism_channels(
             item,
@@ -923,7 +968,6 @@ impl AudioState {
         self.broadcasts = crate::simulation::radio::RadioBroadcasts::new(
             &self.reference.radio,
             &self.reference.clips,
-            [0, 0],
         );
         self.portable_radio_slots.fill([None; PORTABLE_RADIO_SLOTS]);
         self.session = session;

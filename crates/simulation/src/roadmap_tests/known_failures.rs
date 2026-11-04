@@ -371,6 +371,26 @@ fn tp_k9_lmb_looks_through_the_binoculars_in_the_hand() {
         Some(held(&run)),
         "LMB uses the binoculars"
     );
+    // One wheel notch focuses by `scroll * FMouseSensZ * dt * focusDistanceSens`.
+    let lens = &reference.small_items.binoculars;
+    let before = used.unwrap().focus;
+    let notch = if before < lens.max_focus { 0.1 } else { -0.1 };
+    press(
+        &mut run,
+        FrameInput {
+            held: keys::PRIMARY,
+            wheel: notch,
+            ..Default::default()
+        },
+    );
+    let scroll = crate::reference::PlayerSettings::defaults(&reference).player_scroll();
+    let expected = (before + notch * scroll * FIXED_DT * lens.focus_sensitivity)
+        .clamp(lens.min_focus, lens.max_focus);
+    let after = run.area.interaction.binoculars.active().unwrap().focus;
+    assert!(
+        (after - expected).abs() < 1e-4,
+        "the wheel focuses the binoculars: {before} -> {after}, expected {expected}"
+    );
     let mut frame = crate::boundary::SimFrame::default();
     run.fill_frame(&reference, 1., &mut frame);
     let flags = frame.state.flags;
@@ -437,4 +457,159 @@ fn tp_k11_the_hand_takes_a_mounted_wheel_or_its_hubcap() {
         wheels += 1;
     }
     assert!(wheels >= 4, "the car has {wheels} mounted wheels");
+}
+
+/// K10. In a seated world car (the van Car09full), the player looks at a cabin control and uses
+/// it without a car key: source `fpscontroller` turns `turnable` usables (InteractHandbrake,
+/// InteractLight, the cabin light) with E or left click and tunes the radio `tuneAble` knobs.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k10_a_seated_player_uses_the_van_cabin_controls() {
+    use crate::interaction::feedback::ActionMask;
+    use crate::simulation::{FIXED_DT, FrameInput, keys};
+    use rapier3d::parry::bounding_volume::BoundingVolume;
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    act(
+        &mut run,
+        &reference,
+        r#"{"action":"spawn","name":"Car09full","forward":8.0}"#,
+    );
+    seconds(&mut run, &reference, 4.);
+    act(
+        &mut run,
+        &reference,
+        r#"{"action":"seat","car":"Car09","seat":"driver"}"#,
+    );
+    seconds(&mut run, &reference, 1.);
+    let key = run.area.player.seat_vehicle().cloned().expect("seated");
+    let car = &run.vehicles[&key];
+    let (handbrake, lights) = (
+        car.handbrake_switch.expect("the van has InteractHandbrake"),
+        car.light_switch.expect("the van has InteractLight"),
+    );
+    let press = |run: &mut GarageRuntime, input: FrameInput| {
+        let view = run.area.player.view(&run.physics).head_pose;
+        let fixed = run
+            .advance_inventory_frame(&reference, input, FIXED_DT, view)
+            .fixed_input;
+        frame_with(run, &reference, fixed);
+    };
+    let look = |run: &mut GarageRuntime, item| {
+        let body = run.area.items.get(item).and_then(|s| s.body).unwrap();
+        let rapier = run.physics.rapier();
+        let point = rapier
+            .colliders
+            .iter()
+            .filter(|(h, c)| {
+                c.parent() == Some(body) && run.area.interaction.use_owner(*h) == Some(item)
+            })
+            .map(|(_, c)| c.compute_aabb())
+            .reduce(|a, b| a.merged(&b))
+            .expect("the control has a collider")
+            .center();
+        run.area.player.look_at(point.to_array(), &run.physics);
+        press(run, FrameInput::default());
+        run.aim.use_target.map(|t| t.item)
+    };
+    let before = run.vehicles[&key].handbrake;
+    assert_eq!(
+        look(&mut run, handbrake),
+        Some(handbrake),
+        "the use ray takes the handbrake"
+    );
+    let actions = run.area.interaction.available_actions(
+        &run.aim,
+        &run.area.player,
+        &run.area.items,
+        &run.physics,
+        run.needs_output(),
+    );
+    assert!(
+        actions.actions.0 & ActionMask::SWITCH != 0,
+        "the HUD shows the switch"
+    );
+    press(
+        &mut run,
+        FrameInput {
+            held: keys::USE,
+            pressed: keys::USE,
+            ..Default::default()
+        },
+    );
+    press(
+        &mut run,
+        FrameInput {
+            released: keys::USE,
+            ..Default::default()
+        },
+    );
+    assert_ne!(
+        run.vehicles[&key].handbrake, before,
+        "E toggles the handbrake"
+    );
+    let mode = run.vehicles[&key].requested_headlights;
+    assert_eq!(
+        look(&mut run, lights),
+        Some(lights),
+        "the use ray takes the light switch"
+    );
+    press(
+        &mut run,
+        FrameInput {
+            held: keys::PRIMARY,
+            pressed: keys::PRIMARY,
+            ..Default::default()
+        },
+    );
+    press(
+        &mut run,
+        FrameInput {
+            released: keys::PRIMARY,
+            ..Default::default()
+        },
+    );
+    assert_ne!(
+        run.vehicles[&key].requested_headlights, mode,
+        "left click turns the lights"
+    );
+    // The radio knobs: the use ray takes each one from the driver head.
+    let eye =
+        rapier3d::math::Vector::from_array(run.area.player.view(&run.physics).camera_pose.position);
+    let interaction = &run.area.interaction;
+    let knobs = run
+        .physics
+        .rapier()
+        .colliders
+        .iter()
+        .filter(|(h, c)| {
+            let at = c.compute_aabb().center();
+            let target = crate::interaction::AimTarget {
+                collider: *h,
+                item: crate::reference::ItemId(0),
+                distance: 0.,
+                point: at.to_array(),
+                slot: None,
+            };
+            (at - eye).length() < 1.5 && interaction.dial_knob(&target, &run.physics).is_some()
+        })
+        .map(|(h, c)| (h, c.compute_aabb().center()))
+        .collect::<Vec<_>>();
+    assert!(!knobs.is_empty(), "the van radio has knobs");
+    for (handle, at) in knobs {
+        let view = crate::vehicle::VehiclePose {
+            position: eye.to_array(),
+            rotation: rapier3d::math::Rotation::from_rotation_arc(
+                -rapier3d::math::Vector::Z,
+                (at - eye).normalize(),
+            )
+            .to_array(),
+        };
+        let aim = interaction.resolve(&run.physics, view, &run.area.items);
+        assert_eq!(
+            aim.use_target.map(|t| t.collider),
+            Some(handle),
+            "the use ray takes a radio knob"
+        );
+    }
 }

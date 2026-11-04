@@ -7,7 +7,8 @@ use crate::reference::{
     ColliderGeometry, ReferenceError, SourceId, Transform, WorldBuildingGroup,
     WorldBuildingReference, WorldPrototypeReference, WorldReference, WorldSourceRecord, WorldValue,
 };
-use std::{collections::HashMap, sync::Arc};
+use bevy_platform::collections::HashMap;
+use std::sync::Arc;
 
 pub const BUILDING_CHECKPOINT_INTERVAL: u32 = 32;
 const SOURCE_END: f64 = 5_000_000.0;
@@ -1047,7 +1048,7 @@ pub fn prototype_radius(reference: &WorldReference, prototype: &WorldPrototypeRe
     bound_prototype(prototype, &records)
 }
 
-pub fn prototype_radii(reference: &WorldReference) -> std::collections::HashMap<SourceId, f64> {
+pub fn prototype_radii(reference: &WorldReference) -> HashMap<SourceId, f64> {
     let records = reference.records.iter().map(|r| (&r.source, r)).collect();
     reference
         .prototypes

@@ -132,8 +132,9 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  document.querySelector('#recover').addEventListener('click',()=>{clearInput();model.recover();flush();paint();});
  const fullscreen=document.querySelector('#fullscreen');fullscreen.disabled=!document.fullscreenEnabled;
  fullscreen.addEventListener('click',async()=>{windowed=Boolean(document.fullscreenElement);try{if(windowed)await document.exitFullscreen();else await document.querySelector('main').requestFullscreen();}catch{model.error='Fullscreen is unavailable.';paint();}});
- // In fullscreen, Keyboard Lock gives browser shortcuts such as Ctrl+W to the game. Hold Escape to leave fullscreen.
- document.addEventListener('fullscreenchange',()=>{fullscreen.textContent=document.fullscreenElement?'Exit':'Enter';if(document.fullscreenElement)navigator.keyboard?.lock().catch(()=>{});resize();});
+ // In fullscreen, Keyboard Lock gives Ctrl+W/N/T to the game. Hold Escape to leave fullscreen.
+ // Lock only these keys: a full lock also takes the Windows key, so Win+Shift+S and other system shortcuts stop.
+ document.addEventListener('fullscreenchange',()=>{fullscreen.textContent=document.fullscreenElement?'Exit':'Enter';if(document.fullscreenElement)navigator.keyboard?.lock(['Escape','KeyW','KeyN','KeyT']).catch(()=>{});resize();});
  window.addEventListener('keydown',event=>{if(event.code!=='Escape'||event.repeat)return;event.preventDefault();if(model.state==='saves'&&!model.pending){if(screen.state.escape()==='back')model.back();paint();}else if(['settings','game-mode','appearance','multiplayer'].includes(model.state)){model.back();paint();}else if(model.state==='playing'||model.pending)pause(true);else if(model.state==='pause-menu')capture();});
  document.addEventListener('pointerlockchange',()=>{if(document.pointerLockElement!==canvas && model.state==='playing')pause();});
  window.addEventListener('blur',pause);document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});

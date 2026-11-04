@@ -161,17 +161,10 @@ impl<'a> SpawnEvaluation<'a> {
             ));
         }
         let f = &self.rules.get(self.reference, caller)?.fields;
-        let holiday = integer(f, "holiday")?;
-        // The checked wall-clock date is independent of the runtime solar clock.
-        let month = self.context.date[1];
-        let day = self.context.date[2];
-        let gate = match holiday {
-            0 => true,
-            1 => (month == 10 && day >= 15) || (month == 11 && day <= 15),
-            2 => (month == 12 && day >= 15) || (month == 1 && day <= 15),
-            _ => false,
-        };
-        if !gate || self.random.range(0.001, 1.) > chance.unwrap_or(number(f, "chanceToSpawn")?) {
+        // Holiday spawners are seasonal. The game has no seasonal content.
+        if integer(f, "holiday")? != 0
+            || self.random.range(0.001, 1.) > chance.unwrap_or(number(f, "chanceToSpawn")?)
+        {
             return Ok(());
         }
         let items = array(f, "items")?;

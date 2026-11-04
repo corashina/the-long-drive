@@ -115,7 +115,6 @@ pub struct WorldSpawnContext {
     pub initial_state: [u32; 4],
     pub startup_state: [u32; 4],
     pub startup_draws: u32,
-    pub date: [i32; 3],
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -911,7 +910,6 @@ impl WorldReference {
                 && self.spawn_context.engine_sha256
                     == "553c1e7560e1b42bd4638c53d0168dcd1b4b9eb5b9df324b0a44f14b3f18bc86"
                 && self.spawn_context.clock_input == "2026-10-12T09:00:00 local"
-                && self.spawn_context.date == [2026, 10, 12]
                 && self.spawn_context.initial_state
                     == [123456789, 2139825738, 225031475, 1427228704]
                 && self.spawn_context.startup_state
@@ -1819,29 +1817,15 @@ impl WorldReference {
                     && c.role_valid(),
                 &f,
             )?;
-            // The port adds the handbrake lever usable as a convex trigger on the lever MeshFilter.
-            let lever = c.trigger
-                && c.role.is_none()
-                && matches!(c.geometry, Some(ColliderGeometry::Convex { .. }));
             let collider = checked_record(
                 records,
                 &c.source,
-                if lever {
-                    &[
-                        "BoxCollider",
-                        "SphereCollider",
-                        "CapsuleCollider",
-                        "MeshCollider",
-                        "MeshFilter",
-                    ]
-                } else {
-                    &[
-                        "BoxCollider",
-                        "SphereCollider",
-                        "CapsuleCollider",
-                        "MeshCollider",
-                    ]
-                },
+                &[
+                    "BoxCollider",
+                    "SphereCollider",
+                    "CapsuleCollider",
+                    "MeshCollider",
+                ],
             )?;
             let object = objects[c.node as usize];
             require(
