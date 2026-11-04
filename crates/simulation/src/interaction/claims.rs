@@ -38,11 +38,13 @@ impl InteractionState {
     }
     /// fpscontroller `scrubbing` from the hand: `drotkefe.Use` with LMB held.
     pub fn scrubbing(&self, input: &FrameInput) -> bool {
-        input.held & keys::PRIMARY != 0
-            && self
-                .equipment
-                .item()
-                .is_some_and(|id| self.cleaning.is_brush(id))
+        input.held & keys::PRIMARY != 0 && self.brush_in_hand()
+    }
+    /// Source `drotkefe` in the hand.
+    pub fn brush_in_hand(&self) -> bool {
+        self.equipment
+            .item()
+            .is_some_and(|id| self.cleaning.is_brush(id))
     }
     /// pP.weapon in the hand: an equipped gun with a weapon record.
     fn hand_gun(&self) -> bool {
