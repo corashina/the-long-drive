@@ -79,15 +79,17 @@ impl PresentationBodies {
     }
 
     /// The pose of `body` at `alpha` between the last two steps.
-    /// A sleeping body, or a body moved after the step, shows its current pose.
-    fn presented(&self, handle: RigidBodyHandle, body: &RigidBody, alpha: f32) -> Pose {
+    /// `None` for a sleeping body, a body the step did not move, or a body moved after the step.
+    fn blended(&self, handle: RigidBodyHandle, body: &RigidBody, alpha: f32) -> Option<Pose> {
         let current = *body.position();
         match self.steps.get(&handle) {
-            Some((before, after)) if *after == current && !body.is_sleeping() => Pose::from_parts(
-                before.translation.lerp(current.translation, alpha),
-                before.rotation.slerp(current.rotation, alpha),
-            ),
-            _ => current,
+            Some((before, after)) if *after == current && !body.is_sleeping() => {
+                Some(Pose::from_parts(
+                    before.translation.lerp(current.translation, alpha),
+                    before.rotation.slerp(current.rotation, alpha),
+                ))
+            }
+            _ => None,
         }
     }
 
@@ -121,10 +123,22 @@ impl super::PhysicsWorld {
         )
     }
 
-    /// The pose of `body` at `alpha` between the last two steps, as the seat camera sees it.
-    pub fn presented_pose(&self, handle: RigidBodyHandle, alpha: f32) -> Pose {
+    /// The move from the current pose of `handle` to its pose at `alpha`. Identity when it did not blend.
+    /// Car parts placed after the step take this move of their car, so they stay on it.
+    pub fn presented_move(&self, handle: RigidBodyHandle, alpha: f32) -> Pose {
+        let body = &self.physics.bodies[handle];
         self.presentation_bodies
-            .presented(handle, &self.physics.bodies[handle], alpha)
+            .blended(handle, body, alpha)
+            .map_or(Pose::IDENTITY, |pose| pose * body.position().inverse())
+    }
+
+    /// The pose of `handle` at `alpha` between the last two steps, as the seat camera sees it.
+    /// A body that the step did not move takes `fallback` on its current pose.
+    pub fn presented_pose_or(&self, handle: RigidBodyHandle, alpha: f32, fallback: Pose) -> Pose {
+        let body = &self.physics.bodies[handle];
+        self.presentation_bodies
+            .blended(handle, body, alpha)
+            .unwrap_or_else(|| fallback * *body.position())
     }
 
     /// Clear after presentation sync. Query refreshes use separate queues.
@@ -140,7 +154,7 @@ impl super::PhysicsWorld {
 #[cfg(test)]
 mod tests {
     use crate::vehicle::PhysicsWorld;
-    use rapier3d::math::Vector;
+    use rapier3d::math::{Pose, Vector};
     use rapier3d::prelude::RigidBodyBuilder;
 
     #[test]
@@ -157,14 +171,51 @@ mod tests {
         physics.step_physics();
         let x = physics.rapier().bodies[body].translation().x;
         assert!(x > before);
-        let half = physics.presented_pose(body, 0.5).translation.x;
+        let half = physics
+            .presented_pose_or(body, 0.5, Pose::IDENTITY)
+            .translation
+            .x;
         assert!(
             (half - (before + x) * 0.5).abs() < 1e-5,
             "{half} {before} {x}"
         );
-        assert_eq!(physics.presented_pose(body, 1.).translation.x, x);
+        assert_eq!(
+            physics
+                .presented_pose_or(body, 1., Pose::IDENTITY)
+                .translation
+                .x,
+            x
+        );
         // A body moved after the step shows its new pose at once.
         physics.edit_body(body, |b| b.set_translation(Vector::new(5., 0., 0.), true));
-        assert_eq!(physics.presented_pose(body, 0.5).translation.x, 5.);
+        assert_eq!(
+            physics
+                .presented_pose_or(body, 0.5, Pose::IDENTITY)
+                .translation
+                .x,
+            5.
+        );
+    }
+
+    #[test]
+    fn a_part_placed_after_the_step_stays_on_its_car() {
+        let mut physics = PhysicsWorld::empty_for_tests();
+        let car = physics.insert_body(
+            RigidBodyBuilder::dynamic()
+                .linvel(Vector::new(10., 0., 0.))
+                .additional_mass(1.),
+        );
+        let part = physics.insert_body(RigidBodyBuilder::dynamic().enabled(false));
+        let offset = Pose::from_translation(Vector::new(0., 1., 0.5));
+        for _ in 0..2 {
+            physics.step_physics();
+            let pose = *physics.rapier().bodies[car].position() * offset;
+            physics.edit_body(part, |b| b.set_position(pose, false));
+        }
+        let moved = physics.presented_move(car, 0.5);
+        let shown_car = physics.presented_pose_or(car, 0.5, Pose::IDENTITY);
+        let shown_part = physics.presented_pose_or(part, 0.5, moved);
+        let error = (shown_part.translation - (shown_car * offset).translation).length();
+        assert!(error < 1e-5, "the part is {error} m off its car");
     }
 }

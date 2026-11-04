@@ -6,10 +6,11 @@ use crate::interaction::items::{ItemLocation, ItemState, ItemStore};
 use crate::reference::{
     ItemId, ReferenceError, ReferenceManifest, SourceId, Transform, WorldPrototypeReference,
 };
+use crate::vehicle::{from_rapier, to_rapier};
 use crate::world::stream::content_index::{ContentSlot, InstanceSelection};
 use crate::world::{ContentIndex, GeneratedId, NodeAppearance, ObjectKey};
 use bevy_platform::collections::HashMap;
-use rapier3d::math::Rotation;
+use rapier3d::math::{Pose, Rotation};
 use rapier3d::prelude::RigidBodyHandle;
 use std::collections::BTreeMap;
 
@@ -622,8 +623,15 @@ impl StructureViews {
                 poses.push(rotation_row(node.0, e));
             }
         }
+        // Parts placed after the physics step take the blend move of the car body.
+        let anchor = car
+            .and_then(|(record, _)| structure.bodies.get(record.body as usize))
+            .or(structure.bodies.first());
+        let moved = anchor.map_or(Pose::IDENTITY, |handle| {
+            physics.presented_move(*handle, inputs.alpha)
+        });
         for (body, handle) in prototype.bodies.iter().enumerate().zip(&structure.bodies) {
-            let pose = physics.presented_pose(*handle, inputs.alpha);
+            let pose = physics.presented_pose_or(*handle, inputs.alpha, moved);
             poses.push(NodePoseRow {
                 node: body.0 as u32,
                 kind: NodePoseRow::BODY,
@@ -645,6 +653,7 @@ impl StructureViews {
         }
         for node in 0..prototype.nodes.len() {
             if let Some(pose) = content.node_pose(node) {
+                let pose = from_rapier(&(moved * to_rapier(pose)));
                 poses.push(NodePoseRow {
                     node: node as u32,
                     kind: NodePoseRow::CONTENT,
