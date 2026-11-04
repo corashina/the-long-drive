@@ -263,8 +263,9 @@ fn tp_k7_a_seated_player_changes_seat_in_the_same_car() {
     let interaction = &run.area.interaction;
     let switchable = |handle| {
         interaction
-            .item_seat(handle)
-            .is_some_and(|seat| run.area.player.can_switch_to(&seat))
+            .controls
+            .seat(handle)
+            .is_some_and(|seat| run.area.player.can_switch_to(seat))
     };
     let reach = run
         .physics
@@ -591,7 +592,7 @@ fn tp_k10_a_seated_player_uses_the_van_cabin_controls() {
                 point: at.to_array(),
                 slot: None,
             };
-            (at - eye).length() < 1.5 && interaction.dial_knob(&target, &run.physics).is_some()
+            (at - eye).length() < 1.5 && interaction.dial_knob(&target).is_some()
         })
         .map(|(h, c)| (h, c.compute_aabb().center()))
         .collect::<Vec<_>>();

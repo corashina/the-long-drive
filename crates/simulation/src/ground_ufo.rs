@@ -4,6 +4,7 @@
 //! Source +Z is port -Z.
 use crate::creatures::stimuli::Stimulus;
 use crate::interaction::InteractionState;
+use crate::interaction::controls::UseControl;
 use crate::interaction::items::ItemStore;
 use crate::lighting::CyclePhase;
 use crate::player::SeatOwner;
@@ -332,8 +333,7 @@ impl GroundUfos {
             } else {
                 let ufo = self.ufos.swap_remove(i);
                 for c in &ufo.colliders {
-                    world.interaction.remove_item_seat(c.handle);
-                    world.interaction.remove_ufo_control(c.handle);
+                    world.interaction.controls.remove(c.handle);
                 }
                 world.physics.remove_body(ufo.body);
             }
@@ -440,9 +440,11 @@ impl GroundUfos {
             let control = match c.role {
                 UfoRole::Body => None,
                 UfoRole::Seat => {
+                    let seat = self.item_seat(r, id, item, body);
                     world
                         .interaction
-                        .bind_item_seat(handle, self.item_seat(r, id, item, body));
+                        .controls
+                        .bind(handle, UseControl::Seat(seat));
                     None
                 }
                 UfoRole::AutoPilot => Some(UfoControl::AutoPilot),
@@ -450,14 +452,15 @@ impl GroundUfos {
                 UfoRole::Altitude => Some(UfoControl::Altitude),
             };
             if let Some(control) = control {
-                world.interaction.bind_ufo_control(
-                    handle,
-                    UfoControlTarget {
-                        ufo: id,
-                        item,
-                        control,
-                    },
-                );
+                let target = UfoControlTarget {
+                    ufo: id,
+                    item,
+                    control,
+                };
+                world
+                    .interaction
+                    .controls
+                    .bind(handle, UseControl::Ufo(target));
             }
         }
         world.physics.refresh_queries();

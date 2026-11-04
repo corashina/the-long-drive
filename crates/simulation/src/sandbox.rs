@@ -383,7 +383,8 @@ fn sit(
     let seat = runtime
         .area
         .interaction
-        .item_seats()
+        .controls
+        .seats()
         .filter(|seat| {
             wanted.as_ref().is_none_or(|w| car_matches(name(seat), w))
                 && kind.is_none_or(|k| seat.seat.driver == matches!(k, SeatKind::Driver))
