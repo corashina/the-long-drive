@@ -91,44 +91,55 @@ function summarize(samples){
  return summary;
 }
 
-// `log` collects console errors, warnings, page errors and page loads for the JSON.
+// `log` collects console errors and warnings, page errors and page events for the JSON.
 async function startGame(browser,o,log){
  const context=await browser.newContext({viewport:{width:1920,height:1080}});
  // A new context has empty storage, so every setting is on its default.
+ // Each page load logs the reload keys of web/main.js before main.js removes them.
  await context.addInitScript(seed=>{
-  if(sessionStorage.getItem('bench-started'))return;
-  sessionStorage.setItem('bench-started','1');
-  sessionStorage.setItem('tls-new-game',seed);
+  if(!sessionStorage.getItem('bench-started')){
+   sessionStorage.setItem('bench-started','1');
+   sessionStorage.setItem('tls-new-game',seed);
+  }
+  const keys=['tls-new-game','tls-load','tls-join'].filter(k=>sessionStorage.getItem(k)!==null).map(k=>k+'='+sessionStorage.getItem(k));
+  console.info('[bench] load '+keys.join(' '));
  },o.seed);
  const page=await context.newPage();
- page.on('console',m=>{if(m.type()==='error'||m.type()==='warning')log.errors.push(m.text());});
+ const started=Date.now(),event=text=>log.events.push(((Date.now()-started)/1000).toFixed(1)+' s '+text);
+ page.on('console',m=>{
+  if(m.text().startsWith('[bench]'))event(m.text().slice(8));
+  else if(m.type()==='error'||m.type()==='warning')log.errors.push(m.text());
+ });
  page.on('pageerror',e=>log.errors.push(e.message));
- page.on('framenavigated',frame=>{if(frame===page.mainFrame())log.loads++;});
+ page.on('crash',()=>event('page crash'));
+ page.on('close',()=>event('page close'));
  const url=new URL(o.url);url.searchParams.set('sandbox','');
  await page.goto(url.href);
- // The seed makes the start menu begin a new game. If the start menu stays open, select New game.
+ // The seed makes the start menu begin a new game. If the start menu stays idle, select New game.
  let last=null,clicked=0;
  try{
   await until('game start',START_TIMEOUT_MS,async()=>{
+   if(page.isClosed())throw new Error('The page closed');
    // A new game can reload the page. Then the evaluate fails, and the next poll reads the new page.
    const state=await page.evaluate(()=>({failure:window.gameFailure?.()??null,startupDone:Boolean(window.gameStartupDone?.()),
-    started:Boolean(window.gameState?.started),paused:Boolean(window.gameState?.paused),
-    newGame:Boolean(document.querySelector('#new-game')?.checkVisibility()),status:document.querySelector('#status')?.textContent??''})).catch(error=>{
+    started:Boolean(window.gameState?.started),paused:Boolean(window.gameState?.paused),menu:window.gameMenu?.()??null})).catch(error=>{
     if(/context was destroyed|navigation/i.test(error.message))return null;
     throw error;
    });
    if(!state)return false;
+   if(JSON.stringify(state.menu)!==JSON.stringify(last?.menu))event('menu '+JSON.stringify(state.menu));
    last=state;
    if(last.failure)throw new Error('Game failed: '+last.failure);
    if(last.startupDone&&last.started)return true;
-   if(last.startupDone&&last.newGame&&Date.now()-clicked>15000){
-    clicked=Date.now();
+   const menu=last.menu;
+   if(last.startupDone&&menu?.state==='start-menu'&&menu.ready&&!menu.pending&&!menu.started&&Date.now()-clicked>15000){
+    clicked=Date.now();event('click New game');
     await page.locator('#new-game').click().catch(()=>{});
    }
    return false;
   });
  }catch(error){
-  error.message+=` (last state ${JSON.stringify(last)}, page loads ${log.loads})`;
+  error.message+=` (last state ${JSON.stringify(last)})`;
   throw error;
  }
  // The new game can wait in the pause menu. Resume captures the mouse, as a player click does.
@@ -184,7 +195,7 @@ async function runScene(browser,page,name,cycle,o){
 async function bench(o){
  mkdirSync(OUT,{recursive:true});
  const browser=await chromium.launch({headless:o.headless,channel:o.channel||undefined,args:['--enable-unsafe-webgpu','--enable-webgpu-developer-features']});
- const log={errors:[],loads:0},scenes=[];
+ const log={errors:[],events:[]},scenes=[];
  let adapter=null,failure=null;
  // A failure still writes the finished scenes, the error and the console errors.
  try{
@@ -198,11 +209,11 @@ async function bench(o){
   }
  }catch(error){failure=error;}
  finally{await browser.close();}
- const result={label:o.label,seed:o.seed,url:o.url,date:new Date().toISOString(),adapter,scenes,errors:log.errors,pageLoads:log.loads,error:failure?.message??null};
+ const result={label:o.label,seed:o.seed,url:o.url,date:new Date().toISOString(),adapter,scenes,errors:log.errors,events:log.events,error:failure?.message??null};
  const path=OUT+o.label+'-'+result.date.replace(/[:.]/g,'-')+'.json';
  writeFileSync(path,JSON.stringify(result,null,1));
  console.log('Wrote '+path);
- if(failure)throw failure;
+ if(failure){console.log('Page events:\n  '+log.events.join('\n  '));throw failure;}
 }
 
 const show=v=>v===null||v===undefined?'-':Number.isInteger(v)?String(v):v.toFixed(2);
