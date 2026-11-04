@@ -246,6 +246,7 @@ impl Plugin for SourceFramePlugin {
         super::source_effects::install(app);
         super::motion_vectors::install(app);
         super::gpu_timing::install(app);
+        super::play_pipelines::install(app);
         let render = app.sub_app_mut(RenderApp);
         render
             .insert_resource(progress)
@@ -1314,6 +1315,7 @@ pub fn source_render_audit() -> String {
         "graph_control_bytes": super::readiness::control_bytes(),
         "gpu_validated_generation": audit.gate.validated_generation(),
         "gpu_ms": super::gpu_timing::stage_ms(),
+        "play_pipelines": super::play_pipelines::count(),
         "scene_scale": crate::render_scale::percent(),
     }))
     .expect("source diagnostic values serialize")

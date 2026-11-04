@@ -19,6 +19,7 @@ pub(crate) struct CollectorKey {
     pub view_from_world: [u32; 16],
     pub near_far_strength: [u32; 3],
     pub atlas_size: u32,
+    pub filter: u32,
     pub primary: bool,
 }
 /// Compare shader values by bits. Signed zero must not hide an input change.

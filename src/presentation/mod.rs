@@ -23,6 +23,7 @@ pub mod mirrors;
 pub mod motion_vectors;
 pub mod outfit;
 pub mod outfit_preview;
+mod play_pipelines;
 pub mod player_body;
 pub mod ragdoll;
 pub mod reference;

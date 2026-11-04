@@ -110,7 +110,7 @@ mod tests {
     use super::*;
 
     /// `displayRecord` of the `web/display-settings.js` defaults.
-    const DEFAULTS: &str = r#"{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":true,"mirror_distance":150,"motion_blur":true,"lamp_shadows":true,"antialiasing":0,"ambient_occlusion":true,"reflections":true}"#;
+    const DEFAULTS: &str = r#"{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":true,"mirror_distance":150,"motion_blur":true,"lamp_shadows":true,"antialiasing":1,"ambient_occlusion":true,"reflections":true}"#;
 
     #[test]
     fn browser_record_parses_and_checks_values() {
