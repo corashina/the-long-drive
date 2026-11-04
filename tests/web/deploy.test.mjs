@@ -48,16 +48,9 @@ async function packageFolder(site) {
 }
 
 test('stages the app and only the catalog files of the current package', async t => {
-<<<<<<< HEAD
-  const {web, site} = await fixture(t);
-  const {large} = await stageSite({webRoot: web, siteRoot: site});
-  assert.deepEqual(large, []);
-  for (const path of ['index.html', 'assets/reference/manifest.json.gz', 'assets/runtime/current/world/a.bc', 'assets/runtime/current/packs/start-0.gz']) {
-=======
   const {web, site, compressionRoot} = await fixture(t);
   await stageSite({webRoot: web, siteRoot: site, compressionRoot});
-  for (const path of ['index.html', 'assets/reference/manifest.bin.gz', 'assets/runtime/current/world/a.bc']) {
->>>>>>> origin/master
+  for (const path of ['index.html', 'assets/reference/manifest.bin.gz', 'assets/runtime/current/world/a.bc', 'assets/runtime/current/packs/start-0.gz']) {
     assert.ok(await exists(join(site, path)), path);
   }
   for (const path of ['assets/runtime/current/world/unused.bc', 'assets/runtime/old', 'assets/runtime-tmp', 'assets/library',
