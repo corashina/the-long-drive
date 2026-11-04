@@ -208,9 +208,6 @@ impl CarryState {
         self.rules.insert(id, reference.pickup.clone());
     }
 
-    pub(super) fn forget_food(&mut self, id: ItemId) {
-        self.rules.remove(&id);
-    }
     pub(super) fn retained_binding_bytes(&self) -> usize {
         super::memory::map(&self.rules)
             + self

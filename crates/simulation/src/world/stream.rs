@@ -4490,10 +4490,8 @@ impl WorldStream {
                 }
                 let supply = self.supplies.swap_remove(supply_index);
                 if let Some((tank, cap)) = supply.items {
-                    for item in [tank, cap].into_iter() {
-                        for (_, collider) in &instance.colliders {
-                            interaction.unbind_generated(item, std::slice::from_ref(collider));
-                        }
+                    for item in [tank, cap] {
+                        interaction.forget_item(item, None);
                         items.remove_generated(item);
                     }
                 }
