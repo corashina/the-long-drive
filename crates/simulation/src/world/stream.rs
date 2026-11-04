@@ -1492,8 +1492,19 @@ impl WorldStream {
             }
         }
         timer.next(Stage::DescriptorRoads);
-        if self.next_road < self.road_candidates.len() {
+        // A focus move rebuilds all candidates, and the step waits for them.
+        // Most are already selected, so check them in one slice instead of one per frame.
+        let limit_ms = if budget_ms == 0. { 1. } else { budget_ms };
+        while self.next_road < self.road_candidates.len() && self.failure.is_none() {
+            let before = self.next_road;
             self.discover_road();
+            #[cfg(target_arch = "wasm32")]
+            let elapsed = crate::host::game_now() - started;
+            #[cfg(not(target_arch = "wasm32"))]
+            let elapsed = started.elapsed().as_secs_f64() * 1000.;
+            if self.next_road == before || elapsed >= limit_ms {
+                break;
+            }
         }
         // Placement needs the complete selected road-point set.
         if self.next_road == self.road_candidates.len() {
@@ -2540,9 +2551,6 @@ impl WorldStream {
         Ok(())
     }
     fn discover_road(&mut self) {
-        if self.available_external_jobs() == 0 {
-            return;
-        }
         let index = self.road_candidates[self.next_road];
         let existing = self
             .selected_roads
@@ -2551,6 +2559,10 @@ impl WorldStream {
         let segment = if let Some(i) = existing {
             self.selected_roads[i].segment
         } else {
+            // Only a new segment prepares source work. A selected one needs no job slot.
+            if self.available_external_jobs() == 0 {
+                return;
+            }
             let segment = match self.roads.prepare_segment(index, 8) {
                 Ok(segment) => segment,
                 Err(error) => {

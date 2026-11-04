@@ -647,3 +647,42 @@ fn tp_k12_a_paint_spray_in_the_hand_owns_lmb() {
     );
     assert_eq!(area.interaction.lmb_owner(), Some(LmbOwner::CleaningTool));
 }
+
+/// K13. Driving away from the start must not stop the step. Each 100 m (source
+/// `roadGenScript.controlDist`) the road candidates rebuild. Their check took one road per frame
+/// and the step waited about 256 frames. The car moves 240 m at 8 m/s and never waits that long.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k13_driving_away_from_the_start_does_not_stop_the_step() {
+    use rapier3d::math::Vector;
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    act(&mut run, &reference, r#"{"action":"seat","seat":"driver"}"#);
+    let key = run
+        .area
+        .player
+        .seat_vehicle()
+        .cloned()
+        .expect("the player sits");
+    let chassis = run.physics.chassis_handle(&key);
+    let velocity = Vector::new(0., 0., 8.);
+    let (mut waited, mut longest, mut moved) = (0, 0, 0);
+    while moved < (240. / (8. * crate::simulation::FIXED_DT)) as usize {
+        if run.world_supported() {
+            // The car leaves the garage straight through its door and keeps its height.
+            run.physics.edit_body(chassis, |body| {
+                let at = body.translation() + velocity * crate::simulation::FIXED_DT;
+                body.set_translation(Vector::new(at.x, at.y.max(0.6), at.z), true);
+                body.set_linvel(velocity, true);
+            });
+            moved += 1;
+            waited = 0;
+        } else {
+            waited += 1;
+            longest = longest.max(waited);
+            assert!(waited < 600, "the step waits for the world");
+        }
+        frame(&mut run, &reference);
+    }
+    assert!(longest < 30, "the step waited {longest} frames");
+}
