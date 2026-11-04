@@ -27,7 +27,8 @@ pub struct SunShadowUniform {
     world_to_shadow: [Mat4; 4],
     spheres: [Vec4; 4],
     radii_squared: Vec4,
-    // x=1-strength, y=inverse atlas extent, z=atlas extent, w=has valid cascades
+    // x=1-strength, y=inverse atlas extent, z=atlas extent,
+    // w=0 no valid cascades, 1 PCF 7x7, 2 PCF 3x3
     params: Vec4,
 }
 /// Per-view sun shadow preparation. Surface shaders sample the cascades at each fragment.
@@ -70,6 +71,8 @@ fn prepare(
     };
     let light = &assets.record.lights[0];
     let basis = super::shadow_queue::light_basis(scene.sun);
+    // Medium and Low use the cheaper PCF 3x3 filter.
+    let filter = if frame.shadow_quality.0 > 0 { 2. } else { 1. };
     for (entity, view, targets, cadence, mut previous) in &mut views {
         let Some(snapshot) = frame.views[view.index] else {
             continue;
@@ -82,6 +85,7 @@ fn prepare(
             near_far_strength: [snapshot.near, snapshot.far, light.shadows.strength]
                 .map(f32::to_bits),
             atlas_size: targets.0.atlas_size,
+            filter: filter as u32,
             primary: view.index == 0,
         };
         if let Some(old) = previous.as_deref_mut()
@@ -106,7 +110,7 @@ fn prepare(
             ..default()
         };
         if let Some(fit) = scene.fits[view.index] {
-            value.params.w = 1.;
+            value.params.w = filter;
             for (index, cascade) in fit.cascades.iter().enumerate() {
                 // A stale cascade keeps the transform and sphere of its atlas tile.
                 if let Some(old) = stale.filter(|_| !cadence.plan.render[index]) {
