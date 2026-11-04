@@ -2472,7 +2472,7 @@ fn startup_hash(mut value: u64) -> u64 {
 }
 
 impl GarageRuntime {
-    /// Throwaway probe: `seconds` after start (also while paused), aims the view at the low
+    /// Throwaway probe: `seconds` after start (also while paused), stands 0.9 m in front of and aims the view at the low
     /// wire brush (5-20 s), the high wire brush (20-35 s), then a sponge (35-50 s).
     /// Returns true when it aimed.
     pub(crate) fn brush_look_probe(&mut self, reference: &ReferenceManifest, seconds: f64) -> bool {
@@ -2489,6 +2489,20 @@ impl GarageRuntime {
             return false;
         };
         let target = item.pose.position;
+        // Stand 0.9 m in front of the item on the room side.
+        let old = self.area.player.body_pose(&self.physics).position;
+        let stand = [target[0] - 0.9, old[1], target[2]];
+        if (old[0] - stand[0]).abs() + (old[2] - stand[2]).abs() > 0.01 {
+            self.area
+                .player
+                .rebase(std::array::from_fn(|i| old[i] - stand[i]));
+            let pose = self.area.player.body_pose(&self.physics);
+            let body = self.area.player.body_handle();
+            self.physics.edit_body(body, |body| {
+                body.set_position(crate::vehicle::to_rapier(pose), true);
+                body.set_linvel(rapier3d::math::Vector::ZERO, true);
+            });
+        }
         self.area.player.look_at(target, &self.physics);
         true
     }
