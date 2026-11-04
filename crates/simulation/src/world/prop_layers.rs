@@ -4,19 +4,32 @@ use crate::reference::{ReferenceError, WorldReference};
 use std::collections::{HashMap, HashSet};
 
 /// Layer, chunk unit and ordinal of a placement: the part that its children share.
-type RootKey = (super::WorldLayer, [i64; 2], u32);
-fn root_key(id: &super::GeneratedId) -> RootKey {
+pub(super) type RootKey = (super::WorldLayer, [i64; 2], u32);
+pub(super) fn root_key(id: &super::GeneratedId) -> RootKey {
     (id.layer, id.unit, id.ordinal)
 }
 
+/// Chunk candidates by ordinal. Empty when no candidate is left.
+type Slot = Option<PropCandidate>;
 struct Chunk {
     layer: usize,
     unit: [i64; 2],
-    candidates: Vec<PropCandidate>,
+    candidates: Vec<Slot>,
+    left: usize,
     placed: Vec<super::GeneratedId>,
+}
+/// What one `advance` changed in the placements.
+#[derive(Default)]
+pub struct PropChange {
+    /// The removed placement id, and true if no placement has its root key now.
+    pub removed: Option<(super::GeneratedId, bool)>,
+    /// True if the last placement is new.
+    pub added: bool,
 }
 struct Layer {
     generator: PropGenerator,
+    /// Count of active chunks that still hold each candidate ordinal.
+    held: Vec<u32>,
     offsets: Vec<[f32; 2]>,
     centers: [[f32; 2]; 2],
     next: [usize; 2],
@@ -57,6 +70,7 @@ impl PropLayers {
             }
             offsets.sort_by(|a, b| squared(*a).total_cmp(&squared(*b)));
             layers.push(Layer {
+                held: vec![0; generator.candidate_count()],
                 generator,
                 offsets,
                 centers: [[f32::INFINITY; 2]; 2],
@@ -84,7 +98,7 @@ impl PropLayers {
                 .chunks
                 .iter()
                 .map(|c| {
-                    c.candidates.capacity() * std::mem::size_of::<PropCandidate>()
+                    c.candidates.capacity() * std::mem::size_of::<Slot>()
                         + c.placed.capacity() * std::mem::size_of::<super::GeneratedId>()
                         + c.placed
                             .iter()
@@ -108,13 +122,15 @@ impl PropLayers {
             + self
                 .layers
                 .iter()
-                .map(|l| l.offsets.capacity() * 8 + l.generator.retained_bytes())
+                .map(|l| {
+                    l.offsets.capacity() * 8 + l.held.capacity() * 4 + l.generator.retained_bytes()
+                })
                 .sum::<usize>()
     }
     pub fn pending_bytes(&self) -> usize {
         self.chunks
             .iter()
-            .map(|c| c.candidates.capacity() * std::mem::size_of::<PropCandidate>())
+            .map(|c| c.candidates.capacity() * std::mem::size_of::<Slot>())
             .sum()
     }
     pub fn selection_complete(&self) -> bool {
@@ -173,7 +189,7 @@ impl PropLayers {
     }
     /// Reserve a complete candidate buffer before any source generation work.
     pub fn allocation_bound(&self) -> usize {
-        self.layers[self.layer].generator.candidate_count() * std::mem::size_of::<PropCandidate>()
+        self.layers[self.layer].generator.candidate_count() * std::mem::size_of::<Slot>()
             + (self.chunks.capacity() + 1) * std::mem::size_of::<Chunk>()
             + (self.placements.capacity() + 1) * std::mem::size_of::<Placement>()
             + self.index_bytes(1)
@@ -203,7 +219,8 @@ impl PropLayers {
         context: TerrainContext<'_>,
         can_request: bool,
         max_objects: usize,
-    ) -> Result<(), ReferenceError> {
+    ) -> Result<PropChange, ReferenceError> {
+        let mut change = PropChange::default();
         let i = self.layer;
         self.layer = (self.layer + 1) % self.layers.len();
         let points = focus.map(|p| [p[0] as f32, -p[2] as f32]);
@@ -225,6 +242,9 @@ impl PropLayers {
                 })
         }) {
             let chunk = self.chunks.remove(index);
+            for (held, slot) in layer.held.iter_mut().zip(&chunk.candidates) {
+                *held -= slot.is_some() as u32;
+            }
             self.retiring.extend(chunk.placed);
         }
         if let Some(index) = self
@@ -233,18 +253,23 @@ impl PropLayers {
             .position(|id| id.layer == layer.generator.layer)
         {
             let id = self.retiring.remove(index);
-            let before = self.placements.len();
-            self.placements.retain(|p| p.id != id);
-            let removed = (before - self.placements.len()) as u32;
-            if removed > 0 {
+            // Compare the cheap fields first.
+            if let Some(position) = self
+                .placements
+                .iter()
+                .position(|p| p.id.ordinal == id.ordinal && p.id.unit == id.unit && p.id == id)
+            {
+                self.placements.remove(position);
                 self.revision = self.revision.wrapping_add(1);
                 self.ids.remove(&id);
                 let key = root_key(&id);
                 let count = self.roots.get_mut(&key).expect("a placement has a root");
-                *count -= removed;
-                if *count == 0 {
+                *count -= 1;
+                let gone = *count == 0;
+                if gone {
                     self.roots.remove(&key);
                 }
+                change.removed = Some((id, gone));
             }
         }
         let j = layer.focus;
@@ -256,16 +281,25 @@ impl PropLayers {
                 self.chunks
                     .try_reserve_exact(1)
                     .map_err(|_| ReferenceError("Source prop chunk allocation failed".into()))?;
-                let mut candidates = Vec::with_capacity(layer.generator.candidate_count());
-                for ordinal in 0..layer.generator.candidate_count() {
-                    if let Some(c) = layer.generator.candidate(unit, ordinal) {
-                        candidates.push(c);
+                let count = layer.generator.candidate_count();
+                let mut candidates = Vec::with_capacity(count);
+                let mut left = 0;
+                for ordinal in 0..count {
+                    let slot = layer.generator.candidate(unit, ordinal);
+                    if slot.is_some() {
+                        layer.held[ordinal] += 1;
+                        left += 1;
                     }
+                    candidates.push(slot);
+                }
+                if left == 0 {
+                    candidates = Vec::new();
                 }
                 self.chunks.push(Chunk {
                     layer: i,
                     unit,
                     candidates,
+                    left,
                     placed: Vec::new(),
                 });
             }
@@ -273,22 +307,13 @@ impl PropLayers {
         }
         let focus = points[layer.place_focus];
         layer.place_focus = (layer.place_focus + 1) % 2;
-        let mut nearest = None;
-        let mut distance = f32::MAX;
-        for (chunk_index, chunk) in self.chunks.iter().enumerate().filter(|(_, c)| c.layer == i) {
-            for (candidate_index, candidate) in chunk.candidates.iter().enumerate() {
-                // Source compares local Npos. Do not add the chunk origin here.
-                let d = squared([
-                    focus[0] - (candidate.local[0]),
-                    focus[1] - (candidate.local[1]),
-                ]);
-                if d < distance {
-                    distance = d;
-                    nearest = Some((chunk_index, candidate_index));
-                }
-            }
-        }
-        if let Some((chunk_index, candidate_index)) = nearest {
+        if let Some((chunk_index, ordinal)) = nearest(
+            &self.chunks,
+            i,
+            &layer.held,
+            layer.generator.points(),
+            focus,
+        ) {
             self.placements
                 .try_reserve_exact(1)
                 .map_err(|_| ReferenceError("Source prop placement allocation failed".into()))?;
@@ -297,7 +322,7 @@ impl PropLayers {
                 .placed
                 .try_reserve_exact(1)
                 .map_err(|_| ReferenceError("Source prop identity allocation failed".into()))?;
-            let candidate = chunk.candidates[candidate_index];
+            let candidate = chunk.candidates[ordinal].expect("a held candidate");
             if let Some(placement) = layer.generator.place(chunk.unit, candidate, context) {
                 if self.placements.len() >= max_objects {
                     return Err(ReferenceError(
@@ -313,13 +338,16 @@ impl PropLayers {
                 *self.roots.entry(root_key(&placement.id)).or_insert(0) += 1;
                 self.placements.push(placement);
                 self.revision = self.revision.wrapping_add(1);
+                change.added = true;
             }
-            chunk.candidates.remove(candidate_index);
-            if chunk.candidates.is_empty() {
+            chunk.candidates[ordinal] = None;
+            layer.held[ordinal] -= 1;
+            chunk.left -= 1;
+            if chunk.left == 0 {
                 chunk.candidates = Vec::new();
             }
         }
-        Ok(())
+        Ok(change)
     }
     pub fn material(
         &self,
@@ -340,6 +368,122 @@ pub(super) fn layer_distances(distances: &super::DrawDistances, i: usize) -> (f3
         _ => (distances.building_gen_dist, distances.building_remove_dist),
     }
 }
+/// Source nearest candidate of layer `layer`: the first in chunk order, then ordinal order,
+/// with the least distance from `focus` to its local point. The scan visits each ordinal once,
+/// not each candidate of each chunk. All chunks share the local points.
+fn nearest(
+    chunks: &[Chunk],
+    layer: usize,
+    held: &[u32],
+    points: &[[f32; 2]],
+    focus: [f32; 2],
+) -> Option<(usize, usize)> {
+    // Source compares local Npos. Do not add the chunk origin here.
+    let distance = |ordinal: usize| {
+        let p = points[ordinal];
+        squared([focus[0] - p[0], focus[1] - p[1]])
+    };
+    let mut best = None;
+    let mut least = f32::MAX;
+    let mut tied = false;
+    for (ordinal, _) in held.iter().enumerate().filter(|(_, count)| **count > 0) {
+        let d = distance(ordinal);
+        if d < least {
+            least = d;
+            best = Some(ordinal);
+            tied = false;
+        } else if d == least {
+            tied = true;
+        }
+    }
+    let best = best?;
+    let mut active = chunks.iter().enumerate().filter(|(_, c)| c.layer == layer);
+    if !tied {
+        return active
+            .find(|(_, c)| c.candidates.get(best).is_some_and(Option::is_some))
+            .map(|(index, _)| (index, best));
+    }
+    active.find_map(|(index, c)| {
+        c.candidates
+            .iter()
+            .enumerate()
+            .find(|(ordinal, slot)| slot.is_some() && distance(*ordinal) == least)
+            .map(|(ordinal, _)| (index, ordinal))
+    })
+}
 fn squared(p: [f32; 2]) -> f32 {
     p[0] * p[0] + p[1] * p[1]
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The old scan: every candidate of every chunk, first strict minimum wins.
+    fn scan(chunks: &[Chunk], layer: usize, focus: [f32; 2]) -> Option<(usize, usize)> {
+        let mut nearest = None;
+        let mut distance = f32::MAX;
+        for (index, chunk) in chunks.iter().enumerate().filter(|(_, c)| c.layer == layer) {
+            for (ordinal, c) in chunk.candidates.iter().enumerate() {
+                let Some(c) = c else { continue };
+                let d = squared([focus[0] - c.local[0], focus[1] - c.local[1]]);
+                if d < distance {
+                    distance = d;
+                    nearest = Some((index, ordinal));
+                }
+            }
+        }
+        nearest
+    }
+
+    #[test]
+    fn nearest_matches_the_full_scan() {
+        // A grid gives many equal distances, so ties are tested too.
+        let points: Vec<[f32; 2]> = (0..36)
+            .map(|i| [(i % 6) as f32 * 2.0, (i / 6) as f32 * 2.0])
+            .collect();
+        let mut state = 7u32;
+        let mut random = move || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            state >> 8
+        };
+        for _ in 0..500 {
+            let mut held = vec![0; points.len()];
+            let chunks: Vec<Chunk> = (0..6)
+                .map(|n| {
+                    let candidates: Vec<Slot> = points
+                        .iter()
+                        .enumerate()
+                        .map(|(ordinal, &local)| {
+                            (random() % 4 == 0).then_some(PropCandidate {
+                                point: local,
+                                local,
+                                ordinal: ordinal as u32,
+                                selected: 0,
+                                rotation: 0,
+                                random: 0,
+                            })
+                        })
+                        .collect();
+                    let layer = n % 2;
+                    if layer == 0 {
+                        for (h, slot) in held.iter_mut().zip(&candidates) {
+                            *h += slot.is_some() as u32;
+                        }
+                    }
+                    Chunk {
+                        layer,
+                        unit: [n as i64, 0],
+                        left: candidates.iter().flatten().count(),
+                        candidates,
+                        placed: Vec::new(),
+                    }
+                })
+                .collect();
+            let focus = [(random() % 13) as f32, (random() % 13) as f32];
+            assert_eq!(
+                nearest(&chunks, 0, &held, &points, focus),
+                scan(&chunks, 0, focus)
+            );
+        }
+    }
 }
