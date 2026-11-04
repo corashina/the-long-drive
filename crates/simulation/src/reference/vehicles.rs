@@ -308,6 +308,8 @@ pub struct WorldWheelReference {
     pub source: SourceId,
     pub node: u32,
     pub collider: WheelColliderReference,
+    /// `wheelgraphicsscript.T`: the node that `Graphics` moves to the wheel pose.
+    pub graphic: u32,
     pub slot: u32,
     pub mount: u32,
     pub steer: bool,
@@ -886,7 +888,7 @@ impl WorldVehicleReference {
             check(
                 s,
                 &format!("vehicle wheel {i}"),
-                b.nodes([&w.node, &w.slot, &w.mount])
+                b.nodes([&w.node, &w.graphic, &w.slot, &w.mount])
                     && w.collider.valid()
                     && w.sideways_stiffness_modifier.is_finite(),
             )?;
