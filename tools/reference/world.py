@@ -22,7 +22,7 @@ SPAWN_CONTEXT = {'classification':'controlled_startup_before_garage',
     'clock_input':'2026-10-12T09:00:00 local',
     'initial_state':[123456789,2139825738,225031475,1427228704],
     'startup_state':[2365297906,2858699345,3940856323,829372343],
-    'startup_draws':4,'date':[2026,10,12]}
+    'startup_draws':4}
 WORLD_DATABASE_ID = 66024
 BUILDING_FIELDS = ('berror','bkezdohaz','bkut','bbudi','bbenzinkut01','bbuszmegallo','blegjobbbenzinkut','bmuhely','bnagybenzinkut','boldhouse','boldpetrolstation','bturrethaz','bvizmu','btelefonfulke','bpost','bcabin','byellowfoodkut','bfalu01','bcastle')
 HOME_BUILDING = 70166
@@ -51,8 +51,8 @@ RULE_CLASSES = {'roadscript', 'buildingscript', 'newRandomStuffSpawnScript', 'st
 # StartSpawnItems (level1 Transform 21481): loose scene items that terrainGenerator.Start enables.
 START_ITEMS = 21481
 # StartSpawnItems copies (level1 GameObject) that own export paths spawn: fuel cans, oil can and barrel
-# (export.py scene roots), flashlights, cleaning tools, cigarette packs, sausage, Halloween pumpkin.
-START_OWNED = {13023,13027,13019,18878,15637,12118,12119,10838,10840,10841,10842,10846,10849,14073,14075,301,3542,82}
+# (export.py scene roots), flashlights, cleaning tools, cigarette packs, sausage.
+START_OWNED = {13023,13027,13019,18878,15637,12118,12119,10838,10840,10841,10842,10846,10849,14073,14075,301,3542}
 # ediblescript components of the selected food prototypes (survival.FOOD_FIELDS and GTurd).
 EDIBLE_COMPONENTS = {('sharedassets1.assets',path_id) for path_id in (134641,134643,134644,134645,134646,134647,149631)}
 def selected_actions(source, scripts, actions):
@@ -167,10 +167,13 @@ def start_items(source, catalog):
     """One startup row per active StartSpawnItems copy outside START_OWNED. The copy keeps its scene pose
     and scene state. The row prototype is its catalog prefab. recover_world sets the prototype after selection."""
     group=source.get('level1',START_ITEMS)
+    # TerrainGenerationSettings.StartDateItems copies are seasonal. The game has no seasonal content.
+    terrain=source.get('level1',64898)
+    seasonal={key(source.resolve(terrain,o)) for d in source.read(terrain)['StartDateItems'] for o in d['objs']}
     rows=[];indices=[]
     for child in source.read(group)['m_Children']:
         root=source.resolve(group,child);go,components=source.components(root)
-        if not source.read(go)['m_IsActive'] or key(go)[1] in START_OWNED:continue
+        if not source.read(go)['m_IsActive'] or key(go)[1] in START_OWNED or key(go) in seasonal:continue
         save=[c for c in components if c.type.name=='MonoBehaviour' and source.class_name(c)=='tosaveitemscript']
         if not save:continue
         # Hanging copies (air fresheners, a sausage) have a scene ConfigurableJoint to a holder body. The port does not support them yet.

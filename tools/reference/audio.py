@@ -57,9 +57,11 @@ def station_records(source, owner, data, clip):
                 'initial_time': value['cTime'], 'initial_max_time': value['cMaxTime'],
                 'initial_gain': value['currentVolume']}
             for kind in ['music', 'talk']:
-                station[kind] = [clip(source.resolve(owner, p)) for p in value[kind]]
-                station[kind + '_gains'] = value[kind + 'Volume']
-                station[kind + '_holidays'] = value[kind + 'Holiday']
+                # The game has no seasonal content: holiday clips are left out.
+                keep = [i for i, h in enumerate(value[kind + 'Holiday']) if h == 0]
+                gains = value[kind + 'Volume']
+                station[kind] = [clip(source.resolve(owner, value[kind][i])) for i in keep]
+                station[kind + '_gains'] = [gains[i] for i in keep if i < len(gains)]
             stations.append(station)
     return stations
 
@@ -585,7 +587,7 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
     constants=radio_constants(car_radios[0])
     for reader in car_radios:
         if radio_constants(reader)!=constants:raise ValueError('{}:{} car radio constants differ'.format(*key(reader)))
-    audio['radio'] = {'tuning_repeat_seconds':0.2,'holiday_ranges':[[10,15,11,15],[12,15,1,15]],
+    audio['radio'] = {'tuning_repeat_seconds':0.2,
         'constants':constants,
         'fm_tolerance':main['FRTFM'],'am_tolerance':main['FRTAM'],'electronics_cutoff':0.2,
         'time_correction_seconds':0.5,'late_seek_margin_seconds':0.1,'custom_gain':0.5,
@@ -595,7 +597,7 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
             'multiplayer':method('mainscript','RADIO2')},
         'stations':station_records(source,main_r,main,lambda reader:clip(reader,'radio')),'methods':[method('radioscript','SetRadio'),method('radioscript','Update'),method('mainscript','Update'),
             method('radioCH','SelectRandomMusic'),method('radioCH','SelectRandomTalk'),method('radioCH','AdvanceRadio'),
-            method('fpscontroller','Update'),method('electronicsscript','Start'),method('electronicsscript','UpdOutPut'),method('mainscript','CheckHoliday')]}
+            method('fpscontroller','Update'),method('electronicsscript','Start'),method('electronicsscript','UpdOutPut')]}
     main=source.get('level1',64919);md=source.read(main)
     player=source.get('level1',80125);pd=source.read(player)
     prefab=next(c for c in source.components(source.transform_for(source.resolve(main,md['Audio'])))[1] if c.type.name=='AudioSource')

@@ -165,8 +165,6 @@ pub struct WorldStream {
     // It changes on membership and order only, not on button animation.
     lamp_binding_revision: u64,
     seed: i32,
-    /// Session date as year, month, day. It decides date rules for the whole game.
-    date: [i32; 3],
     mode: super::GameMode,
     /// The picked start car. Only its start placement spawns.
     start_car: super::StartCar,
@@ -407,7 +405,6 @@ impl WorldStream {
                 placements: self.placements.capture_index(),
             },
             seed: self.seed,
-            date: self.date,
             start_car: self.start_car,
             changes,
             spawn: self.contents.state.capture_history(),
@@ -662,7 +659,6 @@ impl WorldStream {
         Self::new(
             reference,
             seed,
-            reference.world.spawn_context.date,
             super::GameMode::default(),
             super::DrawDistances::resolve(r, r.default),
         )
@@ -670,7 +666,6 @@ impl WorldStream {
     pub fn new(
         reference: &ReferenceManifest,
         seed: i32,
-        date: [i32; 3],
         mode: super::GameMode,
         distances: super::DrawDistances,
     ) -> Result<Self, ReferenceError> {
@@ -722,7 +717,7 @@ impl WorldStream {
         }
         let start_car = mode.start_car.pick(world, &mut super::menu_random());
         let mut contents =
-            super::contents::SourceContents::new(world, start_car.current_car(reference)?, date);
+            super::contents::SourceContents::new(world, start_car.current_car(reference)?);
         contents.boxes =
             content_boxes::BoxReleases::new(reference.acquisition.r#box.source.clone());
         let structure_helpers =
@@ -769,7 +764,6 @@ impl WorldStream {
             condition_looks: Vec::new(),
             lamp_binding_revision: 0,
             seed,
-            date,
             mode,
             start_car,
             structure_helpers,
@@ -2012,7 +2006,7 @@ impl WorldStream {
             .retain_requests(&self.wanted_structures, &self.replay_roots);
         let metrics = self.metrics();
         let pending = 32usize.saturating_sub(metrics.pending_work);
-        // The step paces new contents. One source evaluation (a building with its Halloween
+        // The step paces new contents. One source evaluation (a building with its
         // bats) can pass the pace. Only the object budget caps it.
         let budget = self
             .limits

@@ -137,8 +137,6 @@ extern "C" {
         secondary_gain: f32,
         secondary_next: u32,
     );
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioCalendar)]
-    pub fn game_audio_calendar() -> u32;
     #[wasm_bindgen(js_namespace = window, js_name = gameAudioEnd)]
     pub fn game_audio_end();
     #[wasm_bindgen(js_namespace = window, js_name = gameHasSaveRequest)]
@@ -386,9 +384,4 @@ extern "C" {
         weight: f32,
         help: u32,
     );
-}
-/// The local month and day.
-pub fn local_calendar() -> [u8; 2] {
-    let calendar = game_audio_calendar();
-    [(calendar / 100) as u8, (calendar % 100) as u8]
 }

@@ -32,7 +32,6 @@ struct Recording {
     clip: u32,
     duration: f64,
     gain: f32,
-    holiday: u8,
 }
 #[derive(Clone, Copy)]
 struct Selected {
@@ -70,21 +69,13 @@ pub struct RadioBroadcasts {
     fm_tolerance: f32,
     am_tolerance: f32,
     custom_gain: f32,
-    holiday_ranges: [[u8; 4]; 2],
-    calendar: [u8; 2],
     /// On a multiplayer guest, the host selects the clips (source `RADIO2`).
     remote: bool,
     /// A station took a new clip since the last `take_changed`.
     changed: bool,
 }
 impl Station {
-    fn select(
-        &mut self,
-        was_music: bool,
-        calendar: [u8; 2],
-        ranges: &[[u8; 4]; 2],
-        reset: bool,
-    ) -> Option<Selected> {
+    fn select(&mut self, was_music: bool, reset: bool) -> Option<Selected> {
         let music = if was_music {
             self.talk.is_empty()
         } else {
@@ -99,11 +90,7 @@ impl Station {
             if !reset {
                 return None;
             }
-            for (i, r) in recordings.iter().enumerate() {
-                if holiday(r.holiday, calendar, ranges) {
-                    bag.push(i);
-                }
-            }
+            bag.extend(0..recordings.len());
         }
         if bag.is_empty() {
             return None;
@@ -113,26 +100,24 @@ impl Station {
         Some(Selected { recording, music })
     }
     /// True when the station takes a new clip.
-    fn advance(&mut self, seconds: f64, calendar: [u8; 2], ranges: &[[u8; 4]; 2]) -> bool {
+    fn advance(&mut self, seconds: f64) -> bool {
         if self.source.custom {
             return false;
         }
         let (current, changed) = match self.current {
             None => {
-                let current = self.select(self.source.initial_music, calendar, ranges, true);
+                let current = self.select(self.source.initial_music, true);
                 (current, current.is_some())
             }
             Some(s) if seconds - self.start >= s.recording.duration => {
-                let current = self
-                    .next
-                    .or_else(|| self.select(s.music, calendar, ranges, true));
+                let current = self.next.or_else(|| self.select(s.music, true));
                 (current, true)
             }
             Some(_) => return false,
         };
         self.current = current;
         self.start = seconds;
-        self.next = current.and_then(|s| self.select(s.music, calendar, ranges, false));
+        self.next = current.and_then(|s| self.select(s.music, false));
         changed
     }
     /// Source `radioCH.GetCurrentIndex`: talk index, or talk count plus music index. -1 for none.
@@ -195,25 +180,6 @@ fn xorshift(random: &mut u32) -> u32 {
     *random ^= *random >> 17;
     *random ^= *random << 5;
     *random
-}
-fn holiday(value: u8, calendar: [u8; 2], ranges: &[[u8; 4]; 2]) -> bool {
-    if value == 0 {
-        return true;
-    }
-    ranges
-        .get(usize::from(value - 1))
-        .is_some_and(|&range| in_holiday(calendar, range))
-}
-/// Source `mainscript.CheckHoliday` for one start and end date, both inclusive.
-pub fn in_holiday([month, day]: [u8; 2], [sm, sd, em, ed]: [u8; 4]) -> bool {
-    let date = u16::from(month) * 100 + u16::from(day);
-    let start = u16::from(sm) * 100 + u16::from(sd);
-    let end = u16::from(em) * 100 + u16::from(ed);
-    if start <= end {
-        (start..=end).contains(&date)
-    } else {
-        date >= start || date <= end
-    }
 }
 impl RadioState {
     pub fn new(
@@ -305,16 +271,12 @@ impl RadioState {
 }
 
 impl RadioBroadcasts {
-    pub fn new(
-        reference: &RadioAudioReference,
-        clips: &[AudioClipReference],
-        calendar: [u8; 2],
-    ) -> Self {
+    pub fn new(reference: &RadioAudioReference, clips: &[AudioClipReference]) -> Self {
         let stations = reference
             .stations
             .iter()
             .map(|s| {
-                let recordings = |ids: &[u32], gains: &[f32], holidays: &[u8]| {
+                let recordings = |ids: &[u32], gains: &[f32]| {
                     ids.iter()
                         .enumerate()
                         .map(|(i, &clip)| Recording {
@@ -325,12 +287,11 @@ impl RadioBroadcasts {
                                 .expect("validated radio clip")
                                 .source_duration_seconds,
                             gain: gains.get(i).copied().filter(|&v| v != 0.).unwrap_or(1.),
-                            holiday: holidays[i],
                         })
                         .collect::<Vec<_>>()
                 };
-                let music = recordings(&s.music, &s.music_gains, &s.music_holidays);
-                let talk = recordings(&s.talk, &s.talk_gains, &s.talk_holidays);
+                let music = recordings(&s.music, &s.music_gains);
+                let talk = recordings(&s.talk, &s.talk_gains);
                 Station {
                     source: s.clone(),
                     music_bag: Vec::with_capacity(music.len()),
@@ -349,8 +310,6 @@ impl RadioBroadcasts {
             fm_tolerance: reference.fm_tolerance,
             am_tolerance: reference.am_tolerance,
             custom_gain: reference.custom_gain,
-            holiday_ranges: reference.holiday_ranges,
-            calendar,
             remote: false,
             changed: false,
         }
@@ -388,16 +347,13 @@ impl RadioBroadcasts {
             station.apply_host(index, offset, seconds);
         }
     }
-    pub fn calendar(&mut self, month: u8, day: u8) {
-        self.calendar = [month, day];
-    }
     /// mainscript.RADIO. Every station advances once per step, heard or not.
     pub fn advance(&mut self, game_seconds: f64) {
         if self.remote {
             return;
         }
         for s in &mut self.stations {
-            self.changed |= s.advance(game_seconds, self.calendar, &self.holiday_ranges);
+            self.changed |= s.advance(game_seconds);
         }
     }
     /// radioscript.SetRadio gains for one radio.
@@ -482,13 +438,9 @@ impl RadioBroadcasts {
                 let music = station
                     .current
                     .map_or(station.source.initial_music, |s| s.music);
-                station.current = station
-                    .next
-                    .or_else(|| station.select(music, self.calendar, &self.holiday_ranges, true));
+                station.current = station.next.or_else(|| station.select(music, true));
                 station.start = seconds;
-                station.next = station.current.and_then(|s| {
-                    station.select(s.music, self.calendar, &self.holiday_ranges, false)
-                });
+                station.next = station.current.and_then(|s| station.select(s.music, false));
             }
             iteration += 1;
         }

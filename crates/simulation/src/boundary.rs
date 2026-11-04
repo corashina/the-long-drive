@@ -1095,8 +1095,6 @@ pub struct SimCommand {
     pub player_settings: Option<crate::reference::PlayerSettings>,
     /// Source `BOldHeatHaze`.
     pub old_heat_haze: bool,
-    /// Local month and day.
-    pub calendar: [u8; 2],
     /// The browser asks for a world measurement.
     pub measure: bool,
     pub world: WorldCommand,
@@ -1184,7 +1182,6 @@ impl SimCommand {
         self.settings = next.settings.or(self.settings);
         self.options = next.options.or(self.options);
         self.player_settings = next.player_settings.or(self.player_settings);
-        self.calendar = next.calendar;
         self.old_heat_haze = next.old_heat_haze;
         self.measure |= next.measure;
         self.world.merge(next.world);
