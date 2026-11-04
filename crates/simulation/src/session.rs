@@ -20,10 +20,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(
-        reference: Arc<ReferenceManifest>,
-        init: SimInit,
-    ) -> Result<Self, ReferenceError> {
+    pub fn new(reference: Arc<ReferenceManifest>, init: SimInit) -> Result<Self, ReferenceError> {
         let source = SourceStamp::new(&reference, init.manifest_sha256);
         let mut load_error = None;
         let saved = (!init.save.is_empty()).then(|| {
