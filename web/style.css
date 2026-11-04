@@ -3,7 +3,7 @@
 @font-face {font-family:"Overpass";src:url("./fonts/Overpass-latin-ext.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap;ascent-override:88%;descent-override:30%;line-gap-override:0%;unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
 @font-face {font-family:"Overpass";src:url("./fonts/Overpass-cyrillic.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap;ascent-override:88%;descent-override:30%;line-gap-override:0%;unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;}
 /* The menu looks like a desert highway. Panels are warm asphalt, text is sun-bleached, and road paint yellow is the one accent.
-   The Overpass font comes from the Highway Gothic road sign letters. A dashed lane line marks each menu window. */
+   The Overpass font comes from the Highway Gothic road sign letters. A dashed lane line marks each menu window, but not the start menu. */
 :root {--asphalt:#272420;--asphalt-glass:#272420d9;--shoulder:#34302b;--seam:#4a443c;--seam-soft:#34302b;--dust:#a39783;--bleach:#efe6d2;--paint:#f2b230;--paint-hi:#ffc54f;--ink:#211a0d;
  --menu-font:"Overpass","Liberation Sans",Arial,sans-serif;--lane:repeating-linear-gradient(90deg,var(--paint) 0 34px,transparent 34px 58px);}
 :root {color-scheme:dark;font-family:Arial,sans-serif;color:var(--bleach);background:#000;}
@@ -43,9 +43,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 /* The road view stays clear. Only the bottom darkens under the buttons. */
 #menu.road-view::before {content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(transparent 70%,#0008);}
 #menu.road-view :is(#status,#capture-error) {left:50%;right:auto;width:min(900px,calc(100% - 32px));transform:translateX(-50%);text-align:center;}
-.start-menu {position:absolute;z-index:2;left:50%;bottom:clamp(24px,7vh,72px);display:grid;justify-items:center;gap:22px;padding-top:30px;width:min(760px,calc(100% - 32px));transform:translateX(-50%);animation:start-in .7s ease-out .15s backwards;}
-/* The lane line runs under the car and fades out at both sides. */
-.start-menu::before {content:"";position:absolute;left:0;right:0;top:0;height:4px;background:var(--lane);mask:linear-gradient(90deg,transparent,#000 25%,#000 75%,transparent);-webkit-mask:linear-gradient(90deg,transparent,#000 25%,#000 75%,transparent);}
+.start-menu {position:absolute;z-index:2;left:50%;bottom:clamp(24px,7vh,72px);display:grid;justify-items:center;gap:22px;width:min(760px,calc(100% - 32px));transform:translateX(-50%);animation:start-in .7s ease-out .15s backwards;}
 @keyframes start-in {from {opacity:0;transform:translate(-50%,18px);}}
 .start-menu button {position:static;text-shadow:none;transition:background-color .15s,border-color .15s,color .15s;}
 .start-menu button:hover:enabled {filter:none;}
