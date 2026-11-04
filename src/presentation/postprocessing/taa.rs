@@ -1,4 +1,4 @@
-//! Source TAA. The history resolve runs after the scene copy. Histogram, bloom and Uber read its output.
+//! Source TAA. It reads the resolved scene and stops NaNs itself. Histogram, bloom and Uber read its output.
 use crate::presentation::render_targets::HDR_FORMAT;
 use crate::reference::postprocessing::TaaSettings;
 use bevy::prelude::*;
@@ -37,6 +37,8 @@ impl TaaPass {
         motion: &TextureView,
         extent: [u32; 2],
         settings: TaaSettings,
+        // Zero each scene texel with a NaN component, as the source copy did.
+        stop_nan: bool,
         previous: Option<Self>,
     ) -> Result<Self, String> {
         let [width, height] = extent;
@@ -86,6 +88,11 @@ impl TaaPass {
                     fragment: Some(FragmentState {
                         shader: shader.clone(),
                         entry_point: Some(entry.into()),
+                        shader_defs: if stop_nan {
+                            vec!["STOP_NAN".into()]
+                        } else {
+                            vec![]
+                        },
                         targets: vec![
                             Some(ColorTargetState {
                                 format: HDR_FORMAT,
