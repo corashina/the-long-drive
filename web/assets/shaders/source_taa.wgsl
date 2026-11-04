@@ -1,9 +1,11 @@
 #import source_float_store::half4
 // Installed TemporalAntialiasing perspective pass0/blob3.
+// Below 100% scene scale the port upscales: output and history have the native extent. The source has no upscale.
 struct TaaParams {
-    extent: vec4<f32>, // width, height, reciprocal width, reciprocal height
+    extent: vec4<f32>, // output width, height, reciprocal width, reciprocal height
     jitter: vec4<f32>,
     blend: vec4<f32>, // stationary, motion, amplification, sharpness
+    source: vec4<f32>, // scene width, height, reciprocal width, reciprocal height
 };
 @group(0) @binding(0) var<uniform> params: TaaParams;
 @group(0) @binding(1) var source_color: texture_2d<f32>;
@@ -17,17 +19,18 @@ fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     return vec4(uv*2.0-vec2(1.0),0.0,1.0);
 }
 fn clamped(uv: vec2<f32>) -> vec2<f32> { return clamp(uv,vec2(0.0),vec2(1.0)); }
+fn upscaling() -> bool { return any(params.extent.xy!=params.source.xy); }
 #ifdef STOP_NAN
 // Installed CopyStd pass1 ran before TAA. It zeroes all RGBA of a texel with a NaN component.
 fn texel(pixel: vec2<i32>) -> vec4<f32> {
-    let last=vec2<i32>(params.extent.xy)-vec2(1);
+    let last=vec2<i32>(params.source.xy)-vec2(1);
     let color=textureLoad(source_color,clamp(pixel,vec2(0),last),0);
     if any((bitcast<vec4<u32>>(color)&vec4(0x7fffffffu))>vec4(0x7f800000u)) { return vec4(0.0); }
     return color;
 }
 // Bilinear clamp sample of the NaN-stopped texels.
 fn scene(uv: vec2<f32>) -> vec4<f32> {
-    let position=uv*params.extent.xy-vec2(0.5);
+    let position=uv*params.source.xy-vec2(0.5);
     let corner=floor(position);
     let weight=position-corner;
     let pixel=vec2<i32>(corner);
@@ -38,12 +41,12 @@ fn scene(uv: vec2<f32>) -> vec4<f32> {
 fn scene_texel(position: vec2<f32>) -> vec4<f32> { return texel(vec2<i32>(position)); }
 #else
 fn scene(uv: vec2<f32>) -> vec4<f32> { return textureSampleLevel(source_color,linear_clamp,uv,0.0); }
-fn scene_texel(position: vec2<f32>) -> vec4<f32> { return scene(position*params.extent.zw); }
+fn scene_texel(position: vec2<f32>) -> vec4<f32> { return scene(position*params.source.zw); }
 #endif
 fn closest_fragment(uv: vec2<f32>) -> vec2<f32> {
     let offsets=array<vec2<f32>,4>(vec2(-1.0,-1.0),vec2(1.0,-1.0),vec2(-1.0,1.0),vec2(1.0,1.0));
-    let last=vec2<i32>(params.extent.xy)-vec2(1);
-    let pixel=vec2<i32>(uv*params.extent.xy);
+    let last=vec2<i32>(params.source.xy)-vec2(1);
+    let pixel=vec2<i32>(uv*params.source.xy);
     var selected=vec2(0.0);
     var depth=textureLoad(source_depth,clamp(pixel,vec2(0),last),0);
     for(var index=0u;index<4u;index++) {
@@ -52,7 +55,7 @@ fn closest_fragment(uv: vec2<f32>) -> vec2<f32> {
         // Installed D3D reversed depth uses >=. Equal depths select the later corner.
         if sample_depth>=depth { selected=offset;depth=sample_depth; }
     }
-    return uv+selected*params.extent.zw;
+    return uv+selected*params.source.zw;
 }
 fn blend_weight(motion_length:f32)->f32 {
     let weight=fma(motion_length*params.blend.z,params.blend.y-params.blend.x,params.blend.x);
@@ -70,8 +73,8 @@ fn resolve(@builtin(position) position:vec4<f32>)->Resolved {
     let motion_length=length(motion);
     var history=textureSampleLevel(history_color,linear_clamp,clamped(uv-motion),0.0);
     let center_uv=clamped(uv-params.jitter.xy);
-    let top=scene(clamped(center_uv-params.extent.zw*0.5));
-    let bottom=scene(clamped(center_uv+params.extent.zw*0.5));
+    let top=scene(clamped(center_uv-params.source.zw*0.5));
+    let bottom=scene(clamped(center_uv+params.source.zw*0.5));
     var color=scene(center_uv);
     let corners=fma(top+bottom,vec4(4.0),-color*2.0);
     let sharpen=fma(-corners,vec4(0.166667),color)*params.blend.w;
@@ -88,11 +91,21 @@ fn resolve(@builtin(position) position:vec4<f32>)->Resolved {
     let ratios=abs(extents/(offset+vec3(0.0001)));
     let distance=min(min(min(ratios.x,ratios.y),ratios.z),1.0);
     history=vec4(fma(offset,vec3(distance),center),history.a);
-    color=clamp(fma(vec4(blend_weight(motion_length)),history-color,color),vec4(0.0),vec4(65472.0));
+    var weight=blend_weight(motion_length);
+    if upscaling() {
+        // The nearest jittered scene texel. Its weight falls with its distance to the output pixel centre.
+        let sample_uv=(floor(center_uv*params.source.xy)+vec2(0.5))*params.source.zw;
+        color=clamp(scene(sample_uv),vec4(0.0),vec4(65472.0));
+        let offset_pixels=(uv-(sample_uv+params.jitter.xy))*params.extent.xy;
+        let confidence=max(exp(-2.77*dot(offset_pixels,offset_pixels)),0.2);
+        weight=1.0-(1.0-weight)*confidence;
+    }
+    color=clamp(fma(vec4(weight),history-color,color),vec4(0.0),vec4(65472.0));
     var output:Resolved;output.destination=half4(color);output.history=half4(color);return output;
 }
 // Source CheckHistory copies current color when the history is invalid.
 @fragment
 fn seed(@builtin(position) position:vec4<f32>)->@location(0) vec4<f32> {
+    if upscaling() { return half4(scene(position.xy*params.extent.zw)); }
     return half4(scene_texel(position.xy));
 }

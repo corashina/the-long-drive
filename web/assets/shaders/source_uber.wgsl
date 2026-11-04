@@ -92,7 +92,9 @@ fn heat_haze(uv:vec2<f32>,position:vec2<f32>)->vec2<f32> {
   +vec2(sin(params.haze_up.y*time),-params.haze_up.x*time);
  amount=fma(textureSample(haze_noise,linear_repeat,up_uv).x,params.haze_up.z,amount);
  // Reversed depth: 0 is far. Near pixels below 1 - _MinDist do not move.
- let depth=textureLoad(camera_depth,vec2<i32>(position),0).x;
+ // TAA upscaling makes the output larger than the depth.
+ let ratio=vec2<f32>(textureDimensions(camera_depth))/params.extent.xy;
+ let depth=textureLoad(camera_depth,vec2<i32>((floor(position)+.5)*ratio),0).x;
  amount=saturate((1.-depth)-params.haze.y)*amount*params.haze.z;
  return flip(fma(vec2(amount),vec2(params.haze.x),unity_uv));
 }
