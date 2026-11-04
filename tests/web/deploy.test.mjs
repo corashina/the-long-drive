@@ -5,6 +5,8 @@ import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {gzipSync} from 'node:zlib';
 import {stageSite} from '../../scripts/deploy.mjs';
+import {WASM} from '../../scripts/prepare-http-compression.mjs';
+import {onRequestGet} from '../../functions/[[path]].js';
 
 async function put(root, path, text = '') {
   await mkdir(dirname(join(root, path)), {recursive: true});
@@ -23,8 +25,10 @@ async function fixture(t) {
   await put(web, 'assets/reference/manifest.json.gz', gzipSync(JSON.stringify(manifest)));
   await put(web, 'index.html', '<html>');
   await put(web, 'main.js', "import('./pkg/the_long_slop.js');fetch('./pkg/the_long_slop_bg.wasm');");
-  await put(web, 'pkg/the_long_slop.js', 'js');
-  await put(web, 'pkg/the_long_slop_bg.wasm');
+  for (const path of WASM) {
+    await put(web, path, path);
+    await put(web, path.replace(/_bg\.wasm$/, '.js'), path);
+  }
   await put(web, 'pkg/the_long_slop.d.ts');
   await put(web, 'assets/runtime/current/world/a.bc', 'a');
   await put(web, 'assets/runtime/current/world/unused.bc', 'b');
@@ -33,7 +37,7 @@ async function fixture(t) {
   await put(web, 'assets/library/big.bin', 'e');
   await put(web, 'assets/reference/material-evidence.json', 'f');
   await put(web, 'assets/reference/library-selection.json', 'g');
-  return {web, site: join(root, 'site')};
+  return {web, site: join(root, 'site'), compressionRoot: join(root, 'compression')};
 }
 
 // The package folder in the staged main.js.
@@ -42,9 +46,8 @@ async function packageFolder(site) {
 }
 
 test('stages the app and only the catalog files of the current package', async t => {
-  const {web, site} = await fixture(t);
-  const {large} = await stageSite({webRoot: web, siteRoot: site});
-  assert.deepEqual(large, []);
+  const {web, site, compressionRoot} = await fixture(t);
+  await stageSite({webRoot: web, siteRoot: site, compressionRoot});
   for (const path of ['index.html', 'assets/reference/manifest.json.gz', 'assets/runtime/current/world/a.bc']) {
     assert.ok(await exists(join(site, path)), path);
   }
@@ -57,40 +60,71 @@ test('stages the app and only the catalog files of the current package', async t
 });
 
 test('puts a content hash in the package paths', async t => {
-  const {web, site} = await fixture(t);
-  await stageSite({webRoot: web, siteRoot: site});
+  const {web, site, compressionRoot} = await fixture(t);
+  await stageSite({webRoot: web, siteRoot: site, compressionRoot});
   const folder = await packageFolder(site);
   assert.equal(await readFile(join(site, 'main.js'), 'utf8'), `import('./${folder}/the_long_slop.js');fetch('./${folder}/the_long_slop_bg.wasm');`);
-  assert.deepEqual(await readdir(join(site, 'pkg')), [folder.slice(4)]);
+  assert.equal((await readdir(join(site, 'pkg'))).length, WASM.length);
   assert.deepEqual((await readdir(join(site, folder))).sort(), ['the_long_slop.js', 'the_long_slop_bg.wasm']);
   await writeFile(join(web, 'pkg/the_long_slop_bg.wasm'), 'new');
-  await stageSite({webRoot: web, siteRoot: site});
+  await stageSite({webRoot: web, siteRoot: site, compressionRoot});
   assert.notEqual(await packageFolder(site), folder);
 });
 
 test('refuses an import of a missing package file', async t => {
-  const {web, site} = await fixture(t);
-  await put(web, 'road-worker.js', "import init from './pkg/road_worker.js';");
-  await assert.rejects(stageSite({webRoot: web, siteRoot: site}), /road-worker\.js imports \.\/pkg\/road_worker\.js/);
+  const {web, site, compressionRoot} = await fixture(t);
+  await put(web, 'other-worker.js', "import init from './pkg/other_worker.js';");
+  await assert.rejects(stageSite({webRoot: web, siteRoot: site, compressionRoot}), /other-worker\.js imports \.\/pkg\/other_worker\.js/);
 });
 
-test('routes a file over the Pages size limit to R2', async t => {
-  const {web, site} = await fixture(t);
+test('routes the WASM files to R2 with Brotli and a file over the Pages size limit raw', async t => {
+  const {web, site, compressionRoot} = await fixture(t);
   await truncate(join(web, 'pkg/the_long_slop_bg.wasm'), 25 * 1024 * 1024 + 1);
-  const {large} = await stageSite({webRoot: web, siteRoot: site});
+  const {uploads} = await stageSite({webRoot: web, siteRoot: site, compressionRoot});
   const path = `${await packageFolder(site)}/the_long_slop_bg.wasm`;
-  assert.deepEqual(large.map(({path, source}) => [path, source]), [[path, join(web, 'pkg/the_long_slop_bg.wasm')]]);
+  assert.deepEqual(uploads[0], {path, source: join(web, 'pkg/the_long_slop_bg.wasm'), key: uploads[0].key});
+  assert.equal(uploads.length, WASM.length + 1);
+  for (const {key, source} of uploads) {
+    assert.match(key, /^[a-f0-9]{64}$/);
+    assert.ok(await exists(source), source);
+  }
   const keys = JSON.parse(await readFile(join(site, 'r2.json'), 'utf8'));
-  assert.deepEqual(keys, {[`/${path}`]: large[0].key});
-  assert.match(large[0].key, /^[a-f0-9]{64}$/);
+  assert.equal(Object.keys(keys).length, WASM.length);
+  assert.deepEqual(Object.keys(keys[`/${path}`]), ['raw', 'br']);
+  for (const [route, entry] of Object.entries(keys)) {
+    if (route === `/${path}`) continue;
+    assert.deepEqual(Object.keys(entry), ['br']);
+    assert.ok(await exists(join(site, route)), route);
+  }
   assert.ok(!await exists(join(site, path)));
   const routes = JSON.parse(await readFile(join(site, '_routes.json'), 'utf8'));
-  assert.deepEqual(routes.include, [`/${path}`]);
+  assert.deepEqual(routes.include, Object.keys(keys));
+});
+
+test('the function sends Brotli only to clients that accept it', async () => {
+  const object = key => ({body: key, size: key.length, httpEtag: `"${key}"`,
+    writeHttpMetadata: headers => headers.set('Content-Type', 'application/wasm')});
+  const env = {
+    LARGE_FILES: {get: async key => object(key)},
+    ASSETS: {fetch: async url => String(url).endsWith('/r2.json')
+      ? Response.json({'/pkg/a.wasm': {raw: 'raw', br: 'brotli'}, '/pkg/b.wasm': {br: 'small'}})
+      : new Response('site')},
+  };
+  const get = (path, encoding) => onRequestGet({env, request: new Request(`https://site${path}`, {headers: {'Accept-Encoding': encoding}})});
+  const brotli = await get('/pkg/a.wasm', 'gzip, deflate, br, zstd');
+  assert.equal(brotli.headers.get('Content-Encoding'), 'br');
+  assert.equal(await brotli.text(), 'brotli');
+  const raw = await get('/pkg/a.wasm', 'gzip, br;q=0');
+  assert.equal(raw.headers.get('Content-Encoding'), null);
+  assert.equal(await raw.text(), 'raw');
+  const site = await get('/pkg/b.wasm', 'gzip');
+  assert.equal(await site.text(), 'site');
+  assert.match(site.headers.get('Vary'), /Accept-Encoding/);
 });
 
 test('refuses a file over the Pages size limit without a content hash', async t => {
-  const {web, site} = await fixture(t);
+  const {web, site, compressionRoot} = await fixture(t);
   await put(web, 'big.bin');
   await truncate(join(web, 'big.bin'), 25 * 1024 * 1024 + 1);
-  await assert.rejects(stageSite({webRoot: web, siteRoot: site}), /big\.bin is over 25 MiB/);
+  await assert.rejects(stageSite({webRoot: web, siteRoot: site, compressionRoot}), /big\.bin is over 25 MiB/);
 });
