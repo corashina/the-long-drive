@@ -980,7 +980,7 @@ pub enum Change {
     /// The answer to a browser save request.
     SaveResult {
         id: u32,
-        kind: String,
+        kind: crate::save_requests::SaveKind,
         payload: String,
         error: String,
     },
@@ -1107,9 +1107,9 @@ pub struct SimCommand {
 /// One save input of the renderer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SaveCommand {
-    /// A browser request: JSON with id, kind and payload.
+    /// A browser request that the renderer parsed.
     Request {
-        json: String,
+        request: crate::save_requests::SaveRequest,
         /// Game mode of a new world, from the browser menu.
         mode: crate::world::GameMode,
         /// Renderer scene epoch. A fresh session commits only in its epoch.

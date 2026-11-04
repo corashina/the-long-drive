@@ -1,7 +1,6 @@
 use super::*;
-use serde::Deserialize;
-use serde_json::value::RawValue;
 use simulation::boundary::{Change, SaveCommand};
+use simulation::save_requests::{SaveAction, SaveKind, SaveRequest};
 
 /// The save request that waits for the simulation.
 enum Pending {
@@ -15,20 +14,6 @@ pub struct SaveRequests {
     pending: Option<Pending>,
     /// Save input of the next command.
     commands: Vec<SaveCommand>,
-}
-#[derive(Deserialize)]
-struct Request {
-    id: u32,
-    kind: String,
-    #[serde(default)]
-    payload: Option<Box<RawValue>>,
-}
-impl Request {
-    /// The prepared request that a Commit or Discard names.
-    fn prepared(&self) -> Option<u32> {
-        let payload = self.payload.as_ref()?;
-        serde_json::from_str(payload.get()).ok()
-    }
 }
 
 impl SaveRequests {
@@ -48,16 +33,17 @@ pub fn dispatch(world: &mut World) {
         if !game_has_save_request() {
             return;
         }
-        let text = game_save_request();
-        let request: Request = match serde_json::from_str(&text) {
+        let request = match SaveRequest::parse(&game_save_request()) {
             Ok(request) => request,
-            Err(error) => {
-                game_save_result(0, "Invalid", "", &error.to_string());
+            Err(invalid) => {
+                game_save_result(invalid.id, invalid.kind, "", &invalid.message);
                 return;
             }
         };
-        if let Err(error) = request_input(world, &mut requests, &request, text) {
-            game_save_result(request.id, &request.kind, "", &error.to_string());
+        let kind = request.kind().name();
+        let id = request.id;
+        if let Err(error) = request_input(world, &mut requests, request) {
+            game_save_result(id, kind, "", &error.to_string());
         }
     });
 }
@@ -66,32 +52,31 @@ pub fn dispatch(world: &mut World) {
 fn request_input(
     world: &mut World,
     requests: &mut SaveRequests,
-    request: &Request,
-    json: String,
+    request: SaveRequest,
 ) -> Result<(), crate::save::SaveError> {
     let invalid = |message: &str| crate::save::SaveError::ReconstructionFailure(message.into());
-    match request.kind.as_str() {
-        "Discard" => {
+    match request.action {
+        SaveAction::Discard(prepared) => {
             if let Some(Pending::Fresh(id) | Pending::Waiting { id }) = requests.pending
-                && Some(id) == request.prepared()
+                && id == prepared
             {
                 requests.commands.push(SaveCommand::Cancel(id));
                 requests.pending = None;
             }
-            game_save_result(request.id, &request.kind, "", "");
+            game_save_result(request.id, SaveKind::Discard.name(), "", "");
             return Ok(());
         }
-        "PrepareNewGame" => {
+        SaveAction::PrepareNewGame(_) => {
             if requests.pending.is_some() {
                 return Err(invalid("A prepared session is pending"));
             }
             requests.pending = Some(Pending::Waiting { id: request.id });
         }
-        _ => {}
+        SaveAction::Capture(_) | SaveAction::Commit(_) => {}
     }
     let reference = &world.resource::<RuntimeReference>().0;
     requests.commands.push(SaveCommand::Request {
-        json,
+        request,
         mode: super::game_mode(reference),
         epoch: world
             .resource::<crate::presentation::view_frame::SourceSceneEpoch>()
@@ -110,12 +95,12 @@ fn results(world: &mut World, requests: &mut SaveRequests) {
             error,
         } = change
         {
-            game_save_result(*id, kind, payload, error);
+            game_save_result(*id, kind.name(), payload, error);
             match requests.pending {
                 Some(Pending::Waiting { id: waiting }) if waiting == *id => {
                     requests.pending = error.is_empty().then_some(Pending::Fresh(*id));
                 }
-                Some(Pending::Fresh(_)) if kind == "Commit" && error.is_empty() => {
+                Some(Pending::Fresh(_)) if *kind == SaveKind::Commit && error.is_empty() => {
                     requests.pending = None;
                 }
                 _ => {}
