@@ -324,6 +324,7 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
                 (fill_frame, prepare_world, sync_instances).chain(),
                 save::dispatch,
                 sync_imported,
+                debug_caps,
                 presentation::reference::sync_home_cable,
                 (
                     presentation::consumables::warm_up,
@@ -888,6 +889,33 @@ pub(crate) fn sync_imported(
         time.delta_secs() * state.time_scale
     };
     presentation::reference::sync_caps(&frame.frame, dt, &mut caps, &mut visibility);
+}
+
+// TEMP cap diagnostic. Not for merge.
+fn debug_caps(
+    frame: Res<SimFrameResource>,
+    time: Res<Time<Real>>,
+    mut last: Local<f32>,
+    caps: Query<(Entity, &presentation::reference::CapVisual, &Transform, &GlobalTransform, &InheritedVisibility, Option<&Children>)>,
+    meshes: Query<(&GlobalTransform, &ViewVisibility, &InheritedVisibility, Option<&Mesh3d>, Option<&Children>)>,
+) {
+    let now = time.elapsed_secs();
+    if now - *last < 2.0 {
+        return;
+    }
+    *last = now;
+    let mut n = 0;
+    for (entity, cap, t, g, inherited, children) in &caps {
+        n += 1;
+        let mut kids = Vec::new();
+        for &c in children.into_iter().flatten() {
+            if let Ok((cg, view, inh, mesh, grand)) = meshes.get(c) {
+                kids.push(format!("{c:?} mesh {} view {} inh {} at {:?} grand {}", mesh.is_some(), view.get(), inh.get(), cg.translation(), grand.map_or(0, |g| g.len())));
+            }
+        }
+        info!("CAPDBG {entity:?} opening {:?} valve {} local {:?} {:?} global {:?} inh {} kids [{}]", cap.opening, frame.frame.valve(cap.opening), t.translation, t.rotation, g.translation(), inherited.get(), kids.join("; "));
+    }
+    info!("CAPDBG caps {n} valves {:?}", frame.frame.valves);
 }
 
 /// Applies the structure views of the new frame.
