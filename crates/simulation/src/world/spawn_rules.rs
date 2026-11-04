@@ -3,7 +3,7 @@ use crate::reference::WorldFields;
 use crate::reference::{
     ReferenceError, SourceId, Transform, WorldInitField, WorldReference, WorldValue,
 };
-use std::collections::HashMap;
+use bevy_platform::collections::HashMap;
 #[derive(Clone, Copy)]
 pub enum Fields<'a> {
     Record(&'a WorldFields),

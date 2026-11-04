@@ -359,6 +359,16 @@ pub struct PrepareNextFrameAssets<A: ErasedRenderAsset> {
     assets: Vec<(AssetId<A::SourceAsset>, A::SourceAsset)>,
 }
 
+impl<A: ErasedRenderAsset> PrepareNextFrameAssets<A> {
+    /// Returns a source asset that waits for a later prepare.
+    pub fn get(&self, id: AssetId<A::SourceAsset>) -> Option<&A::SourceAsset> {
+        self.assets
+            .iter()
+            .find(|(queued, _)| *queued == id)
+            .map(|(_, asset)| asset)
+    }
+}
+
 impl<A: ErasedRenderAsset> Default for PrepareNextFrameAssets<A> {
     fn default() -> Self {
         Self {

@@ -9,7 +9,11 @@ use crate::ownership::upload_receipt::UploadReceipt;
 use crate::{
     presentation::materials::RenderingState, reference::ReferenceError, world::RendererWorld,
 };
+use bevy::material::{MaterialProperties, labels::ShaderLabel};
+use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::renderer::RenderQueue;
+use bevy::render::{erased_render_asset::PrepareNextFrameAssets, renderer::RenderDevice};
+use bevy::shader::ShaderRef;
 use bevy::{
     asset::{AssetId, UntypedAssetId},
     ecs as bevy_ecs,
@@ -29,6 +33,7 @@ use bevy::{
     },
     shader::ShaderCacheError,
 };
+use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 
 fn arc_bytes<T>() -> usize {
@@ -45,6 +50,7 @@ struct PipelineJob {
     mesh: AssetId<Mesh>,
     material: UntypedAssetId,
     material_type: &'static str,
+    early: EarlyProperties,
     shadows: bool,
     state: RenderingState,
     waiting: &'static str,
@@ -153,7 +159,10 @@ impl WorldPipelines {
         mesh: &Handle<Mesh>,
         material: &Handle<M>,
         shadows: bool,
-    ) -> Result<Option<PipelineTicket>, ReferenceError> {
+    ) -> Result<Option<PipelineTicket>, ReferenceError>
+    where
+        M::Data: PartialEq + Eq + Hash + Clone,
+    {
         self.request(stream, ledger, Some(parent), mesh, material, shadows)
     }
     /// Without a parent, the request is an independent operation.
@@ -165,7 +174,10 @@ impl WorldPipelines {
         mesh: &Handle<Mesh>,
         material: &Handle<M>,
         shadows: bool,
-    ) -> Result<Option<PipelineTicket>, ReferenceError> {
+    ) -> Result<Option<PipelineTicket>, ReferenceError>
+    where
+        M::Data: PartialEq + Eq + Hash + Clone,
+    {
         if let Some(parent) = parent.as_ref() {
             parent.validate(stream)?;
         }
@@ -270,6 +282,7 @@ impl WorldPipelines {
             mesh: mesh.id(),
             material: material.id().untyped(),
             material_type: std::any::type_name::<M>(),
+            early: early_properties::<M>,
             shadows,
             state: RenderingState::Loading,
             waiting: "queued",
@@ -348,31 +361,35 @@ fn ticket_bytes() -> usize {
 
 // The keys live only on the render stack, then freeze into the dispatched IDs.
 type PairKeys = crate::ownership::renderer_pending::PipelineKeys<(MeshPipelineKey, bool)>;
-fn pair_keys(world: &World, job: &mut PipelineJob) -> Result<Option<PairKeys>, ReferenceError> {
-    if job.material.type_id()
-        == std::any::TypeId::of::<crate::presentation::materials::SourceMaterial>()
-        && !crate::presentation::caster_material::ready(world, job.material.typed())
-    {
-        job.waiting = "caster material";
-        return Ok(None);
-    }
+/// The keys need the material properties, but not its textures. A material that waits for its
+/// textures gives early properties, so its pipelines compile while the textures upload.
+fn pair_keys(
+    world: &World,
+    job: &mut PipelineJob,
+) -> Result<Option<(PairKeys, Arc<MaterialProperties>)>, ReferenceError> {
     let Some(mesh) = world.resource::<RenderAssets<RenderMesh>>().get(job.mesh) else {
         job.waiting = "mesh";
         return Ok(None);
     };
-    let Some(material) = world
+    let shared = match world
         .resource::<ErasedRenderAssets<PreparedMaterial>>()
         .get(job.material)
-    else {
-        job.waiting = "material";
-        return Ok(None);
+    {
+        Some(material) => material.properties.clone(),
+        None => {
+            let Some(properties) = (job.early)(world, job.material) else {
+                job.waiting = "material";
+                return Ok(None);
+            };
+            properties
+        }
     };
     let views = world.resource::<ViewKeyCache>();
     if views.values().next().is_none() {
         job.waiting = "view keys";
         return Ok(None);
     }
-    let properties = &material.properties;
+    let properties = &*shared;
     let mesh_bits = MeshPipelineKey::from_bits_retain(mesh.key_bits.bits());
     let mut keys = PairKeys::new();
     for view_key in views.values().copied() {
@@ -411,7 +428,7 @@ fn pair_keys(world: &World, job: &mut PipelineJob) -> Result<Option<PairKeys>, R
             keys.push((key, true))?;
         }
     }
-    Ok(Some(keys))
+    Ok(Some((keys, shared)))
 }
 fn compile(world: &mut World) {
     let Some(active) = world.get_resource::<WorldPipelines>().cloned() else {
@@ -455,10 +472,11 @@ fn compile(world: &mut World) {
                     break;
                 }
                 match pair_keys(world, &mut job) {
-                    Ok(Some(keys)) => match batch.select(Some(keys.len)) {
+                    Ok(Some((keys, properties))) => match batch.select(Some(keys.len)) {
                         Ok(true) => {
                             job.dispatched = true;
-                            batch.dispatched_keys += compile_pair(world, &mut job, Some(&keys));
+                            batch.dispatched_keys +=
+                                compile_pair(world, &mut job, Some((&keys, &properties)));
                             if job.physical.stopped()
                                 || matches!(job.state, RenderingState::Failed(_))
                             {
@@ -517,20 +535,18 @@ fn compile(world: &mut World) {
         }
     }
 }
-fn compile_pair(world: &mut World, job: &mut PipelineJob, keys: Option<&PairKeys>) -> usize {
+fn compile_pair(
+    world: &mut World,
+    job: &mut PipelineJob,
+    keys: Option<(&PairKeys, &Arc<MaterialProperties>)>,
+) -> usize {
     let mut dispatched = 0;
-    if let Some(keys) = keys {
+    if let Some((keys, properties)) = keys {
         let layout = world
             .resource::<RenderAssets<RenderMesh>>()
             .get(job.mesh)
             .unwrap()
             .layout
-            .clone();
-        let properties = world
-            .resource::<ErasedRenderAssets<PreparedMaterial>>()
-            .get(job.material)
-            .unwrap()
-            .properties
             .clone();
         for (mesh_key, shadow) in keys.iter() {
             let result = super::super::pipeline_ownership::specialize_base(world, |world| {
@@ -573,6 +589,21 @@ fn compile_pair(world: &mut World, job: &mut PipelineJob, keys: Option<&PairKeys
         }
     }
     if job.state != RenderingState::Loading {
+        return dispatched;
+    }
+    if world
+        .resource::<ErasedRenderAssets<PreparedMaterial>>()
+        .get(job.material)
+        .is_none()
+    {
+        job.waiting = "material";
+        return dispatched;
+    }
+    if job.material.type_id()
+        == std::any::TypeId::of::<crate::presentation::materials::SourceMaterial>()
+        && !crate::presentation::caster_material::ready(world, job.material.typed())
+    {
+        job.waiting = "caster material";
         return dispatched;
     }
     let published = world.resource::<PipelineCache>().pipelines().count();
@@ -687,4 +718,111 @@ pub(crate) fn physical_pipeline_state(
         ) => PhysicalPipelineState::Retryable,
         CachedPipelineState::Err(_) => PhysicalPipelineState::Failed,
     }
+}
+
+type EarlyProperties = fn(&World, UntypedAssetId) -> Option<Arc<MaterialProperties>>;
+
+/// Same properties as Bevy's material `prepare_asset`, for a material that waits for a later
+/// prepare. Draw functions and the render method only matter for queues, so they stay default.
+/// The pipeline key holds the same material key, so the later prepared material finds these
+/// pipelines in the specializer cache.
+fn early_properties<M: Material>(
+    world: &World,
+    id: UntypedAssetId,
+) -> Option<Arc<MaterialProperties>>
+where
+    M::Data: PartialEq + Eq + Hash + Clone,
+{
+    let material = world
+        .get_resource::<PrepareNextFrameAssets<MeshMaterial3d<M>>>()?
+        .get(id.typed::<M>())?;
+    let device = world.resource::<RenderDevice>();
+    let server = world.resource::<AssetServer>();
+    let mut properties = MaterialProperties {
+        alpha_mode: material.alpha_mode(),
+        depth_bias: material.depth_bias(),
+        reads_view_transmission_texture: material.reads_view_transmission_texture(),
+        material_layout: Some(M::bind_group_layout_descriptor(device)),
+        bindless: bevy::pbr::material_uses_bindless_resources::<M>(device),
+        base_specialize: Some(base_specialize),
+        prepass_specialize: Some(prepass_specialize),
+        user_specialize: Some(user_specialize::<M>),
+        material_key: bevy::material::key::ErasedMaterialKey::new(material.bind_group_data()),
+        shadows_enabled: M::enable_shadows(),
+        prepass_enabled: M::enable_prepass(),
+        ..default()
+    };
+    let mut bits = MeshPipelineKey::empty();
+    bits.set(
+        MeshPipelineKey::READS_VIEW_TRANSMISSION_TEXTURE,
+        properties.reads_view_transmission_texture,
+    );
+    properties.mesh_pipeline_key_bits = ErasedMeshPipelineKey::new(bits);
+    for (label, shader) in [
+        (bevy::pbr::MaterialVertexShader.intern(), M::vertex_shader()),
+        (
+            bevy::pbr::MaterialFragmentShader.intern(),
+            M::fragment_shader(),
+        ),
+        (
+            bevy::pbr::PrepassVertexShader.intern(),
+            M::prepass_vertex_shader(),
+        ),
+        (
+            bevy::pbr::PrepassFragmentShader.intern(),
+            M::prepass_fragment_shader(),
+        ),
+        (
+            bevy::pbr::DeferredVertexShader.intern(),
+            M::deferred_vertex_shader(),
+        ),
+        (
+            bevy::pbr::DeferredFragmentShader.intern(),
+            M::deferred_fragment_shader(),
+        ),
+    ] {
+        match shader {
+            ShaderRef::Default => {}
+            ShaderRef::Handle(handle) => properties.shaders.push((label, handle)),
+            ShaderRef::Path(path) => properties.shaders.push((label, server.load(path))),
+        }
+    }
+    Some(Arc::new(properties))
+}
+fn prepass_specialize(
+    world: &mut World,
+    key: ErasedMaterialPipelineKey,
+    layout: &MeshVertexBufferLayoutRef,
+    properties: &Arc<MaterialProperties>,
+) -> Result<CachedRenderPipelineId, SpecializedMeshPipelineError> {
+    world.resource_scope(
+        |world, mut pipelines: Mut<SpecializedMeshPipelines<bevy::pbr::PrepassPipelineSpecializer>>| {
+            let specializer = bevy::pbr::PrepassPipelineSpecializer {
+                pipeline: world.resource::<bevy::pbr::PrepassPipeline>().clone(),
+                properties: properties.clone(),
+            };
+            pipelines.specialize(world.resource::<PipelineCache>(), &specializer, key, layout)
+        },
+    )
+}
+fn user_specialize<M: Material>(
+    pipeline: &dyn std::any::Any,
+    descriptor: &mut RenderPipelineDescriptor,
+    layout: &MeshVertexBufferLayoutRef,
+    key: ErasedMaterialPipelineKey,
+) -> Result<(), SpecializedMeshPipelineError>
+where
+    M::Data: Hash + Clone,
+{
+    M::specialize(
+        pipeline
+            .downcast_ref::<bevy::pbr::MaterialPipeline>()
+            .unwrap(),
+        descriptor,
+        layout,
+        bevy::pbr::MaterialPipelineKey {
+            mesh_key: key.mesh_key.downcast(),
+            bind_group_data: key.material_key.to_key(),
+        },
+    )
 }
