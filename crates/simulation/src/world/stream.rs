@@ -1900,6 +1900,8 @@ impl WorldStream {
             .obj_gen_dist
             .max(d.mountain_gen_dist)
             .max(d.building_gen_dist) as f64;
+        use super::stream_profile::{Stage, Timer};
+        let mut timer = Timer::new(Stage::PropHelpers);
         self.refresh_helper_context(union(
             window(self.request.player, helper_radius),
             window(self.request.vehicle, helper_radius),
@@ -1916,7 +1918,9 @@ impl WorldStream {
             holes: &[],
             biome_override: self.mode.biome_override(),
         };
+        timer.next(Stage::PropAdvance);
         let current = self.props.placements().len();
+        super::stream_profile::count(Stage::PropAdvance, current);
         let maximum = self
             .limits
             .objects
@@ -1931,6 +1935,8 @@ impl WorldStream {
             self.failure = Some(error.0);
             return;
         }
+        timer.next(Stage::PropSelect);
+        super::stream_profile::count(Stage::PropSelect, self.wanted_structures.len());
         self.wanted_structures.retain(|p| {
             !matches!(
                 p.id.layer,
@@ -2083,6 +2089,9 @@ impl WorldStream {
             return;
         }
         timer.next(super::stream_profile::Stage::ContentSelect);
+        use super::stream_profile::{Stage, Timer};
+        let mut part = Timer::new(Stage::SelectChanged);
+        super::stream_profile::count(Stage::SelectChanged, self.wanted_structures.len());
         self.discard_fixed_decoration_changes();
         self.wanted_structures.retain(|p| {
             self.changes
@@ -2095,6 +2104,8 @@ impl WorldStream {
                         })
                 })
         });
+        part.next(Stage::SelectUnbound);
+        super::stream_profile::count(Stage::SelectUnbound, self.contents.active().len());
         self.wanted_structures.retain(|p| {
             let unbound = self
                 .contents
@@ -2119,6 +2130,8 @@ impl WorldStream {
                                 Some(super::ObjectKey::Generated(id)) if id == &p.id)
                 })
         });
+        part.next(Stage::SelectInstances);
+        super::stream_profile::count(Stage::SelectInstances, self.structures.len());
         let missing = |p: &Placement| !self.wanted_structures.contains(&p.id);
         let missing_light = |l: &super::WorldLight| !self.lights.iter().any(|w| w.id == l.id);
         let count = self
@@ -2207,6 +2220,8 @@ impl WorldStream {
                 self.wanted_structures.push(content.placement.clone());
             }
         }
+        part.next(Stage::SelectLights);
+        super::stream_profile::count(Stage::SelectLights, self.lights.len());
         // Keep biome lights and lights of wanted contents.
         self.light_index.rebuild(&self.lights, |l| &l.id);
         self.light_keep.clear();

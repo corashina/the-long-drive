@@ -87,7 +87,7 @@ function workerStages(audit){
  const rows=(names,values)=>names.map((name,i)=>({name,...values[i]}));
  return [...rows(audit.stages,audit.measurements),...rows(audit.streaming.stages,audit.streaming.measurements)]
   .filter(r=>r.calls>0).sort((a,b)=>b.total_ms-a.total_ms)
-  .map(({name,calls,total_ms,mean_ms,max_ms})=>({name,calls,totalMs:total_ms,meanMs:mean_ms,maxMs:max_ms}));
+  .map(({name,calls,total_ms,mean_ms,max_ms,items})=>({name,calls,totalMs:total_ms,meanMs:mean_ms,maxMs:max_ms,items:items?items/calls:null}));
 }
 
 function summarize(samples){
@@ -257,8 +257,8 @@ function print(label,scene){
   const {median,p90}=scene.summary[field];
   console.log(`  ${field.padEnd(15)} median ${show(median).padStart(9)}   p90 ${show(p90).padStart(9)}`);
  }
- console.log('  worker stages (5 s profile): calls, mean ms, max ms');
- for(const r of scene.worker.slice(0,10))console.log(`    ${r.name.padEnd(22)} ${String(r.calls).padStart(5)} ${show(r.meanMs).padStart(8)} ${show(r.maxMs).padStart(8)}`);
+ console.log('  worker stages (5 s profile): calls, mean ms, max ms, mean items');
+ for(const r of scene.worker.slice(0,16))console.log(`    ${r.name.padEnd(22)} ${String(r.calls).padStart(5)} ${show(r.meanMs).padStart(8)} ${show(r.maxMs).padStart(8)} ${show(r.items).padStart(8)}`);
 }
 
 // Median of each field in A and B, with the change in percent.
