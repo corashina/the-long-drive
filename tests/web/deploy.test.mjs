@@ -33,7 +33,8 @@ async function fixture(t) {
 
 test('stages the app and only the catalog files of the current package', async t => {
   const {web, site} = await fixture(t);
-  await stageSite({webRoot: web, siteRoot: site});
+  const {large} = await stageSite({webRoot: web, siteRoot: site});
+  assert.deepEqual(large, []);
   for (const path of ['index.html', 'pkg/the_long_slop_bg.wasm', 'assets/reference/manifest.json.gz', 'assets/runtime/current/world/a.bc']) {
     assert.ok(await exists(join(site, path)), path);
   }
@@ -43,8 +44,12 @@ test('stages the app and only the catalog files of the current package', async t
   assert.match(await readFile(join(site, '_headers'), 'utf8'), /^\/assets\/runtime\/\*\n {2}Cache-Control: public, max-age=31536000, immutable/);
 });
 
-test('rejects a file over the Pages size limit', async t => {
+test('routes a file over the Pages size limit to R2', async t => {
   const {web, site} = await fixture(t);
   await truncate(join(web, 'pkg/the_long_slop_bg.wasm'), 25 * 1024 * 1024 + 1);
-  await assert.rejects(stageSite({webRoot: web, siteRoot: site}), /pkg\/the_long_slop_bg\.wasm/);
+  const {large} = await stageSite({webRoot: web, siteRoot: site});
+  assert.deepEqual(large, ['pkg/the_long_slop_bg.wasm']);
+  assert.ok(!await exists(join(site, 'pkg/the_long_slop_bg.wasm')));
+  const routes = JSON.parse(await readFile(join(site, '_routes.json'), 'utf8'));
+  assert.deepEqual(routes.include, ['/pkg/the_long_slop_bg.wasm']);
 });

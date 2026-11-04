@@ -1,7 +1,8 @@
 // Stages the built game for Cloudflare Pages and uploads it with Wrangler.
+// Files over the Pages size limit go to R2. `functions/[[path]].js` serves them on the same site.
 import {spawnSync} from 'node:child_process';
 import {cp, mkdir, readdir, readFile, rm, stat, writeFile} from 'node:fs/promises';
-import {dirname, relative, resolve, sep} from 'node:path';
+import {dirname, extname, relative, resolve, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {gunzipSync} from 'node:zlib';
 
@@ -10,6 +11,8 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_FILES = 20000;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const HEADERS = '/assets/runtime/*\n  Cache-Control: public, max-age=31536000, immutable\n';
+const BUCKET = 'the-long-slop-large';
+const TYPES = {'.wasm': 'application/wasm', '.json': 'application/json'};
 
 const webPath = path => path.split(sep).join('/');
 // The export library and old runtime packages are not part of the site.
@@ -24,6 +27,7 @@ async function* files(root) {
 }
 
 // Copies the app, the reference manifest, and the files of the current runtime package.
+// Moves files over 25 MiB out of the site and routes them to the R2 function. Returns their site paths.
 export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot = resolve(projectRoot, '.cache/deploy')} = {}) {
   const manifest = JSON.parse(gunzipSync(await readFile(resolve(webRoot, 'assets/reference/manifest.json.gz'))).toString('utf8'));
   const base = manifest.content_base;
@@ -46,20 +50,30 @@ export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot
   const large = [];
   for await (const path of files(siteRoot)) {
     const {size} = await stat(path);
-    count++;
     bytes += size;
-    if (size > MAX_FILE_BYTES) large.push(webPath(relative(siteRoot, path)));
+    if (size > MAX_FILE_BYTES) {
+      large.push(webPath(relative(siteRoot, path)));
+      await rm(path);
+    } else count++;
   }
-  if (large.length) throw Error(`Files over 25 MiB: ${large.join(', ')}`);
   if (count > MAX_FILES) throw Error(`${count} files. The limit is ${MAX_FILES}.`);
-  return {count, bytes};
+  // Pages needs one route. `/r2/*` matches no site file.
+  const include = large.length ? large.map(path => `/${path}`) : ['/r2/*'];
+  await writeFile(resolve(siteRoot, '_routes.json'), JSON.stringify({version: 1, include, exclude: []}));
+  return {count, bytes, large};
+}
+
+function wrangler(args) {
+  const result = spawnSync('npx', ['wrangler', ...args], {cwd: projectRoot, stdio: 'inherit', shell: process.platform === 'win32'});
+  if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const {count, bytes} = await stageSite();
-  console.log(`Staged ${count} files, ${(bytes / 1024 / 1024).toFixed(1)} MiB.`);
-  const project = process.env.PAGES_PROJECT ?? 'the-long-slop';
-  const result = spawnSync('npx', ['wrangler', 'pages', 'deploy', '.cache/deploy', '--project-name', project, '--branch', 'main'],
-    {cwd: projectRoot, stdio: 'inherit', shell: process.platform === 'win32'});
-  process.exit(result.status ?? 1);
+  const {count, bytes, large} = await stageSite();
+  console.log(`Staged ${count} files and ${large.length} R2 files, ${(bytes / 1024 / 1024).toFixed(1)} MiB.`);
+  for (const path of large) {
+    wrangler(['r2', 'object', 'put', `${BUCKET}/${path}`, '--file', resolve(projectRoot, 'web', path),
+      '--content-type', TYPES[extname(path)] ?? 'application/octet-stream', '--remote']);
+  }
+  wrangler(['pages', 'deploy', '--branch', 'main']);
 }
