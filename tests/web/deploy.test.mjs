@@ -23,6 +23,7 @@ async function fixture(t) {
   const web = join(root, 'web');
   const manifest = {content_base: 'assets/runtime/current/', file_catalog: {files: [{file: 'world/a.bc'}]}};
   await put(web, 'assets/reference/manifest.json.gz', gzipSync(JSON.stringify(manifest)));
+  await put(web, 'assets/reference/manifest.bin.gz', 'm');
   await put(web, 'index.html', '<html>');
   await put(web, 'main.js', "import('./pkg/the_long_slop.js');fetch('./pkg/the_long_slop_bg.wasm');");
   for (const path of WASM) {
@@ -48,11 +49,11 @@ async function packageFolder(site) {
 test('stages the app and only the catalog files of the current package', async t => {
   const {web, site, compressionRoot} = await fixture(t);
   await stageSite({webRoot: web, siteRoot: site, compressionRoot});
-  for (const path of ['index.html', 'assets/reference/manifest.json.gz', 'assets/runtime/current/world/a.bc']) {
+  for (const path of ['index.html', 'assets/reference/manifest.bin.gz', 'assets/runtime/current/world/a.bc']) {
     assert.ok(await exists(join(site, path)), path);
   }
   for (const path of ['assets/runtime/current/world/unused.bc', 'assets/runtime/old', 'assets/runtime-tmp', 'assets/library',
-    'assets/reference/material-evidence.json', 'assets/reference/library-selection.json']) {
+    'assets/reference/material-evidence.json', 'assets/reference/library-selection.json', 'assets/reference/manifest.json.gz']) {
     assert.ok(!await exists(join(site, path)), path);
   }
   const headers = await readFile(join(site, '_headers'), 'utf8');

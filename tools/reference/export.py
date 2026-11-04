@@ -167,7 +167,7 @@ def validate_runtime_paths(manifest):
         paths.add(expected)
 
 
-def contract_command(cargo: str) -> list[str]:
+def contract_command(cargo: str, *arguments: str) -> list[str]:
     """Run one cargo command for the game's contract binary in the project toolchain image."""
     root = Path(__file__).resolve().parents[2]
     namespace = hashlib.sha256(str(root.resolve()).rstrip('\\/').lower().encode()).hexdigest()
@@ -177,7 +177,7 @@ def contract_command(cargo: str) -> list[str]:
         '--mount', 'type=volume,source=tld-wasm-target,target=/target',
         '--env', f'CARGO_TARGET_DIR=/target/{namespace}',
         'the-long-slop-toolchain', 'cargo', cargo, '--quiet', '--locked',
-        '--bin', 'validate-reference']
+        '--bin', 'validate-reference', *(('--', *arguments) if arguments else ())]
 
 
 @contextmanager
@@ -197,21 +197,22 @@ def contract_build():
         build.wait()
 
 
-def validate_runtime_manifest(content: bytes) -> None:
-    """Use the game's contract before accepting runtime output."""
+def encode_runtime_manifest(content: bytes) -> bytes:
+    """Make the game manifest file from the exporter JSON with the game's contract."""
     try:
-        result = subprocess.run(contract_command('run'), input=content, capture_output=True, check=False)
+        result = subprocess.run(contract_command('run', '--encode'), input=content, capture_output=True, check=False)
     except OSError as error:
         raise ValueError('Runtime manifest contract validation needs Docker and the project toolchain image') from error
     if result.returncode:
         detail = result.stderr.decode('utf-8', errors='replace').strip()
         raise ValueError(f'Runtime manifest contract validation failed: {detail}')
+    return result.stdout
 
 
 def verify_reference(output: Path, library) -> None:
     from .library.reader import checked
     from .gltf import check_gltf
-    from .runtime_package import MANIFEST, manifest_bytes
+    from .runtime_package import MANIFEST, RUNTIME_MANIFEST, manifest_bytes, runtime_manifest_bytes
     content = manifest_bytes(output)
     manifest = json.loads(content)
     if library is None or manifest.get('library') != provenance(library):
@@ -223,7 +224,8 @@ def verify_reference(output: Path, library) -> None:
         raise ValueError('Missing or mismatched world current library provenance')
     from .acquisition import validate_acquisition
     validate_acquisition(manifest['acquisition'], manifest)
-    validate_runtime_manifest(content)
+    if encode_runtime_manifest(content) != runtime_manifest_bytes(output):
+        raise ValueError('Runtime manifest file differs from the exporter manifest')
     validate_runtime_paths(manifest)
     selection=json.loads((output/'library-selection.json').read_bytes())
     evidence_receipts=selection.get('evidence',[])
@@ -232,7 +234,7 @@ def verify_reference(output: Path, library) -> None:
     for record in evidence_receipts:checked(output,record)
     if json.loads((output/'conditions-evidence.json').read_bytes())['conditions']!=manifest['conditions']:
         raise ValueError('Condition evidence differs from runtime records')
-    names = {MANIFEST,'geometry-evidence.json','parameter-evidence.json','library-selection.json','lighting-evidence.json','material-evidence.json','plate-evidence.json','flashlights-evidence.json','storage-evidence.json','driving-evidence.json','conditions-evidence.json'}
+    names = {MANIFEST,RUNTIME_MANIFEST,'geometry-evidence.json','parameter-evidence.json','library-selection.json','lighting-evidence.json','material-evidence.json','plate-evidence.json','flashlights-evidence.json','storage-evidence.json','driving-evidence.json','conditions-evidence.json'}
     for asset in manifest['assets']:
         for record in [asset, *asset['dependencies']]:
             name = record.get('file', record.get('path')).removeprefix('reference/')

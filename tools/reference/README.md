@@ -47,7 +47,11 @@ It does not read game assemblies or write analysis output.
 
 Runtime derivation and `--stage runtime --verify` require Docker and the project toolchain image.
 Build the image with `docker build --tag the-long-slop-toolchain --file tools/Dockerfile .`.
-Runtime verification sends manifest bytes to the native `validate-reference` command through stdin.
+The export writes `manifest.json.gz` (the exporter JSON) for the tools.
+It sends the JSON to the native `validate-reference --encode` command through stdin.
+That command validates it and makes `manifest.bin.gz`, the game manifest file.
+The game file is the JSON without `world.records`, `world.prototypes` and `world.receipts`, then these tables as postcard.
+Runtime verification encodes the JSON again and compares the result to `manifest.bin.gz`.
 The export compiles that command in the background while runtime derivation runs.
 It uses the game's `ReferenceManifest` contract, the existing Cargo volumes, and a read-only checkout mount.
 The Rust contract is the only owner of each record's fields and rules.

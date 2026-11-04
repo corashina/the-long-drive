@@ -11,8 +11,10 @@ pub struct WorldFollowersReference {
     pub followers: Vec<FollowerReference>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+tagged_enum! {
+"FollowerReference",
+#[derive(Clone, Debug)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum FollowerReference {
     /// `followspringscript`. `node` moves on the line `from`-`to` by the distance `start`-`target`
     /// over the spawn distance `start`-`end`.
@@ -50,6 +52,7 @@ pub enum FollowerReference {
         rotation_target: Option<u32>,
         look_target: Option<u32>,
     },
+}
 }
 
 impl FollowerReference {

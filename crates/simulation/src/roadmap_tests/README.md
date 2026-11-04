@@ -1,7 +1,7 @@
 # Headless scenario tests
 
 These headless scenario tests come from former ROADMAP rows. Each area has one file.
-The tests read the installed export (`web/assets/reference/manifest.json`) and are `#[ignore]`.
+The tests read the installed export (`web/assets/reference/manifest.bin.gz`) and are `#[ignore]`.
 Use the kit in `world/stream_tests/kit.rs`: `use crate::world::stream::tests::kit::*;`.
 
 Run a section:
