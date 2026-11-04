@@ -695,14 +695,18 @@ fn tp_k13_driving_away_from_the_start_never_stops_the_car() {
         } else {
             held += 1;
             worst = worst.max(held);
-            if held == 50 || held % 500 == 0 {
+            if held < 6 || (50..60).contains(&held) {
                 println!(
                     "hold {held} at {travelled:.0} m, origin {:?}: gap {:?}, waits {}",
                     run.stream.origin.offset,
                     run.stream.support_gap(bounds),
                     run.persistent_world.waits_for(bounds),
                 );
-                println!("{}", stream_audit(&run.stream));
+                if held == 50 {
+                    println!("{}", stream_audit(&run.stream));
+                } else {
+                    println!("{}", road_state(&run.stream));
+                }
             }
             assert!(held < 250, "the step holds at {travelled:.0} m");
         }

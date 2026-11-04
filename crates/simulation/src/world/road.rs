@@ -720,6 +720,10 @@ pub struct RoadIndexSnapshot {
     pub blocks: Vec<RoadBlock>,
 }
 impl RoadIndex {
+    /// Diagnosis: the replay buffer start and end.
+    pub(crate) fn replay_state(&self) -> (u32, u32, usize) {
+        (self.buffer_first, self.replay_end, self.buffer.len())
+    }
     pub fn coverage(&self) -> u32 {
         self.sequence.state.next_segment
     }
