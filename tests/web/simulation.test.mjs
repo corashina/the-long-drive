@@ -8,7 +8,7 @@ function fakeWorker(){
   reply:data=>listeners.message({data}),fail:message=>listeners.error({message})};
 }
 
-test('load moves the manifest, start moves the save and resolves with the startup bytes',async()=>{
+test('load moves the manifest, start moves the save and resolves with the load error',async()=>{
  const worker=fakeWorker(),simulation=createSimulation(worker,()=>assert.fail());
  const manifest=new Uint8Array([1,2]),save=new Uint8Array([3]);
  simulation.load(manifest);
@@ -17,9 +17,8 @@ test('load moves the manifest, start moves the save and resolves with the startu
  const {data,transfer}=worker.posted[1];
  assert.deepEqual({...data.start,save:undefined},{hash:'hash',drawDistance:2500,biome:1,startCar:-1,seed:7,options:2,save:undefined});
  assert.deepEqual(transfer,[save.buffer]);
- const startup=new Uint8Array([9]);
- worker.reply({startup,loadError:'bad save'});
- assert.deepEqual(await started,{startup,loadError:'bad save'});
+ worker.reply({started:true,loadError:'bad save'});
+ assert.deepEqual(await started,{loadError:'bad save'});
 });
 
 test('a command is copied, its frame is read once, and stats reset',()=>{
@@ -66,6 +65,6 @@ test('a net session before the start waits for it',async()=>{
  const started=simulation.start('',0,0,-1,0,0,new Uint8Array());
  simulation.netSession(2,1,()=>{});simulation.netPackets(new Uint8Array([1]));simulation.netLeave(3);
  assert.equal(worker.posted.length,1);
- worker.reply({startup:new Uint8Array([9])});await started;
+ worker.reply({started:true});await started;
  assert.deepEqual(worker.posted[1].data,{netSession:{role:2,slot:1}});
 });

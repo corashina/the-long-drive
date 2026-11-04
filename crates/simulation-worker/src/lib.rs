@@ -1,5 +1,5 @@
 //! Web Worker entry for the simulation. It owns its own WASM memory and the game runtime.
-use simulation::boundary::{SimInit, encode_startup};
+use simulation::boundary::SimInit;
 use simulation::reference::ReferenceManifest;
 use simulation::session::Session;
 use simulation::world::{GameMode, GameOptions};
@@ -26,7 +26,7 @@ pub fn load(manifest: &[u8]) -> Result<(), JsValue> {
     Ok(())
 }
 
-/// Starts the simulation on the manifest of `load`. Returns the encoded `SimStartup`.
+/// Starts the simulation on the manifest of `load`.
 #[wasm_bindgen]
 pub fn start(
     manifest_sha256: String,
@@ -36,7 +36,7 @@ pub fn start(
     seed: i32,
     options: u32,
     save: Vec<u8>,
-) -> Result<Vec<u8>, JsValue> {
+) -> Result<(), JsValue> {
     let reference = REFERENCE
         .take()
         .ok_or_else(|| JsValue::from_str("The manifest is not loaded."))?;
@@ -47,9 +47,9 @@ pub fn start(
         manifest_sha256,
         save,
     };
-    let (session, startup) = Session::new(reference, init).map_err(|e| error(&e))?;
+    let session = Session::new(reference, init).map_err(|e| error(&e))?;
     SESSION.with_borrow_mut(|s| *s = Some(session));
-    Ok(encode_startup(&startup))
+    Ok(())
 }
 
 /// Why the save of `start` did not load. Empty: it loaded, or there was none.

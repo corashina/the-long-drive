@@ -20,6 +20,7 @@ use grass_mesh::GrassView;
 use simulation::boundary::{LampAdmission, WorldCommand};
 #[derive(Resource, Default)]
 pub struct SourcePresentationAllocation {
+    /// World stream session of the last renderer step. 0: none yet, so the first frame starts one.
     session: u64,
     pub(crate) fixed: crate::ownership::fixed::FixedAllocation,
     pub(crate) lighting_cpu: usize,
@@ -52,12 +53,10 @@ impl SourcePresentationAllocation {
             .apply(delta);
     }
     pub fn bootstrap(
-        session: u64,
         fixed: crate::ownership::fixed::FixedAllocation,
         ledger: crate::ownership::PresentationLedger,
     ) -> Self {
         Self {
-            session,
             fixed,
             ledger,
             ..default()

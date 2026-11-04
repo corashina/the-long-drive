@@ -1,5 +1,5 @@
 //! Runs the simulation from renderer commands. It owns the runtime, the input queue and the step clock.
-use crate::boundary::{Change, HudBlock, LookBlock, RenderInput, SimCommand, SimFrame, SimStartup};
+use crate::boundary::{Change, HudBlock, LookBlock, RenderInput, SimCommand, SimFrame};
 use crate::car_camera::{CameraInput, CameraSeat, CarCamera};
 use crate::reference::{ReferenceError, ReferenceManifest};
 use crate::simulation::{FIXED_DT, FrameInput, StepClock, keys};
@@ -113,17 +113,6 @@ impl SimDriver {
         driver
     }
 
-    /// Renderer setup values of the runtime.
-    pub fn startup(&self) -> SimStartup {
-        let runtime = &self.runtime;
-        let view = runtime.area.player.view(&runtime.physics);
-        SimStartup {
-            view: view.camera_pose,
-            fov_degrees: view.fov_degrees,
-            far_plane: runtime.distances.cam2_far_plane,
-            session: runtime.stream.frame().request.session,
-        }
-    }
 
     /// One simulation frame: accepts `command`, steps and fills `frame`.
     pub fn tick(
