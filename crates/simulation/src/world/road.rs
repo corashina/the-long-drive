@@ -389,6 +389,22 @@ impl RoadIndex {
         self.sequence.state.next_segment == ROAD_SEGMENTS
     }
 
+    /// Runtime road surface points, one per source bone from the road start.
+    /// This replays a fresh sequence copy, so use it only at setup.
+    pub fn surface_points(&self) -> impl Iterator<Item = [f64; 3]> + '_ {
+        let mut sequence = self.replay.clone();
+        sequence.restore(&self.checkpoints[0]);
+        let above = f64::from(sequence.inputs.above_terrain);
+        std::iter::from_fn(move || sequence.advance(&self.terrain)).flat_map(move |segment| {
+            segment.source_coords.map(|control| {
+                runtime_point(std::array::from_fn(|a| {
+                    let lift = if a == 1 { above } else { 0. };
+                    segment.source_origin[a] + segment.source_position[a] + control[a] as f64 + lift
+                }))
+            })
+        })
+    }
+
     pub fn latest_segment(&self) -> Option<RoadSegment> {
         self.latest
     }

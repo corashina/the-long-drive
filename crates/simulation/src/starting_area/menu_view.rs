@@ -1,5 +1,5 @@
 //! The start menu view. Port choice: the source menu shows a figure. This port shows the road
-//! ahead of the start, from near the ground, with the sun low over the road.
+//! ahead of the start, from near the road surface, with the afternoon sun over the road.
 //! Before the game starts, the frame camera and the day cycle output come from this view.
 use crate::lighting::{CycleOutput, CycleState, sun_pitch};
 use crate::reference::{CycleReference, ReferenceManifest};
@@ -10,17 +10,17 @@ use glam::{Quat, Vec3};
 const AHEAD: f64 = 40.;
 /// Camera height over the road.
 const EYE: f32 = 0.6;
-/// Metres to the road point that the camera looks at.
-const LOOK: f64 = 300.;
-/// Sun elevation in degrees. The sun stays in the view, over the horizon in the middle.
-const SUN_ELEVATION: f32 = 7.;
+/// Metres along the road to the road point that the camera looks at. This keeps the near road centered.
+const LOOK: f64 = 120.;
+/// Lowest sun elevation in degrees. The sun stays in the upper half of the view.
+const SUN_ELEVATION: f32 = 15.;
 /// Cycle samples of the afternoon search.
 const SAMPLES: usize = 512;
 
 pub(super) struct MenuView {
     absolute: [f64; 3],
     rotation: [f32; 4],
-    /// Source cycle seconds of the afternoon sun at `SUN_ELEVATION`.
+    /// Source cycle seconds of the day-phase afternoon sun at `SUN_ELEVATION`.
     seconds: f64,
     /// Source sun yaw in degrees that puts the sun over the view direction.
     sun_yaw: f32,
@@ -29,8 +29,15 @@ pub(super) struct MenuView {
 impl MenuView {
     pub(super) fn new(reference: &ReferenceManifest, stream: &WorldStream) -> Self {
         let spawn_z = f64::from(reference.area.player_spawn.translation[2]);
-        let absolute = stream.road_point([0., 0., spawn_z - AHEAD], EYE);
-        let target = stream.road_point([0., 0., spawn_z - AHEAD - LOOK], EYE);
+        // The generated road, not the ideal road curve: the road lags the curve and has its own height.
+        let mut road = stream
+            .road_surface_points()
+            .skip_while(|point| point[2] > spawn_z - AHEAD);
+        let mut absolute = road.next().expect("the road reaches the menu view");
+        let target = road
+            .find(|point| point[2] <= absolute[2] - LOOK)
+            .expect("the road reaches the menu view target");
+        absolute[1] += f64::from(EYE);
         // A level view: the horizon is in the middle.
         let forward = Vec3::new(
             (target[0] - absolute[0]) as f32,
@@ -61,13 +68,15 @@ impl MenuView {
     }
 }
 
-/// The first afternoon time whose sun is at `SUN_ELEVATION` or lower. The sun sets toward the end of the day.
+/// The last day-phase time whose sun is at `SUN_ELEVATION` or higher. The day phase has the
+/// blue day sky; the dusk phase after it has the yellow sunset sky.
 fn afternoon_seconds(reference: &CycleReference) -> f64 {
-    let day = f64::from(reference.day_seconds);
+    let dawn = f64::from(reference.dawn_seconds);
+    let dusk = f64::from(reference.day_seconds - reference.dusk_seconds);
     (0..=SAMPLES)
-        .map(|i| day * (0.5 + 0.5 * i as f64 / SAMPLES as f64))
-        .find(|&t| elevation(sun_pitch(reference, t)) <= SUN_ELEVATION)
-        .unwrap_or(day)
+        .map(|i| dusk - (dusk - dawn) * i as f64 / SAMPLES as f64)
+        .find(|&t| elevation(sun_pitch(reference, t)) >= SUN_ELEVATION)
+        .unwrap_or(dusk)
 }
 
 /// Sun elevation in degrees of a source pitch in degrees. A pitch over 90 degrees is the afternoon side.
