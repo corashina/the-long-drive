@@ -40,7 +40,9 @@ impl Plugin for SourceIoPlugin {
                 Box::new(SourceAssetReader {
                     base: base.clone(),
                     catalog: Arc::clone(&catalog),
-                    requests: Semaphore::new(8),
+                    // HTTP/2 carries many requests on one connection. Each request on the
+                    // hosted site waits a full round trip, so more requests at once load faster.
+                    requests: Semaphore::new(32),
                 })
             }),
         );
