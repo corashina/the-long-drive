@@ -3,6 +3,7 @@ use super::lighting_scene::PROBE_COUNT;
 use super::surface_views::{
     MIRROR_EXTENT, MIRROR_START, PROBE_START, VIEW_COUNT, WORLD_VIEWS, mirror_view, probe_view,
 };
+use super::view_gate::{FrameFacts, ViewFacts, view_may_draw};
 use super::{
     frame_copy::FrameCopy,
     lighting_assets::LightingRenderAssets,
@@ -625,6 +626,27 @@ fn sky_depth(device: &RenderDevice, colors: &super::render_targets::SourceColorT
         view_formats: &[],
     })
 }
+/// Loading draws one frame of four. A skipped frame draws no view and no sky.
+fn frame_allowed(frame: &SourceViewFrame, state: &RendererState) -> bool {
+    frame
+        .render_identity()
+        .is_none_or(|key| state.proof.allows_frame(key, frame.frame))
+}
+
+/// `DrawMesh` skips every draw until both direct and frustum preprocess pipelines exist.
+fn preprocess_ready(pipelines: &bevy::pbr::PreprocessPipelines, cache: &PipelineCache) -> bool {
+    [
+        &pipelines.direct_preprocess,
+        &pipelines.gpu_frustum_culling_preprocess,
+    ]
+    .iter()
+    .all(|p| {
+        p.pipeline_id
+            .is_some_and(|id| cache.get_compute_pipeline(id).is_some())
+    })
+}
+
+/// Run condition of every surface view pass.
 pub(crate) fn surface_ready(
     view: ViewQuery<&SourceSurfaceView>,
     frame: Res<SourceViewFrame>,
@@ -638,33 +660,40 @@ pub(crate) fn surface_ready(
     mirrors: Option<Res<MirrorCopy>>,
 ) -> bool {
     let index = view.into_inner().index;
+    if index >= VIEW_COUNT {
+        return false;
+    }
     let state = progress.lock();
-    index < VIEW_COUNT
-        && frame.views[index].is_some()
-        && frame_allowed(&frame, &state)
-        && camera.ready()
-        && resources.is_some_and(|r| r.display.ready(&cache))
-        && effects.is_some_and(|effects| effects.ready(&cache))
-        && preprocess_ready(&preprocess, &cache)
-        && state.audit.sky
-        && (index < WORLD_VIEWS
-            || (mirror_view(index)
-                && state.audit.presented
-                && mirrors.is_some_and(|m| m.copy.ready(&cache)))
-            || (state.audit.presented
-                && probe_view(index)
-                && frame.probe_job == Some(ProbeJob::Face((index - PROBE_START) as u8))
-                && probe.is_some_and(|p| {
-                    p.probes[frame.probe_index].accepts(frame.probe_token)
-                        && p.probes[frame.probe_index].filter.ready(&cache)
-                })))
+    let facts = FrameFacts {
+        view: frame.views[index].is_some(),
+        allowed: frame_allowed(&frame, &state),
+        camera: camera.ready(),
+        display: resources.is_some_and(|r| r.display.ready(&cache)),
+        effects: effects.is_some_and(|e| e.ready(&cache)),
+        preprocess: preprocess_ready(&preprocess, &cache),
+        sky: state.audit.sky,
+        presented: state.audit.presented,
+    };
+    let kind = if index < WORLD_VIEWS {
+        ViewFacts::World
+    } else if mirror_view(index) {
+        ViewFacts::Mirror {
+            copy: mirrors.is_some_and(|m| m.copy.ready(&cache)),
+        }
+    } else if probe_view(index) {
+        ViewFacts::Probe {
+            face: frame.probe_job == Some(ProbeJob::Face((index - PROBE_START) as u8)),
+            probe: probe.is_some_and(|p| {
+                let probe = &p.probes[frame.probe_index];
+                probe.accepts(frame.probe_token) && probe.filter.ready(&cache)
+            }),
+        }
+    } else {
+        return false;
+    };
+    view_may_draw(facts, kind)
 }
-/// Loading draws one frame of four. A skipped frame draws no view and no sky.
-fn frame_allowed(frame: &SourceViewFrame, state: &RendererState) -> bool {
-    frame
-        .render_identity()
-        .is_none_or(|key| state.proof.allows_frame(key, frame.frame))
-}
+
 /// The canvas gets a new cleared texture each frame. A skipped frame shows the last image again.
 fn hold_display(
     view: ViewQuery<(&SourceSurfaceView, &ViewTarget)>,
@@ -694,18 +723,6 @@ fn hold_display(
     resources
         .display
         .encode(context.command_encoder(), &cache, output.view);
-}
-/// `DrawMesh` skips every draw until both direct and frustum preprocess pipelines exist.
-fn preprocess_ready(pipelines: &bevy::pbr::PreprocessPipelines, cache: &PipelineCache) -> bool {
-    [
-        &pipelines.direct_preprocess,
-        &pipelines.gpu_frustum_culling_preprocess,
-    ]
-    .iter()
-    .all(|p| {
-        p.pipeline_id
-            .is_some_and(|id| cache.get_compute_pipeline(id).is_some())
-    })
 }
 fn begin_frame(frame: Res<SourceViewFrame>, progress: Res<RendererStateHandle>) {
     let mut state = progress.lock();

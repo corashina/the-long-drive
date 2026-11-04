@@ -40,6 +40,10 @@ mod shared_material_tests;
 mod mirror_turns_tests;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "presentation/view_gate.rs"]
+mod view_gate_tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "presentation/cap_motion.rs"]
 #[allow(dead_code)]
 mod cap_motion_tests;
