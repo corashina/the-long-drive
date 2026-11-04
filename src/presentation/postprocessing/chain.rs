@@ -186,6 +186,9 @@ impl SourcePostChain {
         textures: &PostTextures<'_>,
         source: &TextureView,
         depth: &TextureView,
+        // The scene color, depth and motion extent.
+        scene_extent: [u32; 2],
+        // TAA output and every later pass. It equals `scene_extent` without TAA.
         extent: [u32; 2],
         record: &PostprocessingRecord,
         dead: &DeadProfile,
@@ -196,6 +199,7 @@ impl SourcePostChain {
     ) -> Result<Self, String> {
         if extent.contains(&0)
             || extent.into_iter().max().unwrap() > device.limits().max_texture_dimension_2d
+            || (motion.as_ref().is_none_or(|inputs| inputs.taa.is_none()) && scene_extent != extent)
         {
             return Err("Invalid source postprocessing extent".into());
         }
@@ -256,6 +260,7 @@ impl SourcePostChain {
                     source,
                     depth,
                     inputs.motion,
+                    scene_extent,
                     extent,
                     settings,
                     stop_nan,

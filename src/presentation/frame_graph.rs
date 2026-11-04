@@ -108,14 +108,18 @@ impl FrameResources {
     pub(crate) fn held_target(
         &self,
         colors: &Arc<super::render_targets::SourceColorTargets>,
+        extent: [u32; 2],
         progress: &RendererStateHandle,
     ) -> Option<&TextureView> {
-        (Arc::ptr_eq(&self.colors, colors) && progress.lock().audit.sky).then_some(&self.held.view)
+        (Arc::ptr_eq(&self.colors, colors)
+            && self.held.extent() == extent
+            && progress.lock().audit.sky)
+            .then_some(&self.held.view)
     }
 }
 /// The last presented image. The canvas gets a new cleared texture each frame.
 /// A frame that presents no world image shows this image again.
-/// Rows are bottom-up, as source textures.
+/// Rows are bottom-up, as source textures. It has the post chain extent.
 struct HeldImage {
     texture: Texture,
     view: TextureView,
@@ -124,15 +128,12 @@ struct HeldImage {
     filled: AtomicBool,
 }
 impl HeldImage {
-    fn texture(
-        device: &RenderDevice,
-        colors: &super::render_targets::SourceColorTargets,
-    ) -> (Texture, TextureView) {
+    fn texture(device: &RenderDevice, [width, height]: [u32; 2]) -> (Texture, TextureView) {
         let texture = device.create_texture(&TextureDescriptor {
             label: Some("source_held_display"),
             size: Extent3d {
-                width: colors.width,
-                height: colors.height,
+                width,
+                height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -145,17 +146,15 @@ impl HeldImage {
         let view = texture.create_view(&TextureViewDescriptor::default());
         (texture, view)
     }
+    fn extent(&self) -> [u32; 2] {
+        [self.texture.width(), self.texture.height()]
+    }
     /// A new size starts empty. A new target of the same size keeps the last image.
-    fn fit(
-        &mut self,
-        device: &RenderDevice,
-        cache: &PipelineCache,
-        colors: &super::render_targets::SourceColorTargets,
-    ) {
-        if self.texture.width() == colors.width && self.texture.height() == colors.height {
+    fn fit(&mut self, device: &RenderDevice, cache: &PipelineCache, extent: [u32; 2]) {
+        if self.extent() == extent {
             return;
         }
-        (self.texture, self.view) = Self::texture(device, colors);
+        (self.texture, self.view) = Self::texture(device, extent);
         self.copy.rebind(device, cache, &self.view);
         self.filled.store(false, Ordering::Relaxed);
     }
@@ -540,6 +539,7 @@ fn prepare_frame(
     views: Query<(&SourceSurfaceView, &ViewTarget)>,
     sky_views: Query<&ExtractedView, With<SourceSkyCamera>>,
     frame: Res<SourceViewFrame>,
+    antialiasing: Res<super::antialiasing::Antialiasing>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
@@ -621,13 +621,22 @@ fn prepare_frame(
         return;
     }
     let colors = resources.targets.world.clone();
+    let extent = frame.views[0].map(|view| {
+        super::source_effects::post_extent(
+            antialiasing.taa(),
+            [colors.width, colors.height],
+            view.native_extent,
+        )
+    });
     if let Some(mut existing) = existing {
         if !Arc::ptr_eq(&existing.colors, &colors) {
             let texture = sky_depth(&device, &colors);
             existing.sky_depth = texture.create_view(&TextureViewDescriptor::default());
             existing._sky_depth = texture;
-            existing.held.fit(&device, &cache, &colors);
             existing.colors = colors;
+        }
+        if let Some(extent) = extent {
+            existing.held.fit(&device, &cache, extent);
         }
         if existing.display_format != format {
             status.fail("Source display format changed".into());
@@ -637,9 +646,12 @@ fn prepare_frame(
         }
         return;
     }
+    let Some(extent) = extent else {
+        return;
+    };
     let texture = sky_depth(&device, &colors);
     let depth = texture.create_view(&TextureViewDescriptor::default());
-    let (held_texture, held_view) = HeldImage::texture(&device, &colors);
+    let (held_texture, held_view) = HeldImage::texture(&device, extent);
     let held = HeldImage {
         copy: FrameCopy::new(
             &device,

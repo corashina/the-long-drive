@@ -131,6 +131,11 @@ pub(crate) struct EffectsAudit {
     validated: bool,
     delta_seconds: f32,
 }
+/// The extent of TAA output and every pass after it. TAA upscales the scene to the native extent.
+/// Without TAA, the post passes run at the scene extent and the canvas copy stretches.
+pub(crate) fn post_extent(taa: bool, scene: [u32; 2], native: UVec2) -> [u32; 2] {
+    if taa { native.to_array() } else { scene }
+}
 struct EffectTargets {
     colors: Arc<SourceColorTargets>,
     ao: Option<SourceAoChain>,
@@ -255,13 +260,18 @@ pub(crate) fn prepare(
         status.fail(error);
         return;
     }
-    let (Some(surfaces), Some(assets)) = (surfaces, assets) else {
+    let (Some(surfaces), Some(assets), Some(view)) = (surfaces, assets, frame.views[0]) else {
         return;
     };
+    let colors = &surfaces.targets.world;
+    let scene_extent = [colors.width, colors.height];
+    let extent = post_extent(antialiasing.taa(), scene_extent, view.native_extent);
     // The motion blur setting changes the chain without a resize.
     if effects.targets.as_ref().is_some_and(|old| {
-        Arc::ptr_eq(&old.colors, &surfaces.targets.world)
-            && old.chain.as_ref().unwrap().has_blur() == input.motion_blur
+        let chain = old.chain.as_ref().unwrap();
+        Arc::ptr_eq(&old.colors, colors)
+            && chain.extent == extent
+            && chain.has_blur() == input.motion_blur
     }) {
         return;
     }
@@ -300,8 +310,7 @@ pub(crate) fn prepare(
         heat_haze_noise: &haze_noise.texture_view,
         camera_depth: surfaces.targets.views[0].depth.sampled.as_ref().unwrap(),
     };
-    let colors = surfaces.targets.world.clone();
-    let extent = [colors.width, colors.height];
+    let colors = colors.clone();
     let motion = if antialiasing.taa() || input.motion_blur {
         let Some(pass) = motion.pass(&colors) else {
             return;
@@ -324,7 +333,7 @@ pub(crate) fn prepare(
             &cache,
             &shaders,
             surfaces.targets.views[0].depth.sampled.as_ref().unwrap(),
-            extent,
+            scene_extent,
             colors.samples,
             record,
             previous.as_mut().and_then(|old| old.ao.take()),
@@ -339,6 +348,7 @@ pub(crate) fn prepare(
             &textures,
             colors.resolved.sampled.as_ref().unwrap(),
             surfaces.targets.views[0].depth.sampled.as_ref().unwrap(),
+            scene_extent,
             extent,
             record,
             &assets.record.0.clothing.dead_profile,
@@ -459,10 +469,13 @@ fn encode_post(
     let Some(targets) = effects.targets.as_mut() else {
         return;
     };
-    let Some(held) = display
-        .as_ref()
-        .and_then(|display| display.held_target(&targets.colors, &status))
-    else {
+    let Some(held) = display.as_ref().and_then(|display| {
+        display.held_target(
+            &targets.colors,
+            targets.chain.as_ref().unwrap().extent,
+            &status,
+        )
+    }) else {
         return;
     };
     // TAA and motion blur read this frame's motion target.
