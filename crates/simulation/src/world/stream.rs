@@ -2006,6 +2006,9 @@ impl WorldStream {
             biome_override: self.mode.biome_override(),
         };
         timer.next(Stage::PropAdvance);
+        // The wanted list matches the placements, so the select applies only this advance.
+        let synced =
+            self.prop_select == Some((self.props.revision(), self.wanted_structures.revision()));
         let current = self.props.placements().len();
         super::stream_profile::count(Stage::PropAdvance, current);
         let maximum = self
@@ -2013,15 +2016,18 @@ impl WorldStream {
             .objects
             .saturating_sub(generated_objects)
             .saturating_add(current);
-        if let Err(error) = self.props.advance(
+        let change = match self.props.advance(
             [self.request.player, self.request.vehicle],
             context,
             can_request,
             maximum,
         ) {
-            self.failure = Some(error.0);
-            return;
-        }
+            Ok(change) => change,
+            Err(error) => {
+                self.failure = Some(error.0);
+                return;
+            }
+        };
         timer.next(Stage::PropSelect);
         // Equal prop and wanted lists give the same select. A waiting ramp step runs again.
         let inputs = (self.props.revision(), self.wanted_structures.revision());
@@ -2029,19 +2035,31 @@ impl WorldStream {
             return;
         }
         super::stream_profile::count(Stage::PropSelect, self.wanted_structures.len());
-        self.wanted_structures.retain(|p| {
-            !matches!(
-                p.id.layer,
-                WorldLayer::Prop
-                    | WorldLayer::Mountain
-                    | WorldLayer::Tower
-                    | WorldLayer::DesertBuilding
-            ) || self.props.contains(&p.id)
-                || (!p.id.children.is_empty() && self.props.contains_root(&p.id))
-        });
-        for p in self.props.placements() {
-            if !self.wanted_structures.contains(&p.id) {
-                self.wanted_structures.push(p.clone());
+        let props = &self.props;
+        let keep = |p: &Placement| {
+            !is_prop_layer(p.id.layer)
+                || props.contains(&p.id)
+                || (!p.id.children.is_empty() && props.contains_root(&p.id))
+        };
+        if synced {
+            // Only entries with the root of the removed placement can lose their place.
+            if let Some((id, _)) = &change.removed {
+                let key = super::prop_layers::root_key(id);
+                self.wanted_structures
+                    .retain(|p| super::prop_layers::root_key(&p.id) != key || keep(p));
+            }
+            if change.added {
+                let p = props.placements().last().expect("an added placement");
+                if !self.wanted_structures.contains(&p.id) {
+                    self.wanted_structures.push(p.clone());
+                }
+            }
+        } else {
+            self.wanted_structures.retain(keep);
+            for p in props.placements() {
+                if !self.wanted_structures.contains(&p.id) {
+                    self.wanted_structures.push(p.clone());
+                }
             }
         }
         self.append_ramps();
@@ -5241,6 +5259,13 @@ struct HelperKey {
 
 fn same_request(a: WorldRequest, b: WorldRequest) -> bool {
     a.session == b.session && a.revision == b.revision
+}
+/// Layers that source prop layers place.
+fn is_prop_layer(layer: WorldLayer) -> bool {
+    matches!(
+        layer,
+        WorldLayer::Prop | WorldLayer::Mountain | WorldLayer::Tower | WorldLayer::DesertBuilding
+    )
 }
 fn tier_layer(tier: usize) -> WorldLayer {
     match tier {

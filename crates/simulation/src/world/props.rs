@@ -171,6 +171,10 @@ impl PropGenerator {
     pub fn candidate_count(&self) -> usize {
         self.points.len()
     }
+    /// Local point of each candidate ordinal. The same for every chunk.
+    pub fn points(&self) -> &[[f32; 2]] {
+        &self.points
+    }
     pub fn candidate(&self, unit: [i64; 2], ordinal: usize) -> Option<PropCandidate> {
         let offset = self.points[ordinal];
         let p = std::array::from_fn(|a| unit[a] as f32 + offset[a]);
