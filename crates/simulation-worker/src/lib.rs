@@ -51,7 +51,7 @@ pub fn load_error() -> String {
     })
 }
 
-/// Runs one encoded command. Returns the encoded frame. The world step runs later, in `step_world`.
+/// Runs one encoded command. Returns the encoded frame.
 #[wasm_bindgen]
 pub fn tick(command: &[u8]) -> Result<Vec<u8>, JsValue> {
     with_session(|s| {
@@ -59,12 +59,6 @@ pub fn tick(command: &[u8]) -> Result<Vec<u8>, JsValue> {
             .map(<[u8]>::to_vec)
             .map_err(|e| JsValue::from_str(&e.0))
     })?
-}
-
-/// Runs the world step of the last `tick`. The worker calls it after it posts the frame.
-#[wasm_bindgen]
-pub fn step_world() -> Result<(), JsValue> {
-    with_session(Session::step_world)
 }
 
 /// Runs a JSON array of sandbox actions (`simulation::sandbox`). Returns the JSON replies.

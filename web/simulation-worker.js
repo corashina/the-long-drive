@@ -1,9 +1,9 @@
 // Runs the simulation WASM. The terrain and road workers start here, next to the simulation that uses them.
-import init,{start,load_error,tick,step_world,cpu_profile,sandbox,net_session,net_receive,net_leave,net_send} from './pkg/simulation_worker.js';
+import init,{start,load_error,tick,cpu_profile,sandbox,net_session,net_receive,net_leave,net_send} from './pkg/simulation_worker.js';
 import {createTerrain,installTerrainBridge} from './terrain.js';
 import {installRoadBridge} from './road.js';
 self.gameNow=()=>performance.now();
-let inputConsumed=false,clearInput=false,memory,netOn=false,worldMs=0;
+let inputConsumed=false,clearInput=false,memory,netOn=false;
 self.gameCpuInputConsumed=()=>{inputConsumed=true;};
 self.gameCpuClearInput=()=>{clearInput=true;};
 installTerrainBridge(self,createTerrain(new Worker(new URL('./terrain-worker.js',import.meta.url),{type:'module'}),null));
@@ -24,15 +24,10 @@ self.addEventListener('message',async({data})=>{
   // `?sandbox` pages only. It runs between ticks, so the next frame shows the result.
   if(data.sandbox!==undefined){self.postMessage({sandbox:sandbox(data.sandbox)});return;}
   if(data.net)net_receive(data.net);
-  // The frame goes back after physics. The world step runs after it, so the renderer does not wait for it.
-  // `tickMs` is the work of one command: this tick and the last world step.
-  const started=performance.now(),frame=tick(data.command),tickMs=performance.now()-started+worldMs;
+  const started=performance.now(),frame=tick(data.command),tickMs=performance.now()-started;
   const net=netOn?net_send():null,transfer=[frame.buffer];
   if(net)transfer.push(net.buffer);
   self.postMessage({frame,tickMs,wasmBytes:memory.buffer.byteLength,inputConsumed,clearInput,net},transfer);
   inputConsumed=clearInput=false;
-  const worldStarted=performance.now();
-  step_world();
-  worldMs=performance.now()-worldStarted;
  }catch(error){self.postMessage({error:error?.message??String(error)});}
 });
