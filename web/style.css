@@ -36,6 +36,8 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .pause-menu button:hover:enabled {border-color:var(--paint);background:var(--shoulder);filter:none;}
 .pause-menu #resume {border-color:var(--paint);background:var(--paint);color:var(--ink);font-weight:700;}
 .pause-menu #resume:hover:enabled {background:var(--paint-hi);}
+/* The menu focuses its main button on open. An outline there looks like a stray line, so focus shows as the hover border. */
+:is(.pause-menu,.start-primary) button:focus-visible {outline:none;border-color:var(--paint);}
 /* Start menu: the garage car turns on its stage (canvas) in the middle. The buttons sit centered under it. */
 #menu.road-view :is(#menu-art,#menu-frame) {display:none;}
 /* The road view stays clear. Only the bottom darkens under the buttons. */
