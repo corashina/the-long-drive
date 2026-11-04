@@ -36,6 +36,7 @@ mod hud;
 mod hum;
 mod humans;
 mod menu_view;
+mod population;
 mod rabbits;
 mod ragdoll;
 mod reach;
@@ -1753,8 +1754,7 @@ impl GarageRuntime {
         self.place_humans(reference);
         self.step_humans(reference, dt);
         if self.creatures.place_remove_due(self.simulation_seconds) {
-            self.place_remove_rabbits(reference, distances);
-            self.place_remove_humans(reference, distances);
+            self.place_remove_creatures(reference, distances);
         }
         self.settle_rabbits(reference);
         let r = &reference.creatures.human;
