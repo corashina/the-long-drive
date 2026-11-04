@@ -88,6 +88,7 @@ pub(crate) struct FrameAudit {
     validation: u32,
     validated: bool,
     views: [ViewAudit; VIEW_COUNT],
+    passes: PassReadiness,
     cpu_boundary: CpuBoundary,
     gpu_boundary: GpuBoundary,
     probes: [ProbeAudit; PROBE_COUNT],
@@ -235,7 +236,9 @@ impl Plugin for SourceFramePlugin {
         app.add_systems(Startup, cpu_clustering);
         app.add_systems(
             Update,
-            cpu_boundaries.after(super::materials::bind_authored_materials),
+            cpu_boundaries
+                .after(super::materials::bind_authored_materials)
+                .run_if(audit_watched),
         );
         super::view_frame::install(app);
         super::mirrors::install(app);
@@ -254,7 +257,11 @@ impl Plugin for SourceFramePlugin {
         render
             .insert_resource(progress)
             .init_resource::<SkyExtras>()
-            .add_systems(Render, gpu_boundaries.in_set(RenderSystems::Cleanup))
+            .add_systems(
+                Render,
+                (pass_readiness, gpu_boundaries.run_if(audit_watched))
+                    .in_set(RenderSystems::Cleanup),
+            )
             .add_systems(Render, release_canvas_texture.after(RenderSystems::Render))
             .add_systems(
                 Render,
@@ -797,10 +804,12 @@ fn hold_display(
 fn begin_frame(frame: Res<SourceViewFrame>, progress: Res<RendererStateHandle>) {
     let mut state = progress.lock();
     if state.audit.scene != frame.scene {
+        let passes = state.audit.passes;
         let cpu = state.audit.cpu_boundary;
         let gpu = state.audit.gpu_boundary;
         state.audit = FrameAudit {
             scene: frame.scene,
+            passes,
             cpu_boundary: cpu,
             gpu_boundary: gpu,
             ..default()
@@ -965,26 +974,28 @@ fn finish_surface(
         return;
     }
     let mut state = progress.lock();
-    let (shadow_epoch, shadow_attempts, shadow_issued) = shadow.counts();
-    state.audit.views[source.index] = ViewAudit {
-        frame: frame.frame,
-        glass: glass.audit(),
-        surface: lighting.draws(),
-        surface_instances: lighting.instances(),
-        shadow_epoch,
-        shadow_attempts,
-        shadow_issued,
-        shadow_instances: shadow.instance_counts(),
-        props: props.audit(source.index),
-        collector_frame: collector.encoded_frame(),
-        atlas_size: targets.0.atlas_size,
-        physical_extent: [targets.0.colors.width, targets.0.colors.height],
-        native_extent: frame.views[source.index].unwrap().native_extent.to_array(),
-        projection: frame.views[source.index]
-            .unwrap()
-            .raster_projection
-            .to_cols_array(),
-    };
+    if audit_watched() {
+        let (shadow_epoch, shadow_attempts, shadow_issued) = shadow.counts();
+        state.audit.views[source.index] = ViewAudit {
+            frame: frame.frame,
+            glass: glass.audit(),
+            surface: lighting.draws(),
+            surface_instances: lighting.instances(),
+            shadow_epoch,
+            shadow_attempts,
+            shadow_issued,
+            shadow_instances: shadow.instance_counts(),
+            props: props.audit(source.index),
+            collector_frame: collector.encoded_frame(),
+            atlas_size: targets.0.atlas_size,
+            physical_extent: [targets.0.colors.width, targets.0.colors.height],
+            native_extent: frame.views[source.index].unwrap().native_extent.to_array(),
+            projection: frame.views[source.index]
+                .unwrap()
+                .raster_projection
+                .to_cols_array(),
+        };
+    }
     if mirror_view(source.index) {
         // The slot image is the source `rt`. Its R8G8B8A8_UNorm format clamps the HDR color.
         let (Some(mirrors), Some(image)) = (
@@ -1132,6 +1143,9 @@ fn submitted(
                     ..validation
                 },
             };
+            if !audit_watched() {
+                continue;
+            }
             state.audit.probes[index] = ProbeAudit {
                 enabled: frame.probe_enabled[index],
                 checks: frame.probe_checks,
@@ -1161,7 +1175,7 @@ fn submitted(
     }
     if let Some(identity) = frame.render_identity() {
         let audit = &state.audit;
-        let gpu = &audit.gpu_boundary;
+        let passes = &audit.passes;
         let observation = crate::render_readiness::GraphObservation {
             identity,
             frame: audit.frame,
@@ -1170,14 +1184,14 @@ fn submitted(
             world_mask: audit.mask,
             display_encoded: audit.presented,
             submitted_token: if audit.presented { audit.token } else { 0 },
-            targets_ready: gpu.source_targets,
-            lighting_textures: gpu.lighting_textures,
-            lighting_gpu_textures: gpu.lighting_gpu_textures,
-            surface_ready: gpu.source_surface_ready,
-            camera_ready: gpu.source_camera_ready,
-            sky_ready: gpu.source_sky_ready,
-            cloud_ready: gpu.source_cloud_ready,
-            caster_ready: gpu.source_caster_ready,
+            targets_ready: passes.targets,
+            lighting_textures: passes.lighting_textures,
+            lighting_gpu_textures: passes.lighting_gpu_textures,
+            surface_ready: passes.surface,
+            camera_ready: passes.camera,
+            sky_ready: passes.sky,
+            cloud_ready: passes.cloud,
+            caster_ready: passes.caster,
             probes: observations,
             validation,
         };
@@ -1300,19 +1314,11 @@ struct GpuBoundary {
     master_state: u8,
     master_pipeline_audit: super::lighting::LightingPipelineAudit,
     lighting_render_assets: bool,
-    lighting_textures: u32,
-    lighting_gpu_textures: u32,
     cloud_gpu_mesh: bool,
-    source_targets: bool,
     frame_resources: bool,
     frame_copy_ready: bool,
-    source_camera_ready: bool,
-    source_surface_ready: bool,
     source_surface_pipelines: u32,
     source_add_pipelines: u32,
-    source_caster_ready: bool,
-    source_sky_ready: bool,
-    source_cloud_ready: bool,
     source_views: u32,
     source_lighting_bindings: u32,
     source_glass_bindings: u32,
@@ -1380,11 +1386,90 @@ fn cpu_boundaries(
     boundary.visuals_bound = visuals.is_some_and(|v| v.bound);
     progress.lock().audit.cpu_boundary = boundary;
 }
+/// Render passes and inputs that loading readiness checks. Filled each frame.
+#[derive(Clone, Copy, Default, serde::Serialize)]
+struct PassReadiness {
+    targets: bool,
+    lighting_textures: u32,
+    lighting_gpu_textures: u32,
+    camera: bool,
+    surface: bool,
+    caster: bool,
+    sky: bool,
+    cloud: bool,
+}
+#[derive(bevy::ecs::system::SystemParam)]
+struct PassInputs<'w> {
+    targets: Option<Res<'w, SurfaceResources>>,
+    lighting: Option<Res<'w, LightingRenderAssets>>,
+    images: Res<'w, bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
+    camera: Option<Res<'w, SourceViewCamera>>,
+    surface: Option<Res<'w, super::surface_pass::SurfacePasses>>,
+    caster: Option<Res<'w, super::caster::CasterPasses>>,
+    sky: Option<Res<'w, SkyPass>>,
+    cloud: Option<Res<'w, super::clouds::CloudPass>>,
+    owners: Res<'w, super::pipeline_ownership::PipelineOwners>,
+    cache: Res<'w, PipelineCache>,
+}
+/// Lighting texture counts change only when lighting assets or GPU images change.
+#[derive(Default)]
+struct LightingTextureCache {
+    stamps: Option<[u32; 2]>,
+    counts: [u32; 2],
+}
+fn pass_readiness(
+    inputs: PassInputs,
+    mut textures: Local<LightingTextureCache>,
+    progress: Res<RendererStateHandle>,
+) {
+    let cache = &*inputs.cache;
+    let mut passes = PassReadiness {
+        targets: inputs.targets.is_some(),
+        camera: inputs.camera.is_some_and(|c| c.ready()),
+        surface: inputs
+            .surface
+            .is_some_and(|p| p.ready(cache, &inputs.owners)),
+        caster: inputs
+            .caster
+            .is_some_and(|p| p.ready(cache, &inputs.owners)),
+        sky: inputs.sky.is_some_and(|p| p.ready(cache)),
+        cloud: inputs.cloud.is_some_and(|p| p.ready(cache)),
+        ..default()
+    };
+    if let Some(lighting) = &inputs.lighting {
+        let stamps = [
+            lighting.last_changed().get(),
+            inputs.images.last_changed().get(),
+        ];
+        if textures.stamps != Some(stamps) {
+            textures.stamps = Some(stamps);
+            textures.counts = [
+                lighting.textures.len() as u32,
+                lighting
+                    .textures
+                    .values()
+                    .filter(|image| inputs.images.get(image.id()).is_some())
+                    .count() as u32,
+            ];
+        }
+        [passes.lighting_textures, passes.lighting_gpu_textures] = textures.counts;
+    }
+    progress.lock().audit.passes = passes;
+}
+
+/// Only F3 and the bench read the renderer audit, so frames fill it only while one watches.
+static AUDIT_WATCHED: AtomicBool = AtomicBool::new(false);
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn watch_render_audit(on: bool) {
+    AUDIT_WATCHED.store(on, Ordering::Relaxed);
+}
+fn audit_watched() -> bool {
+    AUDIT_WATCHED.load(Ordering::Relaxed)
+}
 #[derive(Default)]
 struct AssetAuditCache {
-    stamps: Option<[Option<u32>; 4]>,
-    counts: [u32; 5],
-    cloud: bool,
+    stamps: Option<[Option<u32>; 2]>,
+    counts: [u32; 3],
     refreshes: u32,
 }
 fn resource_stamp<T: Resource>(world: &World) -> Option<u32> {
@@ -1409,7 +1494,6 @@ fn gpu_boundaries(
     use bevy::pbr::{PreparedMaterial, ViewKeyCache};
     use bevy::render::mesh::RenderMesh;
     use bevy::render::render_phase::ViewBinnedRenderPhases;
-    use bevy::render::texture::GpuImage;
     use bevy::render::{erased_render_asset::ErasedRenderAssets, render_asset::RenderAssets};
     let mut boundary = GpuBoundary::default();
     if let Some(keys) = world.get_resource::<ViewKeyCache>() {
@@ -1418,13 +1502,10 @@ fn gpu_boundaries(
     let stamps = [
         resource_stamp::<RenderAssets<RenderMesh>>(world),
         resource_stamp::<ErasedRenderAssets<PreparedMaterial>>(world),
-        resource_stamp::<LightingRenderAssets>(world),
-        resource_stamp::<RenderAssets<GpuImage>>(world),
     ];
     if audit.stamps != Some(stamps) {
         audit.stamps = Some(stamps);
-        audit.counts = [0; 5];
-        audit.cloud = false;
+        audit.counts = [0; 3];
         audit.refreshes += 1;
         if let Some(meshes) = world.get_resource::<RenderAssets<RenderMesh>>() {
             audit.counts[0] = meshes.iter().count() as u32;
@@ -1438,28 +1519,17 @@ fn gpu_boundaries(
                 })
                 .count() as u32;
         }
-        if let Some(assets) = world.get_resource::<LightingRenderAssets>() {
-            audit.counts[3] = assets.textures.len() as u32;
-            if let Some(images) = world.get_resource::<RenderAssets<GpuImage>>() {
-                audit.counts[4] = assets
-                    .textures
-                    .values()
-                    .filter(|image| images.get(image.id()).is_some())
-                    .count() as u32;
-            }
-            audit.cloud = world
-                .get_resource::<RenderAssets<RenderMesh>>()
-                .is_some_and(|meshes| meshes.get(assets.cloud_mesh.id()).is_some());
-        }
     }
     boundary.gpu_meshes = audit.counts[0];
     boundary.prepared_materials = audit.counts[1];
     boundary.source_prepared_materials = audit.counts[2];
-    boundary.lighting_textures = audit.counts[3];
-    boundary.lighting_gpu_textures = audit.counts[4];
-    boundary.cloud_gpu_mesh = audit.cloud;
     boundary.asset_audit_refreshes = audit.refreshes;
-    boundary.lighting_render_assets = stamps[2].is_some();
+    if let Some(assets) = world.get_resource::<LightingRenderAssets>() {
+        boundary.lighting_render_assets = true;
+        boundary.cloud_gpu_mesh = world
+            .get_resource::<RenderAssets<RenderMesh>>()
+            .is_some_and(|meshes| meshes.get(assets.cloud_mesh.id()).is_some());
+    }
     if let Some(master) = world.get_resource::<super::lighting::LightingGpu>() {
         boundary.master_cookies = master.cookies.is_some();
         boundary.master_uniform = master.uniform.buffer().is_some();
@@ -1473,30 +1543,15 @@ fn gpu_boundaries(
         boundary.master_pipeline_audit = *audit;
     }
     let cache = world.resource::<PipelineCache>();
-    boundary.source_targets = world.contains_resource::<SurfaceResources>();
     if let Some(resources) = world.get_resource::<FrameResources>() {
         boundary.frame_resources = true;
         boundary.frame_copy_ready = resources.held.copy.ready(cache);
     }
-    boundary.source_camera_ready = world
-        .get_resource::<SourceViewCamera>()
-        .is_some_and(|c| c.ready());
-    let owners = world.resource::<super::pipeline_ownership::PipelineOwners>();
     if let Some(surface) = world.get_resource::<super::surface_pass::SurfacePasses>() {
-        boundary.source_surface_ready = surface.ready(cache, owners);
         let (base, add) = surface.counts();
         boundary.source_surface_pipelines = base as u32;
         boundary.source_add_pipelines = add as u32;
     }
-    boundary.source_caster_ready = world
-        .get_resource::<super::caster::CasterPasses>()
-        .is_some_and(|p| p.ready(cache, owners));
-    boundary.source_sky_ready = world
-        .get_resource::<SkyPass>()
-        .is_some_and(|p| p.ready(cache));
-    boundary.source_cloud_ready = world
-        .get_resource::<super::clouds::CloudPass>()
-        .is_some_and(|p| p.ready(cache));
     for (_, lighting, glass) in &views {
         boundary.source_views += 1;
         boundary.source_lighting_bindings += u32::from(lighting.is_some());

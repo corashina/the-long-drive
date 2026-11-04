@@ -48,14 +48,15 @@ function renderLines(audit){
 }
 
 // `readWorker` gives the simulation worker tick average since its last read and its WASM bytes.
-export function createPerformance(readWasmBytes,readRender,readDrawDistance,readWorker=()=>null){
+// `watchRender` tells the renderer to fill its audit. Frames skip that work while nothing reads it.
+export function createPerformance(readWasmBytes,readRender,watchRender,readDrawDistance,readWorker=()=>null){
  const root=document.querySelector('#performance'),values=document.querySelector('#performance-values');
- const timings=new FrameTimings();let lastPaint=-Infinity,stopped=false;
+ const timings=new FrameTimings();let lastPaint=-Infinity,stopped=false,benched=false;
  const ms=value=>value.toFixed(1),mib=bytes=>Number.isFinite(bytes)?(bytes/1048576).toFixed(1)+' MiB':'unavailable';
  function reset(){timings.reset();lastPaint=-Infinity;values.textContent='Waiting for game frames...';}
  const key=event=>{
   if(event.code!=='F3'||event.repeat||event.ctrlKey||event.altKey||event.metaKey)return;
-  event.preventDefault();root.hidden=!root.hidden;lastPaint=-Infinity;
+  event.preventDefault();root.hidden=!root.hidden;lastPaint=-Infinity;watchRender(!root.hidden||benched);
  };
  window.addEventListener('keydown',key);document.addEventListener('visibilitychange',reset);
  return {
@@ -80,7 +81,9 @@ export function createPerformance(readWasmBytes,readRender,readDrawDistance,read
     '\nWorld render CPU reserve: '+mib(cpuBytes)+'\nWorld render GPU reserve: '+mib(gpuBytes)+renderLines(readRender());
   },
   // The F3 values as numbers, for `tests/bench/fps.mjs`. It reads the worker tick average, as F3 does.
+  // The first call starts the renderer audit, so its render counts can be stale.
   snapshot(){
+   if(!benched){benched=true;watchRender(true);}
    const sample=timings.summary(),worker=readWorker();
    return {fps:sample?.fps??null,frameMs:sample?.average??null,worstMs:sample?.worst??null,updateMs:sample?.update??null,renderMs:sample?.render??null,
     physicsMs:sample?.physics??null,worldMs:sample?.world??null,workerTickMs:worker?.tickMs??null,...renderCounts(readRender())};
