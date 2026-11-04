@@ -60,37 +60,6 @@ pub(crate) fn accept_structure(stream: &mut WorldStream, id: &crate::world::Gene
         .unwrap();
 }
 
-/// Road discovery state of `stream`, for a stalled stream.
-pub(crate) fn road_state(stream: &WorldStream) -> String {
-    format!(
-        "roads coverage {}, replay {:?}, next road {} of {}, candidate {:?}, plan rev {} req rev {}, planned focus {:?}, road focus {:?}, cable placement {:?}",
-        stream.roads.coverage(),
-        stream.roads.replay_state(),
-        stream.next_road,
-        stream.road_candidates.len(),
-        stream.road_candidates.get(stream.next_road),
-        stream.plan_revision,
-        stream.request.revision,
-        stream.planned_road_focus,
-        stream.road_focus,
-        stream.cable_search.placement().map(|p| &p.id),
-    )
-}
-
-/// Ledger credit and job audit of `stream`, for a stalled stream.
-pub(crate) fn stream_audit(stream: &WorldStream) -> String {
-    format!(
-        "{}\ncredit {:?}\nused {:?}\nlast wait {:?}\nown jobs {}, pending bytes {}\naudit {}",
-        road_state(stream),
-        stream.ledger.credit(),
-        stream.ledger.used(),
-        stream.ledger.last_wait(),
-        stream.own_jobs(),
-        stream.generation_pending_bytes(),
-        stream.startup_job_audit(),
-    )
-}
-
 /// Renderer loads hold `bytes` of staging credit until the next call.
 pub(crate) fn hold_renderer_staging(stream: &mut WorldStream, bytes: usize) {
     stream.ledger.hold_staging(bytes);
