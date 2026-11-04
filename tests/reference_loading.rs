@@ -217,3 +217,59 @@ fn oversized_documents_stop_before_parsing() {
         );
     }
 }
+
+/// The shell from the parsed manifest matches the manifest text, so the interface reads the same values.
+#[test]
+#[ignore = "requires the installed source export"]
+fn installed_manifest_shell_matches_the_manifest_text() {
+    use serde_json::Value;
+    fn same(a: &Value, b: &Value, path: &str) {
+        match (a, b) {
+            (Value::Number(a), Value::Number(b)) => {
+                let (a, b) = (a.as_f64().unwrap(), b.as_f64().unwrap());
+                assert!((a - b).abs() <= 1e-6 * a.abs().max(1.0), "{path}: {a} {b}");
+            }
+            (Value::Array(a), Value::Array(b)) => {
+                assert_eq!(a.len(), b.len(), "{path}");
+                for (i, (a, b)) in a.iter().zip(b).enumerate() {
+                    same(a, b, &format!("{path}/{i}"));
+                }
+            }
+            (Value::Object(a), Value::Object(b)) => {
+                let keys =
+                    |o: &serde_json::Map<String, Value>| o.keys().cloned().collect::<Vec<_>>();
+                assert_eq!(keys(a), keys(b), "{path}");
+                for (key, a) in a {
+                    same(a, &b[key], &format!("{path}/{key}"));
+                }
+            }
+            _ => assert_eq!(a, b, "{path}"),
+        }
+    }
+    let bytes =
+        the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
+            .unwrap();
+    let reference = ReferenceManifest::from_checked_runtime_json(&bytes).unwrap();
+    let mut shell: Value =
+        serde_json::from_str(&the_long_slop::manifest_shell::shell(&reference).unwrap()).unwrap();
+    assert!(
+        !shell["world"]["start_cars"].as_array().unwrap().is_empty(),
+        "start cars"
+    );
+    shell["world"].as_object_mut().unwrap().remove("start_cars");
+    let text: Value = serde_json::from_slice(&bytes).unwrap();
+    for (key, value) in shell.as_object().unwrap() {
+        let expected = match key.as_str() {
+            "world" => serde_json::json!({
+                "draw_distance": text["world"]["draw_distance"],
+                "mirrors": text["world"]["mirrors"],
+            }),
+            "clothing" => serde_json::json!({
+                "characters": text["clothing"]["characters"].as_array().unwrap().iter()
+                    .map(|c| serde_json::json!({"segments": c["segments"]})).collect::<Vec<_>>(),
+            }),
+            _ => text[key].clone(),
+        };
+        same(value, &expected, key);
+    }
+}

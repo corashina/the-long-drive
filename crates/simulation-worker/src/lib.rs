@@ -9,13 +9,26 @@ use wasm_bindgen::prelude::*;
 use wasm_heap as _;
 
 thread_local! {
+    static REFERENCE: RefCell<Option<Arc<ReferenceManifest>>> = const { RefCell::new(None) };
     static SESSION: RefCell<Option<Session>> = const { RefCell::new(None) };
 }
 
-/// Starts the simulation. Returns the encoded `SimStartup`.
+fn error(e: &dyn std::fmt::Display) -> JsValue {
+    JsValue::from_str(&e.to_string())
+}
+
+/// Parses and checks the manifest. It runs while the main thread sets up the interface.
+#[wasm_bindgen]
+pub fn load(manifest: &[u8]) -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let reference = ReferenceManifest::from_runtime_json(manifest).map_err(|e| error(&e))?;
+    REFERENCE.set(Some(Arc::new(reference)));
+    Ok(())
+}
+
+/// Starts the simulation on the manifest of `load`. Returns the encoded `SimStartup`.
 #[wasm_bindgen]
 pub fn start(
-    manifest: &[u8],
     manifest_sha256: String,
     draw_distance: f32,
     biome: u32,
@@ -24,10 +37,9 @@ pub fn start(
     options: u32,
     save: Vec<u8>,
 ) -> Result<Vec<u8>, JsValue> {
-    console_error_panic_hook::set_once();
-    let error = |e: &dyn std::fmt::Display| JsValue::from_str(&e.to_string());
-    let reference =
-        Arc::new(ReferenceManifest::from_runtime_json(manifest).map_err(|e| error(&e))?);
+    let reference = REFERENCE
+        .take()
+        .ok_or_else(|| JsValue::from_str("The manifest is not loaded."))?;
     let init = SimInit {
         mode: GameMode::from_menu(&reference.world, biome, start_car, seed),
         options: GameOptions::from_bits(options),

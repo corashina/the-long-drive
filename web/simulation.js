@@ -23,10 +23,12 @@ export function createSimulation(worker,onFailure){
   // Hooks of the CPU profile. The worker reports input use with the frame.
   hooks(value){hooks=value;},
   profile(enabled){worker.postMessage({cpuProfile:Boolean(enabled)});},
-  // `manifest` and `save` move to the worker. `save` is the save JSON, or empty for a new game.
+  // `manifest` moves to the worker, which parses it before `start`.
+  load(manifest){worker.postMessage({manifest},[manifest.buffer]);},
+  // `save` moves to the worker. It is the save JSON, or empty for a new game.
   // Resolves with the encoded startup values and why the save did not load.
-  start(manifest,hash,drawDistance,biome,startCar,seed,options,save){
-   return new Promise((resolve,reject)=>{starting={resolve,reject};worker.postMessage({start:{manifest,hash,drawDistance,biome,startCar,seed,options,save}},[manifest.buffer,save.buffer]);});
+  start(hash,drawDistance,biome,startCar,seed,options,save){
+   return new Promise((resolve,reject)=>{starting={resolve,reject};worker.postMessage({start:{hash,drawDistance,biome,startCar,seed,options,save}},[save.buffer]);});
   },
   // The command is a view of WASM memory, so copy it before transfer.
   send(command){
