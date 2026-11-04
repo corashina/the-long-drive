@@ -1282,30 +1282,14 @@ impl WorldStream {
             super::content_conditions::unbind(&mut content, interaction);
             for binding in &content.bindings {
                 wheels.remove_generated(binding.item);
-                if let Some(instance) = self
-                    .structures
-                    .iter()
-                    .find(|i| i.placement.id == content.content.placement.id)
-                {
-                    for (_, collider) in &instance.colliders {
-                        interaction.unbind_generated(binding.item, std::slice::from_ref(collider));
-                    }
-                }
+                interaction.forget_item(binding.item, None);
                 items.set_body(binding.item, None);
                 items.get_mut(binding.item).unwrap().location =
                     crate::interaction::items::ItemLocation::World;
                 items.remove_generated(binding.item);
             }
             if let Some(id) = content.item {
-                if let Some(instance) = self
-                    .structures
-                    .iter()
-                    .find(|i| i.placement.id == content.content.placement.id)
-                {
-                    for (_, collider) in &instance.colliders {
-                        interaction.unbind_generated(id, std::slice::from_ref(collider));
-                    }
-                }
+                interaction.forget_item(id, None);
                 items.set_body(id, None);
                 items.get_mut(id).unwrap().location =
                     crate::interaction::items::ItemLocation::World;
@@ -1456,7 +1440,7 @@ fn bind_pickup(
 }
 
 /// Binds the `pushablescript` on the item body. Its colliders at or below the push node
-/// push the item. `InteractionState::unbind_generated` removes the push.
+/// push the item. `InteractionState::forget_item` removes the push.
 fn bind_push(
     id: crate::reference::ItemId,
     body: rapier3d::prelude::RigidBodyHandle,
@@ -1717,9 +1701,7 @@ pub(super) fn rollback(
     for item in content.bindings.iter().map(|b| b.item).chain(content.item) {
         interaction.parts.remove_generated(item);
         wheels.remove_generated(item);
-        for (_, collider) in &instance.colliders {
-            interaction.unbind_generated(item, std::slice::from_ref(collider));
-        }
+        interaction.forget_item(item, None);
         if let Some(state) = items.set_body(item, None) {
             state.location = crate::interaction::items::ItemLocation::World;
         }

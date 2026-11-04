@@ -14,6 +14,7 @@ pub mod explosions;
 pub mod feedback;
 pub mod fluid_contact;
 mod fluid_receipts;
+mod forget;
 pub mod genie_lamp;
 pub mod guns;
 pub mod help_texts;
@@ -1014,78 +1015,6 @@ impl InteractionState {
             }
         }
     }
-    /// Remove only bindings owned by this generated instance.
-    pub fn unbind_generated(&mut self, id: ItemId, colliders: &[ColliderHandle]) {
-        for collider in colliders {
-            if self.collider_bindings.get(collider).is_some_and(|binding| {
-                [
-                    binding.use_owner,
-                    binding.pickup_owner,
-                    binding.removal_owner,
-                    binding.push_owner,
-                ]
-                .contains(&Some(id))
-            }) {
-                self.collider_bindings.remove(collider);
-            }
-        }
-        if let Some(body) = self.mechanism_bodies.remove(&id) {
-            self.bodies.remove(&body);
-        }
-        if let Some(body) = self.push.remove_generated(id) {
-            self.bodies.remove(&body);
-        }
-        if self
-            .latched_mechanism
-            .is_some_and(|(item, _, _, _)| item == id)
-        {
-            self.latched_mechanism = None;
-        }
-        self.carry.unregister_generated(id);
-        self.unregister_hose(id);
-        for slot in self.wheel_slots.values_mut() {
-            slot.fits.remove(&id);
-        }
-        self.tire_fits
-            .retain(|(rim, tire)| *rim != id && *tire != id);
-        self.kinds.remove(&id);
-        self.pickup_layers.remove(&id);
-        self.removal_layers.remove(&id);
-        self.usable_items.remove(&id);
-        self.filling_items.remove(&id);
-        self.supplies.remove(&id);
-        self.source_supply_emission.remove(&id);
-        self.tank_rules.remove(&id);
-        self.forget_openings(id);
-    }
-    /// Forget the holes and openings of a removed tank or cap.
-    fn forget_openings(&mut self, id: ItemId) {
-        self.holes.forget(id);
-        self.openings
-            .retain(|opening| opening.reference.tank != id && opening.reference.cap != id);
-        for opening in &mut self.openings {
-            if opening.borrowed_tank == Some(id) {
-                opening.borrowed_tank = None;
-            }
-        }
-        if self.fill_opening.is_some_and(|opening| {
-            !self
-                .openings
-                .iter()
-                .any(|state| state.reference.id == opening)
-        }) {
-            self.fill_opening = None;
-        }
-        if self.tuning_opening.is_some_and(|opening| {
-            !self
-                .openings
-                .iter()
-                .any(|state| state.reference.id == opening)
-        }) {
-            self.tuning_opening = None;
-        }
-    }
-
     fn insert_generated_body(&mut self, body: RigidBodyHandle) -> Result<BodyId, ReferenceError> {
         let id = BodyId(
             self.bodies

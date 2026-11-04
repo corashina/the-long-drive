@@ -215,7 +215,7 @@ impl GarageRuntime {
                     .drop_held(&mut area.items, &mut self.physics);
             }
             area.inventory.forget(item);
-            area.interaction.remove_spawned(item, body);
+            area.interaction.forget_item(item, Some(body));
             self.physics.remove_body(body);
             if let Some(state) = area.items.set_body(item, None) {
                 state.location = crate::interaction::items::ItemLocation::World;
