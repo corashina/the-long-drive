@@ -58,7 +58,7 @@ async function act(page,actions){
 
 // A startup or runtime failure stops the frames and the world stream. Stop the bench with its message.
 async function checkGame(page){
- const failure=await page.evaluate(()=>window.gameFailure?.()??null);
+ const failure=await page.evaluate(()=>window.gameFailureMessage?.()??null);
  if(failure)throw new Error('Game failed: '+failure);
 }
 
@@ -121,7 +121,7 @@ async function startGame(browser,o,log){
   await until('game start',START_TIMEOUT_MS,async()=>{
    if(page.isClosed())throw new Error('The page closed');
    // A new game can reload the page. Then the evaluate fails, and the next poll reads the new page.
-   const state=await page.evaluate(()=>({failure:window.gameFailure?.()??null,startupDone:Boolean(window.gameStartupDone?.()),
+   const state=await page.evaluate(()=>({failure:window.gameFailureMessage?.()??null,startupDone:Boolean(window.gameStartupDone?.()),
     started:Boolean(window.gameState?.started),paused:Boolean(window.gameState?.paused),menu:window.gameMenu?.()??null})).catch(error=>{
     if(/context was destroyed|navigation/i.test(error.message))return null;
     throw error;
