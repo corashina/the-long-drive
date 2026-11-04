@@ -89,6 +89,7 @@ pub mod surface_pass;
 pub mod surface_views;
 pub mod transparent;
 pub mod view_frame;
+pub mod view_gate;
 
 mod pipeline_ownership;
 
