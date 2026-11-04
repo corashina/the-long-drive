@@ -45,8 +45,10 @@ pub enum Stage {
     ContentCables,
     ContentAdvance,
     ContentSelect,
+    /// `Driver::advance_world` after `step_world`: startup alignment, saved restore, world activity, recovery.
+    Activity,
 }
-const STAGES: usize = 38;
+const STAGES: usize = 39;
 const NAMES: [&str; STAGES] = [
     "Cleanup",
     "FixedInputs",
@@ -86,6 +88,7 @@ const NAMES: [&str; STAGES] = [
     "ContentCables",
     "ContentAdvance",
     "ContentSelect",
+    "Activity",
 ];
 #[derive(Clone, Copy, Default, serde::Serialize)]
 struct Measurement {

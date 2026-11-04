@@ -322,6 +322,9 @@ impl SimDriver {
             .step_world(reference, &mut self.world, budget_ms)
             .and_then(|grant| {
                 self.grant = grant;
+                let _timer = crate::world::stream_profile::Timer::new(
+                    crate::world::stream_profile::Stage::Activity,
+                );
                 runtime.align_startup(reference)?;
                 if runtime.has_deferred_save_links() {
                     runtime

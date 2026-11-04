@@ -16,7 +16,7 @@ import {fileURLToPath} from 'node:url';
 const OUT=fileURLToPath(new URL('./out/',import.meta.url));
 const START_TIMEOUT_MS=600000,MOVE_TIMEOUT_MS=180000;
 // Values that the summary and the compare table show, in this order.
-const FIELDS=['fps','frameMs','worstMs','updateMs','renderMs','workerTickMs','gpuShadow','gpuOpaque','gpuResolveAo','gpuTransparent','gpuPost','gpuSum','shadowDraws','surfaceDraws','propVisible','sceneScale'];
+const FIELDS=['fps','frameMs','worstMs','updateMs','renderMs','workerTickMs','physicsMs','worldMs','gpuShadow','gpuOpaque','gpuResolveAo','gpuTransparent','gpuPost','gpuSum','shadowDraws','surfaceDraws','propVisible','sceneScale'];
 const GPU=['gpuShadow','gpuOpaque','gpuResolveAo','gpuTransparent','gpuPost'];
 
 // Scene actions for `simulation::sandbox`. `noon` and `night` are source cycle seconds.
@@ -80,6 +80,14 @@ function percentile(values,p){
  const sorted=values.filter(Number.isFinite).sort((a,b)=>a-b);
  if(!sorted.length)return null;
  return sorted[Math.min(sorted.length-1,Math.floor(p*sorted.length))];
+}
+
+// Worker CPU stages with calls, most total time first. `audit` is the `profile` sandbox reply.
+function workerStages(audit){
+ const rows=(names,values)=>names.map((name,i)=>({name,...values[i]}));
+ return [...rows(audit.stages,audit.measurements),...rows(audit.streaming.stages,audit.streaming.measurements)]
+  .filter(r=>r.calls>0).sort((a,b)=>b.total_ms-a.total_ms)
+  .map(({name,calls,total_ms,mean_ms,max_ms})=>({name,calls,totalMs:total_ms,meanMs:mean_ms,maxMs:max_ms}));
 }
 
 function summarize(samples){
@@ -188,8 +196,13 @@ async function runScene(browser,page,name,cycle,o){
  if(trace)await browser.stopTracing();
  // No frame in the 2 s window: the game stopped drawing, so the GPU values are stale.
  if(!samples.some(s=>Number.isFinite(s.fps)))throw new Error('No game frames in '+name);
+ // Worker CPU stages for 5 s. The profile has a cost, so it starts after the samples.
+ await page.evaluate(()=>window.gameCpuProfile(true));
+ await sleep(5000);
+ const [profile]=await act(page,[{action:'profile'}]);
+ await page.evaluate(()=>window.gameCpuProfile(false));
  const state=await worldState(page);
- return {name,moved:replies[0].message,player:state.player,cycle:state.cycle,summary:summarize(samples),samples,trace:tracePath};
+ return {name,moved:replies[0].message,player:state.player,cycle:state.cycle,summary:summarize(samples),worker:workerStages(profile.data),samples,trace:tracePath};
 }
 
 async function bench(o){
@@ -224,6 +237,8 @@ function print(label,scene){
   const {median,p90}=scene.summary[field];
   console.log(`  ${field.padEnd(15)} median ${show(median).padStart(9)}   p90 ${show(p90).padStart(9)}`);
  }
+ console.log('  worker stages (5 s profile): calls, mean ms, max ms');
+ for(const r of scene.worker.slice(0,10))console.log(`    ${r.name.padEnd(22)} ${String(r.calls).padStart(5)} ${show(r.meanMs).padStart(8)} ${show(r.maxMs).padStart(8)}`);
 }
 
 // Median of each field in A and B, with the change in percent.
