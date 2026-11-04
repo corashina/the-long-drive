@@ -271,7 +271,7 @@ fn frame_round_trips() {
             Change::Failure("stream".into()),
             Change::SaveResult {
                 id: 4,
-                kind: "Capture".into(),
+                kind: crate::save_requests::SaveKind::Capture,
                 payload: "{}".into(),
                 error: String::new(),
             },
@@ -322,7 +322,10 @@ fn command_round_trips() {
     command.world.lamps = LampAdmission::Pending;
     command.save = vec![
         SaveCommand::Request {
-            json: r#"{"id":1,"kind":"PrepareNewGame"}"#.into(),
+            request: crate::save_requests::SaveRequest::parse(
+                r#"{"id":1,"kind":"PrepareNewGame","payload":{"draw_distance":2}}"#,
+            )
+            .unwrap(),
             mode: crate::world::GameMode::default(),
             epoch: 3,
         },
