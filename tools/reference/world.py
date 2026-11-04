@@ -163,19 +163,9 @@ def spare_prefab(source, catalog, node):
     if len(matches)!=1:raise ValueError('{}:{} spare wheel: {} rimtire prefab matches'.format(*key(node['reader']),len(matches)))
     return matches[0]
 
-# Start scene roots that copy a world structure prefab: the outhouse KERTIBUDI (1) and the bus stop Buszmegallo.
-# The well kut is not one: its scene copy adds nodes to its prefab.
-SCENE_STRUCTURES = (22027,34628)
-
-def scene_structure(source, root, structures):
-    """The prototype and start state of a SCENE_STRUCTURES root. Other roots return no fields.
-    Built scenes keep no prefab link, so the lookup matches names."""
-    if key(root)[0]!='level1' or key(root)[1] not in SCENE_STRUCTURES:return {}
-    name=source.read(source.components(root)[0])['m_Name']
-    if name.endswith(')') and ' (' in name:name=name.rsplit(' (',1)[0]
-    matches=[s for s in structures if source.read(source.components(s)[0])['m_Name']==name]
-    if len(matches)!=1:raise ValueError('{}:{} start scene structure: {} prefab matches'.format(*key(root),len(matches)))
-    return {'prototype':source_id(matches[0]),**start_state(source,root,matches[0])}
+# Start scene roots that draw: the outhouse, the bus stop, the well, the phone booth, the post and the road signs.
+# Each scene root is its own world structure prototype. The scene copies of the well and others differ from their prefabs.
+SCENE_STRUCTURES = (22027,34628,21371,35796,37348,32066)
 
 def start_row(source, catalog, root, group, random_options):
     """The startup row of one scene item copy and its catalog item index, or None without tosaveitemscript.
@@ -480,11 +470,11 @@ def recover_world(source: LibrarySource, reader: LibraryReader, output: Path, fi
         selected.record(owner)
     # Retain all startup helper frames and rules through selected transforms.
     startup=[]
-    structures=[root for k,root in roots.items() if roles[k]=='structure']
     for field in ('StartObjs','StartObjsFix','StartObjsDonTMoveOnLoad'):
         for pointer in settings[field]:
             root=source.resolve(settings_owner,pointer)
-            startup.append({'group':field,'source':source_id(root),'pose':world_pose(source,root),'prototype':None,'start_car':False,'random_options':[],'conditions':[],'tanks':[],'buried':False,**scene_structure(source,root,structures)})
+            startup.append({'group':field,'source':source_id(root),'pose':world_pose(source,root),'prototype':None,'start_car':False,'random_options':[],'conditions':[],'tanks':[],'buried':False})
+            if key(root)[0]=='level1' and key(root)[1] in SCENE_STRUCTURES:startup[-1]['prototype']=add(root,'structure')
             selected.transform_chain(root)
     if sorted(r['source']['path_id'] for r in startup if r['prototype'])!=sorted(SCENE_STRUCTURES):raise ValueError('Start scene structure roots differ from SCENE_STRUCTURES')
     # Start car candidates. Startup frames ignore these groups. The vehicle binder spawns the picked one.
@@ -903,6 +893,8 @@ def recover_help_texts(source,hierarchy,mapping):
 
 def export_world_prototypes(source,reader,selected,output,roots,roles,scope_cache,first_asset):
     prototypes=[]
+    # The source activates the inactive start scene roots at start.
+    scene_roots={('level1',t) for t in SCENE_STRUCTURES}
     for index,(identity,root) in enumerate(roots.items(),first_asset):
         name=f'world-{identity[0].replace(".","-")}-{identity[1]}'
         exporter=GltfExporter(source,output/f'{name}.gltf',reader,index)
@@ -922,7 +914,7 @@ def export_world_prototypes(source,reader,selected,output,roots,roles,scope_cach
             selected.record(node['game_object'])
         mapping={key(node['reader']):i for i,node in enumerate(hierarchy)}
         nodes=[{'source':r['source'],'name':source.read(n['game_object'])['m_Name'],'parent':mapping[key(n['parent'])] if n['parent'] else None,
-                'active':bool(source.read(n['game_object'])['m_IsActive']),'renderer_enabled':bool(exporter.document.nodes[r['gltf_node']].extras.get('source_renderer_enabled',False)),'layer':source.read(n['game_object'])['m_Layer'],'transform':r['transform'],'gltf_node':r['gltf_node'],'biome_materials':swaps(source,n['components'])} for r,n in zip(report['nodes'],hierarchy)]
+                'active':bool(source.read(n['game_object'])['m_IsActive']) or (n['parent'] is None and identity in scene_roots),'renderer_enabled':bool(exporter.document.nodes[r['gltf_node']].extras.get('source_renderer_enabled',False)),'layer':source.read(n['game_object'])['m_Layer'],'transform':r['transform'],'gltf_node':r['gltf_node'],'biome_materials':swaps(source,n['components'])} for r,n in zip(report['nodes'],hierarchy)]
         local=copy.copy(source)
         ancestor_count=len(source.chain(root))
         local.chain=lambda transform: source.chain(transform)[:-ancestor_count]
