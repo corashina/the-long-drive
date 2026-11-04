@@ -82,6 +82,8 @@ pub struct ShadowScene {
     touched: Vec<u32>,
     /// Caster rows that change each frame, in row order. It keeps its storage across frames.
     pub animated: Vec<u32>,
+    /// Grass caster rows, in row order. Their sun bits keep only the grass shadow cascades.
+    grass: Vec<u32>,
     /// Entity rows with a nonzero mask in any view. It keeps its storage across frames.
     visible: Vec<u32>,
 }
@@ -207,6 +209,7 @@ pub(super) fn prepare_scene(
         scene.poses.clear();
         scene.bounds.clear();
         scene.animated.clear();
+        scene.grass.clear();
         for mesh in &meshes {
             let edited = changes.edited.contains(mesh.entity);
             if let Err(error) = update_caster(scene, &materials, mesh, true, edited) {
@@ -245,6 +248,7 @@ pub(super) fn prepare_scene(
         scene.sun = live.sun_rotation;
     }
     let light_basis = super::shadow_queue::light_basis(scene.sun).map(|v| v.to_array());
+    let grass_cascades = super::materials::grass::settings::quality().shadow_cascades;
     for index in 0..VIEW_COUNT {
         let Some(v) = frame.views[index] else {
             scene.masks[index].clear();
@@ -280,6 +284,7 @@ pub(super) fn prepare_scene(
             shadow_strength: light.shadows.strength,
         };
         scene.masks[index].resize(scene.caster_data.casters.len(), 0);
+        let revision = scene.views[index].revision();
         match scene.views[index].prepare(
             scene.caster_data.revision(),
             &scene.caster_data.casters,
@@ -306,6 +311,13 @@ pub(super) fn prepare_scene(
             }
         }
         scene.mask_revisions[index] = scene.views[index].revision();
+        // A new preparation writes all sun bits again. Grass keeps only its cascades.
+        if scene.mask_revisions[index] != revision {
+            let keep = grass_cascades | !0b1111;
+            for &row in &scene.grass {
+                scene.masks[index][row as usize] &= keep;
+            }
+        }
         scene.marked[index].clear();
         scene.marked[index].extend_from_slice(scene.views[index].rows());
         let masks = &scene.masks[index];
@@ -480,7 +492,12 @@ fn update_caster(
         if animated {
             scene.animated.push(row);
         }
-    } else if animated != scene.animated.binary_search(&row).is_ok() {
+        if mesh.grass.is_some() {
+            scene.grass.push(row);
+        }
+    } else if animated != scene.animated.binary_search(&row).is_ok()
+        || mesh.grass.is_some() != scene.grass.binary_search(&row).is_ok()
+    {
         return Ok(false);
     }
     // Animated casters draw in each refresh, so their changes keep the static tile.
