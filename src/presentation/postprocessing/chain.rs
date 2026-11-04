@@ -750,6 +750,7 @@ impl SourceAoChain {
         extent: [u32; 2],
         samples: u32,
         record: &PostprocessingRecord,
+        scales: usize,
         previous: Option<Self>,
     ) -> Result<Self, String> {
         let depth = AoDepthPass::new(
@@ -760,6 +761,7 @@ impl SourceAoChain {
             shaders.ao_depth.clone(),
             camera_depth,
             extent,
+            scales,
             previous.as_ref().map(|old| &old.depth),
         )?;
         let render = AoRenderPass::new(
@@ -789,7 +791,7 @@ impl SourceAoChain {
             cache,
             shaders.ao_composite.clone(),
             &depth.copy.view,
-            &upsample.output[3].view,
+            &upsample.output.last().unwrap().view,
             samples,
             previous.as_ref().map(|old| &old.composite),
         );
@@ -804,6 +806,10 @@ impl SourceAoChain {
             upsample,
             composite,
         })
+    }
+    /// The number of AO scales: 4, or the 2 finest.
+    pub fn scales(&self) -> usize {
+        self.depth.low.len()
     }
     pub fn ready(&self, cache: &PipelineCache) -> bool {
         self.depth.ready(cache)

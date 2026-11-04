@@ -35,7 +35,8 @@ pub(crate) struct EffectInput {
     dead_weight: f32,
     glasses: Option<u32>,
     binoculars: bool,
-    ambient_occlusion: bool,
+    /// AO scales. 0 is AO off.
+    ao_scales: usize,
     lut: crate::display_settings::Lut,
     grayscale: bool,
     heat_haze: bool,
@@ -61,7 +62,11 @@ fn snapshot_input(
             ..default()
         };
     }
-    input.ambient_occlusion = display.ambient_occlusion;
+    input.ao_scales = match display.ambient_occlusion {
+        0 => 4,
+        1 => 2,
+        _ => 0,
+    };
     input.motion_blur = display.motion_blur;
     input.frame = 0;
     let Some(assets) = assets else { return };
@@ -266,12 +271,14 @@ pub(crate) fn prepare(
     let colors = &surfaces.targets.world;
     let scene_extent = [colors.width, colors.height];
     let extent = post_extent(antialiasing.taa(), scene_extent, view.native_extent);
-    // The motion blur setting changes the chain without a resize.
+    // The motion blur and AO settings change the chains without a resize.
+    // With AO off, the AO chain keeps its scales.
     if effects.targets.as_ref().is_some_and(|old| {
         let chain = old.chain.as_ref().unwrap();
         Arc::ptr_eq(&old.colors, colors)
             && chain.extent == extent
             && chain.has_blur() == input.motion_blur
+            && (input.ao_scales == 0 || old.ao.as_ref().unwrap().scales() == input.ao_scales)
     }) {
         return;
     }
@@ -336,6 +343,7 @@ pub(crate) fn prepare(
             scene_extent,
             colors.samples,
             record,
+            input.ao_scales.max(2),
             previous.as_mut().and_then(|old| old.ao.take()),
         )?;
         let layer = assets.record.cameras[2].postprocessing.as_ref().unwrap();
@@ -414,7 +422,7 @@ fn encode_ao(
         return;
     }
     // With the setting off, no AO passes run. The AO composite never resolves: the transparent stage does.
-    if !input.ambient_occlusion {
+    if input.ao_scales == 0 {
         effects.audit.ao_frame = frame.frame;
         effects.audit.ao_token = frame.main_token;
         return;

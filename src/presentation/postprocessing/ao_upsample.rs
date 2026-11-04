@@ -15,13 +15,14 @@ struct UpsampleParams {
     control: UVec4,
 }
 pub struct AoUpsamplePass {
-    /// Combined3, Combined2, Combined1, then the full-resolution visibility.
-    pub output: [AoDepthTarget; 4],
+    /// One step per scale, coarsest first: Combined3, Combined2, Combined1, then the full-resolution visibility.
+    /// With 2 scales: Combined1, then the full-resolution visibility.
+    pub output: Vec<AoDepthTarget>,
     pub logical_bytes: u64,
-    horizontal: [AoDepthTarget; 4],
-    vertical: [AoDepthTarget; 4],
-    _uniforms: [UniformBuffer<UpsampleParams>; 4],
-    bindings: [[BindGroup; 3]; 4],
+    horizontal: Vec<AoDepthTarget>,
+    vertical: Vec<AoDepthTarget>,
+    _uniforms: Vec<UniformBuffer<UpsampleParams>>,
+    bindings: Vec<[BindGroup; 3]>,
     pipelines: [CachedRenderPipelineId; 3],
 }
 impl AoUpsamplePass {
@@ -35,7 +36,16 @@ impl AoUpsamplePass {
         settings: &OcclusionSettings,
         previous: Option<&Self>,
     ) -> Result<Self, String> {
-        let low_extents = std::array::from_fn::<_, 4, _>(|i| depth.low[3 - i].extent);
+        // Step i reads scale `low[i]` and writes the extent of the next finer scale.
+        let low: Vec<_> = depth.low.iter().rev().collect();
+        let high: Vec<_> = depth
+            .low
+            .iter()
+            .rev()
+            .skip(1)
+            .chain([&depth.linear])
+            .collect();
+        let low_extents: Vec<_> = low.iter().map(|t| t.extent).collect();
         let maximum = device.limits().max_texture_dimension_2d;
         if low_extents
             .iter()
@@ -43,24 +53,23 @@ impl AoUpsamplePass {
         {
             return Err("Source AO blur halo exceeds the device texture extent".into());
         }
-        let horizontal = low_extents.map(|s| {
-            AoDepthTarget::new(device, [s[0] + 2, s[1] + 6], TextureFormat::R32Float, false)
-        });
-        let vertical = low_extents.map(|s| {
-            AoDepthTarget::new(device, [s[0] + 2, s[1] + 2], TextureFormat::R32Float, false)
-        });
-        let output = std::array::from_fn(|i| {
-            AoDepthTarget::new(
-                device,
-                if i == 3 {
-                    depth.linear.extent
-                } else {
-                    depth.low[2 - i].extent
-                },
-                TextureFormat::R8Unorm,
-                false,
-            )
-        });
+        let horizontal: Vec<_> = low_extents
+            .iter()
+            .map(|s| {
+                AoDepthTarget::new(device, [s[0] + 2, s[1] + 6], TextureFormat::R32Float, false)
+            })
+            .collect();
+        let vertical: Vec<_> = low_extents
+            .iter()
+            .map(|s| {
+                AoDepthTarget::new(device, [s[0] + 2, s[1] + 2], TextureFormat::R32Float, false)
+            })
+            .collect();
+        let output: Vec<_> = high
+            .iter()
+            .map(|t| AoDepthTarget::new(device, t.extent, TextureFormat::R8Unorm, false))
+            .collect();
+        let steps = output.len();
         let area = |t: &AoDepthTarget| u64::from(t.extent[0]) * u64::from(t.extent[1]);
         let logical_bytes = output.iter().map(area).sum::<u64>()
             + horizontal
@@ -68,22 +77,24 @@ impl AoUpsamplePass {
                 .chain(vertical.iter())
                 .map(|t| area(t) * 4)
                 .sum::<u64>();
-        let uniforms = std::array::from_fn(|i| {
-            let step = 1920. / low_extents[i][0] as f32;
-            let difference = 1. - 10_f32.powf(settings.blur_tolerance) * step;
-            let upsample = 10_f32.powf(settings.upsample_tolerance);
-            let mut buffer = UniformBuffer::from(UpsampleParams {
-                settings: Vec4::new(
-                    1. / (10_f32.powf(settings.noise_tolerance) + upsample),
-                    step,
-                    difference * difference,
-                    upsample,
-                ),
-                control: UVec4::new(u32::from(i < 3), 0, 0, 0),
-            });
-            buffer.write_buffer(device, queue);
-            buffer
-        });
+        let uniforms: Vec<_> = (0..steps)
+            .map(|i| {
+                let step = 1920. / low_extents[i][0] as f32;
+                let difference = 1. - 10_f32.powf(settings.blur_tolerance) * step;
+                let upsample = 10_f32.powf(settings.upsample_tolerance);
+                let mut buffer = UniformBuffer::from(UpsampleParams {
+                    settings: Vec4::new(
+                        1. / (10_f32.powf(settings.noise_tolerance) + upsample),
+                        step,
+                        difference * difference,
+                        upsample,
+                    ),
+                    control: UVec4::new(u32::from(i + 1 < steps), 0, 0, 0),
+                });
+                buffer.write_buffer(device, queue);
+                buffer
+            })
+            .collect();
         let sample = || texture_2d(TextureSampleType::Float { filterable: false });
         let layout = BindGroupLayoutDescriptor::new(
             "source_ao_upsample",
@@ -99,38 +110,36 @@ impl AoUpsamplePass {
                 ),
             ),
         );
-        let bindings = std::array::from_fn(|i| {
-            std::array::from_fn(|stage| {
-                let low_ao = if i == 0 {
-                    &ao.output[3].view
-                } else {
-                    &output[i - 1].view
-                };
-                let blur = match stage {
-                    0 => low_ao,
-                    1 => &horizontal[i].view,
-                    _ => &vertical[i].view,
-                };
-                let high_depth = if i == 3 {
-                    &depth.linear.view
-                } else {
-                    &depth.low[2 - i].view
-                };
-                let high_ao = &ao.output[2_usize.saturating_sub(i)].view;
-                device.create_bind_group(
-                    "source_ao_upsample",
-                    &cache.get_bind_group_layout(&layout),
-                    &BindGroupEntries::sequential((
-                        uniforms[i].binding().unwrap(),
-                        &depth.low[3 - i].view,
-                        low_ao,
-                        blur,
-                        high_depth,
-                        high_ao,
-                    )),
-                )
+        let bindings = (0..steps)
+            .map(|i| {
+                std::array::from_fn(|stage| {
+                    let low_ao = if i == 0 {
+                        &ao.output[steps - 1].view
+                    } else {
+                        &output[i - 1].view
+                    };
+                    let blur = match stage {
+                        0 => low_ao,
+                        1 => &horizontal[i].view,
+                        _ => &vertical[i].view,
+                    };
+                    // The last step does not blend with high AO and binds scale 0.
+                    let high_ao = &ao.output[(steps - 1).saturating_sub(i + 1)].view;
+                    device.create_bind_group(
+                        "source_ao_upsample",
+                        &cache.get_bind_group_layout(&layout),
+                        &BindGroupEntries::sequential((
+                            uniforms[i].binding().unwrap(),
+                            &low[i].view,
+                            low_ao,
+                            blur,
+                            &high[i].view,
+                            high_ao,
+                        )),
+                    )
+                })
             })
-        });
+            .collect();
         // Pipeline descriptors do not depend on the physical extent.
         let pipelines = previous.map_or_else(
             || {
@@ -186,7 +195,7 @@ impl AoUpsamplePass {
         if !self.ready(cache) {
             return false;
         }
-        for i in 0..4 {
+        for i in 0..self.output.len() {
             for (stage, target) in [&self.horizontal[i], &self.vertical[i], &self.output[i]]
                 .into_iter()
                 .enumerate()

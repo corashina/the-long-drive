@@ -27,7 +27,8 @@ export const ROWS={
  // 0 high (4x MSAA and TAA), 1 low (TAA only), 2 off. Applies after a reload.
  // The default is TAA only. 4x MSAA multiplies the HDR color, depth and resolve bandwidth. The Ultra preset sets high.
  antialiasing:{values:LEVELS,default:1},
- ambient_occlusion:{default:true},
+ // 0 high (4 AO scales), 1 low (the 2 finest scales, 12 fewer passes), 2 off.
+ ambient_occlusion:{values:LEVELS,default:0},
  // 0 high (a probe job each frame), 1 low (a probe job every 2nd frame), 2 off.
  reflections:{values:LEVELS,default:0},
 };

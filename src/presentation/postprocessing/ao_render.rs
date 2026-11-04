@@ -1,4 +1,4 @@
-//! Four persistent interleaved AO draws over the source depth phase arrays.
+//! One persistent interleaved AO draw per scale over the source depth phase arrays.
 use super::ao_depth::{AoDepthPass, AoDepthTarget};
 use bevy::prelude::*;
 use bevy::render::{
@@ -12,13 +12,14 @@ struct AoParams {
     settings: Vec4,
 }
 pub struct AoRenderPass {
-    pub output: [AoDepthTarget; 4],
+    /// One target per scale, finest first.
+    pub output: Vec<AoDepthTarget>,
     pub logical_bytes: u64,
     pipeline: CachedRenderPipelineId,
-    bindings: [BindGroup; 4],
-    uniforms: [UniformBuffer<AoParams>; 4],
+    bindings: Vec<BindGroup>,
+    uniforms: Vec<UniformBuffer<AoParams>>,
     thickness: [f32; 12],
-    atlas_width: [u32; 4],
+    atlas_width: Vec<u32>,
 }
 impl AoRenderPass {
     pub fn new(
@@ -75,9 +76,11 @@ impl AoRenderPass {
             *weight /= total;
         }
         let packed = std::array::from_fn(|i| Vec4::from_slice(&weights[i * 4..i * 4 + 4]));
-        let output = std::array::from_fn(|i| {
-            AoDepthTarget::new(device, depth.low[i].extent, TextureFormat::R8Unorm, false)
-        });
+        let output: Vec<_> = depth
+            .low
+            .iter()
+            .map(|low| AoDepthTarget::new(device, low.extent, TextureFormat::R8Unorm, false))
+            .collect();
         let logical_bytes = output
             .iter()
             .map(|t| u64::from(t.extent[0]) * u64::from(t.extent[1]))
@@ -92,25 +95,31 @@ impl AoRenderPass {
                 ),
             ),
         );
-        let uniforms = std::array::from_fn(|_| {
-            let mut b = UniformBuffer::from(AoParams {
-                inverse_thickness: [Vec4::ZERO; 3],
-                weights: packed,
-                settings: Vec4::new(-1. / thickness, intensity, 0., 0.),
-            });
-            b.write_buffer(device, queue);
-            b
-        });
-        let bindings = std::array::from_fn(|i| {
-            device.create_bind_group(
-                "source_ao_interleaved",
-                &cache.get_bind_group_layout(&layout),
-                &BindGroupEntries::sequential((
-                    uniforms[i].binding().unwrap(),
-                    &depth.tiled[i].view,
-                )),
-            )
-        });
+        let uniforms: Vec<_> = depth
+            .tiled
+            .iter()
+            .map(|_| {
+                let mut b = UniformBuffer::from(AoParams {
+                    inverse_thickness: [Vec4::ZERO; 3],
+                    weights: packed,
+                    settings: Vec4::new(-1. / thickness, intensity, 0., 0.),
+                });
+                b.write_buffer(device, queue);
+                b
+            })
+            .collect();
+        let bindings = depth
+            .tiled
+            .iter()
+            .zip(&uniforms)
+            .map(|(tiled, uniform)| {
+                device.create_bind_group(
+                    "source_ao_interleaved",
+                    &cache.get_bind_group_layout(&layout),
+                    &BindGroupEntries::sequential((uniform.binding().unwrap(), &tiled.view)),
+                )
+            })
+            .collect();
         // Pipeline descriptors do not depend on the physical extent.
         let pipeline = previous.map_or_else(
             || {
@@ -144,7 +153,7 @@ impl AoRenderPass {
             bindings,
             uniforms,
             thickness: sample_thickness,
-            atlas_width: depth.tiled.each_ref().map(|t| t.extent[0]),
+            atlas_width: depth.tiled.iter().map(|t| t.extent[0]).collect(),
         })
     }
     pub fn ready(&self, cache: &PipelineCache) -> bool {
@@ -167,7 +176,7 @@ impl AoRenderPass {
         let Some(pipeline) = cache.get_render_pipeline(self.pipeline) else {
             return Ok(false);
         };
-        for i in 0..4 {
+        for i in 0..self.output.len() {
             let inverse_scale =
                 1. / ((2. * (1. / projection_00) * 10.) / self.atlas_width[i] as f32);
             self.uniforms[i].get_mut().inverse_thickness = std::array::from_fn(|j| {
