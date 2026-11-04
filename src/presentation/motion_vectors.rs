@@ -1,4 +1,4 @@
-//! Source motion vectors for TAA and motion blur: camera motion from resolved depth, then rigid renderers that moved.
+//! Source motion vectors for TAA: camera motion from resolved depth, then rigid renderers that moved.
 //! Every source renderer uses `m_MotionVectors` 1 (per object). Skinned meshes keep camera motion.
 use super::{
     lighting_assets::LightingRenderAssets,

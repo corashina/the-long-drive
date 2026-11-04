@@ -1254,7 +1254,7 @@ static THUMBNAIL_TOKEN: AtomicU32 = AtomicU32::new(0);
 pub fn request_thumbnail() {
     THUMBNAIL.store(true, Ordering::Relaxed);
 }
-/// The next encoded main frame is the thumbnail. It has no motion blur.
+/// The next encoded main frame is the thumbnail.
 pub(crate) fn thumbnail_requested() -> bool {
     THUMBNAIL.load(Ordering::Relaxed)
 }

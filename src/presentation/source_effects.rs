@@ -43,9 +43,6 @@ pub(crate) struct EffectInput {
     cycle: (simulation::lighting::CyclePhase, f32),
     temperature: f32,
     time: f32,
-    motion_blur: bool,
-    /// Source `MotionBlur.shutterAngle` in degrees. None before the first frame.
-    shutter: Option<f32>,
     /// DoF focus distance. None is DoF off.
     focus: Option<f32>,
 }
@@ -67,19 +64,12 @@ fn snapshot_input(
         1 => 2,
         _ => 0,
     };
-    input.motion_blur = display.motion_blur;
     input.frame = 0;
     let Some(assets) = assets else { return };
     if !assets.loaded || frame.views[0].is_none() {
         return;
     }
     input.delta_seconds = sim.frame.state.perf.frame_seconds();
-    let settings = &assets.record.postprocessing.motion_blur;
-    input.shutter = Some(settings.shutter(
-        input.shutter.unwrap_or(settings.shutter_range[0]),
-        sim.frame.hud.view_speed_kmh,
-        input.delta_seconds,
-    ));
     input.grading_temperature = sim.frame.lighting.cycle.grading_temperature;
     input.dead_weight = sim.frame.state.dead_weight;
     // Source `PPVSunGlasses.enabled = !otherView()`.
@@ -220,7 +210,6 @@ fn shaders(assets: &LightingRenderAssets) -> PostShaders {
         ao_upsample: s.ao_upsample.clone(),
         ao_composite: s.ao_composite.clone(),
         taa: s.taa.clone(),
-        motion_blur: s.motion_blur.clone(),
     }
 }
 pub(crate) fn prepare(
@@ -271,13 +260,12 @@ pub(crate) fn prepare(
     let colors = &surfaces.targets.world;
     let scene_extent = [colors.width, colors.height];
     let extent = post_extent(antialiasing.taa(), scene_extent, view.native_extent);
-    // The motion blur and AO settings change the chains without a resize.
+    // The AO setting changes the chains without a resize.
     // With AO off, the AO chain keeps its scales.
     if effects.targets.as_ref().is_some_and(|old| {
         let chain = old.chain.as_ref().unwrap();
         Arc::ptr_eq(&old.colors, colors)
             && chain.extent == extent
-            && chain.has_blur() == input.motion_blur
             && (input.ao_scales == 0 || old.ao.as_ref().unwrap().scales() == input.ao_scales)
     }) {
         return;
@@ -318,13 +306,12 @@ pub(crate) fn prepare(
         camera_depth: surfaces.targets.views[0].depth.sampled.as_ref().unwrap(),
     };
     let colors = colors.clone();
-    let motion = if antialiasing.taa() || input.motion_blur {
+    let motion = if antialiasing.taa() {
         let Some(pass) = motion.pass(&colors) else {
             return;
         };
         Some(MotionInputs {
-            taa: antialiasing.taa().then_some(record.taa),
-            blur: input.motion_blur.then_some(record.motion_blur),
+            taa: Some(record.taa),
             motion: pass.view(),
         })
     } else {
@@ -486,7 +473,7 @@ fn encode_post(
     }) else {
         return;
     };
-    // TAA and motion blur read this frame's motion target.
+    // TAA reads this frame's motion target.
     if frame.main_motion.is_some()
         && motion
             .pass(&targets.colors)
@@ -494,7 +481,6 @@ fn encode_post(
     {
         return;
     }
-    // Source `MotionBlurOff` around screenshot renders.
     let thumbnail = super::frame_graph::thumbnail_requested();
     let encoded = targets.chain.as_mut().unwrap().encode(
         context.command_encoder(),
@@ -516,7 +502,6 @@ fn encode_post(
             motion: frame.main_motion.map(|motion| FrameMotion {
                 jitter: motion.jitter,
                 reset: motion.reset,
-                shutter: input.shutter.filter(|_| !thumbnail),
             }),
             focus: input.focus,
             near: snapshot.near,

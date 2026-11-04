@@ -22,7 +22,6 @@ export const ROWS={
  mirrors:{values:LEVELS,default:0},
  // Source `FMirrorDrawDistance` in meters. The default comes from the export.
  mirror_distance:{range:true},
- motion_blur:{default:true},
  lamp_shadows:{default:true},
  // 0 high (4x MSAA and TAA), 1 low (TAA only), 2 off. Applies after a reload.
  // The default is TAA only. 4x MSAA multiplies the HDR color, depth and resolve bandwidth. The Ultra preset sets high.
