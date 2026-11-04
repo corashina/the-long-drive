@@ -320,7 +320,7 @@ fixed_shaders!(
     "source_lut.wgsl",
     "source_lut_ldr.wgsl",
     "source_uber.wgsl",
-    "source_heat_haze.wgsl",
+    "source_grain.wgsl",
     "source_ao_depth.wgsl",
     "source_ao_render.wgsl",
     "source_ao_upsample.wgsl",

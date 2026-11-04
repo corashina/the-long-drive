@@ -1,18 +1,28 @@
 // Quality presets: one Graphics tab select that sets display rows of `ROWS`.
-// High is the row defaults. Medium and Low lower the most expensive rows first.
+// High is the row defaults. Ultra adds 4x MSAA to High. Medium and Low lower the most expensive rows first.
 // A row change by hand that leaves the preset values sets the preset to Custom.
 import {ROWS} from './display-settings.js';
 const NAMES=['shadows','lamp_shadows','ambient_occlusion','antialiasing','motion_blur','reflections','mirrors','grass','scene_scale'];
 const high={};
 for(const name of NAMES)high[name]=ROWS[name].default;
 export const PRESETS={
+ ultra:{...high,antialiasing:0},
  high,
- medium:{...high,shadows:1,lamp_shadows:false,antialiasing:1,grass:1},
- low:{shadows:2,lamp_shadows:false,ambient_occlusion:false,antialiasing:2,motion_blur:false,reflections:false,mirrors:false,grass:2,scene_scale:75},
+ medium:{...high,shadows:1,lamp_shadows:false,antialiasing:1,reflections:1,mirrors:1,grass:1},
+ low:{shadows:2,lamp_shadows:false,ambient_occlusion:false,antialiasing:2,motion_blur:false,reflections:2,mirrors:2,grass:2,scene_scale:75},
 };
 const CUSTOM='custom';
-// Settings store field (`createSettings`). Graphics reset sets High with the row defaults.
-export const qualityField={tab:'graphics',default:'high',valid:v=>v===CUSTOM||Object.hasOwn(PRESETS,v)};
+// Integrated GPU vendors of `GPUAdapterInfo`. Intel Arc architectures (`gen-12hp`, `xe-hpg`, `xe2-hpg`) are discrete.
+const INTEGRATED=new Set(['intel','apple','qualcomm','arm','imagination']);
+// The first preset of this GPU: Low on a software adapter, Medium on an integrated GPU, else High.
+export function firstQuality(info){
+ if(info.isFallbackAdapter)return 'low';
+ if(INTEGRATED.has(info.vendor)&&!info.architecture.includes('hp'))return 'medium';
+ return 'high';
+}
+// Settings store field (`createSettings`). Its default is `quality`, the first preset.
+// The display rows take their defaults from the same preset (`displayFields`), so a Graphics reset sets that preset.
+export const qualityField=quality=>({tab:'graphics',default:quality,valid:v=>v===CUSTOM||Object.hasOwn(PRESETS,v)});
 const matches=(values,preset)=>NAMES.every(name=>values[name]===preset[name]);
 // Binds the quality select to the store.
 export function installQualityPresets(settings,select){

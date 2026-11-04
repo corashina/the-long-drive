@@ -759,7 +759,7 @@ impl ContentKind for BusDoorKind {
     fn ready(stream: &WorldStream, _: &ItemStore, slot: usize) -> Ready {
         let content = &stream.contents.active()[slot];
         let parent = &content.content.placement.id;
-        if content.restored && stream.structures.iter().any(|s| &s.placement.id == parent) {
+        if content.restored && stream.structures.contains(parent) {
             Ready::Bind
         } else {
             Ready::Wait

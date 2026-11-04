@@ -186,7 +186,7 @@ impl WorldStream {
         let pose = |node: &SourceId| local(prototype, placement, root, node).map(|p| item_pose * p);
         let saved = self
             .changes
-            .get(ObjectKey::Generated(placement.id.clone()))
+            .get_generated(&placement.id)
             .and_then(|c| c.snapshot.as_ref())
             .and_then(|s| s.tool);
         let invalid = || ReferenceError("Invalid saved loot tool state".into());

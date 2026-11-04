@@ -18,7 +18,10 @@ impl PendingStructures {
         self.index.rebuild(&self.list, |p| &p.id);
     }
     pub fn contains(&self, id: &GeneratedId) -> bool {
-        self.index.position(&self.list, |p| &p.id, id).is_some()
+        self.position(id).is_some()
+    }
+    pub fn position(&self, id: &GeneratedId) -> Option<usize> {
+        self.index.position(&self.list, |p| &p.id, id)
     }
     pub fn push(&mut self, placement: Placement) {
         self.index.push(&placement.id, self.list.len());

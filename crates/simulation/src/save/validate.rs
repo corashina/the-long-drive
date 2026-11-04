@@ -440,7 +440,7 @@ impl SaveSnapshot {
                     let state = self
                         .world
                         .changes
-                        .get(crate::world::ObjectKey::Generated(id.clone()))
+                        .get_generated(&id)
                         .and_then(|c| c.snapshot.as_ref())
                         .ok_or_else(|| invalid("Missing generated carry state"))?;
                     links(
@@ -552,7 +552,7 @@ impl SaveSnapshot {
                         let state = self
                             .world
                             .changes
-                            .get(crate::world::ObjectKey::Generated(id.clone()))
+                            .get_generated(&id)
                             .and_then(|c| c.snapshot.as_ref())
                             .ok_or_else(|| invalid("Missing generated worn item"))?;
                         links(
@@ -591,7 +591,7 @@ impl SaveSnapshot {
                 let change = self
                     .world
                     .changes
-                    .get(crate::world::ObjectKey::Generated(id.clone()))
+                    .get_generated(&id)
                     .ok_or_else(|| invalid("Missing generated inventory item"))?;
                 let snapshot = change
                     .snapshot

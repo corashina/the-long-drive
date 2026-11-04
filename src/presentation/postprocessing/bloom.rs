@@ -55,6 +55,12 @@ pub(super) fn gamma_to_linear(value: f32) -> f32 {
         value.powf(2.200000047683716)
     }
 }
+/// `BloomRenderer.Render` `_Threshold`: threshold, threshold - knee, knee * 2, 0.25 / knee.
+fn threshold_params(threshold: f32, soft_knee: f32) -> Vec4 {
+    let threshold = gamma_to_linear(threshold);
+    let knee = threshold * soft_knee + 9.999999747378752e-6;
+    Vec4::new(threshold, threshold - knee, knee * 2., 0.25 / knee)
+}
 #[derive(Clone, Copy, ShaderType)]
 struct Params {
     output_size: Vec2,
@@ -90,7 +96,7 @@ impl Target {
     }
 }
 struct Binding {
-    _uniform: UniformBuffer<Params>,
+    uniform: UniformBuffer<Params>,
     groups: [BindGroup; 2],
 }
 pub struct BloomPass {
@@ -197,9 +203,7 @@ impl BloomPass {
             label: Some("source_exposure_point_clamp"),
             ..default()
         });
-        let threshold = gamma_to_linear(settings.threshold);
-        let knee = threshold * settings.soft_knee + 9.999999747378752e-6;
-        let threshold = Vec4::new(threshold, threshold - knee, knee * 2., 0.25 / knee);
+        let threshold = threshold_params(settings.threshold, settings.soft_knee);
         let clamp_value = gamma_to_linear(settings.clamp);
         let mut bindings = Vec::with_capacity(down.len() * 2 - 1);
         let mut bind = |i: usize, input: &TextureView, higher: &TextureView| {
@@ -224,10 +228,7 @@ impl BloomPass {
                     )),
                 )
             });
-            bindings.push(Binding {
-                _uniform: uniform,
-                groups,
-            });
+            bindings.push(Binding { uniform, groups });
         };
         for i in 0..down.len() {
             bind(i, if i == 0 { source } else { &down[i - 1].view }, source);
@@ -250,6 +251,21 @@ impl BloomPass {
             bindings,
             pipelines,
         })
+    }
+    /// Writes the prefilter threshold and knee of a blended volume.
+    pub fn set_threshold(
+        &mut self,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        threshold: f32,
+        soft_knee: f32,
+    ) {
+        let prefilter = &mut self.bindings[0].uniform;
+        let params = threshold_params(threshold, soft_knee);
+        if prefilter.get().threshold != params {
+            prefilter.get_mut().threshold = params;
+            prefilter.write_buffer(device, queue);
+        }
     }
     pub fn output(&self) -> &TextureView {
         if self.down.len() == 1 {

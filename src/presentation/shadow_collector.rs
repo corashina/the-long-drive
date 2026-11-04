@@ -1,14 +1,14 @@
-//! Source sun shadow cascades for each view, written before the view's surface draws.
+//! Source sun shadow cascades of the world view, written before any view's surface draws.
 use super::{
     lighting_assets::LightingRenderAssets,
     readiness::RendererStateHandle,
-    render_targets::SourceViewTargets,
+    render_targets::SunAtlas,
     shadow_atlas::ShadowCadence,
     shadow_phase::ShadowDrawState,
     shadow_queue::ShadowQueues,
     shadow_scene::ShadowScene,
-    surface_graph::{SourceSurface, SourceSurfaceStage, SurfaceViewTargets},
-    surface_views::SourceSurfaceView,
+    surface_graph::{SourceSurface, SourceSurfaceStage},
+    surface_views::{SourceSurfaceView, SurfaceResources},
     view_frame::SourceViewFrame,
 };
 use bevy::render::{
@@ -27,35 +27,35 @@ pub struct SunShadowUniform {
     world_to_shadow: [Mat4; 4],
     spheres: [Vec4; 4],
     radii_squared: Vec4,
-    // x=1-strength, y=inverse atlas extent, z=atlas extent, w=has valid cascades
+    // x=1-strength, y=inverse atlas extent, z=atlas extent,
+    // w=0 no valid cascades, 1 PCF 7x7, 2 PCF 3x3
     params: Vec4,
 }
-/// Per-view sun shadow preparation. Surface shaders sample the cascades at each fragment.
-#[derive(Component)]
-pub struct CollectorView {
-    targets: Arc<SourceViewTargets>,
+/// Sun shadow preparation of the world view. Surface shaders sample the cascades at each fragment.
+/// Probe faces and mirrors render after the world view, so they sample the same atlas and cascades.
+#[derive(Resource, Default)]
+pub struct SunShadow {
+    atlas: Option<Arc<SunAtlas>>,
     pub value: SunShadowUniform,
-    key: super::shadow_preparation::CollectorKey,
+    /// Fade of the world view fit. The fade center is a sphere center (w=1), so every view can use it.
+    pub fade: Vec4,
+    pub fade_center: Vec4,
+    key: Option<super::shadow_preparation::CollectorKey>,
     pub prepared_frame: u32,
     encoded_frame: AtomicU32,
 }
-impl CollectorView {
+impl SunShadow {
     pub fn encoded_frame(&self) -> u32 {
         self.encoded_frame.load(Ordering::Acquire)
     }
 }
 fn prepare(
-    mut commands: Commands,
     scene: Res<ShadowScene>,
     frame: Res<SourceViewFrame>,
     assets: Option<Res<LightingRenderAssets>>,
-    mut views: Query<(
-        Entity,
-        &SourceSurfaceView,
-        &SurfaceViewTargets,
-        &ShadowCadence,
-        Option<&mut CollectorView>,
-    )>,
+    resources: Option<Res<SurfaceResources>>,
+    views: Query<(&SourceSurfaceView, &ShadowCadence)>,
+    mut sun: ResMut<SunShadow>,
     status: Res<RendererStateHandle>,
 ) {
     if scene.frame == 0
@@ -65,12 +65,15 @@ fn prepare(
     {
         return;
     }
-    let Some(assets) = assets else {
+    let (Some(assets), Some(resources)) = (assets, resources) else {
         return;
     };
     let light = &assets.record.lights[0];
     let basis = super::shadow_queue::light_basis(scene.sun);
-    for (entity, view, targets, cadence, mut previous) in &mut views {
+    // Medium and Low use the cheaper PCF 3x3 filter.
+    let filter = if frame.shadow_quality.0 > 0 { 2. } else { 1. };
+    let atlas = &resources.targets.sun;
+    for (view, cadence) in &views {
         let Some(snapshot) = frame.views[view.index] else {
             continue;
         };
@@ -81,32 +84,38 @@ fn prepare(
             view_from_world: snapshot.view_from_world.to_cols_array().map(f32::to_bits),
             near_far_strength: [snapshot.near, snapshot.far, light.shadows.strength]
                 .map(f32::to_bits),
-            atlas_size: targets.0.atlas_size,
-            primary: view.index == 0,
+            atlas_size: atlas.size,
+            filter: filter as u32,
         };
-        if let Some(old) = previous.as_deref_mut()
-            && Arc::ptr_eq(&old.targets, &targets.0)
-            && old.key == key
-        {
-            old.prepared_frame = frame.frame;
+        let same_atlas = sun
+            .atlas
+            .as_ref()
+            .is_some_and(|old| Arc::ptr_eq(old, atlas));
+        if same_atlas && sun.key == Some(key) {
+            sun.prepared_frame = frame.frame;
             continue;
         }
-        let stale = previous
-            .as_deref()
-            .filter(|old| Arc::ptr_eq(&old.targets, &targets.0))
-            .map(|old| old.value);
+        let stale = same_atlas.then_some(sun.value);
         let mut value = SunShadowUniform {
             params: Vec4::new(
                 1. - light.shadows.strength,
-                1. / targets.0.atlas_size as f32,
-                targets.0.atlas_size as f32,
+                1. / atlas.size as f32,
+                atlas.size as f32,
                 0.,
             ),
             world_to_shadow: [Mat4::ZERO; 4],
             ..default()
         };
+        let (mut fade, mut fade_center) = (Vec4::ZERO, Vec4::ZERO);
         if let Some(fit) = scene.fits[view.index] {
-            value.params.w = 1.;
+            value.params.w = filter;
+            fade = Vec4::from_array(fit.fade);
+            fade_center = Vec4::new(
+                fit.fade_center[0],
+                fit.fade_center[1],
+                -fit.fade_center[2],
+                fit.fade_center[3],
+            );
             for (index, cascade) in fit.cascades.iter().enumerate() {
                 // A stale cascade keeps the transform and sphere of its atlas tile.
                 if let Some(old) = stale.filter(|_| !cadence.plan.render[index]) {
@@ -138,43 +147,37 @@ fn prepare(
                 value.radii_squared[index] = cascade.sphere_radius * cascade.sphere_radius;
             }
         }
-        if let Some(mut old) = previous.filter(|old| Arc::ptr_eq(&old.targets, &targets.0)) {
-            old.value = value;
-            old.key = key;
-            old.prepared_frame = frame.frame;
-            continue;
-        }
-        commands.entity(entity).insert(CollectorView {
-            targets: targets.0.clone(),
-            value,
-            key,
-            prepared_frame: frame.frame,
-            encoded_frame: AtomicU32::new(0),
-        });
+        sun.atlas = Some(atlas.clone());
+        sun.value = value;
+        sun.fade = fade;
+        sun.fade_center = fade_center;
+        sun.key = Some(key);
+        sun.prepared_frame = frame.frame;
     }
 }
-/// Marks the frame's sun shadows complete once the atlas is encoded. Surface passes wait for it.
+/// Marks the frame's sun shadows complete once the world atlas is encoded.
+/// The surface passes of every view wait for it.
 fn collect(
-    view: ViewQuery<(&SourceSurfaceView, &CollectorView, &ShadowDrawState)>,
+    view: ViewQuery<(&SourceSurfaceView, &ShadowDrawState)>,
     frame: Res<SourceViewFrame>,
     queues: Res<ShadowQueues>,
+    sun: Res<SunShadow>,
     status: Res<RendererStateHandle>,
 ) {
-    let (view, collector, shadow) = view.into_inner();
+    let (view, shadow) = view.into_inner();
     if !queues.ready[view.index]
         || queues.frame != frame.frame
-        || collector.prepared_frame != frame.frame
+        || sun.prepared_frame != frame.frame
         || shadow.encoded_frame() != frame.frame
         || status.failure().is_some()
     {
         return;
     }
-    collector
-        .encoded_frame
-        .store(frame.frame, Ordering::Release);
+    sun.encoded_frame.store(frame.frame, Ordering::Release);
 }
 pub fn install(app: &mut App) {
     app.sub_app_mut(RenderApp)
+        .init_resource::<SunShadow>()
         .add_systems(
             Render,
             prepare

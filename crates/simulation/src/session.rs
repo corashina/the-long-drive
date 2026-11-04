@@ -101,12 +101,17 @@ impl Session {
         )
     }
 
-    /// Runs one encoded command. Returns the encoded frame.
+    /// Runs one encoded command. Returns the encoded frame. Call `step_world` after the frame is sent.
     pub fn tick(&mut self, command: &[u8]) -> Result<&[u8], DecodeError> {
         let command = decode_command(command)?;
         self.driver.tick(&self.reference, command, &mut self.frame);
         self.encoder.encode(&self.frame, &mut self.bytes);
         Ok(&self.bytes)
+    }
+
+    /// Runs the world step of the last command. The next frame shows its result.
+    pub fn step_world(&mut self) {
+        self.driver.advance_world(&self.reference);
     }
 }
 
@@ -139,6 +144,7 @@ mod tests {
         );
         let mut frame = SimFrame::default();
         decode(session.tick(&command).unwrap(), &mut frame).unwrap();
+        session.step_world();
         assert_eq!(frame.seq_consumed, 1);
         assert_eq!(frame.state.session, startup.session);
     }

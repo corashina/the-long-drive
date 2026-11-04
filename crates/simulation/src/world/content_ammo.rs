@@ -97,7 +97,7 @@ impl WorldStream {
     }
     fn saved_snapshot(&self, parent: &GeneratedId) -> Option<&crate::world::ObjectSnapshot> {
         self.changes
-            .get(crate::world::ObjectKey::Generated(parent.clone()))
+            .get_generated(&parent)
             .and_then(|c| c.snapshot.as_ref())
     }
     /// The loose ammo or magazine of an item.

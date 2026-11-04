@@ -36,7 +36,7 @@ struct CasterBinding {
     binding: BindGroup,
 }
 /// Slots 0..3 are the four source cascades. Then 6 faces for each lamp slot. Only the world view uses them.
-/// Each source view owns this component. Queued views never overwrite another view's state.
+/// Each world view owns this component. Queued views never overwrite another view's state.
 #[derive(Component)]
 pub struct CasterViews {
     slots: [CasterBinding; super::lamp_shadows::TILES],
@@ -336,11 +336,11 @@ impl CasterPasses {
     }
 }
 
-/// Create the caster slots once per view. Cascade writes fill them later.
+/// Create the caster slots once for each world view. Cascade writes fill them later.
+/// Probe faces and mirrors sample the world view shadows, so they have no caster slots.
 /// Shadow slots remain untouched until the source candidate set and cascade fit are ready.
 pub(crate) fn prepare_views(
     mut commands: Commands,
-    frame: Res<super::view_frame::SourceViewFrame>,
     assets: Option<Res<super::lighting_assets::LightingRenderAssets>>,
     images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
     views: Query<(Entity, &super::surface_views::SourceSurfaceView), Without<CasterViews>>,
@@ -359,7 +359,7 @@ pub(crate) fn prepare_views(
         return;
     };
     for (entity, source) in &views {
-        if frame.skip_preparation(source.index) {
+        if source.index >= super::surface_views::WORLD_VIEWS {
             continue;
         }
         commands.entity(entity).insert(CasterViews::new(

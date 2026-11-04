@@ -52,7 +52,9 @@ fn max3(v: vec3<f32>) -> f32 {
 // FragCoC. The raw depth is reversed, so 0 is the far plane.
 @fragment
 fn coc(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    let raw = textureLoad(camera_depth, vec2<i32>(position.xy), 0);
+    // TAA upscaling makes the CoC extent larger than the depth.
+    let ratio = vec2<f32>(textureDimensions(camera_depth)) / vec2<f32>(textureDimensions(main_texture));
+    let raw = textureLoad(camera_depth, vec2<i32>((floor(position.xy) + 0.5) * ratio), 0);
     let depth = params.depth.y / fma(params.depth.x, raw, 1.);
     let coc = (depth - params.depth.z) * params.depth.w / max(depth, 1e-4);
     return vec4(saturate(coc * 0.5 * params.coc.y + 0.5));

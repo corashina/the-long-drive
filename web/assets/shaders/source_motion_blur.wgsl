@@ -6,7 +6,7 @@ struct Params {
     screen_size: vec2<f32>, // half resolution
     settings: vec4<f32>, // radius, reciprocal radius, velocity scale, loop count
     depth: vec4<f32>, // reversed-Z Linear01 x/y, tile offset, unused
-    control: vec4<u32>, // tile loop
+    control: vec4<u32>, // tile loop, full width, full height
 }
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var main_tex: texture_2d<f32>;
@@ -22,6 +22,11 @@ fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     return vec4(uv*2.0-vec2(1.0),0.0,1.0);
 }
 fn uv_at(position: vec4<f32>) -> vec2<f32> { return position.xy/params.output_size; }
+// A full-extent pixel to the scene depth pixel. TAA upscaling makes the full extent larger than the depth.
+fn depth_pixel(pixel: vec2<i32>) -> vec2<i32> {
+    let ratio=vec2<f32>(textureDimensions(camera_depth))/vec2<f32>(params.control.yz);
+    return vec2<i32>((vec2<f32>(pixel)+vec2(0.5))*ratio);
+}
 fn maxv(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> { return select(a,b,dot(a,a)<dot(b,b)); }
 fn decode(v: vec2<f32>) -> vec2<f32> { return fma(v,vec2(2.0),vec2(-1.0))*params.settings.x; }
 fn main_point(uv: vec2<f32>) -> vec2<f32> { return textureSampleLevel(main_tex,point_clamp,uv,0.0).rg; }
@@ -30,7 +35,7 @@ fn velocity(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let uv=uv_at(position);
     var v=((params.settings.z*0.5)*params.screen_size)*textureSampleLevel(camera_motion,linear_clamp,uv,0.0).rg;
     v=v/source_max(length(v)*params.settings.y,1.0);
-    let raw=textureLoad(camera_depth,vec2<i32>(position.xy)*2,0);
+    let raw=textureLoad(camera_depth,depth_pixel(vec2<i32>(position.xy)*2),0);
     let z=raw*params.depth.x;
     let d=1.0/(z+params.depth.y);
     let packed=fma(v,vec2(params.settings.y),vec2(1.0))*0.5;
@@ -141,7 +146,7 @@ fn reset_copy(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> 
 // Full-resolution output: four half-resolution taps weighted by bilinear position and depth match.
 // Pixels with little own motion keep the sharp source.
 fn linear_depth(pixel: vec2<i32>) -> f32 {
-    return 1.0/fma(textureLoad(camera_depth,pixel,0),params.depth.x,params.depth.y);
+    return 1.0/fma(textureLoad(camera_depth,depth_pixel(pixel),0),params.depth.x,params.depth.y);
 }
 @fragment
 fn upsample(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
@@ -149,7 +154,7 @@ fn upsample(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let cp=textureSampleLevel(main_tex,point_clamp,uv,0.0);
     let vmax=textureSampleLevel(neighbor_tex,point_clamp,uv,0.0).rg;
     if length(vmax)<2.0 { return half4(cp); }
-    let screen=vec2<f32>(textureDimensions(camera_motion));
+    let screen=vec2<f32>(params.control.yz);
     let speed=length(((params.settings.z*0.5)*screen)*textureSampleLevel(camera_motion,point_clamp,uv,0.0).rg);
     let amount=source_sat((speed-1.0)*0.5);
     if amount<=0.0 { return half4(cp); }

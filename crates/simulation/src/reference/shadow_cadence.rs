@@ -96,8 +96,9 @@ fn same_projection(a: &ShadowCascade, b: &ShadowCascade) -> bool {
     };
     words(a).eq(words(b))
 }
-/// Cascades 0 and 1 render each frame, cascade 2 on even frames, cascade 3 when frame % 4 == 1.
-/// All render after an epoch change, a forced refresh, or a cascade 2 or 3 sphere move above 25% of its radius.
+/// Cascade 0 renders each frame, cascade 1 on odd frames, cascade 2 when frame % 4 == 0, cascade 3 when frame % 4 == 2.
+/// So each frame renders cascade 0 and one other cascade.
+/// All render after an epoch change, a forced refresh, or a cascade 1, 2 or 3 sphere move above 25% of its radius.
 /// A rendered tile does not draw when its projection, sun and static content did not change.
 /// A rendered tile refreshes when it draws, or when it holds animated casters now or since its last refresh.
 pub fn plan_cascades(frame: u32, last: &CascadeHistory, current: &CascadeInputs) -> CascadePlan {
@@ -120,10 +121,10 @@ pub fn plan_cascades(frame: u32, last: &CascadeHistory, current: &CascadeInputs)
     }
 }
 fn cascades_to_render(frame: u32, last: &CascadeHistory, current: &CascadeInputs) -> [bool; 4] {
-    // Cascades 0 and 1 render each frame, so only the skipped cascades can hold a stale fit.
-    let moved = last.cascades[2..]
+    // Cascade 0 renders each frame, so only the skipped cascades can hold a stale fit.
+    let moved = last.cascades[1..]
         .iter()
-        .zip(&current.cascades[2..])
+        .zip(&current.cascades[1..])
         .any(|(old, new)| {
             let distance = (0..3)
                 .map(|i| (new.sphere_center[i] - old.sphere_center[i]).powi(2))
@@ -133,5 +134,51 @@ fn cascades_to_render(frame: u32, last: &CascadeHistory, current: &CascadeInputs
     if current.forced || last.epoch != Some(current.epoch) || moved {
         return [true; 4];
     }
-    [true, true, frame.is_multiple_of(2), frame % 4 == 1]
+    [true, frame % 2 == 1, frame % 4 == 0, frame % 4 == 2]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_frame_renders_cascade_0_and_one_other() {
+        let epoch = CascadeEpoch {
+            session: 1,
+            scene: 1,
+            origin: [0; 3],
+            settings: [0; 6],
+        };
+        let cascades = std::array::from_fn(|_| ShadowCascade {
+            sphere_radius: 10.,
+            ..Default::default()
+        });
+        let current = CascadeInputs {
+            epoch,
+            cascades,
+            sun: [0; 4],
+            contents: [0; 4],
+            animated: [false; 4],
+            forced: false,
+        };
+        let mut history = CascadeHistory::default();
+        history.commit(&CascadePlan::ALL, &current);
+        let mut renders = [0; 4];
+        for frame in 0..8 {
+            let plan = plan_cascades(frame, &history, &current);
+            assert!(plan.render[0]);
+            assert_eq!(plan.render.iter().filter(|&&r| r).count(), 2);
+            for (count, render) in renders.iter_mut().zip(plan.render) {
+                *count += u32::from(render);
+            }
+        }
+        assert_eq!(renders, [8, 4, 2, 2]);
+        let mut moved = current.cascades;
+        moved[1].sphere_center[0] = 3.;
+        let current = CascadeInputs {
+            cascades: moved,
+            ..current
+        };
+        assert_eq!(plan_cascades(0, &history, &current).render, [true; 4]);
+    }
 }

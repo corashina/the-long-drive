@@ -101,7 +101,7 @@ impl WorldStream {
         }
         let structures = &self.structures;
         let cobwebs = &mut self.cobwebs;
-        let present = |parent: &GeneratedId| structures.iter().any(|s| &s.placement.id == parent);
+        let present = |parent: &GeneratedId| structures.contains(parent);
         cobwebs.webs.retain(|w| {
             let keep = present(&w.parent);
             if !keep {
@@ -112,7 +112,7 @@ impl WorldStream {
             keep
         });
         cobwebs.hidden.retain(|parent, _| present(parent));
-        for s in structures {
+        for s in structures.iter() {
             let Some(records) = cobwebs.records.get(&s.placement.prototype) else {
                 continue;
             };

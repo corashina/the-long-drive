@@ -3,6 +3,7 @@ use super::render_targets::{DEPTH_FORMAT, HDR_FORMAT};
 use crate::reference::{lighting_scene::LightingRecord, sky::source_sky_vertices};
 use bevy::mesh::VertexBufferLayout;
 use bevy::render::{
+    render_phase::TrackedRenderPass,
     render_resource::{binding_types::*, *},
     renderer::{RenderDevice, RenderQueue},
 };
@@ -193,44 +194,20 @@ impl SkyPass {
         value.clip_from_world = clip_from_world;
         self.bindings[index].uniform.write_buffer(device, queue);
     }
-    pub fn encode(
-        &self,
+    /// Draw the sky into a pass that the caller owns.
+    pub fn draw<'a>(
+        &'a self,
         index: usize,
-        encoder: &mut CommandEncoder,
-        cache: &PipelineCache,
-        color: &TextureView,
-        resolved: Option<&TextureView>,
-        depth: &TextureView,
+        pass: &mut TrackedRenderPass<'a>,
+        cache: &'a PipelineCache,
     ) -> bool {
         let Some(pipeline) = cache.get_render_pipeline(self.pipelines[usize::from(index != 0)])
         else {
             return false;
         };
-        let colors = [Some(RenderPassColorAttachment {
-            view: color,
-            depth_slice: None,
-            resolve_target: resolved.map(|view| &**view),
-            ops: Operations {
-                load: LoadOp::Load,
-                store: StoreOp::Store,
-            },
-        })];
-        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("source_sky"),
-            color_attachments: &colors,
-            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                view: depth,
-                depth_ops: Some(Operations {
-                    load: LoadOp::Load,
-                    store: StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            ..default()
-        });
-        pass.set_pipeline(pipeline);
+        pass.set_render_pipeline(pipeline);
         pass.set_bind_group(0, &self.bindings[index].group, &[]);
-        pass.set_vertex_buffer(0, *self.vertices.slice(..));
+        pass.set_vertex_buffer(0, self.vertices.slice(..));
         pass.draw(0..5040, 0..1);
         true
     }

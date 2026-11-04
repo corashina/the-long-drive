@@ -342,7 +342,7 @@ impl WorldStream {
             crate::world::content_mechanisms::sync(content, items, interaction, physics);
         }
         for index in 0..self.structures.len() {
-            let instance = &mut self.structures[index];
+            let instance = self.structures.get_mut(index);
             if instance.fixed_decoration
                 || self
                     .contents
@@ -530,11 +530,7 @@ impl WorldStream {
                 continue;
             }
             let placement_id = &content.content.placement.id;
-            let Some(instance) = self
-                .structures
-                .iter_mut()
-                .find(|i| &i.placement.id == placement_id)
-            else {
+            let Some(instance) = self.structures.find_mut(placement_id) else {
                 continue;
             };
             if instance.fixed_decoration {

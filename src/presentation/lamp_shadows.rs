@@ -2,7 +2,7 @@
 //! Point and spot lights with a source shadow mode draw their casters into the lamp atlas.
 use super::caster::CasterUniform;
 use super::lighting::{SourceLighting, record_of};
-use super::surface_views::{WORLD_VIEWS, player_dist};
+use super::surface_views::player_dist;
 use super::view_frame::SourceViewFrame;
 use crate::app::RuntimeReference;
 use crate::reference::LightKind;
@@ -231,10 +231,8 @@ pub(crate) fn write_casters(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
 ) {
+    // Only the world view has caster slots.
     for (view, mut slots) in &mut views {
-        if view.index >= WORLD_VIEWS {
-            continue;
-        }
         for slot in 0..LAMP_SLOTS {
             for face in 0..lamps.faces(slot) {
                 let value = lamps.caster(slot, face, player_dist(view.index));

@@ -16,8 +16,10 @@ use crate::simulation::{
 };
 use crate::vehicle::{PhysicsWorld, VehiclePose, collider_builder, to_rapier};
 use crate::world::{DEFAULT_SEED, ObjectKey, WorldStream};
+use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::{
-    ActiveEvents, Group, InteractionGroups, InteractionTestMode, RigidBodyBuilder, RigidBodyHandle,
+    ActiveEvents, Group, InteractionGroups, InteractionTestMode, QueryFilter, RigidBodyBuilder,
+    RigidBodyHandle, Vector,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -188,6 +190,13 @@ impl StartingArea {
             }
         }
         physics.refresh_queries();
+        let dropping: Vec<_> = reference
+            .bodies
+            .iter()
+            .filter(|body| body.dynamic && body.parent_body.is_none())
+            .map(|body| bodies[&body.id])
+            .collect();
+        rest_on_support(physics, &dropping);
         items.sync_poses(physics);
         let spawn = &reference.area.player_spawn;
         let player = PlayerState::new(
@@ -2469,4 +2478,60 @@ fn startup_hash(mut value: u64) -> u64 {
     value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
     value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
     value ^ (value >> 31)
+}
+
+/// Longest drop that `rest_on_support` removes.
+const MAX_REST_DROP: f32 = 0.3;
+/// Gap left between a rested body and its support.
+const REST_GAP: f32 = 0.005;
+
+/// Moves each body straight down onto the first surface below it, at most `MAX_REST_DROP`.
+/// A thin item that drops onto a thin board can spin through the top face in one step and stay
+/// inside the board. The low wire brush starts 13 cm above its shelf board.
+fn rest_on_support(physics: &mut PhysicsWorld, handles: &[RigidBodyHandle]) {
+    let down = Vector::new(0.0, -MAX_REST_DROP, 0.0);
+    let mut drops = Vec::with_capacity(handles.len());
+    for &handle in handles {
+        let body = &physics.rapier().bodies[handle];
+        if !body.is_enabled() {
+            continue;
+        }
+        let mut toi = 1.0f32;
+        for &collider_handle in body.colliders() {
+            let collider = &physics.rapier().colliders[collider_handle];
+            if collider.is_sensor() || !collider.is_enabled() {
+                continue;
+            }
+            let queries = physics.queries(
+                QueryFilter::default()
+                    .exclude_sensors()
+                    .exclude_rigid_body(handle)
+                    .groups(collider.collision_groups()),
+            );
+            if let Some((_, hit)) = queries.cast_shape(
+                collider.position(),
+                down,
+                collider.shape(),
+                ShapeCastOptions {
+                    max_time_of_impact: 1.0,
+                    stop_at_penetration: true,
+                    ..Default::default()
+                },
+            ) {
+                toi = toi.min(hit.time_of_impact);
+            }
+        }
+        let drop = toi * MAX_REST_DROP - REST_GAP;
+        if toi < 1.0 && drop > 0.0 {
+            drops.push((handle, drop));
+        }
+    }
+    for (handle, drop) in drops {
+        physics.edit_body(handle, |body| {
+            let mut pose = *body.position();
+            pose.translation.y -= drop;
+            body.set_position(pose, true);
+        });
+    }
+    physics.refresh_queries();
 }

@@ -921,7 +921,7 @@ impl SourceFixedAssets {
                 lut: shader("shaders/source_lut.wgsl"),
                 lut_ldr: shader("shaders/source_lut_ldr.wgsl"),
                 uber: shader("shaders/source_uber.wgsl"),
-                heat_haze: shader("shaders/source_heat_haze.wgsl"),
+                grain: shader("shaders/source_grain.wgsl"),
                 ao_depth: shader("shaders/source_ao_depth.wgsl"),
                 ao_render: shader("shaders/source_ao_render.wgsl"),
                 ao_upsample: shader("shaders/source_ao_upsample.wgsl"),

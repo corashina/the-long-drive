@@ -6,7 +6,11 @@ use super::{
 use crate::reference::{
     ReferenceError, SourceId, WorldGeneratorReference, WorldReference, WorldValue,
 };
+use ::terrain::ROAD_HALF_WIDTH;
 use std::collections::HashMap;
+
+/// Extra gap from the road edge to a prop origin.
+const ROAD_CLEARANCE: f32 = 1.0;
 
 #[derive(Clone, Copy)]
 pub struct PropCandidate {
@@ -219,6 +223,13 @@ impl PropGenerator {
             {
                 return None;
             }
+        }
+        // Source divergence: turn limits make the road lag its curve on bends. No prop stands on it.
+        if context
+            .road_across(candidate.point)
+            .is_some_and(|across| across < ROAD_HALF_WIDTH + ROAD_CLEARANCE)
+        {
+            return None;
         }
         let prototype = self.prototypes[candidate.selected].as_ref()?;
         let context = TerrainContext {

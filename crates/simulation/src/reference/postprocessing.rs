@@ -840,7 +840,7 @@ impl GlassesProfile {
 /// Main camera `PostProcessLayer.volumeLayer` (layers 8 and 21).
 pub const MAIN_VOLUME_MASK: u32 = 2097408;
 
-/// `fpscontroller.DeadV`: a global volume over the main stack. `mainscript.Died` enables it.
+/// `fpscontroller.DeadV`: a global volume over the main stack. `mainscript.Died` enables it. `stack_effects` blends it.
 /// While dead, its weight is `InverseLerp(0, 14, t - deathTime)`. `survival` holds both constants.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1110,59 +1110,5 @@ impl GradingSettings {
             n2,
             n3,
         ]
-    }
-}
-
-/// The `DeadV` overrides that the main grading supports.
-/// Source PostProcessManager blends each overridden parameter as `Lerp(main, dead, weight)`.
-/// The port main stack has only `ColorGrading` in its HDR Neutral variant with default curves.
-/// Thus the port ignores other effects, curve and texture parameters, and a different grading mode or tonemapper.
-/// `new` names each ignored overridden parameter.
-#[derive(Clone, Debug, Default)]
-pub struct DeadGrading {
-    /// `GradingSettings::values` index and its `DeadV` value.
-    overrides: Vec<(usize, f32)>,
-}
-
-impl DeadGrading {
-    /// The supported overrides of the active `DeadV` effects, and the ignored ones as `effect.parameter`.
-    pub fn new(profile: &DeadProfile) -> (Self, Vec<String>) {
-        let mut overrides = Vec::new();
-        let mut ignored = Vec::new();
-        for effect in profile.effects.iter().filter(|e| e.active) {
-            for (name, parameter) in &effect.parameters {
-                if !parameter.override_state() {
-                    continue;
-                }
-                let grading = effect.kind == "color_grading";
-                let index = grading_index(name);
-                match (grading, index, parameter) {
-                    (true, Some(index), VolumeParameter::Number(p))
-                        if index < 6 || (10..19).contains(&index) =>
-                    {
-                        overrides.push((index, p.value));
-                    }
-                    (true, Some(index), VolumeParameter::Vector(p))
-                        if (index == 6 || index >= 19) && p.value.len() == 4 =>
-                    {
-                        overrides.extend(p.value.iter().enumerate().map(|(i, v)| (index + i, *v)));
-                    }
-                    // The main grading is enabled, HDR (gradingMode 1) and Neutral (tonemapper 1).
-                    (true, None, VolumeParameter::Bool(p)) if name == "enabled" && p.value => {}
-                    (true, None, VolumeParameter::Number(p))
-                        if (name == "gradingMode" || name == "tonemapper") && p.value == 1. => {}
-                    _ => ignored.push(format!("{}.{name}", effect.kind)),
-                }
-            }
-        }
-        (Self { overrides }, ignored)
-    }
-    /// Blends the overrides over `grading` with `weight` from 0 to 1.
-    pub fn blend(&self, grading: &mut GradingSettings, weight: f32) {
-        let values = grading.values();
-        for (index, target) in &self.overrides {
-            let value = &mut *values[*index];
-            *value += (target - *value) * weight;
-        }
     }
 }

@@ -17,8 +17,17 @@ pub enum Stage {
     Input,
     TerrainInputPreparation,
     TerrainResultAllocation,
+    MainUpdate,
+    Extract,
+    Specialize,
+    Queue,
+    Prepare,
+    Encode,
+    Submit,
+    Cleanup,
 }
-const NAMES: [&str; 10] = [
+const COUNT: usize = 18;
+const NAMES: [&str; COUNT] = [
     "Startup",
     "AssetDecode",
     "SavePrepare",
@@ -29,6 +38,14 @@ const NAMES: [&str; 10] = [
     "Input",
     "TerrainInputPreparation",
     "TerrainResultAllocation",
+    "MainUpdate",
+    "Extract",
+    "Specialize",
+    "Queue",
+    "Prepare",
+    "Encode",
+    "Submit",
+    "Cleanup",
 ];
 #[derive(Clone, Copy)]
 struct Measurement {
@@ -44,7 +61,7 @@ const EMPTY: Measurement = Measurement {
     max_ms: 0.,
 };
 static ENABLED: AtomicBool = AtomicBool::new(false);
-static VALUES: Mutex<[Measurement; 10]> = Mutex::new([EMPTY; 10]);
+static VALUES: Mutex<[Measurement; COUNT]> = Mutex::new([EMPTY; COUNT]);
 
 pub fn enabled() -> bool {
     ENABLED.load(Ordering::Relaxed)
@@ -64,15 +81,19 @@ impl Timer {
 impl Drop for Timer {
     fn drop(&mut self) {
         let Some(start) = self.start else { return };
-        let duration = crate::host::game_now() - start;
-        let mut values = VALUES.lock().unwrap();
-        let row = &mut values[self.stage as usize];
-        let index = row.calls % CAPACITY;
-        row.samples[index] = duration;
-        row.calls += 1;
-        row.total_ms += duration;
-        row.max_ms = row.max_ms.max(duration);
+        record(self.stage, crate::host::game_now() - start);
     }
+}
+
+/// Adds one span of `duration` milliseconds to `stage`. Callers check `enabled` first.
+pub fn record(stage: Stage, duration: f64) {
+    let mut values = VALUES.lock().unwrap();
+    let row = &mut values[stage as usize];
+    let index = row.calls % CAPACITY;
+    row.samples[index] = duration;
+    row.calls += 1;
+    row.total_ms += duration;
+    row.max_ms = row.max_ms.max(duration);
 }
 
 #[wasm_bindgen::prelude::wasm_bindgen]

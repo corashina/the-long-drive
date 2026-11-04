@@ -33,6 +33,8 @@ pub struct PropLayers {
     roots: HashMap<RootKey, u32>,
     retiring: Vec<super::GeneratedId>,
     layer: usize,
+    /// Bumps when `placements` changes.
+    revision: u64,
 }
 impl PropLayers {
     pub fn new(
@@ -72,6 +74,7 @@ impl PropLayers {
             roots: HashMap::new(),
             retiring: Vec::new(),
             layer: 0,
+            revision: 0,
         })
     }
     pub fn retained_bytes(&self) -> usize {
@@ -139,6 +142,9 @@ impl PropLayers {
                 center(a) != center(b)
             })
         })
+    }
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
     pub fn placements(&self) -> &[Placement] {
         &self.placements
@@ -231,6 +237,7 @@ impl PropLayers {
             self.placements.retain(|p| p.id != id);
             let removed = (before - self.placements.len()) as u32;
             if removed > 0 {
+                self.revision = self.revision.wrapping_add(1);
                 self.ids.remove(&id);
                 let key = root_key(&id);
                 let count = self.roots.get_mut(&key).expect("a placement has a root");
@@ -305,6 +312,7 @@ impl PropLayers {
                 self.ids.insert(placement.id.clone());
                 *self.roots.entry(root_key(&placement.id)).or_insert(0) += 1;
                 self.placements.push(placement);
+                self.revision = self.revision.wrapping_add(1);
             }
             chunk.candidates.remove(candidate_index);
             if chunk.candidates.is_empty() {

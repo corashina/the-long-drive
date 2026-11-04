@@ -9,7 +9,7 @@ use super::{
     copy::CopyPass,
     dof::DofPass,
     exposure::ExposurePass,
-    heat_haze::HeatHazePass,
+    grain::{GRAIN_BYTES, GrainPass},
     lut::{CURVE_BYTES, LUT_BYTES, LutPass},
     lut_ldr::{LDR_CURVE_BYTES, LutLdrPass, STRIP_BYTES},
     motion_blur::MotionBlurPass,
@@ -18,9 +18,10 @@ use super::{
 };
 use crate::display_settings::Lut;
 use crate::reference::postprocessing::{
-    DeadGrading, DeadProfile, GlassesProfile, GradingSaturation, GradingSettings, Lens,
-    PostprocessingRecord, Tonemapper,
+    DeadProfile, GlassesProfile, GradingSaturation, GradingSettings, Lens, PostprocessingRecord,
+    Tonemapper,
 };
+use crate::reference::stack_effects::{DeadEffects, StackEffects};
 use bevy::prelude::*;
 use bevy::render::{
     render_resource::*,
@@ -38,7 +39,7 @@ pub struct PostShaders {
     pub lut: Handle<Shader>,
     pub lut_ldr: Handle<Shader>,
     pub uber: Handle<Shader>,
-    pub heat_haze: Handle<Shader>,
+    pub grain: Handle<Shader>,
     pub ao_depth: Handle<Shader>,
     pub ao_render: Handle<Shader>,
     pub ao_upsample: Handle<Shader>,
@@ -80,7 +81,7 @@ pub struct PostFrame {
     pub delta_seconds: f32,
     /// Main-view grading temperature. None keeps the applied value.
     pub grading_temperature: Option<f32>,
-    /// `DeadV` weight over the main grading, 0 to 1.
+    /// `DeadV` weight over the main stack, 0 to 1.
     pub dead_weight: f32,
     /// `PPVSunGlasses` lens: index in `clothing.glasses_profiles`. None is no lens grading.
     pub glasses: Option<u32>,
@@ -142,12 +143,10 @@ struct MainChain {
     saturation: GradingSaturation,
     /// Main grading with the applied temperature and saturation.
     base: GradingSettings,
-    dead: DeadGrading,
     /// `clothing.glasses_profiles`.
     profiles: Vec<GlassesProfile>,
-    /// Lens and dead weight of the applied grading.
+    /// Lens of the applied grading.
     glasses: Option<u32>,
-    dead_weight: f32,
     /// Grading and tonemapper in the LUT and Uber.
     grading: GradingSettings,
     tonemapper: Tonemapper,
@@ -157,7 +156,8 @@ pub struct SourcePostChain {
     pub logical_bytes: u64,
     pub startup_count: u32,
     pub resize_count: u32,
-    initial: ColorTarget,
+    /// The copy output without TAA. TAA reads the source and stops NaNs itself.
+    initial: Option<ColorTarget>,
     copy: CopyPass,
     taa: Option<TaaPass>,
     dof: DofPass,
@@ -165,7 +165,12 @@ pub struct SourcePostChain {
     lenses: [Lens; 2],
     blur: Option<MotionBlurPass>,
     uber: UberPass,
-    haze: HeatHazePass,
+    grain: GrainPass,
+    /// The main stack without and with the binocular volume.
+    stacks: [StackEffects; 2],
+    dead: DeadEffects,
+    /// The stack effects in the Uber and bloom uniforms.
+    effects: Option<StackEffects>,
     main: MainChain,
     stop_nan: bool,
     completed: u32,
@@ -181,8 +186,10 @@ impl SourcePostChain {
         textures: &PostTextures<'_>,
         source: &TextureView,
         depth: &TextureView,
+        // The scene color, depth and motion extent.
+        scene_extent: [u32; 2],
+        // TAA output and every later pass. It equals `scene_extent` without TAA.
         extent: [u32; 2],
-        samples: u32,
         record: &PostprocessingRecord,
         dead: &DeadProfile,
         glasses: &[GlassesProfile],
@@ -192,14 +199,15 @@ impl SourcePostChain {
     ) -> Result<Self, String> {
         if extent.contains(&0)
             || extent.into_iter().max().unwrap() > device.limits().max_texture_dimension_2d
+            || (motion.as_ref().is_none_or(|inputs| inputs.taa.is_none()) && scene_extent != extent)
         {
             return Err("Invalid source postprocessing extent".into());
         }
         let startup_count = previous.as_ref().map_or(1, |old| old.startup_count);
         let resize_count = previous.as_ref().map_or(0, |old| old.resize_count + 1);
         let completed = previous.as_ref().map_or(0, |old| old.completed);
-        let initial = ColorTarget::new(device, extent);
-        let (mut copy, old_dof, old_main, old_uber, old_taa, old_blur, old_haze) = match previous {
+        let (mut copy, old_dof, old_main, old_uber, old_taa, old_blur, grain, dead) = match previous
+        {
             Some(old) => (
                 old.copy,
                 Some(old.dof),
@@ -207,17 +215,25 @@ impl SourcePostChain {
                 Some(old.uber),
                 old.taa,
                 old.blur,
-                Some(old.haze),
+                old.grain,
+                old.dead,
             ),
-            None => (
-                CopyPass::new(device, cache, shaders.copy.clone(), source),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
+            None => {
+                let (dead, ignored) = DeadEffects::new(dead, record);
+                if !ignored.is_empty() {
+                    warn!("DeadV parameters that the port does not blend: {ignored:?}");
+                }
+                (
+                    CopyPass::new(device, cache, shaders.copy.clone(), source),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    GrainPass::new(device, queue, cache, shaders.grain.clone()),
+                    dead,
+                )
+            }
         };
         let dof = DofPass::new(
             device,
@@ -241,16 +257,22 @@ impl SourcePostChain {
                     queue,
                     cache,
                     shaders.taa.clone(),
-                    &initial.view,
+                    source,
                     depth,
                     inputs.motion,
+                    scene_extent,
                     extent,
                     settings,
+                    stop_nan,
                     old_taa,
                 )
             })
             .transpose()?;
-        let scene = taa.as_ref().map_or(&initial.view, |taa| taa.output());
+        let initial = taa.is_none().then(|| ColorTarget::new(device, extent));
+        let scene = match (&taa, &initial) {
+            (Some(taa), _) => taa.output(),
+            (None, initial) => &initial.as_ref().unwrap().view,
+        };
         let blur = motion
             .as_ref()
             .and_then(|inputs| Some((inputs, inputs.blur?)))
@@ -282,39 +304,29 @@ impl SourcePostChain {
                         Some((old.ldr, old.ldr_baked)),
                         (
                             old.base,
-                            old.dead,
                             old.profiles,
                             old.glasses,
-                            old.dead_weight,
                             old.grading,
                             old.tonemapper,
                         ),
                     ),
-                    None => {
-                        let (dead, ignored) = DeadGrading::new(dead);
-                        if !ignored.is_empty() {
-                            warn!("DeadV parameters without a main stack effect: {ignored:?}");
-                        }
+                    None => (
+                        None,
+                        None,
+                        None,
+                        None,
+                        false,
+                        None,
                         (
+                            record.grading,
+                            glasses.to_vec(),
                             None,
-                            None,
-                            None,
-                            None,
-                            false,
-                            None,
-                            (
-                                record.grading,
-                                dead,
-                                glasses.to_vec(),
-                                None,
-                                0.,
-                                record.grading,
-                                Tonemapper::Neutral,
-                            ),
-                        )
-                    }
+                            record.grading,
+                            Tonemapper::Neutral,
+                        ),
+                    ),
                 };
-            let (base, dead, profiles, glasses, dead_weight, grading, tonemapper) = grading;
+            let (base, profiles, glasses, grading, tonemapper) = grading;
             let histogram = HistogramPasses::new(
                 device,
                 queue,
@@ -387,10 +399,8 @@ impl SourcePostChain {
                 ldr_pending: None,
                 saturation: record.saturation,
                 base,
-                dead,
                 profiles,
                 glasses,
-                dead_weight,
                 grading,
                 tonemapper,
             }
@@ -403,7 +413,11 @@ impl SourcePostChain {
             vignette_mask: textures.vignette_mask,
             lut: main.lut.output(),
             strip: main.ldr.output(),
+            grain: grain.output(),
             sample_scale: main.bloom.layout.sample_scale,
+            camera_depth: textures.camera_depth,
+            haze_noise: textures.heat_haze_noise,
+            haze: &record.heat_haze,
         };
         let mut uber = UberPass::new(
             device,
@@ -413,26 +427,13 @@ impl SourcePostChain {
             scene,
             textures.noise,
             extent,
-            samples,
-            record,
             inputs,
             old_uber,
         )?;
         uber.set_post_exposure(main.grading.post_exposure);
-        let haze = HeatHazePass::new(
-            device,
-            queue,
-            cache,
-            shaders.heat_haze.clone(),
-            textures.camera_depth,
-            textures.heat_haze_noise,
-            extent,
-            samples,
-            &record.heat_haze,
-            old_haze.as_ref(),
-        );
         let area = u64::from(extent[0]) * u64::from(extent[1]);
-        let logical_bytes = area * 16
+        let logical_bytes = area * 8
+            + initial.as_ref().map_or(0, |_| area * 8)
             + main.histogram.layout.logical_bytes()
             + 8
             + main.bloom.layout.logical_bytes()
@@ -440,6 +441,7 @@ impl SourcePostChain {
             + CURVE_BYTES
             + STRIP_BYTES
             + LDR_CURVE_BYTES
+            + GRAIN_BYTES
             + taa.as_ref().map_or(0, |taa| taa.logical_bytes)
             + dof.logical_bytes
             + blur.as_ref().map_or(0, |blur| blur.layout.logical_bytes());
@@ -455,7 +457,13 @@ impl SourcePostChain {
             lenses: [record.depth_of_field.lens, record.binoculars.depth_of_field],
             blur,
             uber,
-            haze,
+            grain,
+            stacks: [
+                StackEffects::main(record, false),
+                StackEffects::main(record, true),
+            ],
+            dead,
+            effects: None,
             main,
             stop_nan,
             completed,
@@ -477,12 +485,12 @@ impl SourcePostChain {
             && self.dof.ready(cache)
             && self.blur.as_ref().is_none_or(|blur| blur.ready(cache))
             && self.uber.ready(cache)
+            && self.grain.ready(cache)
             && self.main.histogram.ready(cache)
             && self.main.exposure.ready(cache)
             && self.main.bloom.ready(cache)
             && self.main.lut.ready(cache)
             && self.main.ldr.ready(cache)
-            && self.haze.ready(cache)
     }
     pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
         self.copy
@@ -491,12 +499,12 @@ impl SourcePostChain {
             .or_else(|| self.dof.failure(cache))
             .or_else(|| self.blur.as_ref().and_then(|blur| blur.failure(cache)))
             .or_else(|| self.uber.failure(cache))
+            .or_else(|| self.grain.failure(cache))
             .or_else(|| self.main.histogram.failure(cache))
             .or_else(|| self.main.exposure.failure(cache))
             .or_else(|| self.main.bloom.failure(cache))
             .or_else(|| self.main.lut.failure(cache))
             .or_else(|| self.main.ldr.failure(cache))
-            .or_else(|| self.haze.failure(cache))
     }
     pub fn recreate(&mut self) {
         self.pending = None;
@@ -533,8 +541,7 @@ impl SourcePostChain {
         queue: &RenderQueue,
         cache: &PipelineCache,
         frame: PostFrame,
-        output: &TextureView,
-        resolve: Option<&TextureView>,
+        held: &TextureView,
     ) -> Result<bool, String> {
         if frame.token == 0 || frame.token <= self.completed {
             return Ok(false);
@@ -549,8 +556,6 @@ impl SourcePostChain {
         let dof_input = frame.focus.map(|_| self.dof.raw());
         if let Some(taa) = self.taa.as_mut() {
             let motion = frame.motion.ok_or("Source TAA has no view motion")?;
-            self.copy
-                .encode(encoder, cache, &self.initial.view, self.stop_nan);
             taa.encode(
                 encoder,
                 device,
@@ -564,14 +569,14 @@ impl SourcePostChain {
             self.copy.encode(
                 encoder,
                 cache,
-                dof_input.unwrap_or(&self.initial.view),
+                dof_input.unwrap_or(&self.initial.as_ref().unwrap().view),
                 self.stop_nan,
             );
         }
         if let Some(focus) = frame.focus {
             let scene = match self.taa.as_ref() {
                 Some(taa) => taa.output(),
-                None => &self.initial.view,
+                None => &self.initial.as_ref().unwrap().view,
             };
             // The CoC temporal filter runs with TAA only.
             let jitter = frame
@@ -607,9 +612,31 @@ impl SourcePostChain {
             .exposure
             .output_index()
             .ok_or("Source exposure output is missing")?;
+        if !(0. ..=1.).contains(&frame.dead_weight) {
+            return Err("Invalid source dead weight".into());
+        }
+        // The binocular volume, then `DeadV` over the main stack.
+        let mut effects = self.stacks[usize::from(frame.binoculars)];
+        self.dead.blend(&mut effects, frame.dead_weight);
+        if self.effects != Some(effects) {
+            self.uber.set_effects(&effects);
+            self.main.bloom.set_threshold(
+                device,
+                queue,
+                effects.bloom.threshold,
+                effects.bloom.soft_knee,
+            );
+            self.effects = Some(effects);
+        }
+        if effects.grain.on() {
+            let offset = self
+                .grain
+                .encode(encoder, device, queue, cache, frame.time)
+                .ok_or("Source grain did not encode a ready pipeline")?;
+            self.uber.set_grain_offset(offset);
+        }
         self.main.bloom.encode(encoder, cache, exposure_index);
-        let mut changed =
-            frame.glasses != self.main.glasses || frame.dead_weight != self.main.dead_weight;
+        let mut changed = frame.glasses != self.main.glasses;
         if let Some(temperature) = frame.grading_temperature {
             if !temperature.is_finite() {
                 return Err("Invalid source grading temperature".into());
@@ -625,12 +652,9 @@ impl SourcePostChain {
         };
         changed |= saturation != self.main.base.saturation;
         self.main.base.saturation = saturation;
-        if !(0. ..=1.).contains(&frame.dead_weight) {
-            return Err("Invalid source dead weight".into());
-        }
         if changed {
-            // The lens overrides the main grading, then `DeadV` blends on top.
-            let (mut grading, tonemapper) = match frame.glasses {
+            // The lens overrides the main grading.
+            let (grading, tonemapper) = match frame.glasses {
                 Some(index) => self.main.base.with_glasses(
                     self.main
                         .profiles
@@ -639,9 +663,7 @@ impl SourcePostChain {
                 ),
                 None => (self.main.base, Tonemapper::Neutral),
             };
-            self.main.dead.blend(&mut grading, frame.dead_weight);
             self.main.glasses = frame.glasses;
-            self.main.dead_weight = frame.dead_weight;
             if grading != self.main.grading || tonemapper != self.main.tonemapper {
                 self.main
                     .lut
@@ -657,13 +679,13 @@ impl SourcePostChain {
         if !self.main.lut_baked {
             self.main.lut.encode(encoder, cache);
         }
-        // ILUT 1 and 2 set LDR grading. The lens and `DeadV` override gradingMode with HDR.
+        // ILUT 1 and 2 set LDR grading. The lens overrides gradingMode with HDR.
         let ldr = match frame.lut {
             Lut::Default => None,
             Lut::C64 => Some(0),
             Lut::Sepia => Some(1),
         }
-        .filter(|_| frame.glasses.is_none() && frame.dead_weight == 0.);
+        .filter(|_| frame.glasses.is_none());
         self.main.ldr_pending = None;
         if let Some(index) = ldr
             && self.main.ldr_baked != Some(index)
@@ -671,35 +693,17 @@ impl SourcePostChain {
             self.main.ldr.encode(encoder, cache, index);
             self.main.ldr_pending = Some(index);
         }
-        // The heat haze at weight 0 samples texel centers and gives the same image. So it does not run.
-        let haze = frame
-            .heat_haze
-            .map(|temperature| self.haze.weight(temperature))
-            .filter(|weight| *weight > 0.);
-        self.uber.set_binoculars(frame.binoculars);
-        let (target, target_resolve) = match haze {
-            Some(_) => (&self.haze.input, None),
-            None => (output, resolve),
-        };
+        self.uber.set_haze(frame.heat_haze, frame.time);
         if !self.uber.encode(
             encoder,
             device,
             queue,
             cache,
-            target,
-            target_resolve,
+            held,
             exposure_index,
             ldr.is_some(),
-            haze.is_some(),
         ) {
             return Err("Source Uber did not encode a ready pipeline".into());
-        }
-        if let Some(weight) = haze
-            && !self.haze.encode(
-                encoder, device, queue, cache, output, resolve, weight, frame.time,
-            )
-        {
-            return Err("Source heat haze did not encode a ready pipeline".into());
         }
         self.pending = Some(frame.token);
         Ok(true)
@@ -718,6 +722,7 @@ impl SourcePostChain {
             self.main.ldr_baked = Some(index);
         }
         self.uber.completed();
+        self.grain.completed();
         self.completed = token;
         self.pending = None;
         true
@@ -820,7 +825,6 @@ impl SourceAoChain {
         queue: &RenderQueue,
         cache: &PipelineCache,
         color: &TextureView,
-        resolve: Option<&TextureView>,
         near: f32,
         far: f32,
         projection_00: f32,
@@ -845,16 +849,7 @@ impl SourceAoChain {
         self.render
             .encode(encoder, device, queue, cache, projection_00)?;
         self.upsample.encode(encoder, cache);
-        self.composite.encode(
-            encoder,
-            device,
-            queue,
-            cache,
-            color,
-            resolve,
-            near,
-            far,
-            fog_density,
-        )
+        self.composite
+            .encode(encoder, device, queue, cache, color, near, far, fog_density)
     }
 }

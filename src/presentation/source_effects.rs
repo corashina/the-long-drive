@@ -131,6 +131,11 @@ pub(crate) struct EffectsAudit {
     validated: bool,
     delta_seconds: f32,
 }
+/// The extent of TAA output and every pass after it. TAA upscales the scene to the native extent.
+/// Without TAA, the post passes run at the scene extent and the canvas copy stretches.
+pub(crate) fn post_extent(taa: bool, scene: [u32; 2], native: UVec2) -> [u32; 2] {
+    if taa { native.to_array() } else { scene }
+}
 struct EffectTargets {
     colors: Arc<SourceColorTargets>,
     ao: Option<SourceAoChain>,
@@ -204,7 +209,7 @@ fn shaders(assets: &LightingRenderAssets) -> PostShaders {
         lut: s.lut.clone(),
         lut_ldr: s.lut_ldr.clone(),
         uber: s.uber.clone(),
-        heat_haze: s.heat_haze.clone(),
+        grain: s.grain.clone(),
         ao_depth: s.ao_depth.clone(),
         ao_render: s.ao_render.clone(),
         ao_upsample: s.ao_upsample.clone(),
@@ -255,13 +260,18 @@ pub(crate) fn prepare(
         status.fail(error);
         return;
     }
-    let (Some(surfaces), Some(assets)) = (surfaces, assets) else {
+    let (Some(surfaces), Some(assets), Some(view)) = (surfaces, assets, frame.views[0]) else {
         return;
     };
+    let colors = &surfaces.targets.world;
+    let scene_extent = [colors.width, colors.height];
+    let extent = post_extent(antialiasing.taa(), scene_extent, view.native_extent);
     // The motion blur setting changes the chain without a resize.
     if effects.targets.as_ref().is_some_and(|old| {
-        Arc::ptr_eq(&old.colors, &surfaces.targets.world)
-            && old.chain.as_ref().unwrap().has_blur() == input.motion_blur
+        let chain = old.chain.as_ref().unwrap();
+        Arc::ptr_eq(&old.colors, colors)
+            && chain.extent == extent
+            && chain.has_blur() == input.motion_blur
     }) {
         return;
     }
@@ -300,8 +310,7 @@ pub(crate) fn prepare(
         heat_haze_noise: &haze_noise.texture_view,
         camera_depth: surfaces.targets.views[0].depth.sampled.as_ref().unwrap(),
     };
-    let colors = surfaces.targets.world.clone();
-    let extent = [colors.width, colors.height];
+    let colors = colors.clone();
     let motion = if antialiasing.taa() || input.motion_blur {
         let Some(pass) = motion.pass(&colors) else {
             return;
@@ -324,7 +333,7 @@ pub(crate) fn prepare(
             &cache,
             &shaders,
             surfaces.targets.views[0].depth.sampled.as_ref().unwrap(),
-            extent,
+            scene_extent,
             colors.samples,
             record,
             previous.as_mut().and_then(|old| old.ao.take()),
@@ -339,8 +348,8 @@ pub(crate) fn prepare(
             &textures,
             colors.resolved.sampled.as_ref().unwrap(),
             surfaces.targets.views[0].depth.sampled.as_ref().unwrap(),
+            scene_extent,
             extent,
-            colors.samples,
             record,
             &assets.record.0.clothing.dead_profile,
             &assets.record.0.clothing.glasses_profiles,
@@ -404,7 +413,7 @@ fn encode_ao(
     if view.index != 0 || status.failure().is_some() {
         return;
     }
-    // With the setting off, no AO passes run. Opaque and transparent passes already resolved the color.
+    // With the setting off, no AO passes run. The AO composite never resolves: the transparent stage does.
     if !input.ambient_occlusion {
         effects.audit.ao_frame = frame.frame;
         effects.audit.ao_token = frame.main_token;
@@ -421,7 +430,6 @@ fn encode_ao(
         &queue,
         &cache,
         targets.0.colors.attachment(),
-        targets.0.colors.resolve_target(),
         snapshot.near,
         snapshot.far,
         snapshot.implicit_projection.x_axis.x,
@@ -445,6 +453,7 @@ fn encode_post(
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     status: Res<RendererStateHandle>,
+    display: Option<Res<super::frame_graph::FrameResources>>,
     mut context: RenderContext,
 ) {
     let index = view.into_inner().index;
@@ -458,6 +467,15 @@ fn encode_post(
         return;
     };
     let Some(targets) = effects.targets.as_mut() else {
+        return;
+    };
+    let Some(held) = display.as_ref().and_then(|display| {
+        display.held_target(
+            &targets.colors,
+            targets.chain.as_ref().unwrap().extent,
+            &status,
+        )
+    }) else {
         return;
     };
     // TAA and motion blur read this frame's motion target.
@@ -496,8 +514,7 @@ fn encode_post(
             near: snapshot.near,
             far: snapshot.far,
         },
-        targets.colors.attachment(),
-        targets.colors.resolve_target(),
+        held,
     );
     match encoded {
         Ok(true) => {

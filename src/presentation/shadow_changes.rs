@@ -103,6 +103,7 @@ impl ShadowMaterials<'_> {
                 self.grass.contains(handle.0.id()),
                 "Missing source grass material",
             )
+            .map(|_| super::materials::grass::settings::quality().shadow_cascades != 0)
         } else if let Some(handle) = mesh.impostor {
             present(
                 self.impostors.contains(handle.0.id()),

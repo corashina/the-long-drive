@@ -78,7 +78,60 @@ fn projection(a: [f32; 2], b: [f32; 2]) -> f32 {
     (p[0] as f64 * p[0] as f64 + p[1] as f64 * p[1] as f64).sqrt() as f32
 }
 
+/// Source road surface half width. Terrain under it sinks below the road.
+pub const ROAD_HALF_WIDTH: f32 = 4.5;
+
+/// Distance across and fraction along the line from `a` to `b`.
+fn road_offset(a: TerrainRoadPoint, b: TerrainRoadPoint, point: [f32; 2]) -> (f32, f32) {
+    let delta = [
+        (b.position[0] as f64 - a.position[0] as f64) as f32,
+        (b.position[2] as f64 - a.position[2] as f64) as f32,
+    ];
+    let offset = [
+        (point[0] as f64 - a.position[0] as f64) as f32,
+        (point[1] as f64 - a.position[2] as f64) as f32,
+    ];
+    let across = projection(offset, [-delta[1], delta[0]]);
+    let length = distance_squared(
+        [a.position[0], a.position[2]],
+        [b.position[0], b.position[2]],
+    )
+    .sqrt();
+    (across, inverse_lerp(0.0, length, projection(offset, delta)))
+}
+
 impl TerrainContext<'_> {
+    /// Distance across the road line through the two nearest road points.
+    pub fn road_across(&self, point: [f32; 2]) -> Option<f32> {
+        self.nearest_roads(point)
+            .map(|(a, b, _)| road_offset(a, b, point).0)
+    }
+    /// Source caller order controls ties.
+    fn nearest_roads(&self, point: [f32; 2]) -> Option<(TerrainRoadPoint, TerrainRoadPoint, f32)> {
+        let mut nearest = [(usize::MAX, f32::MAX); 2];
+        for (index, road) in self.roads.iter().enumerate() {
+            if self
+                .road_radius_squared
+                .is_some_and(|radius| distance_squared(point, road.segment_origin) >= radius)
+            {
+                continue;
+            }
+            let dist = distance_squared(point, [road.position[0], road.position[2]]);
+            if dist < nearest[0].1 {
+                nearest[1] = nearest[0];
+                nearest[0] = (index, dist);
+            } else if dist < nearest[1].1 {
+                nearest[1] = (index, dist);
+            }
+        }
+        (nearest[1].0 != usize::MAX).then(|| {
+            (
+                self.roads[nearest[0].0],
+                self.roads[nearest[1].0],
+                nearest[0].1,
+            )
+        })
+    }
     pub fn height(&self, point: [f32; 2]) -> f32 {
         let mut value = self.evaluator.base_height(point, true);
         if self.tile.tier != 0 {
@@ -100,48 +153,16 @@ impl TerrainContext<'_> {
                 );
             }
         }
-        let mut nearest = [(usize::MAX, f32::MAX); 2];
-        for (index, road) in self.roads.iter().enumerate() {
-            if self
-                .road_radius_squared
-                .is_some_and(|radius| distance_squared(point, road.segment_origin) >= radius)
-            {
-                continue;
-            }
-            let dist = distance_squared(point, [road.position[0], road.position[2]]);
-            if dist < nearest[0].1 {
-                nearest[1] = nearest[0];
-                nearest[0] = (index, dist);
-            } else if dist < nearest[1].1 {
-                nearest[1] = (index, dist);
-            }
-        }
-        if nearest[1].0 != usize::MAX {
-            let a = self.roads[nearest[0].0];
-            let b = self.roads[nearest[1].0];
-            if nearest[0].1 < a.range * a.range {
-                let delta = [
-                    (b.position[0] as f64 - a.position[0] as f64) as f32,
-                    (b.position[2] as f64 - a.position[2] as f64) as f32,
-                ];
-                let offset = [
-                    (point[0] as f64 - a.position[0] as f64) as f32,
-                    (point[1] as f64 - a.position[2] as f64) as f32,
-                ];
-                let across = projection(offset, [-delta[1], delta[0]]);
-                let length = distance_squared(
-                    [a.position[0], a.position[2]],
-                    [b.position[0], b.position[2]],
-                )
-                .sqrt();
-                let along = inverse_lerp(0.0, length, projection(offset, delta));
-                let road_height = lerp(a.position[1], b.position[1], along);
-                let fade = inverse_lerp(a.range * 0.5, a.range, across);
-                value = lerp(road_height, value, fade);
-                if across < 4.5 {
-                    value = (value as f64 - 0.1_f32 as f64) as f32;
-                    close = Some(value);
-                }
+        if let Some((a, b, dist)) = self.nearest_roads(point)
+            && dist < a.range * a.range
+        {
+            let (across, along) = road_offset(a, b, point);
+            let road_height = lerp(a.position[1], b.position[1], along);
+            let fade = inverse_lerp(a.range * 0.5, a.range, across);
+            value = lerp(road_height, value, fade);
+            if across < ROAD_HALF_WIDTH {
+                value = (value as f64 - 0.1_f32 as f64) as f32;
+                close = Some(value);
             }
         }
         close.unwrap_or(value)
@@ -482,4 +503,56 @@ fn inside_source_hole(point: [f32; 3], hole: &[[f32; 3]; 4]) -> bool {
         + triangle_area(hole[3], hole[2], point) as f64
         + triangle_area(hole[2], hole[0], point) as f64;
     ((area - pieces) as f32).abs() < 0.2
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::TerrainSettings;
+
+    #[test]
+    fn road_across_follows_road_points() {
+        let evaluator = TerrainEvaluator::new(TerrainSettings {
+            seed: 1,
+            edge: 0.0,
+            edge_gradient: 0.0,
+        });
+        let road = |x, z| TerrainRoadPoint {
+            position: [x, 0.0, z],
+            segment_origin: [0.0; 2],
+            range: 20.0,
+        };
+        // A bend: the road leaves the straight line at Z 10.
+        let roads = [
+            road(0.0, 0.0),
+            road(0.0, 10.0),
+            road(5.0, 20.0),
+            road(10.0, 30.0),
+        ];
+        let context = TerrainContext {
+            evaluator: &evaluator,
+            tile: TerrainTile {
+                tier: 0,
+                size: 1,
+                resolution: 1,
+                draw_distance: 1,
+                y: 0.0,
+                material_scale: 1.0,
+            },
+            roads: &roads,
+            road_radius_squared: None,
+            foundations: &[],
+            holes: &[],
+            biome_override: None,
+        };
+        let on_bend = context.road_across([7.5, 25.0]).unwrap();
+        assert!(on_bend < 0.01, "{on_bend}");
+        let beside = context.road_across([3.0, 5.0]).unwrap();
+        assert!((beside - 3.0).abs() < 0.01, "{beside}");
+        let empty = TerrainContext {
+            roads: &[],
+            ..context
+        };
+        assert!(empty.road_across([0.0; 2]).is_none());
+    }
 }

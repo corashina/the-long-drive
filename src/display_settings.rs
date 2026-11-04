@@ -45,7 +45,8 @@ pub struct DisplaySettings {
     pub grayscale: bool,
     /// Source `BDof`. Off disables the `DOF` volume. Binoculars keep their DoF.
     pub depth_of_field: bool,
-    pub mirrors: bool,
+    /// "Mirrors": 0 high, 1 low, 2 off. Low draws 1 mirror per frame, not 2.
+    pub mirrors: u32,
     /// Source `FMirrorDrawDistance`, in meters.
     pub mirror_distance: f32,
     /// Off skips the blur pass. The source has no such setting.
@@ -56,8 +57,9 @@ pub struct DisplaySettings {
     pub antialiasing: u32,
     /// Off skips the AO passes.
     pub ambient_occlusion: bool,
+    /// "Reflections": 0 high, 1 low, 2 off. Low captures a probe job every 2nd frame.
     /// Off turns every live reflection probe off.
-    pub reflections: bool,
+    pub reflections: u32,
 }
 
 /// The menu value for Auto scene resolution.
@@ -69,8 +71,17 @@ impl DisplaySettings {
         if value.scene_scale != AUTO_SCALE {
             SceneScale::from_percent(value.scene_scale)?;
         }
-        if value.shadows.0 > 2 || value.grass > 2 || value.antialiasing > 2 {
-            return Err("Shadows, Grass and Antialiasing must be 0, 1 or 2".into());
+        let levels = [
+            value.shadows.0,
+            value.grass,
+            value.antialiasing,
+            value.reflections,
+            value.mirrors,
+        ];
+        if levels.iter().any(|level| *level > 2) {
+            return Err(
+                "Shadows, Grass, Antialiasing, Reflections and Mirrors must be 0, 1 or 2".into(),
+            );
         }
         if !(value.mirror_distance.is_finite() && value.mirror_distance >= 0.) {
             return Err("Mirror draw distance must be a finite distance".into());
@@ -110,26 +121,24 @@ mod tests {
     use super::*;
 
     /// `displayRecord` of the `web/display-settings.js` defaults.
-    const DEFAULTS: &str = r#"{"scene_scale":100,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":true,"mirror_distance":150,"motion_blur":true,"lamp_shadows":true,"antialiasing":0,"ambient_occlusion":true,"reflections":true}"#;
+    const DEFAULTS: &str = r#"{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":0,"mirror_distance":150,"motion_blur":true,"lamp_shadows":true,"antialiasing":1,"ambient_occlusion":true,"reflections":0}"#;
 
     #[test]
     fn browser_record_parses_and_checks_values() {
         let value = DisplaySettings::parse(DEFAULTS).unwrap();
-        assert_eq!(value.scene_scale, 100);
+        assert_eq!(value.scene_scale, AUTO_SCALE);
         assert_eq!(value.lut, Lut::Default);
         assert!(
             DisplaySettings::parse(&DEFAULTS.replace(r#""shadows":0"#, r#""shadows":3"#)).is_err()
         );
         assert!(
-            DisplaySettings::parse(
-                &DEFAULTS.replace(r#""scene_scale":100"#, r#""scene_scale":90"#)
-            )
-            .is_err()
+            DisplaySettings::parse(&DEFAULTS.replace(r#""scene_scale":0"#, r#""scene_scale":90"#))
+                .is_err()
         );
         assert!(
-            DisplaySettings::parse(&DEFAULTS.replace(r#""scene_scale":100"#, r#""scene_scale":0"#))
+            DisplaySettings::parse(&DEFAULTS.replace(r#""scene_scale":0"#, r#""scene_scale":100"#))
                 .is_ok()
         );
-        assert!(DisplaySettings::parse(&DEFAULTS.replace(r#","reflections":true"#, "")).is_err());
+        assert!(DisplaySettings::parse(&DEFAULTS.replace(r#","reflections":0"#, "")).is_err());
     }
 }
