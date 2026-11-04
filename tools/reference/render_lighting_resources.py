@@ -80,7 +80,7 @@ def export_caster_dither(source, output):
 
 def export_cloud_mesh(source, reader, output):
     """Use the existing Unity mesh decoder and handedness conversion."""
-    from .gltf import GltfExporter, convert_point
+    from .gltf import GltfExporter, convert_point, save_gltf
     exporter=GltfExporter(source,output/'source-cloud.gltf',source.library,0)
     _,points,groups=exporter.geometry(reader)
     document,directory,index=exporter.accepted_mesh(reader)
@@ -101,7 +101,7 @@ def export_cloud_mesh(source, reader, output):
     exporter.document.scenes=[gl.Scene(nodes=[0])];exporter.document.scene=0
     binary=output/'source-cloud.bin';binary.write_bytes(exporter.binary)
     exporter.document.buffers=[gl.Buffer(uri=binary.name,byteLength=len(exporter.binary))]
-    path=output/'source-cloud.gltf';exporter.document.save_json(str(path))
+    path=output/'source-cloud.gltf';save_gltf(exporter.document,path)
     bounds=source.read(reader)['m_LocalAABB']
     return {'source':source_id(reader),'file':'reference/'+path.name,'buffer':'reference/'+binary.name,'vertex_count':len(points),'index_count':len(indices),
             'bounds_center':list(convert_point(vector(bounds['m_Center']))),'bounds_extents':list(vector(bounds['m_Extent']))}, [dependency(path,output),dependency(binary,output)]

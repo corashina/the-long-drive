@@ -413,6 +413,9 @@ impl GarageRuntime {
             .interaction
             .finish_cancelled_input(&mut self.area.player, &mut self.physics);
         let input = self.area.interaction.filter_cancelled_input(input);
+        self.area
+            .interaction
+            .set_frame_lmb(input.held & keys::PRIMARY != 0);
         self.area.sync_inventory();
         let context = self.area.equipment_context();
         let action = self

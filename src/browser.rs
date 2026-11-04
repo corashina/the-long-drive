@@ -57,88 +57,9 @@ extern "C" {
     pub fn game_display_settings() -> Option<String>;
     #[wasm_bindgen(js_name = gameAudioError)]
     pub fn game_audio_error(message: &str);
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioSurvival)]
-    pub fn game_audio_survival(
-        kind: u32,
-        emitter: u32,
-        action: u32,
-        clip: u32,
-        gain: f32,
-        pitch: f32,
-        x: f32,
-        y: f32,
-        z: f32,
-    );
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioSurvivalEmitter)]
-    pub fn game_audio_survival_emitter(kind: u32, x: f32, y: f32, z: f32);
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioSurvivalMaster)]
-    pub fn game_audio_survival_master(gain: f32, revision: u32, seconds: f64);
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioPlayerEar)]
-    pub fn game_audio_player_ear(db: f32, clip: u32, ring: f32, pan: f32);
-
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioBegin)]
-    pub fn game_audio_begin(session: u32, started: bool, paused: bool, time: f64);
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioOriginShift)]
-    pub fn game_audio_origin_shift(x: f32, y: f32, z: f32);
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioListener)]
-    pub fn game_audio_listener(x: f32, y: f32, z: f32, qx: f32, qy: f32, qz: f32, qw: f32);
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioEmitter)]
-    pub fn game_audio_emitter(
-        id: u32,
-        x: f32,
-        y: f32,
-        z: f32,
-        qx: f32,
-        qy: f32,
-        qz: f32,
-        qw: f32,
-        alive: bool,
-    );
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioVoice)]
-    pub fn game_audio_voice(
-        id: u32,
-        playing: bool,
-        gain: f32,
-        pitch: f32,
-        looping: bool,
-        clip: u32,
-    );
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioEvent)]
-    pub fn game_audio_event(
-        session: u32,
-        sequence: u32,
-        binding: u32,
-        emitter: u32,
-        x: f32,
-        y: f32,
-        z: f32,
-        gain: f32,
-        pitch: f32,
-        time: f64,
-    );
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioMixer)]
-    pub fn game_audio_mixer(id: u32, db: f32);
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioRoute)]
-    pub fn game_audio_route(id: u32, mixer: u32);
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioRadio)]
-    pub fn game_audio_radio(
-        emitter: u32,
-        power: bool,
-        am: bool,
-        frequency: f32,
-        volume: f32,
-        static_gain: f32,
-        primary_clip: u32,
-        primary_offset: f64,
-        primary_gain: f32,
-        primary_next: u32,
-        secondary_clip: u32,
-        secondary_offset: f64,
-        secondary_gain: f32,
-        secondary_next: u32,
-    );
-    #[wasm_bindgen(js_namespace = window, js_name = gameAudioEnd)]
-    pub fn game_audio_end();
+    /// One frame of audio calls, encoded by `src/app/audio.rs`.
+    #[wasm_bindgen(js_namespace = window, js_name = gameAudioFrame)]
+    pub fn game_audio_frame(batch: &[f64]);
     #[wasm_bindgen(js_namespace = window, js_name = gameHasSaveRequest)]
     pub fn game_has_save_request() -> bool;
     #[wasm_bindgen(js_namespace = window, js_name = gameSaveRequest)]

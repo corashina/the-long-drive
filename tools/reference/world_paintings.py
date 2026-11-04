@@ -1,7 +1,7 @@
 """Checked painting material variants. Only the selected variant is admitted."""
 import hashlib
 from .source import source_id
-from .gltf import GltfExporter
+from .gltf import GltfExporter, save_gltf
 
 def export_paintings(source, reader, selected, world, output, first_asset):
     materials = {}
@@ -24,7 +24,7 @@ def export_paintings(source, reader, selected, world, output, first_asset):
             name = f'painting-{material.assets_file.name}-{material.path_id}-{texture.assets_file.name}-{texture.path_id}.gltf'
             exporter = GltfExporter(source,output/name,reader,asset)
             exporter.material(material,texture_overrides={'_MainTex':texture})
-            exporter.document.save_json(str(output/name))
+            save_gltf(exporter.document,output/name)
             result.append(dict(material=source_id(material),texture=source_id(texture),asset=asset,
                 asset_record=dict(id=asset,usage='world_material',path='reference/'+name,sha256=hashlib.sha256((output/name).read_bytes()).hexdigest(),root=source_id(material),mesh_count=0,material_count=1,dependencies=list(exporter.material_dependencies.values())),
                 materials=[dict(r,asset=asset) for r in exporter.material_records]))
