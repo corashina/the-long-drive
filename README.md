@@ -94,6 +94,7 @@ The script stages `web/` in `.cache/deploy`. It keeps the app, the reference man
 Pages accepts files up to 25 MiB. The script puts larger files, such as the main WASM, in the R2 bucket.
 `functions/[[path]].js` serves them from the same site. [wrangler.toml](wrangler.toml) binds the bucket.
 The script stops if the site has more than 20,000 files.
+It also stops if the site does not redirect to a Cloudflare Access login. Set up Access before the first upload.
 The site opens at `https://the-long-slop.pages.dev`.
 
 The site contains files from The Long Drive. Keep it for friends only:
