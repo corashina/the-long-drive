@@ -404,7 +404,7 @@ impl SourceContents {
         pending: usize,
         staging: usize,
         staging_limit: usize,
-    ) -> Result<(), ReferenceError> {
+    ) -> Result<bool, ReferenceError> {
         self.bytes.set(None);
         let initial_pending = self.pending_requests();
         self.update = self.update.wrapping_add(1);
@@ -420,20 +420,28 @@ impl SourceContents {
             let remaining = limit.saturating_sub(self.active.len().saturating_sub(initial_count));
             let available =
                 staging.saturating_sub(self.scan_retained().saturating_sub(initial_bytes));
-            if remaining == 0 || available == 0 {
-                return Ok(());
+            if remaining == 0 {
+                return Ok(false);
+            }
+            if available == 0 {
+                return Ok(true);
             }
             let cap = budget.saturating_sub(self.active.len().saturating_sub(initial_count));
             if !self.advance_deferred(reference, remaining, cap, available)? {
-                return Ok(());
+                return Ok(false);
             }
         }
         let limit = limit.saturating_sub(self.active.len().saturating_sub(initial_count));
         let staging = staging.saturating_sub(self.scan_retained().saturating_sub(initial_bytes));
-        if limit == 0 || staging == 0 {
-            return Ok(());
+        if limit == 0 {
+            return Ok(false);
+        }
+        if staging == 0 {
+            return Ok(true);
         }
         let cursor_before = self.scan_retained();
+        // True: work waits for staging room that the renderer holds.
+        let mut waits = false;
         for (instance, replay_only) in structures
             .iter()
             .map(|p| (p, false))
@@ -488,6 +496,7 @@ impl SourceContents {
                 ));
             }
             if bound > staging.saturating_sub(self.scan_retained().saturating_sub(cursor_before)) {
+                waits = true;
                 break;
             }
             self.cursors
@@ -517,11 +526,16 @@ impl SourceContents {
         let staging = staging.saturating_sub(self.scan_retained().saturating_sub(cursor_before));
         if let Some(index) = self.cursors.iter().position(|c| c.root.is_none()) {
             if pending.saturating_add(initial_pending) <= self.pending_requests() {
-                return Ok(());
+                return Ok(waits);
             }
             let staging = self.admit_queues(limit, 1, staging)?;
             let cursor = &self.cursors[index];
             let parent = &cursor.parent;
+            // Staging room is transient. A root that can fit waits for it.
+            let bytes = SpawnEvaluation::initialization_bytes(reference, &self.rules, parent)?;
+            if bytes > staging && bytes <= staging_limit {
+                return Ok(true);
+            }
             // A fixed startup placement evaluates from a copy of the startup random. It never
             // advances the live random, so it needs no boundary and replays the same contents.
             let startup = parent.id.layer == super::WorldLayer::Startup;
@@ -658,10 +672,10 @@ impl SourceContents {
                     baseline: None,
                 });
             }
-            return Ok(());
+            return Ok(waits);
         }
         if self.cursors.is_empty() {
-            return Ok(());
+            return Ok(waits);
         }
         let before_count = self.active.len();
         let before_bytes = self.scan_retained();
@@ -677,6 +691,7 @@ impl SourceContents {
             tests::check_guard(self, current_bytes);
             let staging = staging.saturating_sub(current_bytes.saturating_sub(before_bytes));
             if limit == 0 || staging == 0 {
+                waits |= staging == 0;
                 break;
             }
             let index = self.next % self.cursors.len();
@@ -826,7 +841,7 @@ impl SourceContents {
                 }
             }
         }
-        Ok(())
+        Ok(waits)
     }
     fn advance_deferred(
         &mut self,

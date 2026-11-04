@@ -2177,7 +2177,7 @@ impl WorldStream {
         }
         timer.next(super::stream_profile::Stage::ContentAdvance);
         let replay_admission = self.contents.has_replay() || self.available_external_jobs() > 0;
-        if let Err(error) = self.contents.advance(
+        let waits = match self.contents.advance(
             &self.reference,
             self.distances.item_spawn_dist,
             &self.wanted_structures,
@@ -2194,9 +2194,15 @@ impl WorldStream {
             reservation,
             self.ledger.staging_limit(),
         ) {
-            self.failure = Some(error.0);
-            return;
-        }
+            Ok(waits) => waits,
+            Err(error) => {
+                self.failure = Some(error.0);
+                return;
+            }
+        };
+        // Contents that wait for staging room ask the renderer to give its staging back.
+        // Without it the renderer keeps the room, and a structure near the car never builds.
+        self.ledger.wait_for_room(!waits, Reclaim::STAGING);
         timer.next(super::stream_profile::Stage::ContentSelect);
         self.discard_fixed_decoration_changes();
         let focus = [self.request.player, self.request.vehicle];

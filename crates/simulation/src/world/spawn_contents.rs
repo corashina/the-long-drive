@@ -84,18 +84,25 @@ impl<'a> SpawnEvaluation<'a> {
         #[cfg(not(test))]
         let _ = item;
     }
-    pub(super) fn admit_initialization(
-        &mut self,
+    /// Staging bytes that the initialization of `parent` admits.
+    pub(super) fn initialization_bytes(
+        reference: &WorldReference,
+        rules: &SourceRules,
         parent: &Placement,
-    ) -> Result<(), ReferenceError> {
-        let bytes = self.rules.initialization_bound(
-            self.reference,
+    ) -> Result<usize, ReferenceError> {
+        let bytes = rules.initialization_bound(
+            reference,
             &parent.prototype,
             super::contents::identity_heap(&parent.id),
             0,
         )?;
-        let bytes =
-            bytes + std::mem::size_of::<Placement>() + super::contents::placement_heap(parent);
+        Ok(bytes + std::mem::size_of::<Placement>() + super::contents::placement_heap(parent))
+    }
+    pub(super) fn admit_initialization(
+        &mut self,
+        parent: &Placement,
+    ) -> Result<(), ReferenceError> {
+        let bytes = Self::initialization_bytes(self.reference, self.rules, parent)?;
         if self.admitted.saturating_add(bytes) > self.staging {
             return Err(ReferenceError(
                 "Source initialization exceeds staging admission".into(),
