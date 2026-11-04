@@ -16,8 +16,8 @@ self.addEventListener('message',async({data})=>{
   if(data.manifest){load(data.manifest);return;}
   if(data.start){
    const {hash,drawDistance,biome,startCar,seed,options,save}=data.start;
-   const startup=start(hash,drawDistance,biome,startCar,seed,options,save);
-   self.postMessage({startup,loadError:load_error()},[startup.buffer]);return;
+   start(hash,drawDistance,biome,startCar,seed,options,save);
+   self.postMessage({started:true,loadError:load_error()});return;
   }
   // Multiplayer: `net.js` owns the peers. Packets go with the commands and frames.
   if(data.netSession){const {role,slot}=data.netSession;net_session(role,slot);netOn=role!==0;return;}

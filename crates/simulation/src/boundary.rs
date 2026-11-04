@@ -249,18 +249,6 @@ pub struct SimInit {
     pub save: Vec<u8>,
 }
 
-/// Renderer setup values of a new simulation.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SimStartup {
-    /// Player camera.
-    pub view: VehiclePose,
-    pub fov_degrees: f32,
-    /// Source `Cam2FarPlane` of the draw distance.
-    pub far_plane: f32,
-    /// World stream session.
-    pub session: u64,
-}
-
 /// Player camera of the last two steps: `parent * yaw * pitch * camera`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -1524,14 +1512,6 @@ fn read_rows<T: Pod>(rest: &mut &[u8], n: usize, rows: &mut Vec<T>) -> Result<()
 pub fn encode_command(command: &SimCommand, out: &mut Vec<u8>) {
     out.clear();
     *out = postcard::to_extend(command, std::mem::take(out)).expect("command encode");
-}
-
-pub fn encode_startup(startup: &SimStartup) -> Vec<u8> {
-    postcard::to_stdvec(startup).expect("startup encode")
-}
-
-pub fn decode_startup(bytes: &[u8]) -> Result<SimStartup, DecodeError> {
-    postcard::from_bytes(bytes).map_err(|e| DecodeError(e.to_string()))
 }
 
 pub fn decode_command(bytes: &[u8]) -> Result<SimCommand, DecodeError> {

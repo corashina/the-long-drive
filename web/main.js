@@ -314,11 +314,14 @@ async function load(){
  startup.end('interface');
  if(failed)return;loading.step('interface',1);
  startup.begin('generation');startup.begin('decodeUpload');startup.begin('pipeline');
+ // The start message goes out in the first callback of `startWorld`, before this await ends.
  await startWorld;if(failed)return;
- const {world,startup:startupBytes,loadError}=await simulationStarted;
+ // The renderer starts before the worker is ready. The GPU device, pipelines and garage downloads
+ // overlap the worker parse and session start. Its first command waits in the worker queue.
+ startup.begin('run');run();startup.end('run');
+ cpuProfile.end('startup');
+ const {world,loadError}=await simulationStarted;
  if(world)menu.started(world.error||loadError,world.operation);
  if(world?.operation==='join'&&(world.error||loadError))multiplayer.leave();
- if(failed)return;startup.begin('run');run(startupBytes);startup.end('run');
- cpuProfile.end('startup');
 }
 load().catch(error=>fail(error?.message??String(error)));

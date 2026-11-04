@@ -24,7 +24,7 @@ fn tp_k5_s1_a_stored_save_starts_the_session_and_its_restore_finishes() {
         manifest_sha256: stamp.manifest_sha256.clone(),
         save: serde_json::to_vec(&saved).unwrap(),
     };
-    let (session, _) = Session::new(reference.clone(), init).unwrap();
+    let session = Session::new(reference.clone(), init).unwrap();
     assert_eq!(session.load_error(), None, "the stored save opens");
     drop(session);
     // The restore the session frames run.

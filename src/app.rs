@@ -32,8 +32,6 @@ pub(crate) struct RuntimeReference(pub Arc<ReferenceManifest>);
 #[derive(Resource)]
 pub(crate) struct Drive {
     link: sim_link::SimLink,
-    /// Renderer setup values of the simulation.
-    startup: simulation::boundary::SimStartup,
     /// Sequence of the last sent command.
     seq: u64,
     /// Sequence of the last command with menu actions. Older frames have a stale pause flag.
@@ -113,8 +111,9 @@ pub fn prepare(reference_json: &[u8]) -> Result<String, JsValue> {
 }
 
 #[wasm_bindgen]
-/// `startup` is the encoded `SimStartup` of the simulation worker. `prepare` comes first.
-pub fn run(startup: &[u8]) -> Result<(), JsValue> {
+/// Starts the renderer. `prepare` comes first. The simulation worker can still be starting:
+/// the first command waits in its queue, and the first frame gives the camera and the world session.
+pub fn run() -> Result<(), JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
     let Prepared {
         reference,
@@ -127,8 +126,6 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
     if let Err(error) = reference.audio.playback() {
         game_audio_error(&error.to_string());
     }
-    let startup =
-        simulation::boundary::decode_startup(startup).map_err(|e| JsValue::from_str(&e.0))?;
     let mut ledger = crate::ownership::PresentationLedger::default();
     let (fixed, graph) = crate::ownership::fixed::admit_control(
         &mut ledger,
@@ -136,11 +133,8 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
         presentation::readiness::RendererStateHandle::default,
     )
     .map_err(js_error)?;
-    let allocation = presentation::world::runtime::SourcePresentationAllocation::bootstrap(
-        startup.session,
-        fixed,
-        ledger,
-    );
+    let allocation =
+        presentation::world::runtime::SourcePresentationAllocation::bootstrap(fixed, ledger);
     App::new()
         .insert_resource(graph)
         .insert_resource(allocation)
@@ -149,9 +143,12 @@ pub fn run(startup: &[u8]) -> Result<(), JsValue> {
         .insert_resource(RuntimeReference(reference.clone()))
         .init_resource::<save::SaveRequests>()
         .insert_resource(Drive {
-            view: startup.view,
+            // `fill_frame` sets it each frame.
+            view: VehiclePose {
+                position: [0.; 3],
+                rotation: [0., 0., 0., 1.],
+            },
             link: sim_link::SimLink::default(),
-            startup,
             seq: 0,
             action_seq: 0,
             world_ms: 0.,
@@ -308,7 +305,6 @@ fn setup(
     server: Res<AssetServer>,
     gltf_extensions: Res<bevy::gltf::extensions::GltfExtensionHandlers>,
     reference: Res<RuntimeReference>,
-    drive: Res<Drive>,
     antialiasing: Res<presentation::antialiasing::Antialiasing>,
 ) {
     commands.insert_resource(presentation::consumables::ConsumableVisuals::default());
@@ -331,9 +327,6 @@ fn setup(
         &mut commands,
         &mut images,
         &reference.0,
-        presentation::transform(drive.startup.view),
-        drive.startup.fov_degrees,
-        drive.startup.far_plane,
         *antialiasing,
     );
 }
@@ -892,8 +885,8 @@ fn update_camera(
         *transform = frame_camera(state, drive.view);
         presentation::camera_projection::sync_player_projection(
             &mut projection,
-            true,
             state.fov_degrees,
+            state.far_plane,
         );
     }
 }
