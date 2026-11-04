@@ -168,6 +168,8 @@ pub struct WorldStream {
     mode: super::GameMode,
     /// The picked start car. Only its start placement spawns.
     start_car: super::StartCar,
+    /// The picked option of each source `randomStarts` group.
+    random_starts: Vec<u32>,
     package_id: String,
     generation_revision: u64,
     structure_helpers: super::structure_helpers::StructureHelpers,
@@ -766,6 +768,7 @@ impl WorldStream {
             seed,
             mode,
             start_car,
+            random_starts: super::random_starts::pick(world, seed),
             structure_helpers,
             building_components: Default::default(),
             ledger: Default::default(),
@@ -1636,7 +1639,8 @@ impl WorldStream {
     }
 
     /// The startup entries with a prototype become fixed placements. StartSpawnItems copies always
-    /// spawn. A start car group entry spawns only for the picked group: its car and spare wheel. The exported pose is the raw
+    /// spawn. A random start copy spawns when its options are picked.
+    /// A start car group entry spawns only for the picked group: its car and spare wheel. The exported pose is the raw
     /// scene pose. The startup root offsets of its Transform chain move it onto the terrain.
     fn startup_placements(
         &self,
@@ -1647,7 +1651,12 @@ impl WorldStream {
             let Some(prototype) = &entry.prototype else {
                 continue;
             };
-            if entry.group != START_ITEMS && entry.group != self.start_car.field() {
+            let spawns = if entry.group == super::random_starts::GROUP {
+                super::random_starts::picked(entry, &self.random_starts)
+            } else {
+                entry.group == START_ITEMS || entry.group == self.start_car.field()
+            };
+            if !spawns {
                 continue;
             }
             let offset = startup.chain_offset(&self.reference, &entry.source)?;

@@ -2284,9 +2284,10 @@ impl GarageRuntime {
         let (world, physics, origin) = (&self.persistent_world, &self.physics, self.stream.origin);
         // Only the start car and the last seated car hold the area. Roadside cars follow the item rule.
         let last = self.vehicle.as_ref();
+        let reference = std::sync::Arc::clone(self.stream.world_reference());
         let cars = self.vehicles.keys().filter(|key| {
             Some(*key) == last
-                || matches!(key, ObjectKey::Generated(id) if id.layer == crate::world::WorldLayer::Startup)
+                || matches!(key, ObjectKey::Generated(id) if reference.start_car_placement(id))
         });
         let cars = cars.map(|key| {
             (

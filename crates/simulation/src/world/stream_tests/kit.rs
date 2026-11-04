@@ -215,14 +215,14 @@ pub(crate) fn prepare_ready(run: &mut GarageRuntime, reference: &ReferenceManife
     panic!("required publication did not reach readiness");
 }
 
-/// Sets `run.vehicle` to the start car copy. Only the start car spawns on the `Startup` layer.
+/// Sets `run.vehicle` to the start car copy.
 /// The game sets `run.vehicle` on the first seat. Tests drive the start car before that.
 pub(crate) fn start_vehicle(run: &mut GarageRuntime) {
     let key = run
         .vehicles
         .keys()
         .find(|key| {
-            matches!(key, crate::world::ObjectKey::Generated(id) if id.layer == WorldLayer::Startup)
+            matches!(key, crate::world::ObjectKey::Generated(id) if run.stream.world_reference().start_car_placement(id))
         })
         .cloned()
         .expect("start car after the required publication");
