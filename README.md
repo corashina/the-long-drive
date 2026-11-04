@@ -91,7 +91,8 @@ node scripts/deploy.mjs
 ```
 
 The script stages `web/` in `.cache/deploy`. It keeps the app, the reference manifest, and the catalog files of the current runtime package.
-Pages accepts files up to 25 MiB. The script puts larger files, such as the main WASM, in the R2 bucket under their SHA-256.
+It copies each WASM package to `pkg/<hash>/` and rewrites the `./pkg/` imports to that path. Browsers cache `pkg/` and `assets/runtime/` as immutable.
+Pages accepts files up to 25 MiB. The script puts larger files, such as the main WASM, in the R2 bucket under their SHA-256. It stops if a larger file is outside these two folders.
 Each deployment has an `r2.json` map from path to R2 key. So a rollback in the dashboard also restores its large files.
 Old R2 files stay. Each upload of a changed WASM adds about 33 MiB to the 10 GB free storage.
 `functions/[[path]].js` serves them from the same site. [wrangler.toml](wrangler.toml) binds the bucket.

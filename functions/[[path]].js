@@ -1,12 +1,13 @@
 // Serves the site files over the Pages size limit from R2. `_routes.json` sends only those paths here.
 // `r2.json` of the same deployment maps each path to its R2 key, so rollbacks stay consistent.
+// Each path has a content hash (`deploy.mjs` checks this), so browsers cache the files as immutable.
 async function find(request, env) {
   const keys = await (await env.ASSETS.fetch(new URL('/r2.json', request.url))).json();
   return keys[new URL(request.url).pathname];
 }
 
 function headers(object) {
-  const result = new Headers({'Cache-Control': 'no-cache', ETag: object.httpEtag});
+  const result = new Headers({'Cache-Control': 'public, max-age=31536000, immutable', ETag: object.httpEtag});
   object.writeHttpMetadata(result);
   result.set('Content-Length', String(object.size));
   return result;
