@@ -66,12 +66,10 @@ def recover_postprocessing(source):
         return reader, data
     layer_reader, layer = read('level1', 68049)
     _, controls = read('level1', 64919)
-    _, controller = read('level1', 80667)
     bloom_reader, bloom = effect(1371)
     _, grading = effect(1375)
     _, ao = effect(1378)
     _, exposure = effect(1380)
-    _, motion = effect(1383)
     p = effective_parameter
     if p(ao, 'mode') != 1 or p(exposure, 'eyeAdaptation') != 0:
         raise ValueError('Unrecovered AO or exposure variant')
@@ -111,11 +109,6 @@ def recover_postprocessing(source):
         'main_layer': source_id(layer_reader),
         'stop_nan': bool(layer['stopNaNPropagation']),
         'taa': recover_taa(controls),
-        # postprocesscontrol.Update writes the shutter angle every frame.
-        'motion_blur': {'samples': p(motion, 'sampleCount'),
-                        'shutter_range': [controller['minShutter'], controller['maxShutter']],
-                        'speed_range': [controller['minSpeed'], controller['maxSpeed']],
-                        'shutter_lerp': controller['shutterLerp']},
         'exposure': {'filtering_percent': [filtering['x'], filtering['y']],
                      'luminance_ev': [p(exposure, 'minLuminance'), p(exposure, 'maxLuminance')],
                      'key': p(exposure, 'keyValue'), 'speed_up': p(exposure, 'speedUp'),

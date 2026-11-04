@@ -931,7 +931,6 @@ impl SourceFixedAssets {
                 props_cull: shader("shaders/source_props_cull.wgsl"),
                 motion: shader("shaders/source_motion.wgsl"),
                 taa: shader("shaders/source_taa.wgsl"),
-                motion_blur: shader("shaders/source_motion_blur.wgsl"),
             };
             self.shaders_bound = true;
         }

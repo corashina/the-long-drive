@@ -12,7 +12,6 @@ pub mod exposure;
 pub mod grain;
 pub mod lut;
 pub mod lut_ldr;
-pub mod motion_blur;
 pub mod taa;
 pub mod uber;
 

@@ -205,7 +205,7 @@ pub struct SourceViewFrame {
     pub probe_token: u32,
     pub probe_job: Option<ProbeJob>,
     pub views: [Option<ViewSnapshot>; VIEW_COUNT],
-    /// Main-view motion state. None when antialiasing and motion blur are off.
+    /// Main-view motion state. None when antialiasing is off.
     pub main_motion: Option<super::temporal::MainMotion>,
 }
 impl SourceViewFrame {
@@ -490,12 +490,10 @@ pub(crate) fn snapshot(
         }
         Some(snapshot)
     });
-    let main_motion = (antialiasing.taa() || display.motion_blur).then(|| {
+    let main_motion = antialiasing.taa().then(|| {
         temporal.advance(
             snapshots[0].as_mut().unwrap(),
-            antialiasing
-                .taa()
-                .then_some(&assets.record.postprocessing.taa),
+            &assets.record.postprocessing.taa,
             origin.0,
             sim.frame.state.motion_revision,
             epoch.0,
