@@ -25,7 +25,8 @@ struct Entry {
     food: Option<ItemId>,
     /// `VehicleRuntime::presentation_signature` or `CarLights::signature` of the last view.
     signature: u64,
-    caps_sent: bool,
+    /// Caps of the last `StructureCaps`. Contents can spawn after the entry, so the caps can come late.
+    caps_sent: usize,
     seen: u64,
 }
 
@@ -269,7 +270,7 @@ impl StructureViews {
                         lamps: lamps.to_vec(),
                         food,
                         signature: 0,
-                        caps_sent: false,
+                        caps_sent: 0,
                         seen: 0,
                     });
                     frame.changes.push(Change::StructureAdd {
@@ -395,14 +396,12 @@ impl StructureViews {
         if let Some((_, lights)) = trailer {
             entry.signature = lights.signature();
         }
-        if !entry.caps_sent {
-            entry.caps_sent = true;
-            if !content.caps().is_empty() {
-                frame.changes.push(Change::StructureCaps {
-                    slot,
-                    caps: content.caps().to_vec(),
-                });
-            }
+        if entry.caps_sent != content.caps().len() {
+            entry.caps_sent = content.caps().len();
+            frame.changes.push(Change::StructureCaps {
+                slot,
+                caps: content.caps().to_vec(),
+            });
         }
         let appearance = stream.indexed_appearance(&content, id);
         let food = entry

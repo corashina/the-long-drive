@@ -154,7 +154,8 @@ struct Instance {
     retirement: crate::ownership::renderer_pending::RendererRetirement,
     continuation: Option<crate::ownership::renderer_pending::PipelineContinuation>,
     upload: Option<Arc<crate::presentation::fixed_assets::MeshUpload>>,
-    caps_bound: bool,
+    /// Caps of the structure view that the instance bound.
+    caps_bound: usize,
     placement: Placement,
     prototype: usize,
     /// Structure slot of the placement in the simulation frame.
@@ -1227,7 +1228,7 @@ impl SourceInstances {
                                 retirement: Default::default(),
                                 continuation: None,
                                 upload: None,
-                                caps_bound: false,
+                                caps_bound: 0,
                                 placement: placement.clone(),
                                 prototype: prototype_index,
                                 slot: None,
@@ -1455,7 +1456,7 @@ impl SourceInstances {
                 continue;
             };
             let prototype = &reference.world.prototypes[instance.prototype];
-            if !instance.caps_bound {
+            if instance.caps_bound != view.caps.len() {
                 for cap in &view.caps {
                     crate::presentation::reference::bind_generated_cap(
                         commands,
@@ -1464,7 +1465,7 @@ impl SourceInstances {
                         &instance.nodes,
                     )?;
                 }
-                instance.caps_bound = true;
+                instance.caps_bound = view.caps.len();
             }
             for row in &view.poses {
                 let rotation = Quat::from_array(row.rotation);
