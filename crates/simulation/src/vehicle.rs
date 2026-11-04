@@ -206,6 +206,16 @@ pub struct VehicleSnapshot {
     pub angular_velocity: [f32; 3],
 }
 
+#[cfg(target_arch = "wasm32")]
+fn now() -> f64 {
+    crate::host::game_now()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn now() -> f64 {
+    0.
+}
+
 pub struct PhysicsWorld {
     body_mass_override: Option<mass::BodyMassOverride>,
     /// Locked item mass on non-vehicle bodies. `set_body_mass` adds it.
@@ -225,6 +235,8 @@ pub struct PhysicsWorld {
     ignored: mutations::IgnoredCollisions,
     /// Farthest-point speed below which a body sleeps.
     sleep_speed: f32,
+    /// Milliseconds of `step_physics` since the last `take_step_ms`. Zero off the web.
+    step_ms: f64,
 }
 
 impl PhysicsWorld {
@@ -246,6 +258,7 @@ impl PhysicsWorld {
             inactive_bodies: std::collections::HashSet::with_capacity(bodies),
             sleep_speed:
                 rapier3d::prelude::RigidBodyActivation::default_normalized_linear_threshold(),
+            step_ms: 0.,
         };
         physics.physics.integration_parameters.dt = FIXED_DT;
         // A recycled contact keeps its fixed-collider points in world space. The origin rebase
@@ -415,6 +428,7 @@ impl PhysicsWorld {
     }
 
     pub fn step_physics(&mut self) {
+        let started = now();
         for body in self.physics.islands.active_bodies() {
             self.query_bounds.mark_simulated_body(body);
             self.presentation_bodies.mark(body);
@@ -433,6 +447,39 @@ impl PhysicsWorld {
         self.query_bounds.requeue_step_mutations();
         self.query_bounds.refresh(&mut self.physics);
         self.query_bounds.finish_step();
+        self.step_ms += now() - started;
+    }
+
+    /// Milliseconds of `step_physics` since the last call.
+    pub fn take_step_ms(&mut self) -> f64 {
+        std::mem::take(&mut self.step_ms)
+    }
+
+    /// F3 counters: dynamic bodies, awake bodies, CCD-active bodies and narrow-phase pairs.
+    pub fn body_counters(&self) -> [u32; 4] {
+        let dynamic = self
+            .physics
+            .bodies
+            .iter()
+            .filter(|(_, b)| b.is_dynamic())
+            .count();
+        let ccd = self
+            .physics
+            .islands
+            .active_bodies()
+            .filter(|h| self.physics.bodies[*h].is_ccd_active())
+            .count();
+        [
+            dynamic as u32,
+            self.physics.islands.num_active_bodies() as u32,
+            ccd as u32,
+            self.physics
+                .narrow_phase
+                .contact_graph()
+                .raw_graph()
+                .raw_edges()
+                .len() as u32,
+        ]
     }
 
     pub fn capture_save(
@@ -911,5 +958,7 @@ mod resting_tests {
         let rapier = physics.rapier();
         assert!(rapier.bodies[barrel].is_sleeping() && rapier.bodies[can].is_sleeping());
         assert!((rapier.bodies[can].translation().y - 0.95).abs() < 0.01);
+        // F3 dynamic / awake / CCD bodies: resting props sleep and leave CCD.
+        assert_eq!(physics.body_counters()[..3], [2, 0, 0]);
     }
 }

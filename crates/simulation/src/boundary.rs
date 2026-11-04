@@ -204,6 +204,8 @@ pub struct PerfBlock {
     pub physics_ms: f64,
     /// Milliseconds of the world step.
     pub world_ms: f64,
+    /// Milliseconds of `PhysicsWorld::step_physics` in the fixed steps.
+    pub rapier_ms: f64,
     pub render_cpu_bytes: f64,
     pub render_gpu_bytes: f64,
     pub frame_steps: u32,
@@ -219,6 +221,13 @@ pub struct PerfBlock {
     pub storms: u32,
     pub storm_strength: f32,
     pub weather_particles: u32,
+    pub dynamic_bodies: u32,
+    /// Bodies that are not asleep.
+    pub awake_bodies: u32,
+    /// Awake bodies that moved fast enough for a CCD sweep.
+    pub ccd_bodies: u32,
+    /// Narrow-phase collider pairs with overlapping bounds.
+    pub contact_pairs: u32,
 }
 
 impl PerfBlock {

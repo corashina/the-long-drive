@@ -122,6 +122,7 @@ extern "C" {
     #[wasm_bindgen(js_namespace = window, js_name = gamePerformanceFrame)]
     pub fn game_performance_frame(
         physics_ms: f64,
+        rapier_ms: f64,
         world_ms: f64,
         update_ms: f64,
         render_ms: f64,
@@ -143,6 +144,10 @@ extern "C" {
         storm_influence: f32,
         storm_particles: u32,
         entities: u32,
+        dynamic_bodies: u32,
+        awake_bodies: u32,
+        ccd_bodies: u32,
+        contact_pairs: u32,
     );
     #[wasm_bindgen(js_namespace = window, js_name = gameMeasureRequested)]
     pub fn game_measure_requested() -> bool;

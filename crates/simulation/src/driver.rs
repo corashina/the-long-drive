@@ -41,6 +41,8 @@ pub struct SimDriver {
     pub(crate) frame_steps: u32,
     /// Milliseconds of the last frame steps.
     pub physics_ms: f64,
+    /// Milliseconds of `PhysicsWorld::step_physics` in the last frame steps.
+    rapier_ms: f64,
     /// Milliseconds of the last world step.
     world_ms: f64,
     pub(crate) world: WorldInput,
@@ -93,6 +95,7 @@ impl SimDriver {
             camera_seat: [None; 2],
             frame_steps: 0,
             physics_ms: 0.,
+            rapier_ms: 0.,
             world_ms: 0.,
             world: WorldInput::default(),
             grant: None,
@@ -215,6 +218,8 @@ impl SimDriver {
     /// Runs the fixed steps of the accepted frame time.
     pub fn advance(&mut self, reference: &ReferenceManifest) {
         self.physics_ms = 0.;
+        self.rapier_ms = 0.;
+        self.runtime.physics.take_step_ms();
         self.frame_steps = 0;
         self.net.prepare(&mut self.runtime);
         if !self.ready && !self.failed {
@@ -304,6 +309,7 @@ impl SimDriver {
         let scale = self.runtime.clock_factors(reference).time_scale;
         self.rendered = self.look.pose(self.clock.alpha(scale), [0.; 2]);
         self.physics_ms = now() - started;
+        self.rapier_ms = self.runtime.physics.take_step_ms();
     }
 
     /// Runs the world step of the accepted renderer input, after the fixed steps.
@@ -382,6 +388,7 @@ impl SimDriver {
         frame.seq_consumed = self.consumed_seq;
         frame.state.look = self.look;
         frame.state.perf.physics_ms = self.physics_ms;
+        frame.state.perf.rapier_ms = self.rapier_ms;
         frame.state.perf.frame_steps = self.frame_steps;
         frame.state.perf.world_ms = self.world_ms;
         if let Some(grant) = self.grant.take() {
