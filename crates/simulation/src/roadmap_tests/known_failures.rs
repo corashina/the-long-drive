@@ -371,6 +371,26 @@ fn tp_k9_lmb_looks_through_the_binoculars_in_the_hand() {
         Some(held(&run)),
         "LMB uses the binoculars"
     );
+    // One wheel notch focuses by `scroll * FMouseSensZ * dt * focusDistanceSens`.
+    let lens = &reference.small_items.binoculars;
+    let before = used.unwrap().focus;
+    let notch = if before < lens.max_focus { 0.1 } else { -0.1 };
+    press(
+        &mut run,
+        FrameInput {
+            held: keys::PRIMARY,
+            wheel: notch,
+            ..Default::default()
+        },
+    );
+    let scroll = crate::reference::PlayerSettings::defaults(&reference).player_scroll();
+    let expected = (before + notch * scroll * FIXED_DT * lens.focus_sensitivity)
+        .clamp(lens.min_focus, lens.max_focus);
+    let after = run.area.interaction.binoculars.active().unwrap().focus;
+    assert!(
+        (after - expected).abs() < 1e-4,
+        "the wheel focuses the binoculars: {before} -> {after}, expected {expected}"
+    );
     let mut frame = crate::boundary::SimFrame::default();
     run.fill_frame(&reference, 1., &mut frame);
     let flags = frame.state.flags;

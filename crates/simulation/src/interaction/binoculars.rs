@@ -58,7 +58,7 @@ impl Binoculars {
             .flatten()
             .find_map(|item| self.bound.iter().position(|b| b.item == item))
     }
-    /// `usePickedUpStuff` with LMB held, then `tavcsoscript.Update`. `wheel` is the source scroll.
+    /// `usePickedUpStuff` with LMB held, then `tavcsoscript.Update`. `wheel` is the source `fpscontroller.scroll`: the scroll axis times `FMouseSensZ`.
     pub fn step(
         &mut self,
         equipped: Option<ItemId>,

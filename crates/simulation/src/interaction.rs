@@ -1663,7 +1663,7 @@ impl InteractionState {
             self.equipment.item(),
             self.held(),
             input.held & keys::PRIMARY != 0,
-            wheel,
+            wheel * self.carry.settings.player_scroll(),
             dt,
         );
         if binoculars.is_some() {
