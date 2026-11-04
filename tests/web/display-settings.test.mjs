@@ -11,7 +11,7 @@ const DEFAULTS='{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_h
 
 test('display_rows_store_check_and_reset_with_the_graphics_tab',()=>{
  const items={'the-long-slop.settings':JSON.stringify({shadows:2,scene_scale:90,motion_blur:false,mirror_distance:1000})};
- const settings=createSettings(()=>memory(items),reference,displayFields(mirror));
+ const settings=createSettings(()=>memory(items),reference,displayFields(mirror,{}));
  assert.equal(settings.values.shadows,2);
  assert.equal(settings.values.motion_blur,false);
  assert.equal(settings.values.scene_scale,0);

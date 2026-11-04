@@ -12,7 +12,7 @@ const joinRoom=(()=>{try{return JSON.parse(takeSession(JOIN_KEY)??'null');}catch
 const seed=installSeed(window,document.querySelector('#seed'),Math.random,newGameSeed);
 import {createSettings,frameLimit,installSettingsBridge} from './settings.js';
 import {displayFields,installDisplaySettings} from './display-settings.js';
-import {installQualityPresets,qualityField} from './quality-presets.js';
+import {PRESETS,firstQuality,installQualityPresets,qualityField} from './quality-presets.js';
 import {createLanguage,installLanguageSelect,languageField} from './language.js';
 import {installFramePacer} from './frame-pacer.js';
 import {actionIndex,compileBindings,inputsField} from './bindings.js';
@@ -224,7 +224,10 @@ async function downloadManifest(response){
 async function load(){
  cpuProfile.begin('startup');
  startup.begin('graphics');
- if(!await navigator.gpu?.requestAdapter())throw Error('This browser cannot use WebGPU.');
+ // Bevy asks for the high performance adapter, so this is the GPU that renders.
+ const adapter=await navigator.gpu?.requestAdapter({powerPreference:'high-performance'});
+ if(!adapter)throw Error('This browser cannot use WebGPU.');
+ const quality=firstQuality(adapter.info);
  startup.end('graphics');startup.begin('manifest');
  // Download and compile the game code while the manifest downloads.
  const code=Promise.all([import('./pkg/the_long_slop.js'),fetch('./pkg/the_long_slop_bg.wasm').then(response=>{
@@ -244,7 +247,7 @@ async function load(){
  startup.begin('shell');const text=manifest_shell(bytes),manifest=JSON.parse(text);startup.end('shell');
  const {manifest_sha256:manifestHash}=await manifestStamp(bytes,manifest);
  const bindings=manifest.driving.bindings,actionIds=actionIndex(bindings);
- settings=createSettings(()=>localStorage,manifest.settings,{...displayFields(manifest.world.mirrors.draw_distance),quality:qualityField,...gameFields(manifest.world.start_cars.length),inputs:inputsField(bindings),language:languageField(manifest.language)});
+ settings=createSettings(()=>localStorage,manifest.settings,{...displayFields(manifest.world.mirrors.draw_distance,PRESETS[quality]),quality:qualityField(quality),...gameFields(manifest.world.start_cars.length),inputs:inputsField(bindings),language:languageField(manifest.language)});
  const language=createLanguage(manifest.language,settings,document);
  installLanguageSelect(document.querySelector('#language'),settings,language.names);
  installGameMode(window,document.querySelector('#biome'),settings);
