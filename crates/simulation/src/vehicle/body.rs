@@ -222,7 +222,7 @@ pub mod tests {
         let node = |id: u32, x: f32, z: f32| json!({"source": src(id), "name": "n", "parent": if id == 1 { None } else { Some(0) }, "active": true, "renderer_enabled": true, "layer": 0, "transform": pose(x, z), "gltf_node": id - 1, "biome_materials": false});
         let friction = json!({"extremum_slip": 0.4, "extremum_value": 1.0, "asymptote_slip": 0.8, "asymptote_value": 0.5, "stiffness": 1.0});
         let corners = [(-0.7, -1.2), (0.7, -1.2), (-0.7, 1.2), (0.7, 1.2)];
-        let wheels: Vec<_> = (0..4).map(|i| json!({"source": src(20 + i), "node": i + 1, "slot": i + 1, "mount": i + 1,
+        let wheels: Vec<_> = (0..4).map(|i| json!({"source": src(20 + i), "node": i + 1, "graphic": i + 1, "slot": i + 1, "mount": i + 1,
             "steer": i < 2, "drive": i >= 2, "brake": true, "handbrake": i >= 2, "sideways_stiffness_modifier": 1.0,
             "collider": {"radius": 0.3, "suspension_distance": 0.3, "center": [0, 0, 0], "spring": 25000.0, "damper": 1500.0, "target_position": 0.45, "forward_friction": friction, "sideways_friction": friction, "wheel_mass_kg": 20.0, "rotational_damping": 0.25, "force_application_distance_m": 0.0}})).collect();
         let effects: Vec<_> = (0..4).map(|i| json!({"source": src(30 + i), "pose": pose(corners[i as usize].0, corners[i as usize].1),

@@ -192,7 +192,7 @@ impl WorldStream {
                 continue;
             }
             for knob in &displays[i].knobs {
-                interaction.remove_dial_knob(*knob);
+                interaction.controls.remove_knob(*knob);
             }
             gone.push(displays.swap_remove(i).item);
         }
@@ -278,14 +278,7 @@ impl WorldStream {
             if !on_switch {
                 continue;
             }
-            let mut id = ColliderId((physics.rapier().colliders[*handle].user_data >> 64) as u32);
-            if id.0 == 0 {
-                id = interaction.allocate_generated_collider()?;
-                physics.edit_collider(*handle, |collider| {
-                    collider.user_data |= (id.0 as u128) << 64;
-                });
-            }
-            interaction.bind_dial_knob(id, Knob::Switch);
+            let id = interaction.bind_knob(physics, *handle, Knob::Switch, None)?;
             knobs.push(id);
         }
         if knobs.is_empty() {

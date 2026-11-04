@@ -36,10 +36,13 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .pause-menu button:hover:enabled {border-color:var(--paint);background:var(--shoulder);filter:none;}
 .pause-menu #resume {border-color:var(--paint);background:var(--paint);color:var(--ink);font-weight:700;}
 .pause-menu #resume:hover:enabled {background:var(--paint-hi);}
+/* The menu focuses its main button on open. An outline there looks like a stray line, so focus shows as the hover border. */
+:is(.pause-menu,.start-primary) button:focus-visible {outline:none;border-color:var(--paint);}
 /* Start menu: the garage car turns on its stage (canvas) in the middle. The buttons sit centered under it. */
-#menu.showroom :is(#menu-art,#menu-frame) {display:none;}
-#menu.showroom::before {content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 70% 65% at 50% 42%,transparent 55%,#0009 100%),linear-gradient(transparent 62%,#000a);}
-#menu.showroom :is(#status,#capture-error) {left:50%;right:auto;width:min(900px,calc(100% - 32px));transform:translateX(-50%);text-align:center;}
+#menu.road-view :is(#menu-art,#menu-frame) {display:none;}
+/* The road view stays clear. Only the bottom darkens under the buttons. */
+#menu.road-view::before {content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(transparent 70%,#0008);}
+#menu.road-view :is(#status,#capture-error) {left:50%;right:auto;width:min(900px,calc(100% - 32px));transform:translateX(-50%);text-align:center;}
 .start-menu {position:absolute;z-index:2;left:50%;bottom:clamp(24px,7vh,72px);display:grid;justify-items:center;gap:22px;padding-top:30px;width:min(760px,calc(100% - 32px));transform:translateX(-50%);animation:start-in .7s ease-out .15s backwards;}
 /* The lane line runs under the car and fades out at both sides. */
 .start-menu::before {content:"";position:absolute;left:0;right:0;top:0;height:4px;background:var(--lane);mask:linear-gradient(90deg,transparent,#000 25%,#000 75%,transparent);-webkit-mask:linear-gradient(90deg,transparent,#000 25%,#000 75%,transparent);}

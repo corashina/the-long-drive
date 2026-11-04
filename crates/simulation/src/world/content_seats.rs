@@ -4,6 +4,7 @@ use super::content_kinds::{
     BindContext, Bound, ContentKind, ContentKinds, KindBindings, Ready, ready_unless_removed,
 };
 use crate::interaction::InteractionState;
+use crate::interaction::controls::UseControl;
 use crate::interaction::items::ItemStore;
 use crate::player::SeatOwner;
 use crate::player::body::SeatFrames;
@@ -412,7 +413,9 @@ impl WorldStream {
                 frames,
             });
             for handle in &colliders {
-                interaction.bind_item_seat(*handle, target.clone());
+                interaction
+                    .controls
+                    .bind(*handle, UseControl::Seat(target.clone()));
             }
             bound.push((target, colliders));
         }
@@ -485,7 +488,7 @@ impl ContentKind for SeatKind {
     fn unbind(binding: &SeatBinding, interaction: &mut InteractionState) {
         for (_, colliders) in &binding.seats {
             for handle in colliders {
-                interaction.remove_item_seat(*handle);
+                interaction.controls.remove(*handle);
             }
         }
     }

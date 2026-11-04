@@ -3,6 +3,7 @@ use super::lighting_scene::PROBE_COUNT;
 use super::surface_views::{
     MIRROR_EXTENT, MIRROR_START, PROBE_START, VIEW_COUNT, WORLD_VIEWS, mirror_view, probe_view,
 };
+use super::view_gate::{FrameFacts, ViewFacts, view_may_draw};
 use super::{
     frame_copy::FrameCopy,
     lighting_assets::LightingRenderAssets,
@@ -94,8 +95,71 @@ pub(crate) struct FrameResources {
     colors: Arc<super::render_targets::SourceColorTargets>,
     _sky_depth: Texture,
     sky_depth: TextureView,
+    /// Copies the resolved world image into `held`.
     display: FrameCopy,
     display_format: TextureFormat,
+    held: HeldImage,
+}
+impl FrameResources {
+    fn ready(&self, cache: &PipelineCache) -> bool {
+        self.display.ready(cache) && self.held.copy.ready(cache)
+    }
+}
+/// The last presented image. The canvas gets a new cleared texture each frame.
+/// A frame that presents no world image shows this image again.
+struct HeldImage {
+    texture: Texture,
+    view: TextureView,
+    /// Copies `held` to the canvas.
+    copy: FrameCopy,
+    filled: AtomicBool,
+}
+impl HeldImage {
+    fn texture(
+        device: &RenderDevice,
+        colors: &super::render_targets::SourceColorTargets,
+        format: TextureFormat,
+    ) -> (Texture, TextureView) {
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some("source_held_display"),
+            size: Extent3d {
+                width: colors.width,
+                height: colors.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format,
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        (texture, view)
+    }
+    /// A new size starts empty. A new target of the same size keeps the last image.
+    fn fit(
+        &mut self,
+        device: &RenderDevice,
+        cache: &PipelineCache,
+        colors: &super::render_targets::SourceColorTargets,
+        format: TextureFormat,
+    ) {
+        if self.texture.width() == colors.width && self.texture.height() == colors.height {
+            return;
+        }
+        (self.texture, self.view) = Self::texture(device, colors, format);
+        self.copy.rebind(device, cache, &self.view);
+        self.filled.store(false, Ordering::Relaxed);
+    }
+    fn show(
+        &self,
+        encoder: &mut CommandEncoder,
+        cache: &PipelineCache,
+        output: &WgpuTextureView,
+    ) -> bool {
+        self.copy.encode(encoder, cache, output)
+    }
 }
 
 #[derive(Clone, Copy, Default, serde::Serialize)]
@@ -227,7 +291,9 @@ impl Plugin for SourceFramePlugin {
                     finish_surface
                         .in_set(SourceSurfaceStage::AfterTransparent)
                         .run_if(surface_ready),
-                    hold_display.in_set(SourceSurfaceStage::AfterTransparent),
+                    hold_display
+                        .in_set(SourceSurfaceStage::AfterTransparent)
+                        .after(finish_surface),
                 ),
             )
             .add_systems(RenderGraph, begin_frame.in_set(RenderGraphSystems::Begin))
@@ -546,12 +612,18 @@ fn prepare_frame(
             let texture = sky_depth(&device, &colors);
             existing.sky_depth = texture.create_view(&TextureViewDescriptor::default());
             existing._sky_depth = texture;
+            let format = existing.display_format;
+            existing.held.fit(&device, &cache, &colors, format);
             existing.colors = colors;
         }
         if existing.display_format != format {
             status.fail("Source display format changed".into());
         }
-        if let Some(error) = existing.display.failure(&cache) {
+        if let Some(error) = existing
+            .display
+            .failure(&cache)
+            .or_else(|| existing.held.copy.failure(&cache))
+        {
             status.fail(error);
         }
         return;
@@ -566,12 +638,27 @@ fn prepare_frame(
         format,
         "display_copy",
     );
+    let (held_texture, held_view) = HeldImage::texture(&device, &colors, format);
+    let held = HeldImage {
+        copy: FrameCopy::new(
+            &device,
+            &cache,
+            assets.shaders.copy.clone(),
+            &held_view,
+            format,
+            "copy",
+        ),
+        texture: held_texture,
+        view: held_view,
+        filled: AtomicBool::new(false),
+    };
     commands.insert_resource(FrameResources {
         colors,
         _sky_depth: texture,
         sky_depth: depth,
         display,
         display_format: format,
+        held,
     });
 }
 /// Copies the mirror scratch color into a slot image. Rows stay bottom-up, as source textures.
@@ -625,6 +712,27 @@ fn sky_depth(device: &RenderDevice, colors: &super::render_targets::SourceColorT
         view_formats: &[],
     })
 }
+/// Loading draws one frame of four. A skipped frame draws no view and no sky.
+fn frame_allowed(frame: &SourceViewFrame, state: &RendererState) -> bool {
+    frame
+        .render_identity()
+        .is_none_or(|key| state.proof.allows_frame(key, frame.frame))
+}
+
+/// `DrawMesh` skips every draw until both direct and frustum preprocess pipelines exist.
+fn preprocess_ready(pipelines: &bevy::pbr::PreprocessPipelines, cache: &PipelineCache) -> bool {
+    [
+        &pipelines.direct_preprocess,
+        &pipelines.gpu_frustum_culling_preprocess,
+    ]
+    .iter()
+    .all(|p| {
+        p.pipeline_id
+            .is_some_and(|id| cache.get_compute_pipeline(id).is_some())
+    })
+}
+
+/// Run condition of every surface view pass.
 pub(crate) fn surface_ready(
     view: ViewQuery<&SourceSurfaceView>,
     frame: Res<SourceViewFrame>,
@@ -638,74 +746,63 @@ pub(crate) fn surface_ready(
     mirrors: Option<Res<MirrorCopy>>,
 ) -> bool {
     let index = view.into_inner().index;
+    if index >= VIEW_COUNT {
+        return false;
+    }
     let state = progress.lock();
-    index < VIEW_COUNT
-        && frame.views[index].is_some()
-        && frame_allowed(&frame, &state)
-        && camera.ready()
-        && resources.is_some_and(|r| r.display.ready(&cache))
-        && effects.is_some_and(|effects| effects.ready(&cache))
-        && preprocess_ready(&preprocess, &cache)
-        && state.audit.sky
-        && (index < WORLD_VIEWS
-            || (mirror_view(index)
-                && state.audit.presented
-                && mirrors.is_some_and(|m| m.copy.ready(&cache)))
-            || (state.audit.presented
-                && probe_view(index)
-                && frame.probe_job == Some(ProbeJob::Face((index - PROBE_START) as u8))
-                && probe.is_some_and(|p| {
-                    p.probes[frame.probe_index].accepts(frame.probe_token)
-                        && p.probes[frame.probe_index].filter.ready(&cache)
-                })))
+    let facts = FrameFacts {
+        view: frame.views[index].is_some(),
+        allowed: frame_allowed(&frame, &state),
+        camera: camera.ready(),
+        display: resources.is_some_and(|r| r.ready(&cache)),
+        effects: effects.is_some_and(|e| e.ready(&cache)),
+        preprocess: preprocess_ready(&preprocess, &cache),
+        sky: state.audit.sky,
+        presented: state.audit.presented,
+    };
+    let kind = if index < WORLD_VIEWS {
+        ViewFacts::World
+    } else if mirror_view(index) {
+        ViewFacts::Mirror {
+            copy: mirrors.is_some_and(|m| m.copy.ready(&cache)),
+        }
+    } else if probe_view(index) {
+        ViewFacts::Probe {
+            face: frame.probe_job == Some(ProbeJob::Face((index - PROBE_START) as u8)),
+            probe: probe.is_some_and(|p| {
+                let probe = &p.probes[frame.probe_index];
+                probe.accepts(frame.probe_token) && probe.filter.ready(&cache)
+            }),
+        }
+    } else {
+        return false;
+    };
+    view_may_draw(facts, kind)
 }
-/// Loading draws one frame of four. A skipped frame draws no view and no sky.
-fn frame_allowed(frame: &SourceViewFrame, state: &RendererState) -> bool {
-    frame
-        .render_identity()
-        .is_none_or(|key| state.proof.allows_frame(key, frame.frame))
-}
-/// The canvas gets a new cleared texture each frame. A skipped frame shows the last image again.
+
+/// A frame without a presented world image shows the held image again.
+/// Skipped loading frames, late pipelines and new targets then do not show a black canvas.
 fn hold_display(
     view: ViewQuery<(&SourceSurfaceView, &ViewTarget)>,
-    frame: Res<SourceViewFrame>,
     progress: Res<RendererStateHandle>,
     resources: Option<Res<FrameResources>>,
     cache: Res<PipelineCache>,
     mut context: RenderContext,
 ) {
     let (source, target) = view.into_inner();
-    if source.index != 0 {
+    if source.index != 0 || progress.lock().audit.presented {
         return;
     }
-    {
-        let state = progress.lock();
-        if state.audit.first_token == 0 || frame_allowed(&frame, &state) {
-            return;
-        }
-    }
     let Some(resources) = resources else { return };
-    if !resources.display.ready(&cache) {
+    if !resources.held.filled.load(Ordering::Relaxed) {
         return;
     }
     let Some(output) = target.out_texture_color_attachment(None) else {
         return;
     };
     resources
-        .display
-        .encode(context.command_encoder(), &cache, output.view);
-}
-/// `DrawMesh` skips every draw until both direct and frustum preprocess pipelines exist.
-fn preprocess_ready(pipelines: &bevy::pbr::PreprocessPipelines, cache: &PipelineCache) -> bool {
-    [
-        &pipelines.direct_preprocess,
-        &pipelines.gpu_frustum_culling_preprocess,
-    ]
-    .iter()
-    .all(|p| {
-        p.pipeline_id
-            .is_some_and(|id| cache.get_compute_pipeline(id).is_some())
-    })
+        .held
+        .show(context.command_encoder(), &cache, output.view);
 }
 fn begin_frame(frame: Res<SourceViewFrame>, progress: Res<RendererStateHandle>) {
     let mut state = progress.lock();
@@ -1009,10 +1106,14 @@ fn finish_surface(
         let Some(output) = target.out_texture_color_attachment(None) else {
             return;
         };
-        if resources
-            .display
-            .encode(context.command_encoder(), &cache, output.view)
+        let encoder = context.command_encoder();
+        if resources.ready(&cache)
+            && resources
+                .display
+                .encode(encoder, &cache, &resources.held.view)
+            && resources.held.show(encoder, &cache, output.view)
         {
+            resources.held.filled.store(true, Ordering::Relaxed);
             state.audit.presented = true;
             state.audit.token = frame.main_token;
         }

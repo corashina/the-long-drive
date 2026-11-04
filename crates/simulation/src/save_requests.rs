@@ -1,4 +1,6 @@
-//! Browser save requests in the simulation: capture, new game and commit.
+//! Browser save requests: the typed request, its answer, and the simulation side.
+//! The browser sends JSON `{id, kind, payload}`. The renderer parses it once with
+//! `SaveRequest::parse` and answers Discard. The simulation runs the rest.
 use crate::boundary::{Change, SaveCommand, SimFrame};
 use crate::driver::SimDriver;
 use crate::reference::ReferenceManifest;
@@ -6,6 +8,109 @@ use crate::save::fresh_permit::FreshSessionPermit;
 use crate::save::{SaveError, SaveSnapshot, SourceStamp};
 use crate::world::GameMode;
 use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SaveKind {
+    Capture,
+    PrepareNewGame,
+    Commit,
+    Discard,
+}
+
+impl SaveKind {
+    /// The browser name of the kind.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Capture => "Capture",
+            Self::PrepareNewGame => "PrepareNewGame",
+            Self::Commit => "Commit",
+            Self::Discard => "Discard",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CaptureRequest {
+    /// ISO date of the save.
+    pub date: String,
+    pub autosave: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NewGameRequest {
+    pub draw_distance: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SaveAction {
+    Capture(CaptureRequest),
+    PrepareNewGame(NewGameRequest),
+    /// Commits the prepared session of this request id.
+    Commit(u32),
+    /// Drops the prepared session of this request id.
+    Discard(u32),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SaveRequest {
+    pub id: u32,
+    pub action: SaveAction,
+}
+
+/// A browser request that does not parse. `id` is 0 when the id did not parse.
+#[derive(Debug, PartialEq)]
+pub struct InvalidRequest {
+    pub id: u32,
+    pub kind: &'static str,
+    pub message: String,
+}
+
+impl SaveRequest {
+    pub fn parse(json: &str) -> Result<Self, InvalidRequest> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            id: u32,
+            kind: SaveKind,
+            #[serde(default)]
+            payload: serde_json::Value,
+        }
+        let wire: Wire = serde_json::from_str(json).map_err(|error| InvalidRequest {
+            id: 0,
+            kind: "Invalid",
+            message: error.to_string(),
+        })?;
+        let payload = wire.payload;
+        let action = match wire.kind {
+            SaveKind::Capture => serde_json::from_value(payload).map(SaveAction::Capture),
+            SaveKind::PrepareNewGame => {
+                serde_json::from_value(payload).map(SaveAction::PrepareNewGame)
+            }
+            SaveKind::Commit => serde_json::from_value(payload).map(SaveAction::Commit),
+            SaveKind::Discard => serde_json::from_value(payload).map(SaveAction::Discard),
+        };
+        action
+            .map(|action| Self {
+                id: wire.id,
+                action,
+            })
+            .map_err(|error| InvalidRequest {
+                id: wire.id,
+                kind: wire.kind.name(),
+                message: error.to_string(),
+            })
+    }
+    pub fn kind(&self) -> SaveKind {
+        match self.action {
+            SaveAction::Capture(_) => SaveKind::Capture,
+            SaveAction::PrepareNewGame(_) => SaveKind::PrepareNewGame,
+            SaveAction::Commit(_) => SaveKind::Commit,
+            SaveAction::Discard(_) => SaveKind::Discard,
+        }
+    }
+}
 
 pub(crate) struct SaveState {
     source: SourceStamp,
@@ -15,13 +120,6 @@ pub(crate) struct SaveState {
     results: Vec<Change>,
 }
 
-#[derive(Deserialize)]
-struct Request {
-    id: u32,
-    kind: String,
-    #[serde(default)]
-    payload: serde_json::Value,
-}
 #[derive(Serialize)]
 struct CaptureResult<'a> {
     save: &'a SaveSnapshot,
@@ -49,26 +147,19 @@ impl SimDriver {
     pub(crate) fn accept_saves(&mut self, reference: &ReferenceManifest, saves: Vec<SaveCommand>) {
         for save in saves {
             match save {
-                SaveCommand::Request { json, mode, epoch } => {
-                    let (id, kind, result) = match serde_json::from_str::<Request>(&json) {
-                        Ok(request) => {
-                            let result = self.request(reference, &request, mode, epoch);
-                            (request.id, request.kind, result)
-                        }
-                        Err(error) => (
-                            0,
-                            "Invalid".into(),
-                            Err(SaveError::CorruptData(error.to_string())),
-                        ),
-                    };
-                    let (payload, error) = match result {
+                SaveCommand::Request {
+                    request,
+                    mode,
+                    epoch,
+                } => {
+                    let (payload, error) = match self.request(reference, &request, mode, epoch) {
                         Ok(None) => continue,
                         Ok(Some(payload)) => (payload, String::new()),
                         Err(error) => (String::new(), error.to_string()),
                     };
                     self.save.results.push(Change::SaveResult {
-                        id,
-                        kind,
+                        id: request.id,
+                        kind: request.kind(),
                         payload,
                         error,
                     });
@@ -86,32 +177,26 @@ impl SimDriver {
     fn request(
         &mut self,
         reference: &ReferenceManifest,
-        request: &Request,
+        request: &SaveRequest,
         mode: GameMode,
         epoch: u32,
     ) -> Result<Option<String>, SaveError> {
         let invalid = |message: &str| SaveError::ReconstructionFailure(message.into());
-        match request.kind.as_str() {
-            "Commit" => {
+        match &request.action {
+            SaveAction::Commit(id) => {
                 #[cfg(target_arch = "wasm32")]
                 let _profile =
                     crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::SaveCommit);
-                let id = request
-                    .payload
-                    .as_u64()
-                    .and_then(|id| u32::try_from(id).ok());
                 let permit = self
                     .save
                     .prepared
                     .take()
                     .ok_or_else(|| invalid("Prepared session is missing"))?;
-                let id = id.ok_or_else(|| invalid("Prepared session is stale"));
-                let result = id.and_then(|id| {
-                    if !self.ready {
-                        return Err(invalid("The garage is not ready"));
-                    }
-                    permit.commit(id, &mut self.runtime, epoch)
-                });
+                let result = if self.ready {
+                    permit.commit(*id, &mut self.runtime, epoch)
+                } else {
+                    Err(invalid("The garage is not ready"))
+                };
                 if let Err(error) = result {
                     self.save.prepared = Some(permit);
                     return Err(error);
@@ -120,57 +205,50 @@ impl SimDriver {
                 self.frame_steps = 0;
                 Ok(Some(String::new()))
             }
-            "Capture" | "PrepareNewGame" => {
+            SaveAction::Capture(capture) => {
                 #[cfg(target_arch = "wasm32")]
                 let _profile =
                     crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::SavePrepare);
                 if !self.ready {
                     return Err(invalid("The garage is not ready"));
                 }
-                let payload = &request.payload;
-                let autosave = request.kind == "Capture"
-                    && payload
-                        .get("autosave")
-                        .and_then(serde_json::Value::as_bool)
-                        .ok_or_else(|| invalid("Missing autosave flag"))?;
-                if !autosave && self.runtime.started && !self.runtime.paused {
+                if !capture.autosave && self.runtime.started && !self.runtime.paused {
                     return Err(invalid("Pause the game first"));
                 }
                 // Source guests have no save. The host world is the only world.
-                if request.kind == "Capture" && self.net.role() == crate::net::NetRole::Guest {
+                if self.net.role() == crate::net::NetRole::Guest {
                     return Err(invalid("Guests cannot save"));
                 }
-                if request.kind == "Capture" {
-                    if !autosave {
-                        self.clear_input();
-                    }
-                    let snapshot = self.runtime.capture_save(
-                        reference,
-                        &self.save.source,
-                        payload
-                            .get("date")
-                            .and_then(serde_json::Value::as_str)
-                            .ok_or_else(|| invalid("Missing capture date"))?,
-                    )?;
-                    return serde_json::to_string(&CaptureResult {
-                        save: &snapshot,
-                        summary: CaptureSummary {
-                            seed: snapshot.world.seed,
-                            driven_km: snapshot.progress.driven_km,
-                            build_id: snapshot.source.build_id,
-                        },
-                    })
-                    .map(Some)
-                    .map_err(|error| SaveError::CorruptData(error.to_string()));
+                if !capture.autosave {
+                    self.clear_input();
+                }
+                let snapshot =
+                    self.runtime
+                        .capture_save(reference, &self.save.source, &capture.date)?;
+                serde_json::to_string(&CaptureResult {
+                    save: &snapshot,
+                    summary: CaptureSummary {
+                        seed: snapshot.world.seed,
+                        driven_km: snapshot.progress.driven_km,
+                        build_id: snapshot.source.build_id,
+                    },
+                })
+                .map(Some)
+                .map_err(|error| SaveError::CorruptData(error.to_string()))
+            }
+            SaveAction::PrepareNewGame(new_game) => {
+                #[cfg(target_arch = "wasm32")]
+                let _profile =
+                    crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::SavePrepare);
+                if !self.ready {
+                    return Err(invalid("The garage is not ready"));
+                }
+                if self.runtime.started && !self.runtime.paused {
+                    return Err(invalid("Pause the game first"));
                 }
                 if self.save.prepared.is_some() {
                     return Err(invalid("A prepared session is pending"));
                 }
-                let draw_distance = payload
-                    .get("draw_distance")
-                    .and_then(serde_json::Value::as_f64)
-                    .ok_or_else(|| invalid("Missing draw distance"))?
-                    as f32;
                 let runtime = &self.runtime;
                 // A new game starts the garage world. The browser reloads the page for a
                 // started game or another game mode, so the garage has the new mode.
@@ -178,14 +256,14 @@ impl SimDriver {
                     || runtime.stream.mode() != mode
                     || !runtime
                         .distances
-                        .matches(&reference.world.draw_distance, draw_distance)
+                        .matches(&reference.world.draw_distance, new_game.draw_distance)
                 {
                     return Err(invalid("New game needs a garage in its game mode"));
                 }
                 self.save.prepared = Some(FreshSessionPermit::prepare(request.id, runtime, epoch)?);
                 Ok(Some(request.id.to_string()))
             }
-            _ => Err(invalid("Unknown save request")),
+            SaveAction::Discard(_) => Err(invalid("The renderer answers Discard")),
         }
     }
 

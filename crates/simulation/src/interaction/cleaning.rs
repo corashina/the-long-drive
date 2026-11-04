@@ -569,8 +569,11 @@ impl CleaningTools {
             physics.refresh_queries();
         }
     }
+    /// fpscontroller `noLMBUse` of the hand: the spray bottle, a brush, or a paint spray.
     pub fn reserves_lmb(&self, equipped: Option<ItemId>) -> bool {
-        equipped.is_some_and(|item| self.lmb_items.contains_key(&item) || self.is_brush(item))
+        equipped.is_some_and(|item| {
+            self.lmb_items.contains_key(&item) || self.index.contains_key(&item)
+        })
     }
     /// Source `drotkefe`. The item has a brush.
     pub fn is_brush(&self, item: ItemId) -> bool {

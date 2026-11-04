@@ -229,14 +229,7 @@ impl WorldStream {
             if !on_switch || physics.rapier().colliders[*handle].parent() != body {
                 continue;
             }
-            let mut id = ColliderId((physics.rapier().colliders[*handle].user_data >> 64) as u32);
-            if id.0 == 0 {
-                id = interaction.allocate_generated_collider()?;
-                physics.edit_collider(*handle, |collider| {
-                    collider.user_data |= (id.0 as u128) << 64;
-                });
-            }
-            interaction.bind_dial_knob(id, Knob::Switch);
+            let id = interaction.bind_knob(physics, *handle, Knob::Switch, None)?;
             knobs.push(id);
         }
         let hits = Vec::with_capacity(detector_rules.hits.max(16));
@@ -429,7 +422,7 @@ impl ContentKind for DetectorKind {
     }
     fn unbind(binding: &DetectorBinding, interaction: &mut InteractionState) {
         for knob in &binding.knobs {
-            interaction.remove_dial_knob(*knob);
+            interaction.controls.remove_knob(*knob);
         }
     }
 }

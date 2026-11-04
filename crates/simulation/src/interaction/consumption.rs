@@ -1,6 +1,6 @@
 use super::InteractionState;
 use crate::reference::{ActionBinding, ColliderId, FoodReference, ItemId, ItemKind};
-use rapier3d::prelude::{ColliderHandle, RigidBodyHandle};
+use rapier3d::prelude::ColliderHandle;
 
 impl InteractionState {
     pub fn register_consumable(
@@ -31,32 +31,6 @@ impl InteractionState {
             );
         }
     }
-
-    /// Forget the bindings of a removed item: an eaten food, an exploded tank or its cap.
-    pub fn forget_removed(&mut self, id: ItemId, body: RigidBodyHandle) {
-        self.collider_bindings.retain(|_, binding| {
-            binding.use_owner != Some(id)
-                && binding.pickup_owner != Some(id)
-                && binding.removal_owner != Some(id)
-                && binding.push_owner != Some(id)
-        });
-        self.source_bindings.retain(|_, binding| {
-            binding.use_owner != Some(id)
-                && binding.pickup_owner != Some(id)
-                && binding.removal_owner != Some(id)
-                && binding.push_owner != Some(id)
-        });
-        self.kinds.remove(&id);
-        self.pickup_layers.remove(&id);
-        self.removal_layers.remove(&id);
-        self.usable_items.remove(&id);
-        self.filling_items.remove(&id);
-        self.tank_rules.remove(&id);
-        self.forget_openings(id);
-        self.carry.forget_food(id);
-        self.bodies.retain(|_, handle| *handle != body);
-        self.mechanism_bodies.remove(&id);
-    }
 }
 
 impl InteractionState {
@@ -81,15 +55,5 @@ impl InteractionState {
                 },
             );
         }
-    }
-
-    pub fn remove_spawned(&mut self, id: ItemId, body: RigidBodyHandle) {
-        self.collider_bindings
-            .retain(|_, binding| binding.pickup_owner != Some(id));
-        self.kinds.remove(&id);
-        self.pickup_layers.remove(&id);
-        self.carry.unregister_generated(id);
-        self.unregister_hose(id);
-        self.bodies.retain(|_, handle| *handle != body);
     }
 }

@@ -980,7 +980,7 @@ pub enum Change {
     /// The answer to a browser save request.
     SaveResult {
         id: u32,
-        kind: String,
+        kind: crate::save_requests::SaveKind,
         payload: String,
         error: String,
     },
@@ -1107,9 +1107,9 @@ pub struct SimCommand {
 /// One save input of the renderer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SaveCommand {
-    /// A browser request: JSON with id, kind and payload.
+    /// A browser request that the renderer parsed.
     Request {
-        json: String,
+        request: crate::save_requests::SaveRequest,
         /// Game mode of a new world, from the browser menu.
         mode: crate::world::GameMode,
         /// Renderer scene epoch. A fresh session commits only in its epoch.
@@ -1147,16 +1147,23 @@ pub enum LampAdmission {
 impl WorldCommand {
     /// Adds a later command.
     pub fn merge(&mut self, next: Self) {
-        self.facts.extend(next.facts);
-        self.report = match (self.report.take(), next.report) {
+        let Self {
+            facts,
+            report,
+            views,
+            lamps,
+            failure,
+        } = next;
+        self.facts.extend(facts);
+        self.report = match (self.report.take(), report) {
             (Some(report), Some(next)) => Some(report.merge(next)),
             (report, next) => next.or(report),
         };
-        self.views = next.views;
-        if next.lamps != LampAdmission::Same {
-            self.lamps = next.lamps;
+        self.views = views;
+        if lamps != LampAdmission::Same {
+            self.lamps = lamps;
         }
-        self.failure = self.failure.take().or(next.failure);
+        self.failure = self.failure.take().or(failure);
     }
 }
 
@@ -1167,26 +1174,44 @@ impl SimCommand {
     pub const ACTIONS: u32 = Self::PAUSE | Self::START | Self::RECOVER;
 
     /// Adds a later command. A held command drops the input before it.
+    /// The field pattern does not compile when a new field has no merge rule.
     pub fn merge(&mut self, next: Self) {
-        self.seq = next.seq;
-        self.delta_seconds += next.delta_seconds;
-        if next.hold {
+        let Self {
+            seq,
+            delta_seconds,
+            input,
+            actions,
+            ready,
+            hold,
+            assists,
+            settings,
+            options,
+            player_settings,
+            old_heat_haze,
+            measure,
+            world,
+            save,
+            listener,
+        } = next;
+        self.seq = seq;
+        self.delta_seconds += delta_seconds;
+        if hold {
             self.input.clear();
         } else {
-            self.input.merge(next.input);
+            self.input.merge(input);
         }
-        self.actions |= next.actions;
-        self.ready = next.ready;
-        self.hold = next.hold;
-        self.assists = next.assists.or(self.assists);
-        self.settings = next.settings.or(self.settings);
-        self.options = next.options.or(self.options);
-        self.player_settings = next.player_settings.or(self.player_settings);
-        self.old_heat_haze = next.old_heat_haze;
-        self.measure |= next.measure;
-        self.world.merge(next.world);
-        self.save.extend(next.save);
-        self.listener = next.listener.or(self.listener);
+        self.actions |= actions;
+        self.ready = ready;
+        self.hold = hold;
+        self.assists = assists.or(self.assists);
+        self.settings = settings.or(self.settings);
+        self.options = options.or(self.options);
+        self.player_settings = player_settings.or(self.player_settings);
+        self.old_heat_haze = old_heat_haze;
+        self.measure |= measure;
+        self.world.merge(world);
+        self.save.extend(save);
+        self.listener = listener.or(self.listener);
     }
 }
 
@@ -1305,43 +1330,100 @@ fn take_poses(rest: &mut &[u8], frame: &mut SimFrame) -> Result<(), DecodeError>
     Ok(())
 }
 
-fn write(frame: &SimFrame, out: &mut Vec<u8>, encoder: Option<&mut FrameEncoder>) {
-    out.extend_from_slice(&frame.seq_consumed.to_le_bytes());
-    out.extend_from_slice(bytemuck::bytes_of(&frame.state));
-    out.extend_from_slice(bytemuck::bytes_of(&frame.hud));
-    put_poses(out, frame, encoder);
-    put_rows(out, &frame.valves);
-    put_rows(out, &frame.joints);
-    put_rows(out, &frame.remotes);
-    put_rows(out, &frame.remote_joints);
-    put_rows(out, &frame.ragdoll);
-    put_rows(out, &frame.cigarettes);
-    put_rows(out, &frame.particle_groups);
-    put_rows(out, &frame.particles);
-    put_rows(out, &frame.decals);
-    put_rows(out, &frame.planes);
-    put_rows(out, &frame.creatures);
-    put_rows(out, &frame.creature_bones);
-    put_rows(out, &frame.humans);
-    put_rows(out, &frame.human_bones);
-    put_rows(out, &frame.conditions);
-    put_rows(out, &frame.washes);
-    put_rows(out, &frame.brush_poses);
-    put_rows(out, &frame.spray_colors);
-    put_rows(out, &frame.budgets);
-    put_rows(out, &frame.structures);
-    put_rows(out, &frame.structure_poses);
-    put_rows(out, &frame.hidden_nodes);
-    put_rows(out, &frame.node_materials);
-    put_rows(out, &frame.node_colors);
-    put(out, &frame.lighting);
-    put_list(out, &frame.lights);
-    put_list(out, &frame.lamp_materials);
-    put_list(out, &frame.control_poses);
-    put_list(out, &frame.node_visibility);
-    put_list(out, &frame.audio);
-    put(out, &frame.changes);
-    put(out, &frame.world);
+/// The frame format: every `SimFrame` field once, in wire order, with its codec.
+/// `poses` writes `previous`, `current` and `items` together.
+/// The field pattern does not compile when a field is missing.
+macro_rules! frame_format {
+    ($($codec:ident $field:ident),* $(,)?) => {
+        fn write(frame: &SimFrame, out: &mut Vec<u8>, encoder: Option<&mut FrameEncoder>) {
+            let SimFrame { $($field: _),* } = frame;
+            let mut encoder = encoder;
+            $(frame_format!(@put $codec, out, frame, encoder, $field);)*
+        }
+        fn read(rest: &mut &[u8], frame: &mut SimFrame) -> Result<(), DecodeError> {
+            $(frame_format!(@take $codec, rest, frame, $field);)*
+            Ok(())
+        }
+    };
+    (@put int, $out:ident, $frame:ident, $encoder:ident, $field:ident) => {
+        $out.extend_from_slice(&$frame.$field.to_le_bytes())
+    };
+    (@put pod, $out:ident, $frame:ident, $encoder:ident, $field:ident) => {
+        $out.extend_from_slice(bytemuck::bytes_of(&$frame.$field))
+    };
+    (@put poses, $out:ident, $frame:ident, $encoder:ident, $field:ident) => {
+        put_poses($out, $frame, $encoder.take())
+    };
+    (@put in_poses, $out:ident, $frame:ident, $encoder:ident, $field:ident) => {};
+    (@put rows, $out:ident, $frame:ident, $encoder:ident, $field:ident) => {
+        put_rows($out, &$frame.$field)
+    };
+    (@put list, $out:ident, $frame:ident, $encoder:ident, $field:ident) => {
+        put_list($out, &$frame.$field)
+    };
+    (@put value, $out:ident, $frame:ident, $encoder:ident, $field:ident) => {
+        put($out, &$frame.$field)
+    };
+    (@take int, $rest:ident, $frame:ident, $field:ident) => {
+        $frame.$field = u64::from_le_bytes(take($rest, 8)?.try_into().expect("8 bytes"))
+    };
+    (@take pod, $rest:ident, $frame:ident, $field:ident) => {
+        $frame.$field = bytemuck::pod_read_unaligned(take($rest, size_of_val(&$frame.$field))?)
+    };
+    (@take poses, $rest:ident, $frame:ident, $field:ident) => {
+        take_poses($rest, $frame)?
+    };
+    (@take in_poses, $rest:ident, $frame:ident, $field:ident) => {};
+    (@take rows, $rest:ident, $frame:ident, $field:ident) => {
+        take_rows($rest, &mut $frame.$field)?
+    };
+    (@take list, $rest:ident, $frame:ident, $field:ident) => {
+        take_list($rest, &mut $frame.$field)?
+    };
+    (@take value, $rest:ident, $frame:ident, $field:ident) => {
+        $frame.$field = take_value($rest)?
+    };
+}
+
+frame_format! {
+    int seq_consumed,
+    pod state,
+    pod hud,
+    poses previous,
+    in_poses current,
+    in_poses items,
+    rows valves,
+    rows joints,
+    rows remotes,
+    rows remote_joints,
+    rows ragdoll,
+    rows cigarettes,
+    rows particle_groups,
+    rows particles,
+    rows decals,
+    rows planes,
+    rows creatures,
+    rows creature_bones,
+    rows humans,
+    rows human_bones,
+    rows conditions,
+    rows washes,
+    rows brush_poses,
+    rows spray_colors,
+    rows budgets,
+    rows structures,
+    rows structure_poses,
+    rows hidden_nodes,
+    rows node_materials,
+    rows node_colors,
+    value lighting,
+    list lights,
+    list lamp_materials,
+    list control_poses,
+    list node_visibility,
+    list audio,
+    value changes,
+    value world,
 }
 
 /// Reads `bytes` into `frame`, reusing its arrays.
@@ -1351,46 +1433,6 @@ pub fn decode(bytes: &[u8], frame: &mut SimFrame) -> Result<(), DecodeError> {
     if !rest.is_empty() {
         return Err(DecodeError("long frame".into()));
     }
-    Ok(())
-}
-
-fn read(rest: &mut &[u8], frame: &mut SimFrame) -> Result<(), DecodeError> {
-    frame.seq_consumed = u64::from_le_bytes(take(rest, 8)?.try_into().expect("8 bytes"));
-    frame.state = bytemuck::pod_read_unaligned(take(rest, size_of::<StateBlock>())?);
-    frame.hud = bytemuck::pod_read_unaligned(take(rest, size_of::<HudBlock>())?);
-    take_poses(rest, frame)?;
-    take_rows(rest, &mut frame.valves)?;
-    take_rows(rest, &mut frame.joints)?;
-    take_rows(rest, &mut frame.remotes)?;
-    take_rows(rest, &mut frame.remote_joints)?;
-    take_rows(rest, &mut frame.ragdoll)?;
-    take_rows(rest, &mut frame.cigarettes)?;
-    take_rows(rest, &mut frame.particle_groups)?;
-    take_rows(rest, &mut frame.particles)?;
-    take_rows(rest, &mut frame.decals)?;
-    take_rows(rest, &mut frame.planes)?;
-    take_rows(rest, &mut frame.creatures)?;
-    take_rows(rest, &mut frame.creature_bones)?;
-    take_rows(rest, &mut frame.humans)?;
-    take_rows(rest, &mut frame.human_bones)?;
-    take_rows(rest, &mut frame.conditions)?;
-    take_rows(rest, &mut frame.washes)?;
-    take_rows(rest, &mut frame.brush_poses)?;
-    take_rows(rest, &mut frame.spray_colors)?;
-    take_rows(rest, &mut frame.budgets)?;
-    take_rows(rest, &mut frame.structures)?;
-    take_rows(rest, &mut frame.structure_poses)?;
-    take_rows(rest, &mut frame.hidden_nodes)?;
-    take_rows(rest, &mut frame.node_materials)?;
-    take_rows(rest, &mut frame.node_colors)?;
-    frame.lighting = take_value(rest)?;
-    take_list(rest, &mut frame.lights)?;
-    take_list(rest, &mut frame.lamp_materials)?;
-    take_list(rest, &mut frame.control_poses)?;
-    take_list(rest, &mut frame.node_visibility)?;
-    take_list(rest, &mut frame.audio)?;
-    frame.changes = take_value(rest)?;
-    frame.world = take_value(rest)?;
     Ok(())
 }
 

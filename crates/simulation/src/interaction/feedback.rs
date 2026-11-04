@@ -212,9 +212,9 @@ impl InteractionState {
             };
         }
         if let Some(t) = use_target {
-            if let Some((id, kind)) = self.dial_knob(&t, physics) {
+            if let Some((_, kind, tune_icon)) = self.controls.knob(t.collider) {
                 use super::Knob;
-                a.tune_icon = self.tune_icons.get(&id).copied();
+                a.tune_icon = tune_icon;
                 a.context = match kind {
                     Knob::Volume => FeedbackContext::RadioVolume,
                     Knob::Tuning => FeedbackContext::RadioTuning,
@@ -229,7 +229,7 @@ impl InteractionState {
                     a.adjust = super::crosshair::AdjustIcon::Rotate;
                 }
             }
-            if let Some(c) = self.ufo_controls.get(&t.collider) {
+            if let Some(c) = self.controls.ufo(t.collider) {
                 a.context = FeedbackContext::Mechanism;
                 a.actions.0 |= if c.control == crate::ground_ufo::UfoControl::AutoPilot {
                     ActionMask::SWITCH
@@ -267,7 +267,7 @@ impl InteractionState {
                     a.tune_icon = o.reference.tune_icon;
                 }
             }
-            if self.item_seats.get(&t.collider).is_some_and(|seat| {
+            if self.controls.seat(t.collider).is_some_and(|seat| {
                 seat.can_sit(physics) && (!player.seated() || player.can_switch_to(seat))
             }) {
                 a.actions.0 |= ActionMask::ENTER;

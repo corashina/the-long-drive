@@ -247,7 +247,7 @@ pub fn despawn(
         .get(id)
         .and_then(|item| item.body)
         .ok_or_else(|| ReferenceError("Spawned item has no body".into()))?;
-    area.interaction.remove_spawned(id, body);
+    area.interaction.forget_item(id, Some(body));
     physics.remove_body(body);
     physics.refresh_queries();
     let state = area.items.set_body(id, None).unwrap();

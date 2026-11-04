@@ -263,8 +263,9 @@ fn tp_k7_a_seated_player_changes_seat_in_the_same_car() {
     let interaction = &run.area.interaction;
     let switchable = |handle| {
         interaction
-            .item_seat(handle)
-            .is_some_and(|seat| run.area.player.can_switch_to(&seat))
+            .controls
+            .seat(handle)
+            .is_some_and(|seat| run.area.player.can_switch_to(seat))
     };
     let reach = run
         .physics
@@ -591,7 +592,7 @@ fn tp_k10_a_seated_player_uses_the_van_cabin_controls() {
                 point: at.to_array(),
                 slot: None,
             };
-            (at - eye).length() < 1.5 && interaction.dial_knob(&target, &run.physics).is_some()
+            (at - eye).length() < 1.5 && interaction.dial_knob(&target).is_some()
         })
         .map(|(h, c)| (h, c.compute_aabb().center()))
         .collect::<Vec<_>>();
@@ -612,4 +613,32 @@ fn tp_k10_a_seated_player_uses_the_van_cabin_controls() {
             "the use ray takes a radio knob"
         );
     }
+}
+
+/// K12. A paint spray in the hand owns LMB: source `fpscontroller` sets `noLMBUse` for any item in
+/// the hand, so LMB paints and does not grab or open the aimed car part.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k12_a_paint_spray_in_the_hand_owns_lmb() {
+    use crate::interaction::claims::LmbOwner;
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let spray = reference.conditions.sprays[0].item;
+    let area = &mut run.area;
+    let point = area.items.get(spray).unwrap().pose.position;
+    area.interaction
+        .pickup_item(
+            spray,
+            point,
+            &area.player,
+            &mut area.items,
+            &mut run.physics,
+        )
+        .unwrap();
+    area.sync_inventory();
+    assert!(
+        area.equip_carried(&mut run.physics).unwrap(),
+        "the spray is in the hand"
+    );
+    assert_eq!(area.interaction.lmb_owner(), Some(LmbOwner::CleaningTool));
 }

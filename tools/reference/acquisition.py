@@ -10,7 +10,7 @@ STATION_PREFABS = (26573, 27344, 41123)
 ASSEMBLY_SHA256 = '9919a9eeddcce23bb4ff86e890437f32b4a3ef3c10af2efe3b8d889d894dd62e'
 TEXT_SHA256 = '22ddc62b91954205d90ff513232f39becebbc58a71b718685075f91f64b1f3ee'
 # Selected Lada contract, recovered from the checked build 11140890 source receipt.
-CONTRACT_SHA256 = 'a3379b3188ac06004d0792f239f3a0e633a1487df61e5a113403fd9d742be3e1'
+CONTRACT_SHA256 = '363236acc8b6514b0e458da0be9bf7373f7a7e2bb8883a5bff0a73533354d79b'
 
 
 def start_car(manifest, group):

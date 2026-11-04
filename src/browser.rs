@@ -285,9 +285,6 @@ extern "C" {
     /// False while the appearance screen is closed.
     #[wasm_bindgen(js_namespace = window, js_name = gameAppearancePreview)]
     pub fn game_appearance_preview(rect: &mut [f32]) -> bool;
-    /// True while the start menu shows the start car stage.
-    #[wasm_bindgen(js_namespace = window, js_name = gameMenuCar)]
-    pub fn game_menu_car() -> bool;
     /// Fills 8 axes and 32 button bits for each of 4 pads (`GamepadFrame`).
     #[wasm_bindgen(js_namespace = window, js_name = gameGamepad)]
     pub fn game_gamepad(axes: &mut [f32], buttons: &mut [u32]);

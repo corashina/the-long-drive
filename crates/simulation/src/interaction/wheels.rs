@@ -75,7 +75,7 @@ pub struct WorldWheelSlot {
     /// Source slot `maintipus` and `tipus`.
     pub rim_main_types: Vec<String>,
     pub rim_types: Vec<String>,
-    /// Slot mount (`partslotscript.T`) relative to the resting hub, in the chassis frame.
+    /// Slot mount (`partslotscript.T`) relative to `wheelgraphicsscript.T`, in the chassis frame.
     pub hub_to_mount: Pose,
     pub sensor_radius: f32,
     /// The rim object of the slot: the saved one or the prototype part.

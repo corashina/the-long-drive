@@ -234,7 +234,8 @@ impl GarageRuntime {
             let bound = self
                 .area
                 .interaction
-                .find_item_seat(&owner, &seat.source.source_id()?)
+                .controls
+                .find_seat(&owner, &seat.source.source_id()?)
                 .ok_or_else(|| SaveError::InvalidLinks("Seat item is not bound".into()))?;
             self.area.player.restore_item_seat(
                 &bound,

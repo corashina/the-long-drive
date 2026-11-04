@@ -1,7 +1,7 @@
 //! Human monsters. Buildings place them, `itemPlaceRemoveScript` unloads and places them, and
 //! `Die` turns the body into ragdoll bone items.
 use super::GarageRuntime;
-use super::rabbits::{allocate, register};
+use super::population::{allocate, register};
 use crate::reference::{ReferenceError, ReferenceManifest};
 use crate::save::HumanSnapshot;
 use crate::world::ObjectKey;
@@ -115,46 +115,8 @@ impl GarageRuntime {
         )
     }
 
-    /// Source `itemPlaceRemoveScript` for humans. Far ones unload, and saved or far ones near an
-    /// important object come back where the world is loaded.
-    pub(super) fn place_remove_humans(
-        &mut self,
-        reference: &ReferenceManifest,
-        distances: crate::creatures::PlaceDistances,
-    ) {
-        let (stream, origin) = (&self.stream, self.stream.origin);
-        let mut bones = Vec::new();
-        self.creatures.humans.unload(
-            &mut self.physics,
-            &origin,
-            |p| stream.important_distance(origin.absolute(p.to_array()), None) >= distances.remove,
-            &mut bones,
-        );
-        self.release_bones(bones);
-        let stream = &self.stream;
-        let near = |p: [f64; 3]| {
-            stream.important_distance(p, None) < distances.spawn
-                && stream.supports(crate::world::WorldBounds {
-                    min: p.map(|v| v - 2.),
-                    max: p.map(|v| v + 2.),
-                })
-        };
-        let mut placed = Vec::new();
-        while let Some(s) = self.creatures.humans.take_far(near) {
-            placed.push(s);
-        }
-        for s in &placed {
-            if self.restore_human(reference, s).is_err() {
-                self.notice = "Cannot place the human.";
-            }
-        }
-        if !placed.is_empty() {
-            self.physics.refresh_queries();
-        }
-    }
-
     /// `save_newai.SetTosave`. A saved dead human calls `Die` with its saved bone poses.
-    fn restore_human(
+    pub(super) fn restore_human(
         &mut self,
         reference: &ReferenceManifest,
         saved: &HumanSnapshot,

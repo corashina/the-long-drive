@@ -168,6 +168,8 @@ pub struct WorldStream {
     mode: super::GameMode,
     /// The picked start car. Only its start placement spawns.
     start_car: super::StartCar,
+    /// The picked option of each source `randomStarts` group.
+    random_starts: Vec<u32>,
     package_id: String,
     generation_revision: u64,
     structure_helpers: super::structure_helpers::StructureHelpers,
@@ -766,6 +768,7 @@ impl WorldStream {
             seed,
             mode,
             start_car,
+            random_starts: super::random_starts::pick(world, seed),
             structure_helpers,
             building_components: Default::default(),
             ledger: Default::default(),
@@ -1636,7 +1639,8 @@ impl WorldStream {
     }
 
     /// The startup entries with a prototype become fixed placements. StartSpawnItems copies always
-    /// spawn. A start car group entry spawns only for the picked group: its car and spare wheel. The exported pose is the raw
+    /// spawn. A random start copy spawns when its options are picked.
+    /// A start car group entry spawns only for the picked group: its car and spare wheel. The exported pose is the raw
     /// scene pose. The startup root offsets of its Transform chain move it onto the terrain.
     fn startup_placements(
         &self,
@@ -1647,7 +1651,12 @@ impl WorldStream {
             let Some(prototype) = &entry.prototype else {
                 continue;
             };
-            if entry.group != START_ITEMS && entry.group != self.start_car.field() {
+            let spawns = if entry.group == super::random_starts::GROUP {
+                super::random_starts::picked(entry, &self.random_starts)
+            } else {
+                entry.group == START_ITEMS || entry.group == self.start_car.field()
+            };
+            if !spawns {
                 continue;
             }
             let offset = startup.chain_offset(&self.reference, &entry.source)?;
@@ -3635,6 +3644,10 @@ impl WorldStream {
     }
     /// Source `roads[0].OneCoord(position)` with Y at `above` over the base terrain height
     /// (`GetTerrainHeightWorld(pb1: true, pb2: false, pb3: false)`). It uses absolute coordinates.
+    /// Absolute road surface points, one per road bone from the road start. Use it only at setup.
+    pub fn road_surface_points(&self) -> impl Iterator<Item = [f64; 3]> + '_ {
+        self.roads.surface_points()
+    }
     pub fn road_point(&self, position: [f64; 3], above: f32) -> [f64; 3] {
         // OneCoord projects onto the identity world's forward axis. Source Z is the negated world Z.
         let z = -position[2] as f32;
@@ -4490,10 +4503,8 @@ impl WorldStream {
                 }
                 let supply = self.supplies.swap_remove(supply_index);
                 if let Some((tank, cap)) = supply.items {
-                    for item in [tank, cap].into_iter() {
-                        for (_, collider) in &instance.colliders {
-                            interaction.unbind_generated(item, std::slice::from_ref(collider));
-                        }
+                    for item in [tank, cap] {
+                        interaction.forget_item(item, None);
                         items.remove_generated(item);
                     }
                 }

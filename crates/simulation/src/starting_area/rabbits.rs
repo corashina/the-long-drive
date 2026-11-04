@@ -1,46 +1,16 @@
 //! Rabbit deaths. `aiscript.Die` turns the live body into ragdoll bones that the player can
 //! carry, and `nyulscript.Die` plays a die clip. Evil rabbit clips and attack triggers.
 use super::GarageRuntime;
-use crate::creatures::ragdoll::Bone;
+use super::population::{allocate, register};
 use crate::creatures::stimuli::SoundStimulus;
-use crate::interaction::InteractionState;
-use crate::interaction::items::ItemStore;
-use crate::reference::{
-    CreatureRagdoll, ItemId, RabbitReference, ReferenceError, ReferenceManifest,
-};
-use crate::save::RabbitSnapshot;
-use crate::vehicle::{from_rapier, to_rapier};
+use crate::reference::{RabbitReference, ReferenceError, ReferenceManifest};
+use crate::vehicle::to_rapier;
 use rapier3d::math::Vector;
 
 /// Audio instances of rabbit clips. Flyers share the voice and use item ids.
 const AUDIO_INSTANCE: u32 = 1 << 31;
 /// Sound stimulus keys of radio voices: the item id and the voice.
 const RADIO_STIMULUS: u64 = 2 << 32;
-
-pub(super) fn allocate(
-    r: &CreatureRagdoll,
-    items: &mut ItemStore,
-) -> Result<Vec<ItemId>, ReferenceError> {
-    (0..r.bodies.len())
-        .map(|_| items.allocate_item_id())
-        .collect()
-}
-
-/// Each bone is an ordinary pickup item. The creature scene shows it.
-pub(super) fn register(
-    r: &CreatureRagdoll,
-    bones: &[Bone],
-    physics: &crate::vehicle::PhysicsWorld,
-    items: &mut ItemStore,
-    interaction: &mut InteractionState,
-) -> Result<(), ReferenceError> {
-    for (bone, pickup) in bones.iter().zip(&r.pickups) {
-        let pose = from_rapier(physics.rapier().bodies[bone.body].position());
-        items.insert_spawned(bone.item, "", pose, bone.body, None)?;
-        interaction.register_spawned(bone.item, pickup.clone(), &bone.colliders);
-    }
-    Ok(())
-}
 
 impl GarageRuntime {
     /// `stimulscript.CheckAudioSources` inputs: engine and horn loops of this step and the
@@ -156,103 +126,6 @@ impl GarageRuntime {
         let position = self.stream.origin.absolute(position.to_array());
         let clip = self.creatures.die_clip(r);
         self.play_rabbit_clip(r, id, clip, position, 1.);
-        Ok(())
-    }
-
-    /// Source `itemPlaceRemoveScript`. Rabbits away from every important object unload, and far
-    /// rabbits near one come back where the world is loaded. The spawner then refills its slots.
-    pub(super) fn place_remove_rabbits(
-        &mut self,
-        reference: &ReferenceManifest,
-        distances: crate::creatures::PlaceDistances,
-    ) {
-        let (stream, origin) = (&self.stream, self.stream.origin);
-        let mut bones = Vec::new();
-        self.creatures.unload(
-            &mut self.physics,
-            &origin,
-            |p| stream.important_distance(origin.absolute(p.to_array()), None) >= distances.remove,
-            &mut bones,
-        );
-        self.release_bones(bones);
-        let (stream, origin) = (&self.stream, self.stream.origin);
-        let near = |p: [f64; 3]| {
-            stream.important_distance(p, None) < distances.spawn
-                && stream.supports(crate::world::WorldBounds {
-                    min: p.map(|v| v - 2.),
-                    max: p.map(|v| v + 2.),
-                })
-        };
-        let mut placed = Vec::new();
-        while let Some(s) = self.creatures.take_far(near) {
-            placed.push(s);
-        }
-        if placed.is_empty() {
-            return;
-        }
-        let r = &reference.creatures.rabbit;
-        let now = self.simulation_seconds;
-        if self
-            .creatures
-            .restore(r, &mut self.physics, &origin, &placed, now)
-            .and_then(|()| self.restore_dead_rabbits(reference, &placed))
-            .is_err()
-        {
-            self.notice = "Cannot place the rabbit.";
-        }
-        self.physics.refresh_queries();
-    }
-
-    /// Removes the bone items and bodies of unloaded creatures.
-    pub(super) fn release_bones(
-        &mut self,
-        bones: Vec<(ItemId, rapier3d::prelude::RigidBodyHandle)>,
-    ) {
-        let area = &mut self.area;
-        for (item, body) in bones {
-            if area.interaction.held() == Some(item) {
-                area.interaction
-                    .drop_held(&mut area.items, &mut self.physics);
-            }
-            area.inventory.forget(item);
-            area.interaction.remove_spawned(item, body);
-            self.physics.remove_body(body);
-            if let Some(state) = area.items.set_body(item, None) {
-                state.location = crate::interaction::items::ItemLocation::World;
-            }
-            area.items.remove_spawned(item);
-            area.item_render_poses.retain(|(i, _, _)| *i != item);
-        }
-    }
-
-    /// Saved dead rabbits with their bones.
-    pub(super) fn restore_dead_rabbits(
-        &mut self,
-        reference: &ReferenceManifest,
-        saved: &[RabbitSnapshot],
-    ) -> Result<(), ReferenceError> {
-        let r = &reference.creatures.rabbit;
-        for s in saved.iter().filter(|s| !s.alive) {
-            let area = &mut self.area;
-            let items = allocate(&r.ragdoll, &mut area.items)?;
-            let interaction = &mut area.interaction;
-            let bones = self.creatures.restore_dead(
-                r,
-                &mut self.physics,
-                &self.stream.origin,
-                s,
-                self.simulation_seconds,
-                &items,
-                &mut || interaction.allocate_generated_collider(),
-            )?;
-            register(
-                &r.ragdoll,
-                bones,
-                &self.physics,
-                &mut area.items,
-                interaction,
-            )?;
-        }
         Ok(())
     }
 }

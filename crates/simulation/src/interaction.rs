@@ -6,6 +6,7 @@ pub mod claims;
 pub mod cleaning;
 pub mod computer;
 pub mod consumption;
+pub mod controls;
 pub mod crosshair;
 pub mod decals;
 pub mod equipment;
@@ -14,6 +15,7 @@ pub mod explosions;
 pub mod feedback;
 pub mod fluid_contact;
 mod fluid_receipts;
+mod forget;
 pub mod genie_lamp;
 pub mod guns;
 pub mod help_texts;
@@ -253,8 +255,6 @@ pub struct InteractionState {
     cancelled_input: u32,
     usable_light_controls: HashSet<LightControlId>,
     /// Generated source dial knobs (meterscript tune usables).
-    dial_knobs: HashMap<ColliderId, Knob>,
-    tune_icons: HashMap<ColliderId, u32>,
     fill_opening: Option<OpeningId>,
     kinds: HashMap<ItemId, ItemKind>,
     wheel_slots: HashMap<WheelSlotId, WheelSlotRule>,
@@ -277,10 +277,8 @@ pub struct InteractionState {
     receipt_tanks: Vec<fluid_receipts::ReceiptTank>,
     callback_nodes: Vec<NodeId>,
     /// Hit colliders of world item seats.
-    item_seats:
-        HashMap<ColliderHandle, std::sync::Arc<crate::world::stream::content_seats::ItemSeat>>,
-    /// Usable colliders of the ground UFOs.
-    ufo_controls: HashMap<ColliderHandle, crate::ground_ufo::UfoControlTarget>,
+    /// Knobs, item seats and UFO controls by collider.
+    pub controls: controls::UseControls,
     pub carry: carry::CarryState,
     pub equipment: equipment::EquipmentState,
     pub equipment_input: equipment_input::EquipmentInput,
@@ -378,10 +376,7 @@ impl InteractionState {
             + self.binoculars.heap_bytes()
             + map(&self.light_nodes)
             + set(&self.usable_light_controls)
-            + map(&self.dial_knobs)
-            + map(&self.tune_icons)
-            + map(&self.item_seats)
-            + map(&self.ufo_controls)
+            + self.controls.heap_bytes()
             + map(&self.kinds)
             + map(&self.wheel_slots)
             + self
@@ -588,8 +583,6 @@ impl InteractionState {
                 .unwrap_or(0)
                 + 1,
             fill_opening: None,
-            dial_knobs: HashMap::new(),
-            tune_icons: HashMap::new(),
             usable_light_controls: reference
                 .lighting
                 .controllers
@@ -642,8 +635,7 @@ impl InteractionState {
             ),
             sounds: [None; 64],
             sound_count: 0,
-            item_seats: HashMap::new(),
-            ufo_controls: HashMap::new(),
+            controls: Default::default(),
             carry: carry::CarryState::new(reference)?,
             equipment: equipment::EquipmentState::new(reference),
             equipment_input: equipment_input::EquipmentInput::new(
@@ -818,68 +810,10 @@ impl InteractionState {
         self.held_controls.retain(|_, id| *id != control);
         self.usable_light_controls.remove(&control);
     }
-    pub fn bind_item_seat(
-        &mut self,
-        collider: ColliderHandle,
-        seat: std::sync::Arc<crate::world::stream::content_seats::ItemSeat>,
-    ) {
-        self.item_seats.insert(collider, seat);
-    }
-    pub fn remove_item_seat(&mut self, collider: ColliderHandle) {
-        self.item_seats.remove(&collider);
-    }
-    pub fn bind_ufo_control(
-        &mut self,
-        collider: ColliderHandle,
-        target: crate::ground_ufo::UfoControlTarget,
-    ) {
-        self.ufo_controls.insert(collider, target);
-    }
-    pub fn remove_ufo_control(&mut self, collider: ColliderHandle) {
-        self.ufo_controls.remove(&collider);
-    }
-    pub fn item_seats(
-        &self,
-    ) -> impl Iterator<Item = &std::sync::Arc<crate::world::stream::content_seats::ItemSeat>> {
-        self.item_seats.values()
-    }
-    /// The bound item seat of a world item by its main seatscript. Car seats are not saved here.
-    pub fn find_item_seat(
-        &self,
-        owner: &crate::player::SeatOwner,
-        source: &crate::reference::SourceId,
-    ) -> Option<std::sync::Arc<crate::world::stream::content_seats::ItemSeat>> {
-        self.item_seats
-            .values()
-            .find(|seat| &seat.owner == owner && &seat.seat.source == source)
-            .cloned()
-    }
-    #[cfg(test)]
-    pub fn item_seat(
-        &self,
-        collider: ColliderHandle,
-    ) -> Option<std::sync::Arc<crate::world::stream::content_seats::ItemSeat>> {
-        self.item_seats.get(&collider).cloned()
-    }
-    pub fn bind_dial_knob(&mut self, collider: ColliderId, kind: Knob) {
-        self.dial_knobs.insert(collider, kind);
-    }
-    /// `img` of a `tuneAble` knob as a `UiReference::sprites` index.
-    pub fn bind_tune_icon(&mut self, collider: ColliderId, sprite: u32) {
-        self.tune_icons.insert(collider, sprite);
-    }
-    pub fn remove_dial_knob(&mut self, collider: ColliderId) {
-        self.dial_knobs.remove(&collider);
-        self.tune_icons.remove(&collider);
-    }
-    pub fn dial_knob(
-        &self,
-        target: &AimTarget,
-        physics: &PhysicsWorld,
-    ) -> Option<(ColliderId, Knob)> {
-        let id =
-            ColliderId((physics.rapier().colliders.get(target.collider)?.user_data >> 64) as u32);
-        self.dial_knobs.get(&id).map(|kind| (id, *kind))
+    pub fn dial_knob(&self, target: &AimTarget) -> Option<(ColliderId, Knob)> {
+        self.controls
+            .knob(target.collider)
+            .map(|(id, kind, _)| (id, kind))
     }
     pub fn allocate_generated_collider(&mut self) -> Result<ColliderId, ReferenceError> {
         let id = self.next_generated_collider;
@@ -1014,78 +948,6 @@ impl InteractionState {
             }
         }
     }
-    /// Remove only bindings owned by this generated instance.
-    pub fn unbind_generated(&mut self, id: ItemId, colliders: &[ColliderHandle]) {
-        for collider in colliders {
-            if self.collider_bindings.get(collider).is_some_and(|binding| {
-                [
-                    binding.use_owner,
-                    binding.pickup_owner,
-                    binding.removal_owner,
-                    binding.push_owner,
-                ]
-                .contains(&Some(id))
-            }) {
-                self.collider_bindings.remove(collider);
-            }
-        }
-        if let Some(body) = self.mechanism_bodies.remove(&id) {
-            self.bodies.remove(&body);
-        }
-        if let Some(body) = self.push.remove_generated(id) {
-            self.bodies.remove(&body);
-        }
-        if self
-            .latched_mechanism
-            .is_some_and(|(item, _, _, _)| item == id)
-        {
-            self.latched_mechanism = None;
-        }
-        self.carry.unregister_generated(id);
-        self.unregister_hose(id);
-        for slot in self.wheel_slots.values_mut() {
-            slot.fits.remove(&id);
-        }
-        self.tire_fits
-            .retain(|(rim, tire)| *rim != id && *tire != id);
-        self.kinds.remove(&id);
-        self.pickup_layers.remove(&id);
-        self.removal_layers.remove(&id);
-        self.usable_items.remove(&id);
-        self.filling_items.remove(&id);
-        self.supplies.remove(&id);
-        self.source_supply_emission.remove(&id);
-        self.tank_rules.remove(&id);
-        self.forget_openings(id);
-    }
-    /// Forget the holes and openings of a removed tank or cap.
-    fn forget_openings(&mut self, id: ItemId) {
-        self.holes.forget(id);
-        self.openings
-            .retain(|opening| opening.reference.tank != id && opening.reference.cap != id);
-        for opening in &mut self.openings {
-            if opening.borrowed_tank == Some(id) {
-                opening.borrowed_tank = None;
-            }
-        }
-        if self.fill_opening.is_some_and(|opening| {
-            !self
-                .openings
-                .iter()
-                .any(|state| state.reference.id == opening)
-        }) {
-            self.fill_opening = None;
-        }
-        if self.tuning_opening.is_some_and(|opening| {
-            !self
-                .openings
-                .iter()
-                .any(|state| state.reference.id == opening)
-        }) {
-            self.tuning_opening = None;
-        }
-    }
-
     fn insert_generated_body(&mut self, body: RigidBodyHandle) -> Result<BodyId, ReferenceError> {
         let id = BodyId(
             self.bodies
@@ -1866,7 +1728,7 @@ impl InteractionState {
         self.tuning_opening = None;
         let can_use_target = availability.light_control.is_some()
             || use_target.is_some_and(|target| {
-                self.dial_knob(&target, physics).is_some()
+                self.dial_knob(&target).is_some()
                     || self.mechanisms.contains(target.item)
                     || self.openings.iter().any(|opening| {
                         opening.reference.cap == target.item
@@ -1874,7 +1736,7 @@ impl InteractionState {
                     })
             });
         let switch_seat = use_target
-            .and_then(|target| self.item_seats.get(&target.collider))
+            .and_then(|target| self.controls.seat(target.collider))
             .filter(|seat| player.can_switch_to(seat) && seat.can_sit(physics));
         if action.is_none() {
             action = light_action.map(InteractionAction::LightControl);
@@ -1922,7 +1784,7 @@ impl InteractionState {
                         }
                     }
                 }
-                if let Some((knob, Knob::Crank)) = self.dial_knob(&target, physics) {
+                if let Some((knob, Knob::Crank)) = self.dial_knob(&target) {
                     if use_input.held & keys::USE != 0
                         || (primary_use && use_input.held & keys::PRIMARY != 0)
                     {
@@ -1932,13 +1794,13 @@ impl InteractionState {
                             action = Some(InteractionAction::Crank(knob, look));
                         }
                     }
-                } else if let Some((knob, Knob::Switch)) = self.dial_knob(&target, physics) {
+                } else if let Some((knob, Knob::Switch)) = self.dial_knob(&target) {
                     if use_input.pressed & keys::USE != 0
                         || (use_input.pressed & keys::PRIMARY != 0 && availability.lmb_use)
                     {
                         action = Some(InteractionAction::DialTune(knob, 0.));
                     }
-                } else if let Some((knob, _)) = self.dial_knob(&target, physics) {
+                } else if let Some((knob, _)) = self.dial_knob(&target) {
                     let mut knob_input = use_input;
                     if !availability.lmb_use {
                         knob_input.held &= !keys::PRIMARY;
@@ -1948,7 +1810,7 @@ impl InteractionState {
                         action = Some(InteractionAction::DialTune(knob, direction.signum()));
                     }
                 }
-                if let Some(control) = self.ufo_controls.get(&target.collider).copied() {
+                if let Some(control) = self.controls.ufo(target.collider) {
                     use crate::ground_ufo::UfoControl;
                     let use_pressed = use_input.pressed & keys::USE != 0
                         || (use_input.pressed & keys::PRIMARY != 0 && availability.lmb_use);
@@ -2009,7 +1871,7 @@ impl InteractionState {
                 }
                 if use_input.released & keys::USE != 0
                     && !released_mechanism
-                    && let Some(seat) = self.item_seats.get(&target.collider)
+                    && let Some(seat) = self.controls.seat(target.collider)
                     && seat.can_sit(physics)
                     && seat_release.is_some_and(|press| {
                         press.matches(self.mechanisms.contains(target.item).then_some(target.item))

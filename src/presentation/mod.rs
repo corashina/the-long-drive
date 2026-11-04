@@ -18,7 +18,6 @@ pub mod light_dither;
 pub mod lighting;
 pub mod materials;
 pub mod mechanisms;
-pub mod menu_car;
 mod mirror_turns;
 pub mod mirrors;
 pub mod motion_vectors;
@@ -90,6 +89,7 @@ pub mod surface_pass;
 pub mod surface_views;
 pub mod transparent;
 pub mod view_frame;
+pub mod view_gate;
 
 mod pipeline_ownership;
 

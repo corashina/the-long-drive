@@ -386,7 +386,7 @@ fn wheel_slots(
     rules: &SourceRules,
     items: &ItemStore,
 ) -> Result<(Vec<crate::reference::SourceId>, Vec<WorldWheelSlot>), ReferenceError> {
-    use rapier3d::math::{Pose, Vector};
+    use rapier3d::math::Pose;
     let record = prototype.vehicle.as_ref().unwrap();
     let body = &prototype.bodies[record.body as usize];
     let to_chassis = crate::vehicle::to_rapier(crate::vehicle::VehiclePose {
@@ -422,18 +422,18 @@ fn wheel_slots(
             child.children.push((slot.source.clone(), 0));
             Some(ObjectKey::Generated(child))
         };
-        let collider = &wheel.collider;
-        let connection = (to_chassis * prototype.root_relative(wheel.node as usize).0)
-            * Vector::from_array(collider.center);
-        let rest = collider.suspension_distance * (1.0 - collider.target_position);
-        let hub = Pose::from_translation(connection - Vector::Y * rest);
+        // Source `Graphics` puts T at the wheel center. The rim mount keeps its prefab offset from T.
+        // The wheel pose turns with the chassis, so the hub takes only the T position.
+        let hub = Pose::from_translation(
+            (to_chassis * prototype.root_relative(wheel.graphic as usize).0).translation,
+        );
         let mount = to_chassis * prototype.root_relative(wheel.mount as usize).0;
         sources.push(slot.source.clone());
         slots.push(WorldWheelSlot {
             rim_main_types: texts(f, "maintipus")?,
             rim_types: texts(f, "tipus")?,
             hub_to_mount: hub.inverse() * mount,
-            sensor_radius: collider.radius,
+            sensor_radius: wheel.collider.radius,
             rim,
         });
     }

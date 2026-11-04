@@ -317,6 +317,10 @@ impl RendererWorld {
             .position(|p| p.id == *id)
             .is_none_or(|i| self.initialized[i])
     }
+    /// The content of `id` spawned. Startup contents spawn after the renderer accepts the structure.
+    pub fn has_contents(&self, id: &GeneratedId) -> bool {
+        id.layer == WorldLayer::Lamp || self.contents.contains_key(id)
+    }
     pub fn appearance(&self, id: &GeneratedId) -> &[NodeAppearance] {
         if id.layer == WorldLayer::Lamp {
             return self

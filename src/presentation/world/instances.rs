@@ -74,6 +74,8 @@ struct Rebind {
     reflected: bool,
     has_lod: bool,
     source_position: Vec3,
+    /// Built before the contents spawned. Without a material row, the renderer keeps its material.
+    early: bool,
 }
 struct Renderer {
     material_source: Option<crate::reference::SourceId>,
@@ -88,8 +90,6 @@ struct Renderer {
     ticket: Option<PipelineTicket>,
     /// A changed condition material that waits for its pipelines.
     pending: Option<MaterialVariant>,
-    /// Source layer. The world camera draws only the layers in its culling mask.
-    layer: u8,
     shadow: bool,
     lod_state: Option<(bool, f32)>,
     // The static node chain of the renderer is active. Spawned nodes carry their own visibility.
@@ -150,27 +150,12 @@ impl Renderer {
         }
     }
 }
-/// One drawn surface of the start car, for the start menu car stage.
-pub(crate) struct CarSurface {
-    pub mesh: Handle<Mesh>,
-    pub material: CarMaterial,
-    pub target: CarTarget,
-}
-pub(crate) enum CarMaterial {
-    Primary(Handle<crate::presentation::materials::SourceMaterial>),
-    Specular(Handle<crate::presentation::materials::specular::SpecularMaterial>),
-}
-pub(crate) enum CarTarget {
-    /// The renderer entity. Its `GlobalTransform` and parent visibility apply.
-    Entity(Entity),
-    /// A GPU prop row, with its world matrix in the render-origin frame and linear surface color.
-    Row { world: Mat4, color: Vec4 },
-}
 struct Instance {
     retirement: crate::ownership::renderer_pending::RendererRetirement,
     continuation: Option<crate::ownership::renderer_pending::PipelineContinuation>,
     upload: Option<Arc<crate::presentation::fixed_assets::MeshUpload>>,
-    caps_bound: bool,
+    /// Caps of the structure view that the instance bound.
+    caps_bound: usize,
     placement: Placement,
     prototype: usize,
     /// Structure slot of the placement in the simulation frame.
@@ -384,63 +369,6 @@ impl SourceInstances {
                     && i.renderers.iter().any(|r| r.mirror)
             })
             .map(|(index, i)| (index, i.root, i.prototype, i.nodes.as_slice()))
-    }
-    /// The ready start car: a Startup layer vehicle. Writes the active surfaces of the car and
-    /// of its slot parts (ids with the car id as prefix) to `out` and returns the car root.
-    /// Returns None while the car or one of its parts is not ready. Mirror glass is left out.
-    pub(crate) fn start_car(
-        &self,
-        prototypes: &crate::reference::WorldPrototypes,
-        out: &mut Vec<CarSurface>,
-    ) -> Option<Entity> {
-        out.clear();
-        let shown = |i: &Instance| i.ready && i.visible && !i.retirement.started();
-        let car = self.instances.iter().find(|i| {
-            i.placement.id.layer == crate::world::WorldLayer::Startup
-                && prototypes[i.prototype].vehicle.is_some()
-        })?;
-        let id = &car.placement.id;
-        let parts = self.instances.iter().filter(|i| {
-            let part = &i.placement.id;
-            part.layer == id.layer
-                && part.generator == id.generator
-                && part.unit == id.unit
-                && part.ordinal == id.ordinal
-                && part.children.starts_with(&id.children)
-        });
-        for instance in parts {
-            if !shown(instance) {
-                return None;
-            }
-            // Only what the world camera draws: the cars hold boxes on culled layers.
-            for renderer in instance.renderers.iter().filter(|r| {
-                r.active
-                    && !r.mirror
-                    && crate::presentation::camera::WORLD_MASK & (1 << r.layer) != 0
-            }) {
-                let material = match &renderer.binding.visible {
-                    InstanceMaterial::Primary(h) => CarMaterial::Primary(h.clone()),
-                    InstanceMaterial::Specular(h) => CarMaterial::Specular(h.clone()),
-                    InstanceMaterial::Impostor(_) | InstanceMaterial::Grass(_) => continue,
-                };
-                let target = match renderer.target {
-                    Target::Entity(entity) => CarTarget::Entity(entity),
-                    Target::Row { slot, .. } => {
-                        let row = &self.props.rows()[slot as usize];
-                        CarTarget::Row {
-                            world: row.world,
-                            color: row.color,
-                        }
-                    }
-                };
-                out.push(CarSurface {
-                    mesh: renderer.mesh.clone(),
-                    material,
-                    target,
-                });
-            }
-        }
-        Some(car.root)
     }
     /// Entity of glTF node `node` in instance `index`. Static nodes have none.
     pub(crate) fn node_entity(&self, index: usize, node: u32) -> Option<Entity> {
@@ -973,27 +901,28 @@ impl SourceInstances {
                                         && flat.on_root(node.index as usize)
                                         && local.is_some()
                                         && !writer;
-                                    let rebind = stream
-                                        .appearance(&placement.id)
-                                        .iter()
-                                        .any(|a| {
+                                    // Without spawned contents, any renderer can still get a condition look.
+                                    let early = !stream.has_contents(&placement.id);
+                                    let rebind = (early
+                                        || stream.appearance(&placement.id).iter().any(|a| {
                                             a.node == source_node.source
                                                 && a.active.is_none()
                                                 && (a.material.is_some()
                                                     || a.color.is_some()
                                                     || a.color_material.is_some())
+                                        }))
+                                    .then(|| {
+                                        Box::new(Rebind {
+                                            primitive: primitive.clone(),
+                                            record: record.clone(),
+                                            layer: source_node.layer,
+                                            receive,
+                                            reflected: world.determinant() < 0.,
+                                            has_lod,
+                                            source_position,
+                                            early,
                                         })
-                                        .then(|| {
-                                            Box::new(Rebind {
-                                                primitive: primitive.clone(),
-                                                record: record.clone(),
-                                                layer: source_node.layer,
-                                                receive,
-                                                reflected: world.determinant() < 0.,
-                                                has_lod,
-                                                source_position,
-                                            })
-                                        });
+                                    });
                                     let Some(mut binding) = materials.bind(
                                         stream.frame().request.session,
                                         prototype,
@@ -1072,7 +1001,6 @@ impl SourceInstances {
                                             pending: None,
                                             lod_state: None,
                                             active: active_nodes[source_index],
-                                            layer: source_node.layer,
                                             shadow: shadow != 0,
                                             settings: None,
                                             emissive: false,
@@ -1284,7 +1212,6 @@ impl SourceInstances {
                                         pending: None,
                                         lod_state: None,
                                         active: chain_active,
-                                        layer: source_node.layer,
                                         shadow: shadow != 0,
                                         settings,
                                         emissive,
@@ -1301,7 +1228,7 @@ impl SourceInstances {
                                 retirement: Default::default(),
                                 continuation: None,
                                 upload: None,
-                                caps_bound: false,
+                                caps_bound: 0,
                                 placement: placement.clone(),
                                 prototype: prototype_index,
                                 slot: None,
@@ -1529,7 +1456,7 @@ impl SourceInstances {
                 continue;
             };
             let prototype = &reference.world.prototypes[instance.prototype];
-            if !instance.caps_bound {
+            if instance.caps_bound != view.caps.len() {
                 for cap in &view.caps {
                     crate::presentation::reference::bind_generated_cap(
                         commands,
@@ -1538,7 +1465,7 @@ impl SourceInstances {
                         &instance.nodes,
                     )?;
                 }
-                instance.caps_bound = true;
+                instance.caps_bound = view.caps.len();
             }
             for row in &view.poses {
                 let rotation = Quat::from_array(row.rotation);
@@ -1717,7 +1644,8 @@ impl SourceInstances {
                     .iter()
                     .find(|c| c.node as usize == renderer.node)
                     .map(|c| c.color);
-                if selected != renderer.material_source.as_ref()
+                if (selected.is_some() || !rebind.early)
+                    && selected != renderer.material_source.as_ref()
                     && !renderer
                         .variants
                         .iter()

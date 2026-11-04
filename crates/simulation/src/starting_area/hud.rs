@@ -130,7 +130,7 @@ impl GarageRuntime {
             .aim
             .use_target
             .as_ref()
-            .and_then(|t| self.area.interaction.dial_knob(t, &self.physics))
+            .and_then(|t| self.area.interaction.dial_knob(t))
             .and_then(|(knob, _)| self.stream.knob_radio(knob))
         {
             hud.flags |= HudBlock::RADIO | if radio.am { HudBlock::RADIO_AM } else { 0 };

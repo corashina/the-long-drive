@@ -572,7 +572,7 @@ impl GarageRuntime {
             self.area.items.object_key(item),
             crate::world::ObjectKey::Generated(_)
         ) {
-            self.area.interaction.forget_removed(item, body);
+            self.area.interaction.forget_item(item, Some(body));
             self.physics.edit_body(body, |body| body.set_enabled(false));
             let state = self.area.items.get_mut(item).unwrap();
             state.location = ItemLocation::World;
@@ -612,7 +612,7 @@ impl GarageRuntime {
             self.area.render_poses.retain(|(id, _, _)| *id != body_id);
         }
         for id in on_body {
-            self.area.interaction.forget_removed(id, body);
+            self.area.interaction.forget_item(id, Some(body));
             self.area.item_render_poses.retain(|(i, _, _)| *i != id);
             let state = self.area.items.set_body(id, None).unwrap();
             state.location = ItemLocation::World;
