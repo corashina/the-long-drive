@@ -1,8 +1,13 @@
 #import source_float_store::{half4, source_max, source_sat}
 // Installed Uber4653 (main HDR), Uber4641 (main LDR) and Uber4251 (far and foreground), Linear project.
-struct Params { extent: vec4<f32>, noise: vec4<f32>, bloom: vec4<f32>, tint: vec4<f32>, dirt: vec4<f32>, grading: vec4<f32>, vignette: vec4<f32>,
- // Binocular lens: _Distortion_Amount, _Distortion_CenterScale, then CA amount, binoculars, distortion.
- distortion: vec4<f32>, distortion_center: vec4<f32>, lens: vec4<f32>, strip: vec4<f32> }
+// Installed Uber7101 (dead HDR: DISTORT, CHROMATIC_ABERRATION, VIGNETTE, GRAIN) for the volume effects.
+struct Params { extent: vec4<f32>, noise: vec4<f32>, bloom: vec4<f32>, tint: vec4<f32>, dirt: vec4<f32>, grading: vec4<f32>,
+ // _Vignette_Color and _Vignette_Opacity, _Vignette_Settings, then _Vignette_Center, mode (0 off, 1 classic, 2 masked), aspect.
+ vignette: vec4<f32>, vignette_shape: vec4<f32>, vignette_center: vec4<f32>,
+ // _Distortion_Amount, _Distortion_CenterScale, then CA amount, CA mode (0 off, 1 low, 2 full), distortion on.
+ distortion: vec4<f32>, distortion_center: vec4<f32>, lens: vec4<f32>,
+ // _Grain_Params1 (intensity 0 is off) and _Grain_Params2.
+ grain: vec4<f32>, grain_tile: vec4<f32>, strip: vec4<f32> }
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var source_color: texture_2d<f32>;
 @group(0) @binding(2) var noise_texture: texture_2d<f32>;
@@ -16,6 +21,7 @@ struct Params { extent: vec4<f32>, noise: vec4<f32>, bloom: vec4<f32>, tint: vec
 @group(0) @binding(9) var linear_repeat: sampler;
 @group(0) @binding(10) var vignette_mask: texture_2d<f32>;
 @group(0) @binding(11) var strip_lut: texture_2d<f32>;
+@group(0) @binding(12) var grain_texture: texture_2d<f32>;
 #endif
 fn f(bits:u32)->f32 { return bitcast<f32>(bits); }
 fn sat3(x:vec3<f32>)->vec3<f32> { return vec3(source_sat(x.x),source_sat(x.y),source_sat(x.z)); }
@@ -45,6 +51,32 @@ fn distort(uv:vec2<f32>)->vec2<f32> {
 }
 fn flip(uv:vec2<f32>)->vec2<f32> { return vec2(uv.x,1.-uv.y); }
 fn main_color(uv:vec2<f32>)->vec4<f32> { return textureSampleLevel(source_color,linear_clamp,flip(distort(uv)),0.); }
+// The internal 3 x 1 spectral LUT (red, green, blue) with bilinear clamp filtering.
+fn spectrum(t:f32)->vec3<f32> {
+ let x=clamp(fma(t,3.,-.5),0.,2.);
+ return vec3(source_sat(1.-x),1.-abs(x-1.),source_sat(x-1.));
+}
+// CHROMATIC_ABERRATION: 3 to 16 spectrum taps along the radial offset. `u` is Unity UV.
+fn chromatic(u:vec2<f32>)->vec4<f32> {
+ let coords=fma(u,vec2(2.),vec2(-1.));
+ let end=coords*dot(coords,coords)*params.lens.x;
+ let diff=-end*vec2<f32>(textureDimensions(source_color))*.5;
+ let samples=clamp(i32(length(diff)),3,16);
+ let n=f32(samples);
+ let delta=-end/n;
+ var pos=u;
+ var sum=vec4(0.);
+ var weight_sum=vec4(0.);
+ for(var i=0;i<samples;i++){
+  let weight=vec4(spectrum((f32(i)+.5)/n),1.);
+  sum=fma(main_color(pos),weight,sum);
+  weight_sum+=weight;
+  pos+=delta;
+ }
+ return sum/weight_sum;
+}
+// Source pow is exp2(log2(x) * p). The exponents here are positive, so x = 0 gives 0.
+fn source_pow(x:f32,p:f32)->f32 { return select(exp2(log2(x)*p),0.,x<=0.); }
 #endif
 @vertex fn vertex(@builtin(vertex_index) index:u32)->@builtin(position) vec4<f32> {
  let uv=vec2<f32>(f32((index<<1u)&2u),f32(index&2u));return vec4(uv*2.-1.,0.,1.);
@@ -58,7 +90,9 @@ fn main_color(uv:vec2<f32>)->vec4<f32> { return textureSampleLevel(source_color,
  if params.lens.y>0. {
   let u=flip(uv);
   effect_uv=flip(distort(u));
-  if params.lens.x>0. {
+  if params.lens.y==2. {
+   color=chromatic(u);
+  } else if params.lens.y==1. {
    // CHROMATIC_ABERRATION_LOW with the internal red, green, blue spectrum.
    let coords=2.*u-1.;
    let delta=-coords*dot(coords,coords)*params.lens.x/3.;
@@ -81,11 +115,25 @@ fn main_color(uv:vec2<f32>)->vec4<f32> { return textureSampleLevel(source_color,
  color=vec4(color.rgb*exposure,color.a)+vec4(bloom.rgb*params.tint.rgb,bloom.a);
  let dirt=textureSampleLevel(dirt_texture,linear_repeat,fma(effect_uv,params.dirt.xy,params.dirt.zw),0.).rgb*params.bloom.z;
  color=fma(vec4(dirt,0.),bloom,color);
- // Post stack v2 masked vignette (binocular volume). Unity UV starts at the bottom.
- if params.vignette.w>0. {
+ // Post stack v2 vignette. Unity UV starts at the bottom.
+ if params.vignette_center.z==1. {
+  let d=abs(flip(effect_uv)-params.vignette_center.xy)*params.vignette_shape.x;
+  let aspect=fma(params.vignette_shape.w,params.vignette_center.w-1.,1.);
+  let r=params.vignette_shape.z;
+  let x=source_pow(source_sat(d.x*aspect),r);
+  let y=source_pow(source_sat(d.y),r);
+  let factor=source_pow(source_max(1.-fma(x,x,y*y),0.),params.vignette_shape.y);
+  color=vec4(color.rgb*fma(vec3(factor),1.-params.vignette.rgb,params.vignette.rgb),fma(factor,color.a-1.,1.));
+ } else if params.vignette_center.z==2. {
   let mask=srgb_to_linear(vec3(textureSampleLevel(vignette_mask,linear_clamp,flip(effect_uv),0.).a)).x;
   let masked=color.rgb*mix(params.vignette.rgb,vec3(1.),mask);
   color=vec4(mix(color.rgb,masked,params.vignette.w),mix(1.,color.a,mask));
+ }
+ if params.grain.y>0. {
+  let grain=textureSampleLevel(grain_texture,linear_repeat,fma(uv,params.grain_tile.xy,params.grain_tile.zw),0.).rgb;
+  let lum=sqrt(dot(sat3(color.rgb),vec3(f(0x3e59c6edu),f(0x3f371437u),f(0x3d93d07du))));
+  let weight=fma(params.grain.x,-lum,1.);
+  color=vec4(fma(grain*color.rgb*params.grain.y,vec3(weight),color.rgb),color.a);
  }
 #ifdef SOURCE_UBER_LDR
  // Installed Uber4641 COLOR_GRADING_LDR_2D: ApplyLut2D on the sRGB color, then back to linear.

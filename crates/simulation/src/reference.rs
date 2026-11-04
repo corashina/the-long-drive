@@ -23,6 +23,7 @@ pub mod lighting_scene;
 pub mod postprocessing;
 pub mod reflections;
 pub mod render_lighting;
+pub mod stack_effects;
 pub mod world;
 pub use world::*;
 pub mod lamp_shadows;

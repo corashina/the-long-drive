@@ -204,6 +204,7 @@ fn shaders(assets: &LightingRenderAssets) -> PostShaders {
         lut: s.lut.clone(),
         lut_ldr: s.lut_ldr.clone(),
         uber: s.uber.clone(),
+        grain: s.grain.clone(),
         heat_haze: s.heat_haze.clone(),
         ao_depth: s.ao_depth.clone(),
         ao_render: s.ao_render.clone(),
