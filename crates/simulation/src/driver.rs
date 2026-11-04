@@ -113,7 +113,6 @@ impl SimDriver {
         driver
     }
 
-
     /// One simulation frame: accepts `command`, steps and fills `frame`.
     pub fn tick(
         &mut self,
