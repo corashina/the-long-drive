@@ -54,6 +54,20 @@ pub(super) fn moving_nodes_of(
             moving[f.node() as usize] = true;
         }
     }
+    // meterscript needles and counter digits, and the coolantTankscript fan. Loose parts turn them too.
+    for gauge in &prototype.gauges {
+        let digits = gauge
+            .counters
+            .iter()
+            .flat_map(|c| &c.digits)
+            .map(|d| d.node);
+        for node in gauge.needles.iter().map(|n| n.node).chain(digits) {
+            moving[node.0 as usize] = true;
+        }
+    }
+    for fan in prototype.radiators.iter().filter_map(|r| r.fan_node) {
+        moving[fan as usize] = true;
+    }
     // wheelgraphicsscript.T of trailer wheels.
     if let Some(trailer) = &prototype.trailer {
         for &node in &trailer.graphics {
