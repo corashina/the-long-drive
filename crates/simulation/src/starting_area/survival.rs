@@ -1,6 +1,6 @@
 use super::GarageRuntime;
 use crate::fluids::{contact_drink_transfer, drink_transfer};
-use crate::interaction::items::ItemLocation;
+use crate::interaction::items::{FoodLook, ItemLocation};
 use crate::reference::{ConsumptionEffect, ItemId, NodeId, ReferenceError, ReferenceManifest};
 use crate::vehicle::{PhysicsWorld, VehiclePose, collider_builder, from_rapier, to_rapier};
 use crate::world::stream::content_bindings::{hit_events, hit_sound};
@@ -14,6 +14,7 @@ pub fn spawn_consumable(
     id: ItemId,
     prototype_index: usize,
     bite: u8,
+    look: FoodLook,
     pose: VehiclePose,
 ) -> Result<(), ReferenceError> {
     let prototype = reference
@@ -39,7 +40,11 @@ pub fn spawn_consumable(
         let node = to_rapier(super::node_pose(reference, record.node)?);
         let mut collider = collider_builder(&record.geometry)?
             .sensor(record.sensor)
-            .enabled(record.enabled && active_part(reference, record.node, &prototype.parts, bite))
+            .enabled(
+                record.enabled
+                    && active_part(reference, record.node, &prototype.parts, bite)
+                    && look_shown(reference, record.node, prototype, look),
+            )
             .density(0.)
             .active_events(hit_events(hit))
             .collision_groups(InteractionGroups::new(
@@ -58,7 +63,7 @@ pub fn spawn_consumable(
         handles.push(physics.insert_collider_with_parent(collider, body));
     }
     area.items
-        .insert_consumable(id, prototype_index, prototype, bite, pose, body, hit)?;
+        .insert_consumable(id, prototype_index, prototype, bite, look, pose, body, hit)?;
     area.interaction
         .register_consumable(id, prototype, &handles);
     area.item_render_poses.push((id, pose, pose));
@@ -86,6 +91,7 @@ impl super::StartingArea {
                 Some(crate::save::FoodItemSnapshot {
                     source: (&reference.survival.foods[food.prototype_index].source).into(),
                     bite: food.bite,
+                    look: food.look,
                     pose: state.inactive_pose.unwrap_or(crate::save::AbsolutePose {
                         position: origin.absolute(state.pose.position),
                         rotation: state.pose.rotation,
@@ -123,7 +129,16 @@ pub fn restore_foods(
             position: origin.local(record.pose.position),
             rotation: record.pose.rotation,
         };
-        spawn_consumable(reference, area, physics, id, prototype, record.bite, pose)?;
+        spawn_consumable(
+            reference,
+            area,
+            physics,
+            id,
+            prototype,
+            record.bite,
+            record.look,
+            pose,
+        )?;
     }
     Ok(())
 }
@@ -137,6 +152,33 @@ pub fn active_part(
     loop {
         if let Some(index) = parts.iter().position(|group| group.contains(&node)) {
             return index == bite as usize;
+        }
+        let Some(parent) = reference
+            .nodes
+            .iter()
+            .find(|entry| entry.id == node)
+            .and_then(|entry| entry.parent)
+        else {
+            return true;
+        };
+        node = parent;
+    }
+}
+
+/// Source `partconditionscript.Refresh` shows only the selected `GoList` object. False for a node under
+/// another variant.
+pub fn look_shown(
+    reference: &ReferenceManifest,
+    mut node: NodeId,
+    prototype: &crate::reference::FoodReference,
+    look: FoodLook,
+) -> bool {
+    let Some(variants) = prototype.look.as_ref().map(|v| &v.variants) else {
+        return true;
+    };
+    loop {
+        if let Some(index) = variants.iter().position(|v| *v == node) {
+            return index == usize::from(look.variant);
         }
         let Some(parent) = reference
             .nodes
@@ -177,10 +219,13 @@ pub fn sync_consumable_colliders(
                 .find(|entry| entry.id.0 == collider_id)
                 .map(|entry| (entry.node, entry.enabled))
         } else {
-            reference.survival.foods[food.prototype_index]
-                .colliders
-                .get(index)
-                .map(|entry| (entry.node, entry.enabled))
+            let prototype = &reference.survival.foods[food.prototype_index];
+            prototype.colliders.get(index).map(|entry| {
+                (
+                    entry.node,
+                    entry.enabled && look_shown(reference, entry.node, prototype, food.look),
+                )
+            })
         };
         if let Some((node, enabled)) = record {
             physics.edit_collider(handle, |collider| {
@@ -221,6 +266,7 @@ impl GarageRuntime {
         let id = self.area.items.allocate_item_id()?;
         let mut pose = self.area.player.body_pose(&self.physics);
         pose.rotation = [0., 0., 0., 1.];
+        let look = self.roll_food_look(&reference.survival.foods[prototype_index]);
         spawn_consumable(
             reference,
             &mut self.area,
@@ -228,9 +274,21 @@ impl GarageRuntime {
             id,
             prototype_index,
             reference.survival.foods[prototype_index].index,
+            look,
             pose,
         )?;
         Ok(id)
+    }
+    /// Source `partconditionscript.FStart` with `randomStart`: `state3` over `GoList`, then `RandomState`.
+    fn roll_food_look(&mut self, prototype: &crate::reference::FoodReference) -> FoodLook {
+        let Some(look) = &prototype.look else {
+            return FoodLook::default();
+        };
+        let pick = |draw: f32, count: usize| ((draw * count as f32) as usize).min(count - 1) as u8;
+        let variant = pick(self.draw_survival(), look.variants.len());
+        let [min, max] = look.state_range;
+        let state = min + pick(self.draw_survival(), usize::from(max - min) + 1);
+        FoodLook { state, variant }
     }
     /// `ediblescript.Shot`. The item advances `n` bites without nutrition or sound. A new
     /// piece with `n` bites spawns turned 180 degrees around Y. Without a piece and with
@@ -281,6 +339,8 @@ impl GarageRuntime {
             id,
             food.prototype_index,
             prototype.bites - n,
+            // `Instantiate` copies the started condition, its materials and object activity.
+            food.look,
             from_rapier(&root),
         )
     }

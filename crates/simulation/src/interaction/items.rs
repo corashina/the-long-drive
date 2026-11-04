@@ -35,6 +35,16 @@ pub enum ItemLocation {
 pub struct FoodState {
     pub prototype_index: usize,
     pub bite: u8,
+    pub look: FoodLook,
+}
+
+/// Source `partconditionscript` choice of a food with a look: `state` picks the material, `variant` the
+/// shown `GoList` object. Zero for a food without a look.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FoodLook {
+    pub state: u8,
+    pub variant: u8,
 }
 
 /// Source `pickupable` hit sound: `collideSound` and `collisionSoundM`.
@@ -153,6 +163,7 @@ impl ItemStore {
                     .position(|p| crate::save::SourceKey::from(&p.source) == food.source)
                     .expect("validated food source"),
                 bite: food.bite,
+                look: FoodLook::default(),
             });
             state.removed = record.removed;
             state.temperature = record.temperature;
@@ -272,6 +283,7 @@ impl ItemStore {
                 food: (item.id == reference.survival.starter_food).then_some(FoodState {
                     prototype_index: sausage,
                     bite: reference.survival.foods[sausage].index,
+                    look: FoodLook::default(),
                 }),
                 hit_sound: item
                     .pickup
@@ -670,6 +682,7 @@ impl ItemStore {
         prototype_index: usize,
         reference: &FoodReference,
         bite: u8,
+        look: FoodLook,
         pose: VehiclePose,
         body: RigidBodyHandle,
         hit_sound: Option<HitSound>,
@@ -695,6 +708,7 @@ impl ItemStore {
             food: Some(FoodState {
                 prototype_index,
                 bite,
+                look,
             }),
             hit_sound,
             removed: false,

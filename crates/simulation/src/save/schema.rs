@@ -1,8 +1,8 @@
 use super::{InstanceId, SaveError, SourceKey};
 use serde::{Deserialize, Serialize};
 
-pub const SAVE_SCHEMA_VERSION: u32 = 44;
-pub const OLDEST_SAVE_SCHEMA_VERSION: u32 = 44;
+pub const SAVE_SCHEMA_VERSION: u32 = 45;
+pub const OLDEST_SAVE_SCHEMA_VERSION: u32 = 45;
 pub fn schema_supported(version: u32) -> bool {
     (OLDEST_SAVE_SCHEMA_VERSION..=SAVE_SCHEMA_VERSION).contains(&version)
 }
@@ -168,6 +168,7 @@ pub struct SpawnedItemSnapshot {
 pub struct FoodItemSnapshot {
     pub source: SourceKey,
     pub bite: u8,
+    pub look: crate::interaction::items::FoodLook,
     pub pose: AbsolutePose,
 }
 impl SaveSnapshot {
@@ -505,7 +506,7 @@ mod g04_ordered_state {
     fn older_schemas_are_rejected_before_payload_reconstruction() {
         for version in [
             6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-            31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 45,
+            31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 46,
         ] {
             let payload = format!(r#"{{"schema_version":{version}}}"#);
             assert!(matches!(
@@ -517,9 +518,9 @@ mod g04_ordered_state {
 
     #[test]
     fn current_schema_passes_the_version_gate() {
-        // Schema 44 reaches payload parsing. The empty payload then fails as corrupt data.
+        // Schema 45 reaches payload parsing. The empty payload then fails as corrupt data.
         assert!(matches!(
-            SaveSnapshot::from_json(br#"{"schema_version":44}"#),
+            SaveSnapshot::from_json(br#"{"schema_version":45}"#),
             Err(SaveError::CorruptData(_))
         ));
     }

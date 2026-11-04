@@ -47,8 +47,32 @@ def part_groups(source, edible):
     groups=[v['parts'] for v in data['moreFoodParts']] if data['moreParts'] else [[v] for v in data['parts']]
     return [[source.transform_for(source.resolve(edible,p)) for p in group] for group in groups]
 
+def food_look(source, root):
+    """The `partconditionscript` of a food root, or None. `FStart` with `randomStart` picks `state` in
+    `randomMin..=randomMax` and `state3` over `GoList`. `Refresh` puts `MatList[state]` with the forced white
+    color on every renderer and shows only `GoList[state3]`."""
+    looks=[(n,c) for n in source.hierarchy(root,activate_root=True) for c in n['components']
+        if c.type.name=='MonoBehaviour' and source.class_name(c)=='partconditionscript']
+    if not looks:return None
+    if len(looks)!=1 or key(looks[0][0]['reader'])!=key(root):raise ValueError(f'{key(root)} food condition is not one root component')
+    reader=looks[0][1];d=source.read(reader)
+    flags={'UseMatList':1,'UseGoList':1,'UseMesList':0,'randomStart':1,'DontUseWorn':1,'forceColor':1,'disableColor':0,
+        'useRandomTipus':0,'randomStartState3InFStart':0,'isChild':0,'enableOverrideMin':0,'enableOverrideMax':0,'loaded':0}
+    if any(d[k]!=v for k,v in flags.items()) or d['childs'] or d['colors'] or d['color']!={'r':1.,'g':1.,'b':1.,'a':1.}:
+        raise ValueError(f'{key(reader)} food condition contract differs')
+    if not 0<=d['randomMin']<=d['randomMax']<len(d['MatList']) or len(d['GoList'])<2:raise ValueError(f'{key(reader)} food condition range')
+    # The runtime warms the look materials without pass sort data.
+    from .materials import recover_material
+    if any(recover_material(source,source.resolve(reader,p))['state']['alpha_mode']!='opaque' for p in d['MatList']):raise ValueError(f'{key(reader)} food look material is not opaque')
+    return reader
+
 def prepare_food(source, roots):
     roots['food']=[root for _,root in selected_foods(source)]
+    # Look materials go into the food asset. Its glTF root is the first food root.
+    for root in roots['food']:
+        reader=food_look(source,root)
+        if reader:
+            source.extra_root_materials.setdefault(key(roots['food'][0]),[]).extend(source.resolve(reader,p) for p in source.read(reader)['MatList'])
     source.food_geometry_nodes=set()
     source.food_active={}
     for root in [roots['items'][-1],*roots['food']]:
@@ -89,7 +113,22 @@ def food_record(source, kind, root, manifest):
         'pickup':recover_pickup(source,component(source,root,'pickupable')),
         'parts':[[nodes[key(part)]['id'] for part in group] for group in groups],
         'colliders':colliders,'has_particle':bool(data['hasParticle']),'particle_type':data['particleType'],'min_particle':data['minParticle'],'max_particle':data['maxParticle'],
-        'sound':data['sound'],'text':data['text']}
+        'sound':data['sound'],'text':data['text'],'look':look_record(source,root,nodes,manifest)}
+
+def look_record(source, root, nodes, manifest):
+    reader=food_look(source,root)
+    if reader is None:return None
+    d=source.read(reader);asset=nodes[key(root)]['asset'];first=key(selected_foods(source)[0][1])
+    def node(pointer):
+        target=source.resolve(reader,pointer)
+        go=target if target.type.name=='GameObject' else source.resolve(target,source.read(target)['m_GameObject'])
+        return nodes[key(source.transform_for(go))]['id']
+    def material(pointer):
+        m=source.resolve(reader,pointer)
+        return {'source':source_id(m),'asset':asset,'gltf_material':source.extra_material_indices[first,key(m)]}
+    return {'source':source_id(reader),'materials':[material(p) for p in d['MatList']],
+        'renderers':[node(p) for p in d['renderers']],'variants':[node(p) for p in d['GoList']],
+        'state_range':[d['randomMin'],d['randomMax']]}
 
 def recover_survival(source: LibrarySource, roots: dict, output: Path) -> dict:
     player=source.get('level1',80125);pd=source.read(player)
