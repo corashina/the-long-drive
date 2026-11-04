@@ -122,11 +122,11 @@ struct Part {
     rest: Transform,
 }
 
-/// `MovingPart`. `T` moves between `T0` and `T1`. Poses are in the item root frame.
+/// `MovingPart`. `T` moves between `T0` and `T1`. `T0` and `T1` are in the frame of the parent
+/// of `T`, without its scale: they move with that parent, as a barrel that opens.
 struct MovingNode {
     part: Part,
-    /// The parent of `T` in the root frame, and its scale.
-    parent: Pose,
+    /// The scale of the parent of `T`.
     scale: Vector,
     t0: Vector,
     t1: Vector,
@@ -885,8 +885,7 @@ impl GunState {
         }
         for (m, n) in r.moving_parts.iter().zip(&g.moving) {
             let t = if m.inv { 1. - rt.fr } else { rt.fr };
-            let p = n.t0.lerp(n.t1, t.clamp(0., 1.));
-            let local = (n.parent.rotation.inverse() * (p - n.parent.translation)) / n.scale;
+            let local = n.t0.lerp(n.t1, t.clamp(0., 1.)) / n.scale;
             pose(
                 n.part.node,
                 Transform {
@@ -1550,12 +1549,12 @@ fn gun(
                 .parent
                 .map(|p| parent_frame(prototype, p as usize))
                 .unwrap_or((Pose::IDENTITY, Vector::ONE));
+            let frame = parent.0.inverse();
             Ok(MovingNode {
                 part,
-                parent: parent.0,
                 scale: parent.1,
-                t0: root(&m.t0)?.translation,
-                t1: root(&m.t1)?.translation,
+                t0: frame * root(&m.t0)?.translation,
+                t1: frame * root(&m.t1)?.translation,
             })
         })
         .collect::<Result<_, ReferenceError>>()?;
