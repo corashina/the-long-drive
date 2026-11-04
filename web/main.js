@@ -255,10 +255,10 @@ async function load(){
  installGameMode(window,document.querySelector('#biome'),settings);
  installStartCar(window,document.querySelector('#start-car'),manifest.world.start_cars,settings);
  const gameOptions=installGameOptions(window,{peaceful:document.querySelector('#peaceful'),survival:document.querySelector('#survival-mode'),homesick:document.querySelector('#homesick')},settings,options=>survival?.setSurvival(options.survival));
- installSettingsBridge(window,settings,()=>menu?.model.state==='playing',actionIds);
+ installSettingsBridge(window,settings,()=>menu?.model.state,actionIds);
  installDisplaySettings(window,settings,document,manifest.world.mirrors.draw_distance);
  installQualityPresets(settings,document.querySelector('#display-quality'));
- installFramePacer(f=>requestAnimationFrame(f),()=>frameLimit(settings.values,menu?.model.state==='playing'),wake_frame);
+ installFramePacer(f=>requestAnimationFrame(f),()=>frameLimit(settings.values,menu?.model.state),wake_frame);
  const autosaveToggles=v=>{toggles.autosave=v.BAutoSave;toggles.inCar=!v.BDisableAutoSaveInCar;};
  autosaveToggles(settings.values);settings.listen(autosaveToggles);
  const outfit=installOutfit(window,()=>localStorage,manifest.clothing.characters);
