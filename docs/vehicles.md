@@ -164,6 +164,9 @@ It supplies engine, service, and handbrake contributions to eligible wheels.
 The stock Rapier controller excludes simultaneous motor force and brake impulse on one wheel.
 So the input sums do not prove the source combined-brake response.
 
+Each wheel carries its source PhysX sprung mass. The body mass splits over the wheels so their loads balance the centre of mass.
+Each wheel then rests at its `targetPosition`. An equal split sank the heavy end of a car into its wheels.
+
 Source tire stiffness and Rapier friction describe different models.
 Tire and rim differences, empty hubs, suspension settling, and wheel spin require native measurements before further adapter work.
 
