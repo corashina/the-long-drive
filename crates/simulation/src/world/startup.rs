@@ -3,6 +3,10 @@ use super::{TerrainContext, TerrainEvaluator, TerrainFoundation, TerrainRoadPoin
 use crate::reference::{BodyId, ReferenceError, ReferenceManifest, WorldReference, WorldValue};
 use rapier3d::math::Vector;
 
+/// Source scene root groups of `TerrainGenerationSettings`, in the order the source aligns them.
+/// A root with a prototype is a world structure copy, such as the outhouse. It always spawns.
+pub const SCENE_GROUPS: [&str; 3] = ["StartObjs", "StartObjsDonTMoveOnLoad", "StartObjsFix"];
+
 /// Startup offsets retain imported ownership. Callers apply them before collider insertion.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct StartupTerrain {
@@ -190,7 +194,7 @@ impl StartupTerrain {
         let mut result = Self::default();
         let mut shared = None;
         // The source runs the shared roots, the player root, then each fixed root.
-        for group in ["StartObjs", "StartObjsDonTMoveOnLoad", "StartObjsFix"] {
+        for group in SCENE_GROUPS {
             for root in reference.startup.iter().filter(|r| r.group == group) {
                 let transform = get(&root.source)?;
                 let position = point(transform, Vector::ZERO, &result.root_offsets)?;
