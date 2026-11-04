@@ -142,8 +142,7 @@ impl WorldStream {
                 attachment: None,
                 mechanism: None,
             };
-            let mut key = parent.clone();
-            key.children.push((source.clone(), 0));
+            let key = parent.with_child(&source, 0);
             let saved = self
                 .changes
                 .get_generated(&key)
@@ -523,8 +522,7 @@ impl WorldStream {
             .find(|(p, s, _)| p == &binding.parent && s == &binding.source)
             .map(|(_, _, on)| *on);
         let broken = self.contents.broken_lamps(&binding.parent, &binding.source);
-        let mut key = binding.parent.clone();
-        key.children.push((binding.source.clone(), 0));
+        let key = binding.parent.with_child(&binding.source, 0);
         let mut snapshot = binding.baseline.clone();
         snapshot.lamp = on;
         snapshot.lamp_broken = (broken != 0).then_some(broken);

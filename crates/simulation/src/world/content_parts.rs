@@ -97,8 +97,7 @@ pub(super) fn bind(
         let item = if part_node == 0 {
             owner
         } else {
-            let mut key = content.content.placement.id.clone();
-            key.children.push((part.source.clone(), 0));
+            let key = content.content.placement.id.with_child(&part.source, 0);
             let pose = super::placement::place_pose(
                 content.content.placement.pose,
                 content.content.placement.scale,

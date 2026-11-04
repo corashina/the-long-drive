@@ -245,8 +245,7 @@ impl<'a> SpawnEvaluation<'a> {
                 super::placement::multiply(yaw(-self.random.range(0., 360.)), pose.rotation);
         }
         let root = self.rules.root(self.reference, target)?.clone();
-        let mut id = parent.id.clone();
-        id.children.push((caller.clone(), index as u32));
+        let id = parent.id.with_child(&caller, index as u32);
         let child = self.placement(root.clone(), id, pose)?;
         let condition = if flag(row, "disableRandom")? {
             None

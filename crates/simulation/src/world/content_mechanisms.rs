@@ -63,8 +63,11 @@ pub(super) fn bind(
         let item = if let Some(item) = reused {
             item
         } else {
-            let mut key = content.content.placement.id.clone();
-            key.children.push((row.recipe.source.clone(), 0));
+            let key = content
+                .content
+                .placement
+                .id
+                .with_child(&row.recipe.source, 0);
             let pose = super::placement::place_pose(
                 content.content.placement.pose,
                 content.content.placement.scale,

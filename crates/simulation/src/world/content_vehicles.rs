@@ -419,8 +419,7 @@ fn wheel_slots(
                 .find(|b| &b.source == part)
                 .map(|b| items.object_key(b.item))
         } else {
-            let mut child = id.clone();
-            child.children.push((slot.source.clone(), 0));
+            let child = id.with_child(&slot.source, 0);
             Some(ObjectKey::Generated(child))
         };
         // Source `Graphics` puts T at the wheel center. The rim mount keeps its prefab offset from T.

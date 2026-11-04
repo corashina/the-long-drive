@@ -194,8 +194,7 @@ impl SpawnEvaluation<'_> {
                 scale: [1.; 3],
             },
         );
-        let mut id = parent.id.clone();
-        id.children.push((source.clone(), 0));
+        let id = parent.id.with_child(&source, 0);
         let child = self.placement(grip.prototype.clone(), id, pose)?;
         self.push(super::spawn_contents::SpawnedContent {
             inputs: super::spawn_state::SpawnInitialization::default(),

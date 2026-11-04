@@ -551,7 +551,7 @@ mod g04_ordered_state {
     #[test]
     fn worn_hat_and_cigarette_round_trip() {
         let hat = InstanceId::Generated {
-            id: crate::world::GeneratedId {
+            id: crate::world::GeneratedKey {
                 layer: crate::world::WorldLayer::Building,
                 generator: crate::reference::SourceId {
                     file: "level0".into(),
@@ -560,7 +560,8 @@ mod g04_ordered_state {
                 unit: [3, -4],
                 ordinal: 5,
                 children: vec![],
-            },
+            }
+            .into(),
         };
         let inventory = InventorySnapshot {
             slots: [None, None, None, None],
@@ -591,7 +592,7 @@ mod g04_ordered_state {
             position: [0.1, 0.5, -0.2],
             rotation: [0., 0., 0., 1.],
         };
-        let generated = crate::world::GeneratedId {
+        let generated: crate::world::GeneratedId = crate::world::GeneratedKey {
             layer: crate::world::WorldLayer::Nested,
             generator: crate::reference::SourceId {
                 file: "level0".into(),
@@ -600,7 +601,8 @@ mod g04_ordered_state {
             unit: [i64::MAX - 1, -3],
             ordinal: 7,
             children: vec![],
-        };
+        }
+        .into();
         for owner in [
             SeatOwnerSnapshot::Vehicle {
                 vehicle: crate::world::ObjectKey::Generated(generated.clone()),

@@ -51,8 +51,7 @@ impl SpawnEvaluation<'_> {
                 })?;
             let root = self.rules.root(self.reference, &item.source)?.clone();
             let original = self.rules.node(self.reference, &root)?.pose;
-            let mut id = parent.id.clone();
-            id.children.push((source.clone(), 0));
+            let id = parent.id.with_child(&source, 0);
             let mut child = self.placement(
                 root.clone(),
                 id,

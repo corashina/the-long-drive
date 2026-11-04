@@ -1,6 +1,7 @@
 //! Stable world values. These types contain no renderer or physics handles.
 use crate::reference::{ItemId, SourceId};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -20,14 +21,70 @@ pub enum WorldLayer {
     Startup,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// The fields of a `GeneratedId`.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct GeneratedId {
+pub struct GeneratedKey {
     pub layer: WorldLayer,
     pub generator: SourceId,
     pub unit: [i64; 2],
     pub ordinal: u32,
     pub children: Vec<(SourceId, u32)>,
+}
+/// A shared, immutable `GeneratedKey` with its cached seed.
+/// Clone is a refcount increment. Hash writes the seed. Eq and Ord compare the fields.
+#[derive(Clone, Deserialize)]
+#[serde(from = "GeneratedKey")]
+pub struct GeneratedId(Arc<Shared>);
+struct Shared {
+    key: GeneratedKey,
+    seed: u64,
+}
+impl From<GeneratedKey> for GeneratedId {
+    fn from(key: GeneratedKey) -> Self {
+        let seed = key.seed();
+        Self(Arc::new(Shared { key, seed }))
+    }
+}
+impl Serialize for GeneratedId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.key.serialize(serializer)
+    }
+}
+impl std::ops::Deref for GeneratedId {
+    type Target = GeneratedKey;
+    fn deref(&self) -> &GeneratedKey {
+        &self.0.key
+    }
+}
+impl std::fmt::Debug for GeneratedId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.key.fmt(f)
+    }
+}
+impl PartialEq for GeneratedId {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0) || (self.0.seed == other.0.seed && self.0.key == other.0.key)
+    }
+}
+impl Eq for GeneratedId {}
+impl std::hash::Hash for GeneratedId {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.0.seed);
+    }
+}
+impl PartialOrd for GeneratedId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for GeneratedId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if Arc::ptr_eq(&self.0, &other.0) {
+            return std::cmp::Ordering::Equal;
+        }
+        self.0.key.cmp(&other.0.key)
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "id", rename_all = "snake_case")]
@@ -46,8 +103,26 @@ fn mix_source(hash: &mut u64, id: &SourceId) {
     mix(hash, &id.path_id.to_le_bytes());
 }
 impl GeneratedId {
-    /// `ObjectKey::seed` of this key, without a copy of it.
+    /// `ObjectKey::seed` of this key, cached when the id was built.
     pub fn seed(&self) -> u64 {
+        self.0.seed
+    }
+    /// The seed of this key with one more child: `source` with ordinal `ordinal`.
+    pub fn child_seed(&self, source: &SourceId, ordinal: u32) -> u64 {
+        let mut hash = self.seed();
+        mix_source(&mut hash, source);
+        mix(&mut hash, &ordinal.to_le_bytes());
+        hash
+    }
+    /// This id with one more child: `source` with ordinal `ordinal`.
+    pub fn with_child(&self, source: &SourceId, ordinal: u32) -> Self {
+        let mut key = self.0.key.clone();
+        key.children.push((source.clone(), ordinal));
+        key.into()
+    }
+}
+impl GeneratedKey {
+    fn seed(&self) -> u64 {
         let mut hash = FNV_OFFSET;
         mix(&mut hash, &[self.layer as u8]);
         mix_source(&mut hash, &self.generator);
@@ -58,13 +133,6 @@ impl GeneratedId {
             mix_source(&mut hash, child);
             mix(&mut hash, &ordinal.to_le_bytes());
         }
-        hash
-    }
-    /// The seed of this key with one more child: `source` with ordinal `ordinal`.
-    pub fn child_seed(&self, source: &SourceId, ordinal: u32) -> u64 {
-        let mut hash = self.seed();
-        mix_source(&mut hash, source);
-        mix(&mut hash, &ordinal.to_le_bytes());
         hash
     }
 }
@@ -164,4 +232,43 @@ pub struct Placement {
     pub scale: [f32; 3],
     pub bounds: WorldBounds,
     pub object_seed: i32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::hash::BuildHasher;
+
+    fn key(ordinal: u32) -> GeneratedKey {
+        GeneratedKey {
+            layer: WorldLayer::Prop,
+            generator: SourceId {
+                file: "level0".into(),
+                path_id: 7,
+            },
+            unit: [1, -2],
+            ordinal,
+            children: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn separate_builds_of_one_key_match() {
+        let (a, b): (GeneratedId, GeneratedId) = (key(3).into(), key(3).into());
+        let state = std::hash::RandomState::new();
+        assert_eq!(a, b);
+        assert_eq!(state.hash_one(&a), state.hash_one(&b));
+        assert_ne!(a, GeneratedId::from(key(4)));
+        let source = SourceId {
+            file: "level0".into(),
+            path_id: 9,
+        };
+        let mut nested = key(3);
+        nested.children.push((source.clone(), 1));
+        let child = a.with_child(&source, 1);
+        assert_eq!(child, GeneratedId::from(nested));
+        assert_eq!(child.seed(), a.child_seed(&source, 1));
+        let json = serde_json::to_string(&child).unwrap();
+        assert_eq!(serde_json::from_str::<GeneratedId>(&json).unwrap(), child);
+    }
 }

@@ -1,7 +1,7 @@
 //! Cached source candidate grids and coordinate-seeded object selection.
 use super::{
-    AbsolutePose, GeneratedId, Placement, RoadCurve, SourceRandom, TerrainContext, WorldBounds,
-    WorldLayer, source_perlin,
+    AbsolutePose, GeneratedId, GeneratedKey, Placement, RoadCurve, SourceRandom, TerrainContext,
+    WorldBounds, WorldLayer, source_perlin,
 };
 use crate::reference::{
     ReferenceError, SourceId, WorldGeneratorReference, WorldReference, WorldValue,
@@ -272,13 +272,14 @@ impl PropGenerator {
             / prototype.scale.iter().copied().fold(0.0, f32::max) as f64;
         let yaw = -(candidate.rotation as f32).to_radians() * 0.5;
         Some(Placement {
-            id: GeneratedId {
+            id: GeneratedKey {
                 layer: self.layer,
                 generator: self.reference.source.clone(),
                 unit,
                 ordinal: candidate.ordinal,
                 children: Vec::new(),
-            },
+            }
+            .into(),
             prototype: prototype.source.clone(),
             pose: AbsolutePose {
                 position,

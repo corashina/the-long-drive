@@ -1,6 +1,8 @@
 //! Source pole recipes and conservative light influence admission.
 use super::spawn_rules::*;
-use super::{AbsolutePose, GeneratedId, RoadSegment, WorldBounds, WorldFrame, WorldLayer};
+use super::{
+    AbsolutePose, GeneratedId, GeneratedKey, RoadSegment, WorldBounds, WorldFrame, WorldLayer,
+};
 use crate::reference::{
     LightId, LightKind, LightReference, ReferenceError, ReferenceManifest, RoadLampReference,
     ShadowReference, SourceId, Transform, WorldFields, WorldLightCookie, WorldPrototypeReference,
@@ -367,13 +369,14 @@ impl SourceRoadLight {
         let prototype = road_prototype(reference, segment);
         let pole = recipe.pole.frame(prototype, segment, self.seed);
         WorldLight {
-            id: GeneratedId {
+            id: GeneratedKey {
                 layer: WorldLayer::Lamp,
                 generator: recipe.reference.generator_source.clone(),
                 unit: [segment.index as i64, 0],
                 ordinal: 0,
                 children: vec![(recipe.reference.source.clone(), 0)],
-            },
+            }
+            .into(),
             pole: AbsolutePose {
                 position: pole.position,
                 rotation: pole.rotation.to_array(),

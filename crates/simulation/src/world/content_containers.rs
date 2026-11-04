@@ -198,8 +198,7 @@ fn auxiliary(
     if let Some(b) = content.bindings.iter().find(|b| &b.source == source) {
         return Ok(b.item);
     }
-    let mut key = content.content.placement.id.clone();
-    key.children.push((source.clone(), 0));
+    let key = content.content.placement.id.with_child(&source, 0);
     let body = items.get(owner).unwrap().body;
     let item = items.insert_generated(key, prototype, pose)?;
     let state = items.set_body(item, body).unwrap();

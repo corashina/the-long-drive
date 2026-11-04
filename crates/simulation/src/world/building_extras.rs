@@ -149,8 +149,7 @@ fn append_ramps_with<'a>(
             parent.pose.position[1] + f64::from(height),
             parent.pose.position[2] + f64::from(offset[2]),
         ];
-        let mut id = parent.id.clone();
-        id.children.push((building.source.clone(), u32::MAX));
+        let id = parent.id.with_child(&building.source, u32::MAX);
         if placements.iter().any(|p| p.id == id) {
             continue;
         }
