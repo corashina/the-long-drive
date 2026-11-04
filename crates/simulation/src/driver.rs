@@ -125,8 +125,7 @@ impl SimDriver {
         }
     }
 
-    /// One simulation frame: accepts `command`, steps physics and fills `frame`.
-    /// `advance_world` runs after the renderer has the frame, so world facts arrive one frame later.
+    /// One simulation frame: accepts `command`, steps and fills `frame`.
     pub fn tick(
         &mut self,
         reference: &ReferenceManifest,
@@ -135,6 +134,7 @@ impl SimDriver {
     ) {
         self.accept(reference, command);
         self.advance(reference);
+        self.advance_world(reference);
         self.fill(reference, frame);
     }
 
