@@ -217,7 +217,7 @@ async function downloadManifest(response){
  show();const timer=setInterval(show,250);
  try{
   const packed=new Uint8Array(await new Response(counted).arrayBuffer());
-  // The file is gzip at rest. A host that sends Content-Encoding: gzip gives plain JSON here.
+  // The file is gzip at rest. A host that sends Content-Encoding: gzip gives the plain file here.
   const bytes=packed[0]===0x1f&&packed[1]===0x8b?new Uint8Array(await new Response(new Blob([packed]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()):packed;
   loading.step('download',1,1,mebibytes(bytes.byteLength)+' MiB');
   return bytes;
@@ -237,7 +237,7 @@ async function load(){
   return WebAssembly.compileStreaming(response);
  })]);
  code.catch(()=>{});
- const response=await fetch('./assets/reference/manifest.json.gz');
+ const response=await fetch('./assets/reference/manifest.bin.gz');
  if(!response.ok)throw Error('Cannot load reference manifest (HTTP '+response.status+').');
  const bytes=await downloadManifest(response);
  // The worker parses and checks its copy while this thread loads the interface.
@@ -247,7 +247,7 @@ async function load(){
  const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;watchRenderAudit=watch_render_audit;watch_render_audit(renderAuditWatched);
  rustCpuProfile=cpu_profile;rustCpuAudit=cpu_profile_audit;if(startupCpuProfile)rustCpuProfile(true);
  window.gameThumbnailFrame=()=>thumbnail.frame();thumbnail.connect(request_thumbnail);
- // Rust parses the manifest once and returns only the shell fields, so JS does not parse the world records.
+ // Rust parses the manifest once and returns only the shell fields, so JS does not parse the rest.
  startup.begin('prepare');const text=prepare(bytes),manifest=JSON.parse(text);startup.end('prepare');
  const {manifest_sha256:manifestHash}=await manifestStamp(bytes,manifest);
  const bindings=manifest.driving.bindings,actionIds=actionIndex(bindings);
@@ -285,7 +285,7 @@ async function load(){
   reloadWith(NEW_GAME_KEY,String(window.gameSeed()));return true;
  };
  simulationStarted.catch(()=>{});
- fetched({path:'assets/reference/manifest.json.gz',requiredBytes:bytes.byteLength,receivedBytes:bytes.byteLength});
+ fetched({path:'assets/reference/manifest.bin.gz',requiredBytes:bytes.byteLength,receivedBytes:bytes.byteLength});
  startup.build({sourceBuildId:manifest.build_id,manifestSha256:manifestHash,wasm:'release'});
  configureAssetCatalog(manifest.content_base,manifest.file_catalog,fetched);worldAdmitted=true;
  startup.end('manifest');startup.begin('interface');

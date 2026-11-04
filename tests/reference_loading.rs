@@ -6,8 +6,9 @@ fn installed_startup_selects_only_garage_lada() {
     let bytes =
         the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
             .unwrap();
-    ReferenceManifest::from_runtime_json(&bytes).unwrap();
-    let mut manifest: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    ReferenceManifest::from_runtime(&bytes).unwrap();
+    let (json, tables) = the_long_slop::reference::split_manifest(&bytes).unwrap();
+    let mut manifest: serde_json::Value = serde_json::from_slice(json).unwrap();
     assert!(
         manifest["assets"]
             .as_array()
@@ -21,9 +22,10 @@ fn installed_startup_selects_only_garage_lada() {
     assert_eq!(packs.len(), 1);
     assert_eq!(packs[0]["vehicle"]["path_id"], 77839);
     packs.clear();
-    let bytes = serde_json::to_vec(&manifest).unwrap();
+    let bytes =
+        the_long_slop::reference::join_manifest(&serde_json::to_vec(&manifest).unwrap(), tables);
     assert!(
-        ReferenceManifest::from_runtime_json(&bytes)
+        ReferenceManifest::from_runtime(&bytes)
             .unwrap_err()
             .to_string()
             .contains("selected packs")
@@ -36,7 +38,7 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
     let bytes =
         the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
             .unwrap();
-    let mut reference = ReferenceManifest::from_runtime_json(&bytes).unwrap();
+    let mut reference = ReferenceManifest::from_runtime(&bytes).unwrap();
     let index = reference
         .world
         .records
@@ -208,8 +210,8 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
 fn oversized_documents_stop_before_parsing() {
     let bytes = vec![b' '; MAX_MANIFEST_BYTES + 1];
     for result in [
-        ReferenceManifest::from_runtime_json(&bytes),
-        ReferenceManifest::from_json(&bytes),
+        ReferenceManifest::from_runtime(&bytes),
+        ReferenceManifest::from_manifest(&bytes),
     ] {
         assert_eq!(
             result.unwrap_err().to_string(),
@@ -249,7 +251,7 @@ fn installed_manifest_shell_matches_the_manifest_text() {
     let bytes =
         the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
             .unwrap();
-    let reference = ReferenceManifest::from_checked_runtime_json(&bytes).unwrap();
+    let reference = ReferenceManifest::from_checked_runtime(&bytes).unwrap();
     let mut shell: Value =
         serde_json::from_str(&the_long_slop::manifest_shell::shell(&reference).unwrap()).unwrap();
     assert!(
@@ -257,7 +259,8 @@ fn installed_manifest_shell_matches_the_manifest_text() {
         "start cars"
     );
     shell["world"].as_object_mut().unwrap().remove("start_cars");
-    let text: Value = serde_json::from_slice(&bytes).unwrap();
+    let (json, _) = the_long_slop::reference::split_manifest(&bytes).unwrap();
+    let text: Value = serde_json::from_slice(json).unwrap();
     for (key, value) in shell.as_object().unwrap() {
         let expected = match key.as_str() {
             "world" => serde_json::json!({

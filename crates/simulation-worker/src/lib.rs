@@ -21,7 +21,7 @@ fn error(e: &dyn std::fmt::Display) -> JsValue {
 #[wasm_bindgen]
 pub fn load(manifest: &[u8]) -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let reference = ReferenceManifest::from_runtime_json(manifest).map_err(|e| error(&e))?;
+    let reference = ReferenceManifest::from_runtime(manifest).map_err(|e| error(&e))?;
     REFERENCE.set(Some(Arc::new(reference)));
     Ok(())
 }

@@ -65,10 +65,12 @@ pub struct WorldReference {
     /// Source `materialpairscript` sets that marked prototype nodes use.
     #[serde(deserialize_with = "compact_vec")]
     pub biome_material_sets: Vec<WorldBiomeMaterialSet>,
+    /// The world tables (prototypes, records, receipts) are postcard after the manifest JSON.
+    #[serde(skip)]
     pub prototypes: WorldPrototypes,
-    #[serde(deserialize_with = "compact_vec")]
+    #[serde(skip)]
     pub records: Vec<WorldSourceRecord>,
-    #[serde(deserialize_with = "compact_vec")]
+    #[serde(skip)]
     pub receipts: Vec<SourceId>,
     #[serde(deserialize_with = "compact_vec")]
     pub exclusions: Vec<WorldExclusion>,
@@ -2152,6 +2154,18 @@ impl<'a> IntoIterator for &'a WorldPrototypes {
     type IntoIter = std::slice::Iter<'a, WorldPrototypeReference>;
     fn into_iter(self) -> Self::IntoIter {
         self.list.iter()
+    }
+}
+/// The world tables (records, prototypes, receipts). The manifest file holds them as postcard.
+pub type WorldTables = (Vec<WorldSourceRecord>, WorldPrototypes, Vec<SourceId>);
+impl WorldReference {
+    /// Sets the world tables from all of `bytes`.
+    pub fn decode_tables(&mut self, bytes: &[u8]) -> Result<(), super::ReferenceError> {
+        let error = |e: postcard::Error| super::ReferenceError(format!("World tables: {e}"));
+        let (tables, rest) = postcard::take_from_bytes::<WorldTables>(bytes).map_err(error)?;
+        super::require(rest.is_empty(), "world tables end")?;
+        (self.records, self.prototypes, self.receipts) = tables;
+        Ok(())
     }
 }
 impl Serialize for WorldPrototypes {

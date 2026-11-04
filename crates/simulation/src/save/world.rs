@@ -803,7 +803,7 @@ mod world_sync_tests {
     #[ignore = "requires the installed source export"]
     fn world_sync_activation_follows_rebound_item_membership() {
         use crate::starting_area::GarageRuntime;
-        let reference = ReferenceManifest::from_runtime_json(
+        let reference = ReferenceManifest::from_runtime(
             &crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap(),
         )
         .unwrap();
@@ -859,7 +859,7 @@ mod world_sync_tests {
     #[ignore = "requires the installed source export"]
     fn world_sync_unloads_a_spawned_weed_off_the_loaded_world() {
         use crate::starting_area::{GarageRuntime, spawned};
-        let reference = ReferenceManifest::from_runtime_json(
+        let reference = ReferenceManifest::from_runtime(
             &crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap(),
         )
         .unwrap();

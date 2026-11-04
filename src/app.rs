@@ -92,11 +92,10 @@ thread_local! {
 #[wasm_bindgen]
 /// Parses the reference while the simulation worker parses and checks its copy.
 /// Returns the shell JSON for the browser interface.
-pub fn prepare(reference_json: &[u8]) -> Result<String, JsValue> {
+pub fn prepare(manifest: &[u8]) -> Result<String, JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
     console_error_panic_hook::set_once();
-    let reference =
-        Arc::new(ReferenceManifest::from_checked_runtime_json(reference_json).map_err(js_error)?);
+    let reference = Arc::new(ReferenceManifest::from_checked_runtime(manifest).map_err(js_error)?);
     let shell = crate::manifest_shell::shell(&reference).map_err(js_error)?;
     // The simulation worker checks the reference. Systems need these resources.
     let materials = presentation::materials::load_materials(&reference).map_err(js_error)?;

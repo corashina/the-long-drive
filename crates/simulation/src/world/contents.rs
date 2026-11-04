@@ -1623,7 +1623,7 @@ mod tests {
             std::sync::OnceLock::new();
         &REFERENCE
             .get_or_init(|| {
-                crate::reference::ReferenceManifest::from_runtime_json(
+                crate::reference::ReferenceManifest::from_runtime(
                     &crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap(),
                 )
                 .unwrap()
@@ -1687,15 +1687,7 @@ mod tests {
     #[test]
     #[ignore = "requires the installed source export"]
     fn membership_revisions_cover_push_remove_and_retain() {
-        #[derive(serde::Deserialize)]
-        struct WorldOnly {
-            world: WorldReference,
-        }
-        let reference: WorldOnly = serde_json::from_slice(
-            &crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap(),
-        )
-        .unwrap();
-        let mut contents = cursors(&reference.world);
+        let mut contents = cursors(reference());
         let placements: Vec<_> = contents.cursors.iter().map(|c| c.parent.clone()).collect();
         contents.push_active(ContentInstance::for_structure(placements[0].clone()));
         contents.push_active(ContentInstance::for_structure(placements[1].clone()));

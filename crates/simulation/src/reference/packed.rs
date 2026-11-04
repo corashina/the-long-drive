@@ -1,4 +1,5 @@
 //! Base64 of little-endian triples. Large collider point lists use it in JSON.
+//! The binary form (postcard) holds the bytes.
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Deserializer, Serializer, de};
@@ -8,13 +9,24 @@ fn encode<T: bytemuck::Pod, S: Serializer>(
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     // Every supported target is little-endian, as the WASM target.
-    serializer.serialize_str(&STANDARD.encode(bytemuck::cast_slice::<[T; 3], u8>(rows)))
+    let bytes = bytemuck::cast_slice::<[T; 3], u8>(rows);
+    if !serializer.is_human_readable() {
+        return serializer.serialize_bytes(bytes);
+    }
+    serializer.serialize_str(&STANDARD.encode(bytes))
 }
 fn decode<'de, T: bytemuck::Pod, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<[T; 3]>, D::Error> {
-    let text = String::deserialize(deserializer)?;
-    let bytes = STANDARD.decode(text).map_err(de::Error::custom)?;
+    let text;
+    let bytes = if deserializer.is_human_readable() {
+        text = STANDARD
+            .decode(String::deserialize(deserializer)?)
+            .map_err(de::Error::custom)?;
+        text.as_slice()
+    } else {
+        <&[u8]>::deserialize(deserializer)?
+    };
     let (rows, rest) = bytes.as_chunks::<12>();
     if !rest.is_empty() {
         return Err(de::Error::custom("Packed triples have a partial row"));
