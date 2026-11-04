@@ -4,6 +4,7 @@
 //   node tests/bench/fps.mjs [--label master] [--url http://localhost:4173/] [--seed 1122282040]
 //     [--scenes garage,road,town] [--town NAME] [--settle 10] [--seconds 20] [--trace] [--headless]
 //     [--channel chrome]   (the installed Google Chrome; an empty value takes the Playwright Chromium)
+//     [--quality ultra]    (a Graphics quality preset; empty keeps the setting defaults)
 //   node tests/bench/fps.mjs compare A.json B.json
 //
 // Run headed on the real GPU. Headless Chrome can take a software adapter: then GPU ms are null.
@@ -12,6 +13,7 @@
 import {chromium} from 'playwright-core';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
+import {PRESETS} from '../../web/quality-presets.js';
 
 const OUT=fileURLToPath(new URL('./out/',import.meta.url));
 const START_TIMEOUT_MS=600000,MOVE_TIMEOUT_MS=180000;
@@ -27,13 +29,14 @@ const SCENES={
 };
 
 function options(argv){
- const o={label:'build',url:'http://localhost:4173/',seed:'1122282040',scenes:'garage,road,town',town:'',settle:10,seconds:20,trace:false,headless:false,channel:'chrome'};
+ const o={label:'build',url:'http://localhost:4173/',seed:'1122282040',scenes:'garage,road,town',town:'',settle:10,seconds:20,trace:false,headless:false,channel:'chrome',quality:''};
  for(let i=0;i<argv.length;i++){
   const name=argv[i].replace(/^--/,'');
   if(!(name in o))throw new Error('Unknown option '+argv[i]);
   if(typeof o[name]==='boolean')o[name]=true;
   else{const value=argv[++i];o[name]=typeof o[name]==='number'?Number(value):value;}
  }
+ if(o.quality&&!Object.hasOwn(PRESETS,o.quality))throw new Error('Unknown quality '+o.quality);
  return o;
 }
 
@@ -102,16 +105,18 @@ function summarize(samples){
 // `log` collects console errors and warnings, page errors and page events for the JSON.
 async function startGame(browser,o,log){
  const context=await browser.newContext({viewport:{width:1920,height:1080}});
- // A new context has empty storage, so every setting is on its default.
+ // A new context has empty storage, so every setting is on its default. `--quality` stores a preset first.
  // Each page load logs the reload keys of web/main.js before main.js removes them.
- await context.addInitScript(seed=>{
+ const settings=o.quality?JSON.stringify({...PRESETS[o.quality],quality:o.quality}):null;
+ await context.addInitScript(([seed,settings])=>{
   if(!sessionStorage.getItem('bench-started')){
    sessionStorage.setItem('bench-started','1');
    sessionStorage.setItem('tls-new-game',seed);
+   if(settings)localStorage.setItem('the-long-slop.settings',settings);
   }
   const keys=['tls-new-game','tls-load','tls-join'].filter(k=>sessionStorage.getItem(k)!==null).map(k=>k+'='+sessionStorage.getItem(k));
   console.info('[bench] load '+keys.join(' '));
- },o.seed);
+ },[o.seed,settings]);
  const page=await context.newPage();
  const started=Date.now(),event=text=>log.events.push(((Date.now()-started)/1000).toFixed(1)+' s '+text);
  page.on('console',m=>{
@@ -242,7 +247,7 @@ async function bench(o){
   }
  }catch(error){failure=error;}
  finally{await browser.close();}
- const result={label:o.label,seed:o.seed,url:o.url,date:new Date().toISOString(),adapter,scenes,errors:log.errors,events:log.events,error:failure?.message??null};
+ const result={label:o.label,seed:o.seed,quality:o.quality||null,url:o.url,date:new Date().toISOString(),adapter,scenes,errors:log.errors,events:log.events,error:failure?.message??null};
  const path=OUT+o.label+'-'+result.date.replace(/[:.]/g,'-')+'.json';
  writeFileSync(path,JSON.stringify(result,null,1));
  console.log('Wrote '+path);
