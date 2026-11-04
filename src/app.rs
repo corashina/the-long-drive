@@ -655,7 +655,7 @@ fn read_input(
     if actions != 0 {
         drive.action_seq = seq;
     }
-    drive.look.send(seq, input.mouse);
+    drive.look.send(seq, &input);
     let command = SimCommand {
         seq,
         delta_seconds: time.delta_secs_f64(),

@@ -443,6 +443,7 @@ impl SimDriver {
         self.look = player.look(&self.runtime.physics);
         self.look.gain = gain;
         self.look.position[1] = player.view(&self.runtime.physics).camera_pose.position;
+        self.look.brush = u32::from(self.runtime.area.interaction.brush_in_hand());
     }
 
     /// Puts both steps of the look at the player view.
