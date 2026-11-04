@@ -166,13 +166,27 @@ def prepare_package(manifest, output):
 
 def publish_package(output, assets_root):
     """Publish a complete package before replacing the mutable root manifest."""
-    import tempfile
     manifest = read_manifest(output)
     destination = assets_root / 'runtime' / package_id(manifest)
     destination.parent.mkdir(exist_ok=True)
     if destination.exists():
         verify_package(manifest, destination)
-        return
+    else:
+        _write_package(manifest, output, destination)
+    prune_packages(destination)
+
+
+def prune_packages(current):
+    """Keep the current package and the newest older one, which a running page may still read."""
+    older = sorted((path for path in current.parent.iterdir()
+                    if path.is_dir() and path != current and re.fullmatch(r'[0-9a-f]{64}', path.name)),
+                   key=lambda path: path.stat().st_mtime, reverse=True)
+    for path in older[1:]:
+        shutil.rmtree(path)
+
+
+def _write_package(manifest, output, destination):
+    import tempfile
     pending = Path(tempfile.mkdtemp(prefix='.package-', dir=destination.parent))
     try:
         for receipt in manifest['file_catalog']['files']:
