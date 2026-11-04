@@ -405,7 +405,7 @@ fn encode_ao(
     if view.index != 0 || status.failure().is_some() {
         return;
     }
-    // With the setting off, no AO passes run. Opaque and transparent passes already resolved the color.
+    // With the setting off, no AO passes run. The AO composite never resolves: the transparent stage does.
     if !input.ambient_occlusion {
         effects.audit.ao_frame = frame.frame;
         effects.audit.ao_token = frame.main_token;
@@ -422,7 +422,6 @@ fn encode_ao(
         &queue,
         &cache,
         targets.0.colors.attachment(),
-        targets.0.colors.resolve_target(),
         snapshot.near,
         snapshot.far,
         snapshot.implicit_projection.x_axis.x,

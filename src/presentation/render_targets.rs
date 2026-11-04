@@ -133,6 +133,26 @@ impl SourceColorTargets {
     pub fn resolve_target(&self) -> Option<&TextureView> {
         self.multisample.as_ref().map(|_| &self.resolved.attachment)
     }
+    /// Resolve the MSAA color into `resolved` with an empty pass. Single-sample targets skip it.
+    pub fn resolve(&self, encoder: &mut CommandEncoder) {
+        let Some(resolve) = self.resolve_target() else {
+            return;
+        };
+        let attachments = [Some(RenderPassColorAttachment {
+            view: self.attachment(),
+            depth_slice: None,
+            resolve_target: Some(resolve),
+            ops: Operations {
+                load: LoadOp::Load,
+                store: StoreOp::Store,
+            },
+        })];
+        drop(encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("source_color_resolve"),
+            color_attachments: &attachments,
+            ..Default::default()
+        }));
+    }
 }
 
 /// Depth, attenuation, and shadow storage belong to exactly one surface view.
