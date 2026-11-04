@@ -647,3 +647,70 @@ fn tp_k12_a_paint_spray_in_the_hand_owns_lmb() {
     );
     assert_eq!(area.interaction.lmb_owner(), Some(LmbOwner::CleaningTool));
 }
+
+/// K13. The start car drives away from the start along the road at 25 m/s. The step never holds
+/// for more than 5 s, so the car does not stop in place while the world loads.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k13_driving_away_from_the_start_never_stops_the_car() {
+    use crate::simulation::FIXED_DT;
+    const SPEED: f64 = 25.;
+    const DISTANCE: f64 = 6000.;
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let key = run.vehicle.clone().unwrap();
+    let car = run.physics.snapshot(&key).pose;
+    stand_near(&mut run, &reference, car.position, 2.);
+    act(&mut run, &reference, r#"{"action":"seat","seat":"driver"}"#);
+    let start = run.stream.origin.absolute(car.position)[2] - 40.;
+    let (mut travelled, mut held, mut worst) = (0., 0usize, 0usize);
+    while travelled < DISTANCE {
+        let pose = run.physics.snapshot(&key).pose;
+        let absolute = run.stream.origin.absolute(pose.position);
+        let bounds = crate::world::WorldBounds {
+            min: absolute.map(|v| v - 8.),
+            max: absolute.map(|v| v + 8.),
+        };
+        if run.world_supported() {
+            if held > 0 {
+                println!("held {held} steps at {travelled:.0} m");
+            }
+            held = 0;
+            travelled += SPEED * f64::from(FIXED_DT);
+            let point = run
+                .stream
+                .road_surface_points()
+                .find(|p| p[2] <= start - travelled)
+                .expect("the road reaches the car");
+            let mut position = run.stream.origin.local(point);
+            position[1] += 1.;
+            run.physics.reset_preserving_wheels(
+                &key,
+                crate::vehicle::VehiclePose {
+                    position,
+                    rotation: car.rotation,
+                },
+            );
+            run.physics.refresh_queries();
+        } else {
+            held += 1;
+            worst = worst.max(held);
+            if held == 50 || held % 500 == 0 {
+                println!(
+                    "hold {held} at {travelled:.0} m, origin {:?}: gap {:?}, waits {}",
+                    run.stream.origin.offset,
+                    run.stream.support_gap(bounds),
+                    run.persistent_world.waits_for(bounds),
+                );
+            }
+            assert!(held < 250, "the step holds at {travelled:.0} m");
+        }
+        let started = std::time::Instant::now();
+        frame(&mut run, &reference);
+        let ms = started.elapsed().as_secs_f64() * 1000.;
+        if ms > 50. {
+            println!("frame {ms:.0} ms at {travelled:.0} m");
+        }
+    }
+    println!("longest hold {worst} steps");
+}
