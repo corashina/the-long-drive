@@ -4817,7 +4817,10 @@ impl WorldStream {
         wheels: &mut crate::interaction::wheels::WheelAssemblies,
         vehicles: &mut std::collections::BTreeMap<super::ObjectKey, crate::car::VehicleRuntime>,
         powertrain: &mut crate::simulation::powertrain::PowertrainParts,
+        persistent: &crate::save::PersistentWorld,
     ) -> Result<(), ReferenceError> {
+        // Every step, also while the plan changes, so the step never waits on a parked car.
+        self.stop_cars_without_ground(physics, vehicles, persistent);
         if self.recovery.is_some()
             || self.plan_revision != self.request.revision
             || !self.grounded(window(self.request.player, 3.0))
@@ -4826,7 +4829,6 @@ impl WorldStream {
             return Ok(());
         }
         self.retire_contents(physics, items, interaction, wheels, vehicles, powertrain)?;
-        self.stop_cars_without_ground(physics, vehicles);
         let mut index = 0;
         while index < self.structures.len() {
             let id = &self.structures[index].placement.id;
