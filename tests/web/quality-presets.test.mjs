@@ -23,14 +23,18 @@ test('preset_sets_rows_and_a_hand_change_sets_custom',()=>{
  assert.equal(settings.values.quality,'high');
 });
 
-test('first_preset_comes_from_the_gpu_and_a_stored_choice_wins',()=>{
+test('first_preset_comes_from_the_device_and_a_stored_choice_wins',()=>{
  const info=(vendor,architecture,isFallbackAdapter=false)=>({vendor,architecture,isFallbackAdapter});
- assert.equal(firstQuality(info('nvidia','ampere')),'high');
- assert.equal(firstQuality(info('intel','gen-12lp')),'medium');
- assert.equal(firstQuality(info('intel','xe-hpg')),'high');
- assert.equal(firstQuality(info('apple','metal-3')),'medium');
- assert.equal(firstQuality(info('','')),'high');
- assert.equal(firstQuality(info('google','swiftshader',true)),'low');
+ const strong={deviceMemory:8,hardwareConcurrency:8};
+ assert.equal(firstQuality(info('nvidia','ampere'),strong),'high');
+ assert.equal(firstQuality(info('intel','gen-12lp'),strong),'medium');
+ assert.equal(firstQuality(info('intel','xe-hpg'),strong),'high');
+ assert.equal(firstQuality(info('apple','metal-3'),strong),'medium');
+ assert.equal(firstQuality(info('',''),strong),'high');
+ assert.equal(firstQuality(info('google','swiftshader',true),strong),'low');
+ assert.equal(firstQuality(info('nvidia','ampere'),{deviceMemory:4,hardwareConcurrency:8}),'low');
+ assert.equal(firstQuality(info('nvidia','ampere'),{deviceMemory:8,hardwareConcurrency:4}),'low');
+ assert.equal(firstQuality(info('nvidia','ampere'),{hardwareConcurrency:8}),'high');
  const fresh=store({},'medium'),input=select();
  installQualityPresets(fresh,input);
  assert.equal(input.value,'medium');
