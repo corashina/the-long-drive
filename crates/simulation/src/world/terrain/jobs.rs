@@ -27,6 +27,8 @@ pub(in crate::world) struct TerrainMetadata {
     pub key: SurfaceKey,
     pub tile: TerrainTile,
     pub pending_bytes: usize,
+    /// Hash of the encoded job input. Equal inputs build equal tiles.
+    pub input: u64,
 }
 
 pub(in crate::world) struct CompletedTerrain {
@@ -43,12 +45,18 @@ impl TerrainExecution {
         self.pending.is_some()
     }
 
+    /// Hash of the running job input.
+    pub(in crate::world) fn input(&self) -> Option<u64> {
+        self.pending.as_ref().map(|pending| pending.metadata.input)
+    }
+
     pub(in crate::world) fn pending_bytes(&self) -> usize {
         self.pending
             .as_ref()
             .map_or(0, |pending| pending.metadata.pending_bytes)
     }
 
+    /// Keeps the job for the new request if `retain`. Otherwise drops it.
     pub(in crate::world) fn reconcile(&mut self, request: WorldRequest, retain: bool) {
         let Some(pending) = &mut self.pending else {
             return;
@@ -79,10 +87,11 @@ impl TerrainExecution {
         should_yield: impl FnMut() -> bool,
     ) -> Result<Option<CompletedTerrain>, ReferenceError> {
         let mut poll = self.worker.poll(should_yield)?;
-        if self.pending.as_ref().is_some_and(|pending| {
-            pending.metadata.request.session != request.session
-                || pending.metadata.request.revision != request.revision
-        }) {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.metadata.request.session != request.session)
+        {
             self.pending = None;
             self.worker.discard();
             return Ok(None);

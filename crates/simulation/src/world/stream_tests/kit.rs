@@ -105,7 +105,7 @@ pub(crate) fn prepare_step_for_views(
     if stream
         .ready
         .as_ref()
-        .is_some_and(|w| !same_request(w.request, stream.request))
+        .is_some_and(|w| !stream.surface_current(w))
         && let Some((request, key)) = surface_claim.take()
     {
         stream.discard_surface_renderer(request, key);
