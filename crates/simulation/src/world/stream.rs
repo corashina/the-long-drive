@@ -255,6 +255,8 @@ pub struct WorldStream {
     cars: Vec<(rapier3d::prelude::RigidBodyHandle, [f64; 3])>,
     /// Bodies whose contents never retire: the seat owner and the last seated car.
     kept: [Option<rapier3d::prelude::RigidBodyHandle>; 2],
+    /// Car chassis made kinematic because the stream does not load their ground.
+    ground_frozen: Vec<rapier3d::prelude::RigidBodyHandle>,
     recovery: Option<PendingRecovery>,
     recovery_search: Option<([f64; 3], bool)>,
     roads: RoadIndex,
@@ -878,6 +880,7 @@ impl WorldStream {
             },
             cars: Vec::new(),
             kept: [None; 2],
+            ground_frozen: Vec::new(),
             recovery: None,
             recovery_search: None,
             roads,
@@ -4728,6 +4731,7 @@ impl WorldStream {
             return Ok(());
         }
         self.retire_contents(physics, items, interaction, wheels, vehicles, powertrain)?;
+        self.stop_cars_without_ground(physics, vehicles);
         let mut index = 0;
         while index < self.structures.len() {
             let id = &self.structures[index].placement.id;

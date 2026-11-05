@@ -1062,6 +1062,43 @@ impl WorldStream {
             .map(|p| crate::world::contents::distance(p, position))
             .fold(f32::INFINITY, f32::min)
     }
+    /// A car whose ground the stream does not load stops in place, as source bodies do. So the
+    /// step never waits for ground that no request loads. The car moves again when its ground
+    /// loads or the player takes it. It covers every car, also cars the content freeze skips.
+    pub(super) fn stop_cars_without_ground(
+        &mut self,
+        physics: &mut PhysicsWorld,
+        vehicles: &std::collections::BTreeMap<ObjectKey, crate::car::VehicleRuntime>,
+    ) {
+        self.ground_frozen
+            .retain(|h| vehicles.keys().any(|key| physics.chassis_handle(key) == *h));
+        for key in vehicles.keys() {
+            let handle = physics.chassis_handle(key);
+            if !physics.body_active(handle) {
+                continue;
+            }
+            let body = &physics.rapier().bodies[handle];
+            let kept = self.kept.contains(&Some(handle));
+            let grounded = self.supports(crate::world::collision_window(
+                self.origin.absolute(body.translation().to_array()),
+            ));
+            let frozen = self.ground_frozen.contains(&handle);
+            if !grounded && !kept && !frozen && body.is_dynamic() {
+                physics.edit_body(handle, |b| {
+                    b.set_body_type(
+                        rapier3d::prelude::RigidBodyType::KinematicPositionBased,
+                        true,
+                    )
+                });
+                self.ground_frozen.push(handle);
+            } else if frozen && (grounded || kept) {
+                physics.edit_body(handle, |b| {
+                    b.set_body_type(rapier3d::prelude::RigidBodyType::Dynamic, true)
+                });
+                self.ground_frozen.retain(|h| *h != handle);
+            }
+        }
+    }
     pub(super) fn retire_contents(
         &mut self,
         physics: &mut PhysicsWorld,
@@ -1190,17 +1227,12 @@ impl WorldStream {
                 .and_then(|id| items.get(id))
                 .is_some_and(|item| item.buried);
             if !departing && (distance < remove * remove || protected) && !removed {
+                // A car that stopped for its ground moves again only when its ground loads.
                 if let Some(body) = body
                     && !protected
+                    && !self.ground_frozen.contains(&body)
                 {
-                    // A car whose ground the stream does not load stops in place, as source
-                    // bodies do. So the step never waits for ground that no request loads.
-                    let grounded = own.is_none()
-                        || self.supports(crate::world::collision_window(
-                            self.origin
-                                .absolute(physics.rapier().bodies[body].translation().to_array()),
-                        ));
-                    let kind = if buried || distance >= freeze * freeze || !grounded {
+                    let kind = if buried || distance >= freeze * freeze {
                         Some(rapier3d::prelude::RigidBodyType::KinematicPositionBased)
                     } else if distance < unfreeze * unfreeze {
                         Some(rapier3d::prelude::RigidBodyType::Dynamic)

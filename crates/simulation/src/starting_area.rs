@@ -2360,7 +2360,7 @@ impl GarageRuntime {
             |bounds| self.stream.supports(bounds) && !self.persistent_world.waits_for(bounds);
         // The stream loads its collision ranges before other work. The step waits for the same
         // areas, so a wait never depends on work that waits for the camera view.
-        // A frozen car does not fall. The stream freezes a car whose ground it does not load.
+        // A frozen car does not fall. The stream stops a car whose ground it does not load.
         self.stream.collision_ranges().into_iter().all(supported)
             && self.vehicles.keys().all(|key| {
                 let position = self.physics.snapshot(key).pose.position;
