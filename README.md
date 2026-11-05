@@ -119,6 +119,8 @@ node tests/bench/fps.mjs compare tests/bench/out/A.json tests/bench/out/B.json
 ```
 
 It opens headed Chrome on the real GPU with a fresh profile, so all settings are defaults.
+Chrome runs without vsync and frame rate limit, so FPS can go above the display rate.
+Each scene prints frame ms of all frames in play: mean, p50, p99 and max. Compare frame ms and p99, not FPS.
 Options: `--seed`, `--scenes garage,road,town`, `--town NAME` (a building name part), `--settle 10`, `--seconds 20`, `--trace`.
 `--trace` writes a Chrome trace of the last scene. Results go to `tests/bench/out/`.
 `draws` is the mean count of WebGPU draws per frame, for all views and shadows. `drawsMax` is the most in one frame.

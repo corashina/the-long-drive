@@ -9,6 +9,8 @@
 //   node tests/bench/fps.mjs compare A.json B.json
 //
 // Run headed on the real GPU. Headless Chrome can take a software adapter: then GPU ms are null.
+// Chrome runs without vsync and frame rate limit, so FPS can go above the display rate.
+// Each scene reports frame ms of all frames in play: mean, p50, p99 and max. Compare frame ms, not FPS.
 // Serve the build on port 4173 first. Nothing else heavy may run on the PC during a run.
 // Output: tests/bench/out/<label>-<time>.json (and a Chrome trace of the last scene with --trace).
 // The bench fails when a scene draws more than the draw budget. The JSON is written first.
@@ -109,7 +111,7 @@ async function worldState(page){
 
 function flatten(snapshot){
  const row={...snapshot};
- delete row.gpuMs;
+ delete row.gpuMs;delete row.lastFrame;delete row.frameIntervals;
  const gpu=snapshot.gpuMs;
  GPU.forEach((name,i)=>{row[name]=gpu?gpu[i]:null;});
  row.gpuSum=gpu?gpu.reduce((a,b)=>a+b,0):null;
@@ -129,6 +131,14 @@ function cpuStages(audit){
   .filter(r=>r.calls>0).sort((a,b)=>b.total_ms-a.total_ms)
   .map(({name,calls,total_ms,mean_ms,max_ms,items})=>({name,calls,totalMs:total_ms,meanMs:mean_ms,maxMs:max_ms,items:items?items/calls:null}));
 }
+
+// Frame ms of every frame in play. FPS comes from the mean frame ms.
+function frameStats(intervals){
+ if(!intervals.length)return null;
+ const meanMs=intervals.reduce((a,b)=>a+b,0)/intervals.length;
+ return {count:intervals.length,fps:1000/meanMs,meanMs,p50Ms:percentile(intervals,0.5),p99Ms:percentile(intervals,0.99),maxMs:Math.max(...intervals)};
+}
+const FRAME_FIELDS=['fps','meanMs','p50Ms','p99Ms','maxMs'];
 
 function summarize(samples){
  const summary={};
@@ -244,18 +254,23 @@ async function runScene(browser,page,name,cycle,o){
  const trace=o.trace&&name===o.scenes.split(',').at(-1);
  const tracePath=trace?OUT+o.label+'-'+name+'-trace.json':null;
  if(trace)await browser.startTracing(page,{path:tracePath});
- const samples=[];
+ // Each read takes the frame ms after the last frame of the previous read. The window holds 2 s of frames.
+ const samples=[],intervals=[];
+ let since=(await page.evaluate(()=>window.gamePerformance())).lastFrame;
  let draws=await page.evaluate(()=>window.benchDraws());
  for(let i=0;i<o.seconds;i++){
   await sleep(1000);
   await checkGame(page);
-  const sample=flatten(await page.evaluate(()=>window.gamePerformance()));
+  const snapshot=await page.evaluate(s=>window.gamePerformance(s),since);
+  since=snapshot.lastFrame??since;
+  const sample=flatten(snapshot);
   // Mean draws per frame in the last second, and the most draws in one frame.
   const now=await page.evaluate(()=>window.benchDraws()),frames=now.frames-draws.frames;
   sample.draws=frames?(now.draws-draws.draws)/frames:null;sample.drawsMax=frames?now.max:null;draws=now;
   const menu=await resumePlay(page);
   sample.menu=menu?.state??null;
   if(sample.menu!=='playing')sample.menuStatus=menu?.status||menu?.error||'';
+  else if(snapshot.frameIntervals)intervals.push(...snapshot.frameIntervals);
   samples.push(sample);
  }
  if(trace)await browser.stopTracing();
@@ -271,12 +286,12 @@ async function runScene(browser,page,name,cycle,o){
  const main=await page.evaluate(()=>window.gameMainCpuAudit());
  await page.evaluate(()=>window.gameCpuProfile(false));
  const state=await worldState(page);
- return {name,moved:replies[0].message,player:state.player,cycle:state.cycle,summary:summarize(playing),menuSamples:samples.length-playing.length,worker:cpuStages(profile.data),main:cpuStages(main),samples,trace:tracePath};
+ return {name,moved:replies[0].message,player:state.player,cycle:state.cycle,frames:frameStats(intervals),summary:summarize(playing),menuSamples:samples.length-playing.length,worker:cpuStages(profile.data),main:cpuStages(main),samples,trace:tracePath};
 }
 
 async function bench(o){
  mkdirSync(OUT,{recursive:true});
- const browser=await chromium.launch({headless:o.headless,channel:o.channel||undefined,args:['--enable-unsafe-webgpu','--enable-webgpu-developer-features']});
+ const browser=await chromium.launch({headless:o.headless,channel:o.channel||undefined,args:['--enable-unsafe-webgpu','--enable-webgpu-developer-features','--disable-gpu-vsync','--disable-frame-rate-limit']});
  const log={errors:[],events:[]},scenes=[];
  let adapter=null,failure=null;
  // A failure still writes the finished scenes, the error and the console errors.
@@ -306,6 +321,8 @@ const show=v=>v===null||v===undefined?'-':Number.isInteger(v)?String(v):v.toFixe
 function print(label,scene){
  console.log(`\n${label} / ${scene.name}: ${scene.moved}`);
  if(scene.menuSamples)console.log(`  ${scene.menuSamples} samples out of play are left out`);
+ const f=scene.frames;
+ if(f)console.log(`  frames ${f.count}: mean ${show(f.meanMs)} ms (${show(f.fps)} fps), p50 ${show(f.p50Ms)}, p99 ${show(f.p99Ms)}, max ${show(f.maxMs)} ms`);
  for(const field of FIELDS){
   const {median,p90}=scene.summary[field]??{};
   console.log(`  ${field.padEnd(15)} median ${show(median).padStart(9)}   p90 ${show(p90).padStart(9)}`);
@@ -326,11 +343,12 @@ function compare(pathA,pathB){
   const other=b.scenes.find(s=>s.name===scene.name);
   if(!other)continue;
   console.log(`\n${scene.name}: ${a.label} -> ${b.label}`);
-  for(const field of FIELDS){
-   const x=scene.summary[field]?.median,y=other.summary[field]?.median;
+  const row=(name,x,y)=>{
    const change=Number.isFinite(x)&&Number.isFinite(y)&&x!==0?((y-x)/x*100).toFixed(1)+' %':'-';
-   console.log(`  ${field.padEnd(15)} ${show(x).padStart(9)} ${show(y).padStart(9)} ${change.padStart(9)}`);
-  }
+   console.log(`  ${name.padEnd(15)} ${show(x).padStart(9)} ${show(y).padStart(9)} ${change.padStart(9)}`);
+  };
+  for(const field of FRAME_FIELDS)row('frame '+field,scene.frames?.[field],other.frames?.[field]);
+  for(const field of FIELDS)row(field,scene.summary[field]?.median,other.summary[field]?.median);
  }
 }
 
