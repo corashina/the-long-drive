@@ -58,6 +58,9 @@ pub struct SimDriver {
     next_hold_report: f64,
     /// The renderer shows the garage.
     pub(crate) ready: bool,
+    /// The renderer reported this world as loading once. Join starts a new world in a running
+    /// page, and the first command still carries the `ready` of the old world.
+    loading_seen: bool,
     delta_seconds: f64,
     /// The browser asked for a world measurement.
     measure: bool,
@@ -110,6 +113,7 @@ impl SimDriver {
             held_seconds: 0.,
             next_hold_report: HOLD_REPORT_AFTER,
             ready: false,
+            loading_seen: false,
             delta_seconds: 0.,
             measure: false,
             failure: None,
@@ -180,7 +184,8 @@ impl SimDriver {
     fn accept_input(&mut self, reference: &ReferenceManifest, command: SimCommand) {
         self.delta_seconds = command.delta_seconds;
         self.listener = command.listener;
-        self.ready = command.ready;
+        self.loading_seen |= !command.ready;
+        self.ready = command.ready && self.loading_seen;
         self.accepted_seq = command.seq;
         self.measure |= command.measure;
         self.world.accept(command.world);
