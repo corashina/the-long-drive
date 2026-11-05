@@ -88,7 +88,6 @@ impl Remote {
             if std::mem::take(&mut self.smoothing.fresh) {
                 collision.update(reference, shapes, self.smoothing.seated, now, physics);
             }
-            collision.tick(now, physics);
             collision.place(physics, to_rapier(pose));
             self.written = shown.position;
         }

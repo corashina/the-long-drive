@@ -13,7 +13,8 @@ fn body_position(run: &GarageRuntime) -> Vector {
 }
 
 /// MP2. The host shares its save (`saveSession.share`), and the guest starts from it. The guest
-/// stands where the host stood, and a seated host puts the guest in the same seat.
+/// save stands where the host stood, and a seated host puts the guest in the same seat. Net then
+/// steps the guest aside (`GarageRuntime::step_aside`).
 #[test]
 #[ignore = "requires the installed source export"]
 fn tp_mp2_the_guest_starts_where_the_host_stood_and_in_its_seat() {
@@ -216,7 +217,8 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
 }
 
 /// MP5 (M01). Source `mpplayerscript`. The figure of the other player turns solid 3 s after it
-/// shows, on layer 0. A ray with the player capsule layers then hits its body at the figure.
+/// shows, on layer 0, but not while it overlaps the player. A ray with the player capsule layers
+/// then hits its body at the figure.
 #[test]
 #[ignore = "requires the installed source export"]
 fn tp_mp5_the_other_figure_turns_solid_after_3_s() {
@@ -245,11 +247,23 @@ fn tp_mp5_the_other_figure_turns_solid_after_3_s() {
     assert!(!body.enabled(), "not solid before 3 s");
     sync(&mut host_run, &mut guest_run, &mut guest, 1.);
     let body = guest.remote_body(0).unwrap();
-    assert!(body.enabled(), "solid after 3 s");
+    assert!(
+        !body.enabled(),
+        "the guest stands on the host spot, so the figure stays open"
+    );
+    let before = body_position(&guest_run);
+    guest_run.step_aside(0.125);
+    assert!(
+        (body_position(&guest_run) - before).length() > 1.,
+        "the guest steps off the host spot"
+    );
+    sync(&mut host_run, &mut guest_run, &mut guest, 0.2);
+    let body = guest.remote_body(0).unwrap();
+    assert!(body.enabled(), "solid once clear");
     let at = body.position(&guest_run.physics);
     let capsule = &reference.player.posture;
     let handle = body.handle;
-    // The guest starts where the host stood, so skip its own body.
+    // Skip the own body.
     let own = guest_run.area.player.body_handle();
     let filter = |_, c: &rapier3d::prelude::Collider| {
         c.is_enabled()
@@ -787,4 +801,31 @@ fn tp_mp_m04c_host_rabbits_appear_on_the_guest() {
         .filter(|r| !before.contains(&r.id) && r.id != id)
         .count();
     assert_eq!(spawned, 0, "the guest spawns no rabbits of its own");
+}
+
+/// A dead player respawns beside the body with new-game needs and stands on foot.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_mp_respawn_brings_the_dead_player_back() {
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    run.survival
+        .damage_instant(&reference.survival, reference.survival.maximum.hp);
+    seconds(&mut run, &reference, 1.);
+    assert!(run.needs_output().dead);
+    assert!(run.area.ragdoll.active(), "the body falls");
+    let died_at = body_position(&run);
+    run.respawn(&reference);
+    assert!(!run.needs_output().dead, "the player lives");
+    assert!(!run.area.ragdoll.active());
+    assert!(
+        (body_position(&run) - died_at).length() < 5.,
+        "beside the body"
+    );
+    seconds(&mut run, &reference, 1.);
+    assert!(!run.needs_output().dead, "the player stays alive");
+    assert!(
+        run.area.player.grounded(),
+        "the player stands on the ground"
+    );
 }

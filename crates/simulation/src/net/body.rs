@@ -2,6 +2,7 @@
 use crate::reference::RemotePlayerReference;
 use crate::vehicle::{PhysicsWorld, set_collider_enabled};
 use rapier3d::math::{Pose, Rotation, Vector};
+use rapier3d::parry::query::intersection_test;
 use rapier3d::prelude::{
     CoefficientCombineRule, ColliderBuilder, ColliderHandle, Group, InteractionGroups,
     InteractionTestMode, RigidBodyBuilder, RigidBodyHandle, RigidBodyType, SharedShape,
@@ -160,11 +161,40 @@ impl RemoteBody {
         self.set_shapes(physics, shapes);
     }
 
-    /// Source `EnableCollidersWithDelay`.
-    pub fn tick(&mut self, now: f64, physics: &mut PhysicsWorld) {
-        if !self.enabled && now >= self.enable_at {
+    /// Source `EnableCollidersWithDelay`. A standing figure waits while it overlaps the body of
+    /// `player`, so a spawn on a player never pushes the player out.
+    pub fn tick(&mut self, now: f64, physics: &mut PhysicsWorld, player: RigidBodyHandle) {
+        if !self.enabled
+            && now >= self.enable_at
+            && (self.seated || !self.overlaps(physics, player))
+        {
             self.set_enabled(physics, true);
         }
+    }
+
+    /// The figure colliders touch an enabled solid collider of `other`.
+    fn overlaps(&self, physics: &PhysicsWorld, other: RigidBodyHandle) -> bool {
+        let rapier = physics.rapier();
+        let (Some(own), Some(other)) = (rapier.bodies.get(self.handle), rapier.bodies.get(other))
+        else {
+            return false;
+        };
+        self.colliders.iter().any(|&a| {
+            let a = &rapier.colliders[a];
+            let pa = *own.position() * a.position_wrt_parent().copied().unwrap_or_default();
+            other.colliders().iter().any(|&b| {
+                let b = &rapier.colliders[b];
+                b.is_enabled()
+                    && !b.is_sensor()
+                    && intersection_test(
+                        &pa,
+                        a.shape(),
+                        &(*other.position() * b.position_wrt_parent().copied().unwrap_or_default()),
+                        b.shape(),
+                    )
+                    .is_ok_and(|hit| hit.intersecting)
+            })
+        })
     }
 
     pub fn enabled(&self) -> bool {
@@ -292,9 +322,10 @@ mod tests {
         let mut physics = PhysicsWorld::empty_for_tests();
         let shapes = Shapes::new(&r, Vector::new(0., 0.65, 0.), 1.);
         let mut body = RemoteBody::new(&r, shapes, Pose::IDENTITY, 10., &mut physics);
-        body.tick(12.9, &mut physics);
+        let player = player_at(&mut physics, 5.);
+        body.tick(12.9, &mut physics, player);
         assert!(!body.enabled());
-        body.tick(13., &mut physics);
+        body.tick(13., &mut physics, player);
         assert!(body.enabled());
         let capsule = body.colliders[0];
         let groups =
@@ -313,9 +344,35 @@ mod tests {
         assert!(!body.enabled());
         assert!(physics.rapier().bodies[body.handle].is_dynamic());
         assert_eq!(groups(&physics).memberships.bits(), 1);
-        body.tick(20.9, &mut physics);
+        body.tick(20.9, &mut physics, player);
         assert!(!body.enabled());
-        body.tick(21., &mut physics);
+        body.tick(21., &mut physics, player);
         assert!(body.enabled());
+    }
+
+    /// A kinematic player capsule at `x`.
+    fn player_at(physics: &mut PhysicsWorld, x: f32) -> RigidBodyHandle {
+        let handle = physics.insert_body(
+            RigidBodyBuilder::kinematic_position_based().translation(Vector::new(x, 0., 0.)),
+        );
+        physics.insert_collider_with_parent(ColliderBuilder::capsule_y(0.5, 0.3).build(), handle);
+        handle
+    }
+
+    #[test]
+    fn colliders_wait_while_the_figure_overlaps_the_player() {
+        let r = reference();
+        let mut physics = PhysicsWorld::empty_for_tests();
+        let shapes = Shapes::new(&r, Vector::new(0., 0.65, 0.), 1.);
+        let mut body = RemoteBody::new(&r, shapes, Pose::IDENTITY, 0., &mut physics);
+        let player = player_at(&mut physics, 0.2);
+        body.tick(10., &mut physics, player);
+        assert!(!body.enabled(), "a figure on the player stays open");
+        body.place(
+            &mut physics,
+            Pose::from_translation(Vector::new(-3., 0., 0.)),
+        );
+        body.tick(10.1, &mut physics, player);
+        assert!(body.enabled(), "a clear figure turns solid");
     }
 }

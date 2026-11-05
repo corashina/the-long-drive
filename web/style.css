@@ -48,8 +48,8 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #death-card p {margin:8px 0 0;color:var(--dust);font-size:17px;line-height:1.35;}
 @keyframes death-in {from {opacity:0;transform:translateY(-10px);}}
 @media (prefers-reduced-motion:reduce) {#death-card {animation:none;}}
-.pause-menu:has(#death-card:not([hidden])) #pause-new-game {border-color:var(--paint);background:var(--paint);color:var(--ink);font-weight:700;}
-.pause-menu:has(#death-card:not([hidden])) #pause-new-game:hover:enabled {background:var(--paint-hi);}
+.pause-menu:has(#death-card:not([hidden])) #pause-respawn,.pause-menu:has(#death-card:not([hidden])):has(#pause-respawn[hidden]) #pause-new-game {border-color:var(--paint);background:var(--paint);color:var(--ink);font-weight:700;}
+.pause-menu:has(#death-card:not([hidden])) #pause-respawn:hover:enabled,.pause-menu:has(#death-card:not([hidden])):has(#pause-respawn[hidden]) #pause-new-game:hover:enabled {background:var(--paint-hi);}
 :is(.pause-menu,.start-primary) button:focus-visible {outline:2px solid var(--bleach);outline-offset:3px;border-color:var(--paint);}
 /* Start menu: the garage car turns on its stage (canvas) in the middle. The buttons sit centered under it. */
 #menu.road-view :is(#menu-art,#menu-frame) {display:none;}
