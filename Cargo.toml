@@ -34,6 +34,9 @@ bevy = { version = "=0.19.1", default-features = false, features = [
     "bevy_light", "bevy_mesh", "bevy_camera", "bevy_color",
     "keyboard", "mouse", "bevy_gltf", "png", "reflect_auto_register", "webgpu",
 ] }
+# Bevy `info!` goes through tracing. Release builds drop info, debug and trace at compile time (V6).
+# The simulation crate sets the same feature on `log`, which wgpu uses.
+tracing = { version = "=0.1.44", default-features = false, features = ["release_max_level_warn"] }
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "=0.4.79"
 # The frame limit wakes the Bevy event loop through its proxy. Same version as bevy_winit.
