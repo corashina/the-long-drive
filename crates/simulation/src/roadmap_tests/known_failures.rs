@@ -704,6 +704,72 @@ fn tp_k13_driving_away_from_the_start_never_stops_the_car() {
     }
 }
 
+/// K15. The player drives a spawned car away along the road at 25 m/s. The start car and the
+/// cars near it stay parked. After about 340 m the terrain under them unloads, and they freeze.
+/// The step never waits for that ground, so the driven car does not stop in place.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k15_cars_parked_at_the_start_never_stop_a_far_car() {
+    use crate::simulation::FIXED_DT;
+    const SPEED: f64 = 25.;
+    let (reference, mut run) = outdoors();
+    let parked: Vec<_> = run.vehicles.keys().cloned().collect();
+    act(
+        &mut run,
+        &reference,
+        r#"{"action":"spawn","name":"Car01Full","forward":8}"#,
+    );
+    let mut key = None;
+    for _ in 0..500 {
+        key = run.vehicles.keys().find(|k| !parked.contains(k)).cloned();
+        if key.is_some() {
+            break;
+        }
+        frame(&mut run, &reference);
+    }
+    let key = key.expect("the spawned car loads");
+    let car = run.physics.snapshot(&key).pose;
+    stand_near(&mut run, &reference, car.position, 2.);
+    act(&mut run, &reference, r#"{"action":"seat","seat":"driver"}"#);
+    frame(&mut run, &reference);
+    assert_eq!(
+        run.vehicle.as_ref(),
+        Some(&key),
+        "the player sits in the spawned car"
+    );
+    let start = reference.area.player_spawn.translation[2] as f64 - 40.;
+    let (mut travelled, mut held) = (0., 0);
+    while travelled < 1000. {
+        if run.world_supported() {
+            held = 0;
+            travelled += SPEED * f64::from(FIXED_DT);
+            let point = run
+                .stream
+                .road_surface_points()
+                .find(|p| p[2] <= start - travelled)
+                .expect("the road reaches the car");
+            let mut position = run.stream.origin.local(point);
+            position[1] += 1.;
+            run.physics.reset_preserving_wheels(
+                &key,
+                crate::vehicle::VehiclePose {
+                    position,
+                    rotation: car.rotation,
+                },
+            );
+            run.physics.refresh_queries();
+        } else {
+            held += 1;
+            assert!(
+                held < 50,
+                "the step holds at {travelled:.0} m: {}",
+                run.hold_report()
+            );
+        }
+        frame(&mut run, &reference);
+    }
+}
+
 /// K14. The start car rolls forward. Its dashboard is a mounted gauge part with content poses.
 /// The speed needle turns, and the last pose row of each needle and digit is its gauge rotation.
 #[test]
