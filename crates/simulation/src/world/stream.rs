@@ -4312,22 +4312,23 @@ impl WorldStream {
         request.session == self.request.session && self.wanted_structures.contains(id)
     }
     /// The renderer finished the structure. Its drained claim and credit move to the ready queue.
+    /// The renderer reads an older frame, so the stream can drop the structure first. Then the
+    /// claim ends here, and the renderer retires the instance when its frame shows the drop.
     fn accept_structure_renderer(
         &mut self,
         request: WorldRequest,
         id: &super::GeneratedId,
     ) -> Result<(), ReferenceError> {
-        if !self.structure_wanted(request, id)
-            || self.ready_structures.contains(id)
-            || self.ready_structures.len() >= 32
-        {
-            return Err(ReferenceError(
-                "Stale or live structure renderer claim".into(),
-            ));
+        let wanted = self.structure_wanted(request, id);
+        if wanted && (self.ready_structures.contains(id) || self.ready_structures.len() >= 32) {
+            return Err(ReferenceError("Live structure renderer claim".into()));
         }
         // The claim credit moves to the ready queue in one step.
         if !self.ledger.take_claim() {
             return Err(ReferenceError("Missing instance renderer claim".into()));
+        }
+        if !wanted {
+            return Ok(());
         }
         self.ready_structures.push(id.clone());
         debug_assert!(self.pending_work() <= 32);
