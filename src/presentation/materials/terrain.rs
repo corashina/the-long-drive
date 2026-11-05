@@ -30,7 +30,8 @@ const SLOTS: [&str; 12] = [
 ];
 #[derive(Clone, Copy, Debug, ShaderType)]
 pub struct TerrainUniform {
-    pub displacement: Vec4,
+    /// x: source `_VertexColor`.
+    pub vertex_color: Vec4,
     pub renderer: UVec4,
     pub texcoord: Vec4,
     pub scale_slope: Vec4,
@@ -57,6 +58,7 @@ impl TerrainMaterial {
         textures: &WorldTextures,
         mask: u32,
         receive_shadows: bool,
+        tier: usize,
     ) -> Result<Self, ReferenceError> {
         if record.shader.name != "TerrainBiome" {
             return Err(ReferenceError("Expected TerrainBiome source shader".into()));
@@ -138,13 +140,9 @@ impl TerrainMaterial {
                         .get("_texcoord")
                         .ok_or_else(|| ReferenceError("Missing source _texcoord_ST".into()))?,
                 ),
-                renderer: UVec4::new(receive_shadows as u32, 0, 0, 0),
-                displacement: Vec4::new(
-                    number("_FarDist")?,
-                    number("_NearDist")?,
-                    number("_Amount")?,
-                    number("_VertexColor")?,
-                ),
+                // y: the tier. A distant tier skips the drawn tiles of the finer tier.
+                renderer: UVec4::new(receive_shadows as u32, tier as u32, 0, 0),
+                vertex_color: Vec4::new(number("_VertexColor")?, 0., 0., 0.),
                 scale_slope: Vec4::new(
                     number("_MainScale")?,
                     number("_LocalScaling")?,
@@ -243,6 +241,7 @@ impl AsBindGroup for TerrainMaterial {
     type Param = (
         <SourceReceiver as AsBindGroup>::Param,
         SRes<RenderAssets<GpuImage>>,
+        SRes<super::terrain_coverage::TerrainCoverageGpu>,
     );
     fn label() -> &'static str {
         "source TerrainBiome"
@@ -292,6 +291,10 @@ impl AsBindGroup for TerrainMaterial {
             })),
         ));
         super::world_textures::bind_arrays(&mut result, &self.arrays, &params.1)?;
+        result
+            .bindings
+            .0
+            .push((11, OwnedBindingResource::Buffer(params.2.0.clone())));
         self.uploaded.lock().unwrap().extend(
             self.arrays[..self.array_count as usize]
                 .iter()
@@ -317,6 +320,7 @@ impl AsBindGroup for TerrainMaterial {
                     sampler(SamplerBindingType::Filtering),
                     texture_2d_array(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
+                    uniform_buffer::<super::terrain_coverage::TerrainCoverageUniform>(false),
                 ),
             )
             .to_vec(),

@@ -2,6 +2,7 @@ import {createSaveScreen} from './save-screen.js';
 import {createSettingsScreen} from './settings-screen.js';
 import {createControlsScreen} from './controls-screen.js';
 import {canLoadLast} from './save-session.js';
+import {AUTOSAVE} from './save-storage.js';
 export const ACTIONS={PAUSE:2,CONTINUE:4,RECOVER:16};
 const pendingText={save:'Saving…',load:'Loading…',loadLast:'Loading…',remove:'Deleting…',newGame:'Starting a new game…'};
 // Result texts confirm a menu action. They clear when play continues.
@@ -49,7 +50,7 @@ export class MenuState {
  }
 }
 export async function captureWithAudio(model,action,request,audio){const success=await model.capture(action,request,()=>audio?.unlock());if(!success)audio?.pause();return success;}
-export function createMenu({canvas,language,ui,clearInput,queueAction,saveSession,buildId,thumbnail=()=>null,sleeping=()=>false,seated=()=>false,guest=()=>false,slider,audio,bindings,defaultAssists,onPause,onNewGame,reloadNewGame=()=>false,autoNewGame=false,appearance,settings,resets}) {
+export function createMenu({canvas,language,ui,clearInput,queueAction,saveSession,buildId,thumbnail=()=>null,sleeping=()=>false,seated=()=>false,guest=()=>false,online=()=>false,worldDrawDistance=()=>NaN,slider,audio,bindings,defaultAssists,onPause,onNewGame,reloadNewGame=()=>false,autoNewGame=false,appearance,settings,resets}) {
  const model=new MenuState(),menu=document.querySelector('#menu'),settingsNode=document.querySelector('#settings-screen'),gameMode=document.querySelector('#game-mode-screen'),savesNode=document.querySelector('#save-screen'),appearanceNode=document.querySelector('#appearance-screen'),multiplayerNode=document.querySelector('#multiplayer-screen'),startLast=document.querySelector('#start-load-last');
  const initial=document.querySelector('#start-actions'),paused=document.querySelector('#pause-actions'),error=document.querySelector('#capture-error'),status=document.querySelector('#status'),distance=document.querySelector('#session-distance'),distanceLabel=document.querySelector('#session-distance-label'),distanceValue=document.querySelector('#session-distance-value');
  const art=document.querySelector('#menu-art'),frame=document.querySelector('#menu-frame'),hud=document.querySelector('#hud');
@@ -71,6 +72,8 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  // Source `tabControls` reset: the assist toggles take their defaults.
  const assistReset=()=>{clutch.checked=defaultAssists.automatic_clutch;gears.checked=defaultAssists.automatic_gears;requestDriving();};
  settings.listen(()=>{if(model.state==='saves')paint();});
+ const applyDistance=document.querySelector('#draw-distance-apply');
+ const canApply=()=>model.started&&model.readyFlag&&!model.pending&&!model.dead&&!online()&&model.state==='settings'&&model.origin==='pause-menu';
  const settingsScreen=createSettingsScreen(settingsNode,settings,language,()=>!model.started,{...resets,controls:[assistReset,...resets.controls??[]]});
  const controlsScreen=createControlsScreen(document.querySelector('#key-bindings'),document.querySelector('#key-bindings-reset'),settings,language,bindings);
  language.listen(()=>{lastTravel=-1;});
@@ -81,7 +84,8 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
   // Port choice: the start menu shows the road ahead, not the source figure and art.
   menu.classList.toggle('road-view',!model.started&&ROAD_STATES.includes(state));
   clutch.disabled=model.pending;gears.disabled=model.pending||!clutch.checked;
-  slider.lock(model.pending||model.started||!(state==='start-menu'||state==='settings'&&model.origin==='start-menu'));
+  slider.lock(model.pending||(model.started?!canApply():!(state==='start-menu'||state==='settings'&&model.origin==='start-menu')));
+  applyDistance.hidden=!canApply()||slider.value()===worldDrawDistance();
   if(state==='settings')settingsScreen.paint();else controlsScreen.cancel();
   for(const selector of actionNodes)document.querySelector(selector).disabled=!model.readyFlag||model.pending;
   document.querySelector('#recover').disabled ||= model.dead;
@@ -120,6 +124,17 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  let windowed=false;
  async function capture(){clearInput();const pending=captureWithAudio(model,ACTIONS.CONTINUE,async()=>{canvas.focus();const lock=canvas.requestPointerLock();if(!windowed&&!document.fullscreenElement&&document.fullscreenEnabled)document.querySelector('main').requestFullscreen().catch(()=>{});await lock;if(document.pointerLockElement!==canvas)throw Error('The browser did not capture the mouse.');},audio);paint();const success=await pending;if(!success && document.pointerLockElement===canvas)document.exitPointerLock();flush();paint();}
  document.querySelector('#new-game').addEventListener('click',()=>operate('newGame'));
+ // Port choice: source `onlyFromMainMenu` locks the draw distance in a game. Here Apply saves the
+ // game to the autosave and loads it again with the new distance, as a return to the main menu would.
+ document.querySelector('#draw-distance').addEventListener('input',paint);
+ applyDistance.addEventListener('click',async()=>{
+  if(!canApply())return;
+  model.back();
+  await operate('save',AUTOSAVE,thumbnail());
+  if(model.error||model.state!=='pause-menu')return;
+  slider.pend();
+  await operate('load',AUTOSAVE);
+ });
  document.querySelector('#pause-new-game').addEventListener('click',()=>operate('newGame'));
  for(const id of ['#save','#load','#start-load'])document.querySelector(id).addEventListener('click',openSaves);
  startLast.addEventListener('click',()=>operate('loadLast',buildId));

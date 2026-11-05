@@ -74,6 +74,11 @@ mod gpu_props_tests;
 #[path = "presentation/upload_budget.rs"]
 mod upload_budget_tests;
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "presentation/materials/terrain_coverage.rs"]
+#[allow(dead_code)]
+mod terrain_coverage_tests;
+
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "presentation/world/grass_worker.rs"]
 pub mod grass_worker;

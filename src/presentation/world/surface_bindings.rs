@@ -191,6 +191,7 @@ impl SourceWorldVisuals {
                 &cache.world_textures,
                 1u32 << layer,
                 receive,
+                tier,
             )?);
             terrain.get_mut(&material).unwrap().preparation = cache.preparation.clone();
             self.bind_terrain(tier, material, layer, shadow_mode);
