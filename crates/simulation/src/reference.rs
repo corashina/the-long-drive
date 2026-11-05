@@ -48,7 +48,7 @@ pub use rendering::*;
 
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt,
 };
 
