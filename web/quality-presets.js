@@ -14,9 +14,11 @@ export const PRESETS={
 const CUSTOM='custom';
 // Integrated GPU vendors of `GPUAdapterInfo`. Intel Arc architectures (`gen-12hp`, `xe-hpg`, `xe2-hpg`) are discrete.
 const INTEGRATED=new Set(['intel','apple','qualcomm','arm','imagination']);
-// The first preset of this GPU: Low on a software adapter, Medium on an integrated GPU, else High.
-export function firstQuality(info){
- if(info.isFallbackAdapter)return 'low';
+// The first preset of this device. `info` is the `GPUAdapterInfo`. `device` is `navigator`.
+// Low on a software adapter, 4 GB memory or less, or 4 logical cores or less. Medium on an integrated GPU, else High.
+// Firefox and Safari have no `deviceMemory`, so only the core count applies there.
+export function firstQuality(info,device){
+ if(info.isFallbackAdapter||device.deviceMemory<=4||device.hardwareConcurrency<=4)return 'low';
  if(INTEGRATED.has(info.vendor)&&!info.architecture.includes('hp'))return 'medium';
  return 'high';
 }
