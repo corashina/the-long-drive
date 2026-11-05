@@ -651,13 +651,19 @@ impl SourceInstances {
                         for &joint in asset.joints.iter().flatten() {
                             dynamic[joint] = true;
                         }
+                        let mut bodies = vec![false; count];
+                        for body in &prototype.bodies {
+                            let node = prototype.nodes[body.node as usize].gltf_node as usize;
+                            bodies[node] = true;
+                            dynamic[node] = true;
+                        }
                         let children = loaded
                             .plan
                             .nodes
                             .iter()
                             .map(|n| n.children.as_slice())
                             .collect::<Vec<_>>();
-                        Ok(NodePlan::new(&children, sources, dynamic))
+                        Ok(NodePlan::new(&children, sources, dynamic, bodies))
                     },
                 )?;
                 if let (Some(loaded), Some(lods), Some(node_plan)) = (
