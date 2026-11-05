@@ -18,22 +18,13 @@ const RAY_LENGTH: f32 = 4.;
 impl GarageRuntime {
     /// A guest starts from the host save at the host spot. It moves to a free spot on a ring
     /// around that spot, from `turn` (0 to 1) of a full circle, so each slot takes its own spot.
-    /// A guest in the host seat stands beside the car.
+    /// A seated guest stays in its seat, as in the source: a seated figure pushes nobody.
     pub fn step_aside(&mut self, turn: f32) {
-        if self.needs_output().dead {
+        if self.needs_output().dead || self.area.player.seated() {
             return;
         }
         let base = to_rapier(self.area.player.body_pose(&self.physics));
         let base = Pose::from_parts(base.translation, yaw_only(base.rotation));
-        if self.area.player.seated() {
-            self.area
-                .interaction
-                .drop_held(&mut self.area.items, &mut self.physics);
-            if self.area.player.try_exit(&mut self.physics) {
-                self.after_move();
-                return;
-            }
-        }
         if let Some(pose) = self.free_spot(base, turn) {
             self.area
                 .interaction

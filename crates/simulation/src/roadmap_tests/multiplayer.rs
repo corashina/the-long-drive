@@ -14,7 +14,7 @@ fn body_position(run: &GarageRuntime) -> Vector {
 
 /// MP2. The host shares its save (`saveSession.share`), and the guest starts from it. The guest
 /// save stands where the host stood, and a seated host puts the guest in the same seat. Net then
-/// steps the guest aside (`GarageRuntime::step_aside`).
+/// steps a walking guest aside (`GarageRuntime::step_aside`).
 #[test]
 #[ignore = "requires the installed source export"]
 fn tp_mp2_the_guest_starts_where_the_host_stood_and_in_its_seat() {
@@ -217,7 +217,8 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
 }
 
 /// MP5 (M01). Source `mpplayerscript`. The figure of the other player turns solid 3 s after it
-/// shows, on layer 0, but not while it overlaps the player. A ray with the player capsule layers
+/// shows, on layer 0, but not while it overlaps the player. The guest steps off the host spot
+/// first. A ray with the player capsule layers
 /// then hits its body at the figure.
 #[test]
 #[ignore = "requires the installed source export"]
@@ -246,20 +247,17 @@ fn tp_mp5_the_other_figure_turns_solid_after_3_s() {
     let body = guest.remote_body(0).expect("the host figure has a body");
     assert!(!body.enabled(), "not solid before 3 s");
     sync(&mut host_run, &mut guest_run, &mut guest, 1.);
-    let body = guest.remote_body(0).unwrap();
+    // The loaded origin is at the player, so compare absolute positions.
+    let absolute = |run: &GarageRuntime| {
+        let p = run.stream.origin.absolute(body_position(run).to_array());
+        Vector::new(p[0] as f32, p[1] as f32, p[2] as f32)
+    };
     assert!(
-        !body.enabled(),
-        "the guest stands on the host spot, so the figure stays open"
+        (absolute(&guest_run) - absolute(&host_run)).length() > 1.,
+        "the guest stepped off the host spot"
     );
-    let before = body_position(&guest_run);
-    guest_run.step_aside(0.125);
-    assert!(
-        (body_position(&guest_run) - before).length() > 1.,
-        "the guest steps off the host spot"
-    );
-    sync(&mut host_run, &mut guest_run, &mut guest, 0.2);
     let body = guest.remote_body(0).unwrap();
-    assert!(body.enabled(), "solid once clear");
+    assert!(body.enabled(), "solid after 3 s");
     let at = body.position(&guest_run.physics);
     let capsule = &reference.player.posture;
     let handle = body.handle;
