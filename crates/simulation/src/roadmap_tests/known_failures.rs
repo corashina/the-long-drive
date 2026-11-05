@@ -519,6 +519,84 @@ fn tp_k10_a_seated_player_uses_the_van_cabin_controls() {
         run.aim.use_target.map(|t| t.item)
     };
     let before = run.vehicles[&key].handbrake;
+    {
+        // K10 DIAGNOSTIC (temporary).
+        use rapier3d::math::Vector as V;
+        let describe = |run: &GarageRuntime, id: crate::reference::ItemId| {
+            let m = &run.area.interaction.mechanisms;
+            let item = run.area.items.get(id);
+            let body = item.and_then(|i| i.body);
+            format!(
+                "{id:?}: label {:?} node {:?} location {:?} pose {:?} vehicle {:?}",
+                m.turn_label(id),
+                m.item_node(id),
+                item.map(|i| i.location),
+                item.map(|i| i.pose.position),
+                body.and_then(|b| run.physics.vehicle_of(b)),
+            )
+        };
+        eprintln!("K10 seated in {key:?}, handbrake {}", describe(&run, handbrake));
+        eprintln!("K10 lights {}", describe(&run, lights));
+        eprintln!("K10 item 268 {}", describe(&run, crate::reference::ItemId(268)));
+        for (k, v) in &run.vehicles {
+            eprintln!(
+                "K10 vehicle {k:?} handbrake {:?} light {:?}",
+                v.handbrake_switch, v.light_switch
+            );
+        }
+        let ids: Vec<_> = run.area.items.iter().map(|i| i.id).collect();
+        for id in ids {
+            if run.area.interaction.mechanisms.turn_label(id).is_some() {
+                eprintln!("K10 turnable {}", describe(&run, id));
+            }
+        }
+        let body = run.area.items.get(handbrake).and_then(|s| s.body).unwrap();
+        let mut target = None;
+        for (h, c) in run.physics.rapier().colliders.iter() {
+            if c.parent() == Some(body) {
+                let owner = run.area.interaction.use_owner(h);
+                eprintln!(
+                    "K10 handbrake body collider {h:?} owner {owner:?} aabb {:?} sensor {} groups {:b}",
+                    c.compute_aabb(),
+                    c.is_sensor(),
+                    c.collision_groups().memberships.bits()
+                );
+                if owner == Some(handbrake) {
+                    target = Some(c.compute_aabb().center());
+                }
+            }
+        }
+        let target = target.expect("a handbrake use collider");
+        let camera = V::from_array(run.area.player.view(&run.physics).camera_pose.position);
+        run.area.player.look_at(target.to_array(), &run.physics);
+        eprintln!("K10 look {:?}", run.area.player.look(&run.physics));
+        let view = run.area.player.view(&run.physics);
+        let eye = V::from_array(view.head_pose.position);
+        let dir = rapier3d::math::Rotation::from_array(view.head_pose.rotation) * -V::Z;
+        eprintln!(
+            "K10 target {target:?} camera {camera:?} head {eye:?} wanted dir {:?} head dir {dir:?}",
+            (target - camera).normalize()
+        );
+        for (label, dir) in [("head", dir), ("direct", (target - eye).normalize())] {
+            let ray = rapier3d::parry::query::Ray::new(eye, dir);
+            for (h, c, hit) in run
+                .physics
+                .queries(rapier3d::pipeline::QueryFilter::default())
+                .intersect_ray(ray, 3.0, true)
+            {
+                eprintln!(
+                    "K10 {label} hit {h:?} toi {} owner {:?} parent {:?} vehicle {:?} sensor {} groups {:b} enabled {}",
+                    hit.time_of_impact,
+                    run.area.interaction.use_owner(h),
+                    c.parent(),
+                    c.parent().and_then(|b| run.physics.vehicle_of(b)),
+                    c.is_sensor(),
+                    c.collision_groups().memberships.bits(),
+                    c.is_enabled()
+                );
+            }
+        }
+    }
     assert_eq!(
         look(&mut run, handbrake),
         Some(handbrake),
@@ -896,4 +974,29 @@ fn the_start_car_wheels_stay_on_the_driving_body() {
         wheels += 1;
     }
     assert!(wheels >= 4, "the start car has its wheels");
+}
+
+/// DIAGNOSTIC (temporary). The sandbox `garage` action puts the player back on the garage floor.
+#[test]
+#[ignore = "requires the installed source export"]
+fn diag_garage_action_stands_on_the_floor() {
+    let (reference, mut run) = outdoors();
+    let pose = |run: &GarageRuntime| {
+        run.stream
+            .origin
+            .absolute(run.area.player.body_pose(&run.physics).position)
+    };
+    eprintln!("GARAGE outdoors at {:?}", pose(&run));
+    act(&mut run, &reference, r#"{"action":"garage"}"#);
+    let placed = pose(&run);
+    eprintln!("GARAGE placed at {placed:?}");
+    wait_loaded(&mut run, &reference);
+    seconds(&mut run, &reference, 2.);
+    let after = pose(&run);
+    eprintln!(
+        "GARAGE after 2 s at {after:?} grounded {}",
+        run.area.player.grounded()
+    );
+    assert!(run.area.player.grounded(), "the player stands");
+    assert!((after[1] - placed[1]).abs() < 1.5, "the player does not fall");
 }

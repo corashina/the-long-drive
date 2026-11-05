@@ -26,7 +26,7 @@ const NAME_LIST: usize = 30;
 enum Action {
     /// Moves the player on foot to the ground at absolute `x`, `z`.
     Teleport { x: f64, z: f64 },
-    /// Moves the player to the start spawn. Held cars go back to their pose before the first move.
+    /// Moves the player to the aligned start spawn. Held cars go back to their pose before the first move.
     Garage,
     /// Moves the player on foot to the road surface `distance` metres along the road from the
     /// start spawn. The player looks along the road.
@@ -170,7 +170,15 @@ fn apply(
             ))
         }
         Action::Garage => {
-            let spawn = reference.area.player_spawn.translation.map(f64::from);
+            // The start spawn moves with the startup terrain offset, as at the new game start.
+            let offset = runtime
+                .stream
+                .frame()
+                .startup
+                .ok_or("The garage is not aligned yet.")?
+                .player_offset;
+            let mut spawn = reference.area.player_spawn.translation.map(f64::from);
+            spawn[1] += f64::from(offset);
             place_player(runtime, homes, spawn, false)?;
             Ok(("Moved to the start spawn.".into(), Value::Null))
         }
