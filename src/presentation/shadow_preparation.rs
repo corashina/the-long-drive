@@ -21,7 +21,3 @@ pub(crate) struct CollectorKey {
     pub atlas_size: u32,
     pub filter: u32,
 }
-/// Compare shader values by bits. Signed zero must not hide an input change.
-pub(crate) fn same_floats(a: impl Iterator<Item = f32>, b: impl Iterator<Item = f32>) -> bool {
-    a.map(f32::to_bits).eq(b.map(f32::to_bits))
-}

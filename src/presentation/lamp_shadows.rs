@@ -9,7 +9,6 @@ use crate::reference::LightKind;
 use crate::reference::lamp_shadows::{LAMP_BIT, LAMP_SLOTS, LampSphere, assign_slots};
 use bevy::render::extract_resource::ExtractResource;
 use bevy::render::render_resource::{ShaderType, encase};
-use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::{ecs as bevy_ecs, prelude::*, render as bevy_render};
 
 /// Texels for a source bias of 1. The sun cascades scale their normal bias the same way.
@@ -228,15 +227,13 @@ pub(crate) fn write_casters(
         &super::surface_views::SourceSurfaceView,
         &mut super::caster::CasterViews,
     )>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
 ) {
     // Only the world view has caster slots.
     for (view, mut slots) in &mut views {
         for slot in 0..LAMP_SLOTS {
             for face in 0..lamps.faces(slot) {
                 let value = lamps.caster(slot, face, player_dist(view.index));
-                slots.write(4 + slot * 6 + face, value, &device, &queue);
+                slots.write(4 + slot * 6 + face, value);
             }
         }
     }
@@ -247,9 +244,13 @@ pub fn install(app: &mut App) {
     use bevy::render::{Render, RenderApp, RenderSystems};
     app.sub_app_mut(RenderApp).add_systems(
         Render,
-        write_casters
-            .in_set(RenderSystems::PrepareResources)
-            .after(super::caster::prepare_views),
+        (
+            write_casters.after(super::caster::prepare_views),
+            super::caster::upload
+                .after(write_casters)
+                .after(super::shadow_queue::write_cascades),
+        )
+            .in_set(RenderSystems::PrepareResources),
     );
     app.init_resource::<LampShadows>()
         .add_plugins(bevy::render::extract_resource::ExtractResourcePlugin::<

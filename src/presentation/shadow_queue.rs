@@ -26,7 +26,6 @@ use bevy::render::{
     render_asset::RenderAssets,
     render_phase::*,
     render_resource::*,
-    renderer::{RenderDevice, RenderQueue},
     sync_world::{MainEntity, MainEntityHashMap},
     view::{ExtractedView, RetainedViewEntity},
 };
@@ -471,8 +470,6 @@ pub fn write_cascades(
         &mut CasterViews,
         &super::shadow_atlas::ShadowCadence,
     )>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
 ) {
     if scene.frame == 0 || scene.frame != frame.frame {
         return;
@@ -527,8 +524,6 @@ pub fn write_cascades(
                         super::surface_views::player_dist(view.index),
                     ),
                 },
-                &device,
-                &queue,
             );
         }
     }

@@ -1,5 +1,7 @@
 //! Persistent source directional-shadow caster state.
-use super::{readiness::RendererStateHandle, render_targets::SHADOW_FORMAT};
+use super::{
+    readiness::RendererStateHandle, render_targets::SHADOW_FORMAT, uniform_slots::UniformSlots,
+};
 use bevy::ecs as bevy_ecs;
 use bevy::prelude::*;
 use bevy::render::{
@@ -31,79 +33,63 @@ pub fn caster_layout() -> BindGroupLayoutDescriptor {
         ),
     )
 }
-struct CasterBinding {
-    uniform: UniformBuffer<CasterUniform>,
-    binding: BindGroup,
-}
 /// Slots 0..3 are the four source cascades. Then 6 faces for each lamp slot. Only the world view uses them.
 /// Each world view owns this component. Queued views never overwrite another view's state.
+/// All slots share one buffer, so one write uploads the frame's changes.
 #[derive(Component)]
 pub struct CasterViews {
-    slots: [CasterBinding; super::lamp_shadows::TILES],
+    uniforms: UniformSlots<CasterUniform>,
+    bindings: [BindGroup; super::lamp_shadows::TILES],
     pub(crate) shadow_key: Option<super::shadow_preparation::CascadeKey>,
 }
 impl CasterViews {
     pub fn new(
         device: &RenderDevice,
-        queue: &RenderQueue,
         cache: &PipelineCache,
         dither: &TextureView,
         sampler: &Sampler,
     ) -> Self {
-        let slots = std::array::from_fn(|_| {
-            let mut uniform = UniformBuffer::from(CasterUniform {
-                clip_from_world: Mat4::IDENTITY,
-                direction_to_light: Vec4::Y,
-                bias: Vec4::ZERO,
-                view_from_world: Mat4::IDENTITY,
-                world_from_view: Mat4::IDENTITY,
-                clip_from_view: Mat4::IDENTITY,
-            });
-            uniform.set_label(Some("source_caster_uniform"));
-            uniform.write_buffer(device, queue);
-            let binding = device.create_bind_group(
-                "source_caster_view",
-                &cache.get_bind_group_layout(&caster_layout()),
-                &BindGroupEntries::sequential((uniform.binding().unwrap(), dither, sampler)),
+        let mut uniforms =
+            UniformSlots::new(device, "source_caster_uniform", super::lamp_shadows::TILES);
+        for slot in 0..super::lamp_shadows::TILES {
+            uniforms.set(
+                slot,
+                &CasterUniform {
+                    clip_from_world: Mat4::IDENTITY,
+                    direction_to_light: Vec4::Y,
+                    bias: Vec4::ZERO,
+                    view_from_world: Mat4::IDENTITY,
+                    world_from_view: Mat4::IDENTITY,
+                    clip_from_view: Mat4::IDENTITY,
+                },
             );
-            CasterBinding { uniform, binding }
+        }
+        let layout = cache.get_bind_group_layout(&caster_layout());
+        let bindings = std::array::from_fn(|slot| {
+            device.create_bind_group(
+                "source_caster_view",
+                &layout,
+                &BindGroupEntries::sequential((uniforms.binding(slot), dither, sampler)),
+            )
         });
         Self {
-            slots,
+            uniforms,
+            bindings,
             shadow_key: None,
         }
     }
-    pub fn write(
-        &mut self,
-        index: usize,
-        value: CasterUniform,
-        device: &RenderDevice,
-        queue: &RenderQueue,
-    ) {
-        let words = |v: &CasterUniform| {
-            v.clip_from_world
-                .to_cols_array()
-                .into_iter()
-                .chain(v.direction_to_light.to_array())
-                .chain(v.bias.to_array())
-                .chain(v.view_from_world.to_cols_array())
-                .chain(v.world_from_view.to_cols_array())
-                .chain(v.clip_from_view.to_cols_array())
-        };
-        if super::shadow_preparation::same_floats(
-            words(self.slots[index].uniform.get()),
-            words(&value),
-        ) {
-            return;
-        }
-        self.slots[index].uniform.set(value);
-        self.slots[index].uniform.write_buffer(device, queue);
-    }
-    pub fn uniform(&self, index: usize) -> &CasterUniform {
-        self.slots[index].uniform.get()
+    /// Stage one slot. `upload` sends the staged slots.
+    pub fn write(&mut self, index: usize, value: CasterUniform) {
+        self.uniforms.set(index, &value);
     }
     pub fn binding(&self, index: usize) -> &BindGroup {
-        &self.slots[index].binding
+        &self.bindings[index]
+    }
+}
+/// One write for each world view after the cascade and lamp face writes.
+pub(crate) fn upload(mut views: Query<&mut CasterViews>, queue: Res<RenderQueue>) {
+    for mut slots in &mut views {
+        slots.uniforms.upload(&queue);
     }
 }
 #[derive(Resource, Default)]
@@ -345,7 +331,6 @@ pub(crate) fn prepare_views(
     images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
     views: Query<(Entity, &super::surface_views::SourceSurfaceView), Without<CasterViews>>,
     device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     status: Res<RendererStateHandle>,
 ) {
@@ -364,7 +349,6 @@ pub(crate) fn prepare_views(
         }
         commands.entity(entity).insert(CasterViews::new(
             &device,
-            &queue,
             &cache,
             &dither.texture_view,
             &dither.sampler,

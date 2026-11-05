@@ -21,7 +21,7 @@ use bevy::render::{
         SetItemPipeline, TrackedRenderPass,
     },
     render_resource::{binding_types::*, *},
-    renderer::{RenderDevice, RenderQueue},
+    renderer::RenderDevice,
 };
 use std::{
     any::TypeId,
@@ -75,10 +75,9 @@ pub fn surface_lighting_layout() -> BindGroupLayoutDescriptor {
     )
 }
 
-/// One immutable bind group and one stable buffer allocation for each queued view.
+/// One bind group for each queued view. Its uniform is the view's slot in `SurfaceResources`.
 #[derive(Component)]
 pub struct SourceViewLighting {
-    uniform: UniformBuffer<LightingUniform>,
     bind_group: BindGroup,
     /// Generation of the object buffer in the bind group.
     objects: u32,
@@ -89,23 +88,18 @@ pub struct SourceViewLighting {
 impl SourceViewLighting {
     pub fn new(
         device: &RenderDevice,
-        queue: &RenderQueue,
         cache: &PipelineCache,
-        value: LightingUniform,
+        uniform: BindingResource,
         cookie: (&TextureView, &Sampler),
         probe: (&TextureView, &Sampler),
         shadow: (&TextureView, &Sampler),
         lamp_atlas: &TextureView,
         objects: &super::object_lighting::ObjectLightingGpu,
     ) -> Self {
-        let mut uniform = UniformBuffer::from(value);
-        uniform.set_label(Some("source_view_lighting_uniform"));
-        uniform.write_buffer(device, queue);
         let bind_group = Self::bind(
-            device, cache, &uniform, cookie, probe, shadow, lamp_atlas, objects,
+            device, cache, uniform, cookie, probe, shadow, lamp_atlas, objects,
         );
         Self {
-            uniform,
             bind_group,
             objects: objects.generation,
             draw_epoch: AtomicU32::new(0),
@@ -117,7 +111,7 @@ impl SourceViewLighting {
     fn bind(
         device: &RenderDevice,
         cache: &PipelineCache,
-        uniform: &UniformBuffer<LightingUniform>,
+        uniform: BindingResource,
         cookie: (&TextureView, &Sampler),
         probe: (&TextureView, &Sampler),
         shadow: (&TextureView, &Sampler),
@@ -128,7 +122,7 @@ impl SourceViewLighting {
             "source_view_lighting",
             &cache.get_bind_group_layout(&surface_lighting_layout()),
             &BindGroupEntries::sequential((
-                uniform.binding().expect("allocated source view uniform"),
+                uniform,
                 cookie.0,
                 cookie.1,
                 probe.0,
@@ -145,6 +139,7 @@ impl SourceViewLighting {
         &mut self,
         device: &RenderDevice,
         cache: &PipelineCache,
+        uniform: BindingResource,
         cookie: (&TextureView, &Sampler),
         probe: (&TextureView, &Sampler),
         shadow: (&TextureView, &Sampler),
@@ -155,14 +150,7 @@ impl SourceViewLighting {
             return;
         }
         self.bind_group = Self::bind(
-            device,
-            cache,
-            &self.uniform,
-            cookie,
-            probe,
-            shadow,
-            lamp_atlas,
-            objects,
+            device, cache, uniform, cookie, probe, shadow, lamp_atlas, objects,
         );
         self.objects = objects.generation;
     }
@@ -191,19 +179,6 @@ impl SourceViewLighting {
             self.draw_counts[2].load(Ordering::Relaxed),
             self.draw_counts[3].load(Ordering::Relaxed),
         ]
-    }
-
-    /// Update every view before graph execution. This does not allocate GPU resources.
-    pub fn unchanged(&self, value: &LightingUniform) -> bool {
-        self.uniform.get() == value
-    }
-    /// Update every view before graph execution. This does not allocate GPU resources.
-    pub fn write(&mut self, value: LightingUniform, device: &RenderDevice, queue: &RenderQueue) {
-        if self.unchanged(&value) {
-            return;
-        }
-        self.uniform.set(value);
-        self.uniform.write_buffer(device, queue);
     }
 }
 

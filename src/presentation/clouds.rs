@@ -20,14 +20,13 @@ struct CloudParams {
     color: Vec4,
     controls: Vec4,
 }
-struct CloudBinding {
-    uniform: UniformBuffer<CloudParams>,
-    group: BindGroup,
-}
 #[derive(Resource)]
 pub struct CloudPass {
     pipeline: CachedRenderPipelineId,
-    bindings: [CloudBinding; 2],
+    params: [CloudParams; 2],
+    /// Both clouds share one buffer, so a frame uploads them in one write.
+    uniforms: super::uniform_slots::UniformSlots<CloudParams>,
+    groups: [BindGroup; 2],
     models: [Mat4; 2],
     order: [usize; 2],
     mesh: AssetId<Mesh>,
@@ -37,7 +36,6 @@ impl CloudPass {
     /// Called once after the cloud mesh and source images reach the render world.
     pub fn new(
         device: &RenderDevice,
-        queue: &RenderQueue,
         cache: &PipelineCache,
         shader: Handle<Shader>,
         record: &LightingRecord,
@@ -132,7 +130,7 @@ impl CloudPass {
         );
         let mut distances = [0.; 2];
         let mut models = [Mat4::IDENTITY; 2];
-        let bindings = std::array::from_fn(|index| {
+        let params: [CloudParams; 2] = std::array::from_fn(|index| {
             let cloud = &record.sky.clouds[index];
             let pose = &cloud.transform;
             let model = root_matrix
@@ -145,7 +143,7 @@ impl CloudPass {
             let center =
                 model.transform_point3(Vec3::from_array(record.sky.cloud_mesh.bounds_center));
             distances[index] = -((center.y * center.y + center.x * center.x) + center.z * center.z);
-            let mut uniform = UniformBuffer::from(CloudParams {
+            CloudParams {
                 world_from_local: model,
                 clip_from_world: Mat4::IDENTITY,
                 uv: std::array::from_fn(|slot| {
@@ -159,14 +157,20 @@ impl CloudPass {
                 }),
                 color: Vec4::from_array(cloud.color),
                 controls: Vec4::new(cloud.speed, record.sample.shader_time[0], cloud.density, 0.),
-            });
-            uniform.write_buffer(device, queue);
+            }
+        });
+        let mut uniforms = super::uniform_slots::UniformSlots::new(device, "source_cloud", 2);
+        for (index, value) in params.iter().enumerate() {
+            uniforms.set(index, value);
+        }
+        let layout = cache.get_bind_group_layout(&layout);
+        let groups = std::array::from_fn(|index| {
             let t = textures[index];
-            let group = device.create_bind_group(
+            device.create_bind_group(
                 "source_cloud",
-                &cache.get_bind_group_layout(&layout),
+                &layout,
                 &BindGroupEntries::sequential((
-                    uniform.binding().unwrap(),
+                    uniforms.binding(index),
                     &t[0].texture_view,
                     &t[0].sampler,
                     &t[1].texture_view,
@@ -176,8 +180,7 @@ impl CloudPass {
                     &t[3].texture_view,
                     &t[3].sampler,
                 )),
-            );
-            CloudBinding { uniform, group }
+            )
         });
         if distances[0] == distances[1] {
             return Err("Source cloud sort requires distinct startup distances".into());
@@ -189,7 +192,9 @@ impl CloudPass {
         };
         Ok(Self {
             pipeline,
-            bindings,
+            params,
+            uniforms,
+            groups,
             models,
             order,
             mesh: mesh_id,
@@ -216,7 +221,7 @@ impl CloudPass {
         pass.set_render_pipeline(pipeline);
         pass.set_vertex_buffer(0, vertices.buffer.slice(..));
         for index in self.order {
-            pass.set_bind_group(0, &self.bindings[index].group, &[]);
+            pass.set_bind_group(0, &self.groups[index], &[]);
             pass.draw(
                 vertices.range.start..vertices.range.start + self.vertices,
                 0..1,
@@ -234,7 +239,6 @@ pub(crate) fn prepare_clouds(
     meshes: Res<bevy::render::render_asset::RenderAssets<RenderMesh>>,
     images: Res<bevy::render::render_asset::RenderAssets<GpuImage>>,
     device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     status: Res<super::readiness::RendererStateHandle>,
     antialiasing: Res<super::antialiasing::Antialiasing>,
@@ -273,7 +277,6 @@ pub(crate) fn prepare_clouds(
     }
     let result = CloudPass::new(
         &device,
-        &queue,
         &cache,
         assets.shaders.cloud.clone(),
         &assets.record,
@@ -298,11 +301,9 @@ impl CloudPass {
         position: Vec3,
         clip_from_world: Mat4,
         scene: &super::lighting_scene::SceneLighting,
-        device: &RenderDevice,
         queue: &RenderQueue,
     ) {
-        for (index, binding) in self.bindings.iter_mut().enumerate() {
-            let value = binding.uniform.get_mut();
+        for (index, value) in self.params.iter_mut().enumerate() {
             value.world_from_local = Mat4::from_translation(position) * self.models[index];
             value.clip_from_world = clip_from_world;
             value.color = scene.sky.clouds[index];
@@ -312,7 +313,8 @@ impl CloudPass {
                 scene.sky.cloud_motion[index],
                 0.,
             );
-            binding.uniform.write_buffer(device, queue);
+            self.uniforms.set(index, value);
         }
+        self.uniforms.upload(queue);
     }
 }

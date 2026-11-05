@@ -5,10 +5,11 @@ use super::{
     materials::MaterialLoading,
     readiness::RendererStateHandle,
     render_targets::{HDR_FORMAT, ProbeTargets, PublishedProbes, SurfaceTargets},
-    source_lighting::SourceViewLighting,
+    source_lighting::{LightingUniform, SourceViewLighting},
     stained_glass::{GlassViewUniform, SourceGlassView},
     surface_graph::SurfaceViewTargets,
     transparent::SourceTransparentPasses,
+    uniform_slots::UniformSlots,
 };
 use bevy::render::{
     extract_component::ExtractComponent,
@@ -72,6 +73,9 @@ pub struct SurfaceResources {
     published: PublishedProbes,
     probe_sampler: Sampler,
     shadow_compare: Sampler,
+    /// One slot for each view. One write uploads every changed view.
+    lighting: UniformSlots<LightingUniform>,
+    glass: UniformSlots<GlassViewUniform>,
 }
 impl SurfaceResources {
     pub fn new(
@@ -101,6 +105,8 @@ impl SurfaceResources {
                 min_filter: FilterMode::Linear,
                 ..default()
             }),
+            lighting: UniformSlots::new(device, "source_view_lighting_uniform", VIEW_COUNT),
+            glass: UniformSlots::new(device, "source_glass_view_uniform", VIEW_COUNT),
         })
     }
 }
@@ -228,7 +234,8 @@ pub(crate) fn prepare_views(
             return;
         }
     }
-    let resources = existing.unwrap();
+    let mut resources = existing.unwrap();
+    let resources = &mut *resources;
     let cookie_id = assets.record.lights[0]
         .cookie
         .as_ref()
@@ -270,23 +277,28 @@ pub(crate) fn prepare_views(
                 return;
             }
         };
-        if bound.is_some_and(|bound| std::sync::Arc::ptr_eq(&bound.0, target)) {
+        let bound = bound.is_some_and(|bound| std::sync::Arc::ptr_eq(&bound.0, target));
+        if bound {
+            let Some(glass) = &glass else {
+                status.fail("Source glass view binding is missing".into());
+                return;
+            };
+            if let Err(error) = glass.check(&glass_value) {
+                status.fail(error.into());
+                return;
+            }
+        }
+        resources.lighting.set(source.index, &uniform);
+        resources.glass.set(source.index, &glass_value);
+        if bound {
             let Some(mut binding) = binding else {
                 status.fail("Source view lighting binding is missing".into());
                 return;
             };
-            let Some(mut glass) = glass else {
-                status.fail("Source glass view binding is missing".into());
-                return;
-            };
-            if let Err(error) = glass.write(glass_value, &device, &queue) {
-                status.fail(error.into());
-                return;
-            }
-            binding.write(uniform, &device, &queue);
             binding.rebind(
                 &device,
                 &cache,
+                resources.lighting.binding(source.index),
                 (&cookie.texture_view, &cookie.sampler),
                 (
                     probe_cubes(&resources, source.index),
@@ -305,7 +317,13 @@ pub(crate) fn prepare_views(
             .is_some()
             .then(|| target.depth.sampled.as_ref())
             .flatten();
-        let glass = match SourceGlassView::new(&device, &queue, &cache, glass_value, camera_depth) {
+        let glass = match SourceGlassView::new(
+            &device,
+            &cache,
+            &glass_value,
+            resources.glass.binding(source.index),
+            camera_depth,
+        ) {
             Ok(value) => value,
             Err(error) => {
                 status.fail(error.into());
@@ -317,9 +335,8 @@ pub(crate) fn prepare_views(
             SurfaceViewTargets(target.clone()),
             SourceViewLighting::new(
                 &device,
-                &queue,
                 &cache,
-                uniform,
+                resources.lighting.binding(source.index),
                 (&cookie.texture_view, &cookie.sampler),
                 (cubes, &resources.probe_sampler),
                 (sun_atlas, &resources.shadow_compare),
@@ -333,4 +350,6 @@ pub(crate) fn prepare_views(
             commands.entity(entity).insert(resolve);
         }
     }
+    resources.lighting.upload(&queue);
+    resources.glass.upload(&queue);
 }
