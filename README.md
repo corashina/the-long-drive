@@ -84,7 +84,7 @@ npx wrangler r2 bucket create the-long-slop-large
 npx wrangler d1 create the-long-slop-events
 ```
 
-Put the database ID in [wrangler.toml](wrangler.toml).
+Put the database ID in [wrangler.toml](wrangler.toml) if you make a new account.
 
 If Wrangler offers to make a Worker instead of a Pages project, refuse. Add `--force` to make the Pages project.
 Upload the game:
