@@ -107,6 +107,8 @@ pub struct WorldRequest {
     pub revision: u64,
     pub player: [f64; 3],
     pub vehicle: [f64; 3],
+    /// Where the car is in `AHEAD_SECONDS`. Ground and structures on its path load first.
+    pub ahead: [f64; 3],
 }
 pub use presentation_ledger::{
     PresentationAllocation, PresentationGrant, PresentationReport, Reclaim,
@@ -257,6 +259,7 @@ pub struct WorldStream {
     kept: [Option<rapier3d::prelude::RigidBodyHandle>; 2],
     /// Car chassis made kinematic because the stream does not load their ground.
     ground_frozen: Vec<rapier3d::prelude::RigidBodyHandle>,
+    ground: ground::Ground,
     recovery: Option<PendingRecovery>,
     recovery_search: Option<([f64; 3], bool)>,
     roads: RoadIndex,
@@ -877,10 +880,12 @@ impl WorldStream {
                 revision: 1,
                 player: [0.0; 3],
                 vehicle: [0.0; 3],
+                ahead: [0.0; 3],
             },
             cars: Vec::new(),
             kept: [None; 2],
             ground_frozen: Vec::new(),
+            ground: ground::Ground::new(),
             recovery: None,
             recovery_search: None,
             roads,
@@ -1179,16 +1184,8 @@ impl WorldStream {
         let gaps: Vec<_> = windows
             .iter()
             .map(|bounds| {
-                let gap = match self.support_gap(*bounds) {
+                let gap = match self.ground_gap(*bounds) {
                     None => serde_json::Value::Null,
-                    Some(SupportGap::Structure(p)) => {
-                        let mut audit = self.structure_audit(p);
-                        audit["gap"] = "structure".into();
-                        audit["id"] = format!("{:?}", p.id).into();
-                        audit["prototype"] = format!("{:?}", p.prototype).into();
-                        audit["wanted"] = self.wanted_structures.contains(&p.id).into();
-                        audit
-                    }
                     Some(SupportGap::Terrain(unit)) => {
                         let key = SurfaceKey {
                             layer: WorldLayer::Terrain,
@@ -1201,12 +1198,9 @@ impl WorldStream {
                             "required": self.required.terrain.contains(&key),
                             "local": self.local_collision_pending(key),
                             "surface": self.surfaces.iter().any(|s| s.key == key),
+                            "roads": self.next_road == self.road_candidates.len(),
                         })
                     }
-                    Some(SupportGap::Light) => serde_json::json!({
-                        "gap": "light",
-                        "lights": self.lights.iter().filter(|l| l.influences(*bounds)).map(|l| format!("{:?}", l.id)).collect::<Vec<_>>(),
-                    }),
                     Some(gap) => format!("{gap:?}").into(),
                 };
                 serde_json::json!({ "min": bounds.min, "max": bounds.max, "gap": gap })
@@ -1455,11 +1449,18 @@ impl WorldStream {
     pub fn request_kept(&mut self, kept: [Option<rapier3d::prelude::RigidBodyHandle>; 2]) {
         self.kept = kept;
     }
-    pub fn request_at(&mut self, player: [f64; 3], vehicle: [f64; 3]) {
+    /// Requests the area of the player and the car. `ahead` is the car position in
+    /// `AHEAD_SECONDS` (see `ahead_point`).
+    pub fn request_at(&mut self, player: [f64; 3], vehicle: [f64; 3], ahead: [f64; 3]) {
         if self.recovery.is_some() {
             return;
         }
-        if !player.into_iter().chain(vehicle).all(f64::is_finite) {
+        if !player
+            .into_iter()
+            .chain(vehicle)
+            .chain(ahead)
+            .all(f64::is_finite)
+        {
             self.failure = Some("Nonfinite source world request".into());
             return;
         }
@@ -1503,6 +1504,7 @@ impl WorldStream {
             });
         self.request.player = player;
         self.request.vehicle = vehicle;
+        self.request.ahead = ahead;
         let structures_due = prop_changed
             || eligibility_changed
             || after
@@ -2651,6 +2653,7 @@ impl WorldStream {
             self.wanted_roads.clear();
             self.wanted_lights.clear();
             self.road_points.clear();
+            self.ground.roads_changed();
             self.road_candidates
                 .try_reserve_exact(candidates)
                 .map_err(|_| ReferenceError("Selected road index allocation failed".into()))?;
@@ -2753,6 +2756,9 @@ impl WorldStream {
                 self.discard_unreserved_surface();
             }
         }
+        if self.terrain_context_dirty {
+            self.ground.terrain_changed();
+        }
         self.terrain_context_dirty = false;
         self.selection_changes = self.changes.revision();
         self.plan_revision = self.request.revision;
@@ -2772,6 +2778,7 @@ impl WorldStream {
                 return;
             }
         }
+        self.ground.roads_discovered(&self.road_points);
         // Known segments skip the pole refresh. Refresh once for the complete selection.
         self.refresh_poles();
         if self.metrics().generated_objects > self.limits.objects {
@@ -3260,6 +3267,7 @@ impl WorldStream {
             self.road_failure(error);
         }
     }
+    /// True for a near tile without a surface under the player, the car or the car path.
     fn local_collision_pending(&self, key: SurfaceKey) -> bool {
         if key.layer != WorldLayer::Terrain || self.surfaces.iter().any(|s| s.key == key) {
             return false;
@@ -3268,7 +3276,8 @@ impl WorldStream {
         let x = key.unit[0] as f64 * size;
         let z = -(key.unit[1] as f64 * size);
         let reach = size * 0.5 + COLLISION_REACH;
-        [self.request.player, self.request.vehicle]
+        let path = path_point(self.request, [x, 0., z]);
+        [self.request.player, self.request.vehicle, path]
             .into_iter()
             .any(|p| (p[0] - x).abs() <= reach && (p[2] - z).abs() <= reach)
     }
@@ -3356,61 +3365,16 @@ impl WorldStream {
                 crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::TerrainInputPreparation);
             let mut foundations = Vec::new();
             let mut holes = Vec::new();
-            if tier == 0 {
-                if let Some(startup) = &self.startup {
-                    foundations.extend_from_slice(&startup.foundations);
-                    let center = [
-                        key.unit[0] as f32 * tile.size as f32,
-                        key.unit[1] as f32 * tile.size as f32,
-                    ];
-                    holes.extend(
-                        startup
-                            .holes
-                            .iter()
-                            .zip(&startup.hole_centers)
-                            .filter(|(_, position)| {
-                                let x = position[0] - center[0];
-                                let z = position[2] - center[1];
-                                x * x + z * z < tile.size as f32 * tile.size as f32 * 1.25
-                            })
-                            .map(|(hole, _)| *hole),
-                    );
-                }
-                let mut generated = Vec::new();
-                let center = [
-                    key.unit[0] as f64 * tile.size as f64,
-                    0.0,
-                    -key.unit[1] as f64 * tile.size as f64,
-                ];
-                if let Err(error) = self.placements.foundations_in(
-                    window(center, tile.size as f64),
-                    self.placements.coverage(),
-                    &mut generated,
-                ) {
-                    self.failure = Some(error.0);
-                    return;
-                }
-                self.structure_helpers
-                    .append(&self.wanted_structures, &mut foundations);
-                foundations.extend(generated.iter().map(|p| TerrainFoundation {
-                    position: [
-                        p.position[0] as f32,
-                        p.position[1] as f32,
-                        -p.position[2] as f32,
-                    ],
-                    range_squared: p.range_squared,
-                }));
+            let mut generated = Vec::new();
+            let mut roads = Vec::new();
+            if tier == 0
+                && let Err(error) =
+                    self.tile_foundations(key.unit, &mut holes, &mut foundations, &mut generated)
+            {
+                self.failure = Some(error.0);
+                return;
             }
-            let roads = self
-                .road_points
-                .iter()
-                .filter(|point| {
-                    let x = point.segment_origin[0] - key.unit[0] as f32 * tile.size as f32;
-                    let z = point.segment_origin[1] - key.unit[1] as f32 * tile.size as f32;
-                    x * x + z * z < 1_000_000.0
-                })
-                .copied()
-                .collect::<Vec<_>>();
+            tile_roads(&self.road_points, key.unit, tile, &mut roads);
             let mut input = Vec::new();
             TerrainJob {
                 settings: self.evaluator.settings(),
@@ -3435,6 +3399,59 @@ impl WorldStream {
                 self.failure = Some(error.0);
             }
         }
+    }
+    /// Startup holes and terrain foundations of near tile `unit`, in tile job order.
+    fn tile_foundations(
+        &mut self,
+        unit: [i64; 2],
+        holes: &mut Vec<[[f32; 3]; 4]>,
+        foundations: &mut Vec<TerrainFoundation>,
+        generated: &mut Vec<super::FoundationPoint>,
+    ) -> Result<(), ReferenceError> {
+        let tile = self.tiles[0];
+        holes.clear();
+        foundations.clear();
+        generated.clear();
+        if let Some(startup) = &self.startup {
+            foundations.extend_from_slice(&startup.foundations);
+            let center = [
+                unit[0] as f32 * tile.size as f32,
+                unit[1] as f32 * tile.size as f32,
+            ];
+            holes.extend(
+                startup
+                    .holes
+                    .iter()
+                    .zip(&startup.hole_centers)
+                    .filter(|(_, position)| {
+                        let x = position[0] - center[0];
+                        let z = position[2] - center[1];
+                        x * x + z * z < tile.size as f32 * tile.size as f32 * 1.25
+                    })
+                    .map(|(hole, _)| *hole),
+            );
+        }
+        let center = [
+            unit[0] as f64 * tile.size as f64,
+            0.0,
+            -unit[1] as f64 * tile.size as f64,
+        ];
+        let _ = self.placements.foundations_in(
+            window(center, tile.size as f64),
+            self.placements.coverage(),
+            generated,
+        )?;
+        self.structure_helpers
+            .append(&self.wanted_structures, foundations);
+        foundations.extend(generated.iter().map(|p| TerrainFoundation {
+            position: [
+                p.position[0] as f32,
+                p.position[1] as f32,
+                -p.position[2] as f32,
+            ],
+            range_squared: p.range_squared,
+        }));
+        Ok(())
     }
     fn road_publication_valid(&self, work: &PreparedSurface) -> bool {
         let Some(road) = work.published.road else {
@@ -3755,8 +3772,8 @@ impl WorldStream {
         // Keep old support until both new receiver windows have published near terrain.
         if self.recovery.is_none()
             && self.next_road == self.road_candidates.len()
-            && self.supports(window(self.request.player, 3.0))
-            && self.supports(window(self.request.vehicle, 4.0))
+            && self.grounded(window(self.request.player, 3.0))
+            && self.grounded(window(self.request.vehicle, 4.0))
         {
             let distances = &self.distances;
             let focus = [self.request.player, self.request.vehicle];
@@ -3864,30 +3881,40 @@ impl WorldStream {
         }) {
             return Some(SupportGap::Light);
         }
+        self.ground_gap(swept)
+    }
+    /// True when ground carries everything in `swept`.
+    pub fn grounded(&self, swept: WorldBounds) -> bool {
+        self.ground_gap(swept).is_none()
+    }
+    /// The first missing ground in `swept`: a near tile without a collider or ground patches.
+    /// The step waits only for ground. Roads, structures and lights can load late.
+    pub fn ground_gap(&self, swept: WorldBounds) -> Option<SupportGap<'_>> {
+        if ![swept.min[0], swept.min[2], swept.max[0], swept.max[2]]
+            .into_iter()
+            .all(f64::is_finite)
+        {
+            return Some(SupportGap::Plan);
+        }
+        let Some([x0, z0, x1, z1]) = self.tile_units(swept) else {
+            return Some(SupportGap::TileCount);
+        };
+        (x0..=x1)
+            .flat_map(|x| (z0..=z1).map(move |z| [x, z]))
+            .find(|&unit| !self.tile_collides(unit) && !self.patched(unit, swept))
+            .map(SupportGap::Terrain)
+    }
+    /// Near tile units `[x0, z0, x1, z1]` in `swept`, or None past the tile limit.
+    fn tile_units(&self, swept: WorldBounds) -> Option<[i64; 4]> {
         let size = self.tiles[0].size as f64;
         let x0 = ((swept.min[0] + size * 0.5) / size).floor() as i64;
         let x1 = ((swept.max[0] + size * 0.5) / size).floor() as i64;
         let z0 = ((-swept.max[2] + size * 0.5) / size).floor() as i64;
         let z1 = ((-swept.min[2] + size * 0.5) / size).floor() as i64;
-        if x1 < x0
-            || z1 < z0
-            || (x1 - x0 + 1).saturating_mul(z1 - z0 + 1) > self.limits.tiles[0] as i64
-        {
-            return Some(SupportGap::TileCount);
-        }
-        (x0..=x1)
-            .flat_map(|x| (z0..=z1).map(move |z| [x, z]))
-            .find(|&unit| {
-                !self.surfaces.iter().any(|s| {
-                    s.key
-                        == SurfaceKey {
-                            layer: WorldLayer::Terrain,
-                            unit,
-                        }
-                        && s.collider.is_some()
-                })
-            })
-            .map(SupportGap::Terrain)
+        (x1 >= x0
+            && z1 >= z0
+            && (x1 - x0 + 1).saturating_mul(z1 - z0 + 1) <= self.limits.tiles[0] as i64)
+            .then_some([x0, z0, x1, z1])
     }
     fn refresh_helper_context(&mut self, bounds: WorldBounds) {
         let key = HelperKey {
@@ -4161,7 +4188,7 @@ impl WorldStream {
         {
             let pose = supply.cap_pose;
             let owner = (supply.building_index, supply.supply_index);
-            self.request_at(pose.position, pose.position);
+            self.request_at(pose.position, pose.position, pose.position);
             self.recovery = Some(PendingRecovery {
                 request: self.request,
                 target: pose,
@@ -4214,7 +4241,7 @@ impl WorldStream {
         let Some((_, pose)) = nearest else {
             return Ok(None);
         };
-        self.request_at(pose.position, pose.position);
+        self.request_at(pose.position, pose.position, pose.position);
         self.recovery = Some(PendingRecovery {
             request: self.request,
             target: pose,
@@ -4725,8 +4752,8 @@ impl WorldStream {
     ) -> Result<(), ReferenceError> {
         if self.recovery.is_some()
             || self.plan_revision != self.request.revision
-            || !self.supports(window(self.request.player, 3.0))
-            || !self.supports(window(self.request.vehicle, 4.0))
+            || !self.grounded(window(self.request.player, 3.0))
+            || !self.grounded(window(self.request.vehicle, 4.0))
         {
             return Ok(());
         }
@@ -4990,7 +5017,7 @@ impl WorldStream {
         }
         transport();
         self.recovery = None;
-        self.request_at(permit.player, permit.vehicle);
+        self.request_at(permit.player, permit.vehicle, permit.vehicle);
         Ok(())
     }
 
@@ -5279,6 +5306,7 @@ impl WorldStream {
             + self.wanted_lights.capacity() * std::mem::size_of::<u32>()
             + self.wanted_tiles.capacity() * std::mem::size_of::<SurfaceKey>()
             + self.road_points.capacity() * std::mem::size_of::<TerrainRoadPoint>()
+            + self.ground.retained_bytes()
             + self.startup_candidates.capacity() * std::mem::size_of::<u32>()
             + self.startup_points.capacity() * std::mem::size_of::<TerrainRoadPoint>()
             + self.surfaces.capacity() * std::mem::size_of::<PublishedSurface>()
@@ -5433,6 +5461,20 @@ fn window(point: [f64; 3], radius: f64) -> WorldBounds {
         max: [point[0] + radius, f64::INFINITY, point[2] + radius],
     }
 }
+/// Road points of tile `unit` of `tile`: segments within 1 km of the tile center.
+fn tile_roads(
+    points: &[TerrainRoadPoint],
+    unit: [i64; 2],
+    tile: TerrainTile,
+    output: &mut Vec<TerrainRoadPoint>,
+) {
+    output.clear();
+    output.extend(points.iter().filter(|point| {
+        let x = point.segment_origin[0] - unit[0] as f32 * tile.size as f32;
+        let z = point.segment_origin[1] - unit[1] as f32 * tile.size as f32;
+        x * x + z * z < 1_000_000.0
+    }));
+}
 fn union(a: WorldBounds, b: WorldBounds) -> WorldBounds {
     WorldBounds {
         min: std::array::from_fn(|i| a.min[i].min(b.min[i])),
@@ -5498,9 +5540,44 @@ fn append_road_points(output: &mut Vec<TerrainRoadPoint>, segment: RoadSegment, 
     }
 }
 
+/// Seconds of car travel that the stream loads first.
+const AHEAD_SECONDS: f64 = 3.;
+/// Longest car path that the stream loads first, in metres.
+const AHEAD_LIMIT: f64 = 150.;
+/// Where a car at `position` with `velocity` is in `AHEAD_SECONDS`, up to `AHEAD_LIMIT` away.
+pub fn ahead_point(position: [f64; 3], velocity: [f32; 3]) -> [f64; 3] {
+    let x = f64::from(velocity[0]) * AHEAD_SECONDS;
+    let z = f64::from(velocity[2]) * AHEAD_SECONDS;
+    let scale = (AHEAD_LIMIT / x.hypot(z)).min(1.);
+    let point = [
+        position[0] + x * scale,
+        position[1],
+        position[2] + z * scale,
+    ];
+    if point.into_iter().all(f64::is_finite) {
+        point
+    } else {
+        position
+    }
+}
+/// The point of the car path nearest to `position`, in source XZ.
+fn path_point(request: WorldRequest, position: [f64; 3]) -> [f64; 3] {
+    let [a, b] = [request.vehicle, request.ahead];
+    let path = [b[0] - a[0], b[2] - a[2]];
+    let length = path[0] * path[0] + path[1] * path[1];
+    let t = if length > 0. {
+        (((position[0] - a[0]) * path[0] + (position[2] - a[2]) * path[1]) / length).clamp(0., 1.)
+    } else {
+        0.
+    };
+    [a[0] + path[0] * t, a[1], a[2] + path[1] * t]
+}
+/// Squared source distance from the nearer of the player and the car path.
 fn focus_distance_squared(request: WorldRequest, position: [f64; 3]) -> f32 {
-    source_distance_squared(request.player, position)
-        .min(source_distance_squared(request.vehicle, position))
+    source_distance_squared(request.player, position).min(source_distance_squared(
+        path_point(request, position),
+        position,
+    ))
 }
 // Frozen source coordinates, with source float vector boundaries.
 fn source_distance_squared(a: [f64; 3], b: [f64; 3]) -> f32 {
@@ -5511,6 +5588,8 @@ fn source_distance_squared(a: [f64; 3], b: [f64; 3]) -> f32 {
 
 #[path = "content_bindings.rs"]
 pub mod content_bindings;
+#[path = "ground.rs"]
+mod ground;
 
 #[path = "content_boxes.rs"]
 pub mod content_boxes;

@@ -1079,7 +1079,7 @@ impl WorldStream {
             }
             let body = &physics.rapier().bodies[handle];
             let kept = self.kept.contains(&Some(handle));
-            let grounded = self.supports(crate::world::collision_window(
+            let grounded = self.grounded(crate::world::collision_window(
                 self.origin.absolute(body.translation().to_array()),
             ));
             let frozen = self.ground_frozen.contains(&handle);

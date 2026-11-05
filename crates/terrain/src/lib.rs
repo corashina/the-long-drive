@@ -9,5 +9,6 @@ pub use noise::{TerrainEvaluator, TerrainSettings, source_perlin};
 pub use random::{RandomState, SourceRandom};
 pub use surface::{
     ROAD_HALF_WIDTH, TerrainContext, TerrainFoundation, TerrainMesh, TerrainRoadPoint,
-    TerrainSurfaceJob, TerrainTile, biome, forced_color, regular_grid, surface, surface_origin,
+    TerrainSurfaceJob, TerrainTile, biome, forced_color, grid_coordinate, regular_grid, surface,
+    surface_origin,
 };
