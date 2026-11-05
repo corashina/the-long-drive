@@ -50,6 +50,8 @@ pub struct StructureViews {
     wing_poses: Vec<Transform>,
     /// Nearest body of each prototype node of the written slot, or `u32::MAX`. Reused each slot.
     node_bodies: Vec<u32>,
+    /// Per prototype body of the written slot: its row follows a mounted item. Reused each slot.
+    mounted_bodies: Vec<bool>,
     /// Hidden gun parts of the written slot. Reused each slot.
     gun_hidden: Vec<u32>,
     /// `GarageRuntime::other_view` of the written worn flags.
@@ -475,6 +477,8 @@ impl StructureViews {
                 bodies[node] = bodies[parent as usize];
             }
         }
+        let mounted_bodies = &mut self.mounted_bodies;
+        mounted_bodies.clear();
         let row_pose = |row: &NodePoseRow| {
             Pose::from_parts(
                 Vector::from_array(row.translation),
@@ -513,6 +517,7 @@ impl StructureViews {
                     )
                 })
             });
+            mounted_bodies.push(mounted.is_some());
             let pose =
                 mounted.unwrap_or_else(|| physics.presented_pose_or(*handle, inputs.alpha, moved));
             poses.push(NodePoseRow {
@@ -523,7 +528,6 @@ impl StructureViews {
                 scale: [1.; 3],
             });
         }
-        let shown_bodies = poses.len() as u32 - start;
         let tool = stream.tool_look(id);
         // In drotkefescript, the brush model slides on the contact.
         if let Some((node, pose)) = tool.and_then(|t| t.model) {
@@ -536,11 +540,14 @@ impl StructureViews {
             });
         }
         // Content poses are mechanism frames of the last update. A mounted wheel moved after it.
-        // So a node keeps its pose in the frame of its body and takes the shown body pose.
+        // So a node keeps its pose in the frame of its mounted body and takes the shown body pose.
+        // Other nodes take the blend move, because their body rows can be one step old.
         for node in 0..prototype.nodes.len() {
             if let Some(pose) = content.node_pose(node) {
                 let body = bodies[node];
-                let on_body = (body < shown_bodies)
+                let on_body = mounted_bodies
+                    .get(body as usize)
+                    .is_some_and(|m| *m)
                     .then(|| content.node_pose(prototype.bodies[body as usize].node as usize))
                     .flatten()
                     .map(|frame| {
