@@ -24,6 +24,10 @@ impl WorldInput {
         }
         self.pending.merge(command);
     }
+    /// True when the renderer admitted the lamps of its last step. Publication waits for them.
+    pub fn lamps_admitted(&self) -> bool {
+        self.lamps.is_some()
+    }
     pub fn take_failure(&mut self) -> Option<String> {
         self.pending.failure.take()
     }

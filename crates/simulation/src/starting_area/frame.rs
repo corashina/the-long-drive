@@ -428,6 +428,48 @@ impl GarageRuntime {
 
 impl GarageRuntime {
     /// The simulation part of a world measurement.
+    /// Why the step holds: the support of the player, the car and each active car, and the
+    /// stream work that should fill it.
+    pub fn hold_report(&self) -> serde_json::Value {
+        let mut windows = self.stream.collision_ranges().to_vec();
+        let cars: Vec<_> = self
+            .vehicles
+            .keys()
+            .filter(|key| self.physics.body_active(self.physics.chassis_handle(key)))
+            .map(|key| {
+                let handle = self.physics.chassis_handle(key);
+                let position = self
+                    .stream
+                    .origin
+                    .absolute(self.physics.snapshot(key).pose.position);
+                windows.push(crate::world::collision_window(position));
+                serde_json::json!({
+                    "key": format!("{key:?}"),
+                    "position": position,
+                    "speed": self.physics.rapier().bodies[handle].linvel().length(),
+                    "current": self.vehicle.as_ref() == Some(key),
+                })
+            })
+            .collect();
+        let waits: Vec<_> = windows
+            .iter()
+            .map(|bounds| self.persistent_world.waits_for(*bounds))
+            .collect();
+        serde_json::json!({
+            "supported": self.world_supported(),
+            "started": self.started,
+            "paused": self.paused,
+            "recovering": self.recovering,
+            "sleeping": self.sleeping(),
+            "dead": self.needs_output().dead,
+            "restore_pending": self.restore_pending(),
+            "startup_aligned": self.startup_aligned,
+            "simulation_seconds": self.simulation_seconds,
+            "active_cars": cars,
+            "persistent_waits": waits,
+            "stream": self.stream.hold_audit(&windows),
+        })
+    }
     pub fn measurements(&self, reference: &ReferenceManifest) -> serde_json::Value {
         let frame = self.stream.frame();
         let car = self.vehicle.as_ref().map(|key| {

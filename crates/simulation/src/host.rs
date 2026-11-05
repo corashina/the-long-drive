@@ -8,6 +8,9 @@ extern "C" {
     pub fn game_cpu_input_consumed();
     #[wasm_bindgen(js_name = gameCpuClearInput)]
     pub fn game_cpu_clear_input();
+    /// Writes the JSON report of a step that holds to the console.
+    #[wasm_bindgen(js_name = gameHoldReport)]
+    pub fn game_hold_report(report: &str);
     #[wasm_bindgen(js_name = Object)]
     pub type RoadTransport;
     #[wasm_bindgen(catch, js_name = gameRoadCreate)]

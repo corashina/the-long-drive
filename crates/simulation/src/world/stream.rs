@@ -1170,6 +1170,80 @@ impl WorldStream {
             },
         })
     }
+    /// Why the step waits: the gap of each window, and what blocks the work that fills it.
+    /// It has no side effects, so the step report can call it while the step holds.
+    pub fn hold_audit(&self, windows: &[WorldBounds]) -> serde_json::Value {
+        let gaps: Vec<_> = windows
+            .iter()
+            .map(|bounds| {
+                let gap = match self.support_gap(*bounds) {
+                    None => serde_json::Value::Null,
+                    Some(SupportGap::Structure(p)) => {
+                        let mut audit = self.structure_audit(p);
+                        audit["gap"] = "structure".into();
+                        audit["id"] = format!("{:?}", p.id).into();
+                        audit["prototype"] = format!("{:?}", p.prototype).into();
+                        audit["wanted"] = self.wanted_structures.contains(&p.id).into();
+                        audit
+                    }
+                    Some(SupportGap::Terrain(unit)) => {
+                        let key = SurfaceKey {
+                            layer: WorldLayer::Terrain,
+                            unit,
+                        };
+                        serde_json::json!({
+                            "gap": "terrain",
+                            "unit": unit,
+                            "wanted": self.wanted_tiles.contains(&key),
+                            "required": self.required.terrain.contains(&key),
+                            "local": self.local_collision_pending(key),
+                            "surface": self.surfaces.iter().any(|s| s.key == key),
+                        })
+                    }
+                    Some(SupportGap::Light) => serde_json::json!({
+                        "gap": "light",
+                        "lights": self.lights.iter().filter(|l| l.influences(*bounds)).map(|l| format!("{:?}", l.id)).collect::<Vec<_>>(),
+                    }),
+                    Some(gap) => format!("{gap:?}").into(),
+                };
+                serde_json::json!({ "min": bounds.min, "max": bounds.max, "gap": gap })
+            })
+            .collect();
+        let ready = self.ready.as_ref().map(|w| {
+            serde_json::json!({
+                "key": format!("{:?}", w.published.key),
+                "offered": w.offered,
+                "renderer_ready": w.renderer_ready,
+                "renderer_reserved": w.renderer_reserved,
+                "current": same_request(w.request, self.request),
+                "road_valid": self.road_publication_valid(w),
+            })
+        });
+        let (want, waits) = self.ledger.last_wait();
+        serde_json::json!({
+            "gaps": gaps,
+            "request": { "player": self.request.player, "vehicle": self.request.vehicle, "revision": self.request.revision },
+            "plan_current": self.plan_revision == self.request.revision,
+            "roads_discovered": self.next_road == self.road_candidates.len(),
+            "required_ready": self.required_ready(),
+            "pending_parts": self.pending_parts(),
+            "own_jobs": self.own_jobs(),
+            "credit": format!("{:?}", self.ledger.credit()),
+            "used": format!("{:?}", self.ledger.used()),
+            "renderer_want": format!("{want:?}"),
+            "stream_waits": format!("{waits:?}"),
+            "publication_lent": self.publication_lent,
+            "surface_waits": self.surface_waits,
+            "ready_surface": ready,
+            "ready_structures": self.ready_structures.len(),
+            "terrain_pending": self.terrain_execution.has_pending(),
+            "terrain_ready": self.terrain_ready,
+            "generation_pending_bytes": self.generation_pending_bytes(),
+            "staging_limit": self.ledger.staging_limit(),
+            "missing": self.missing_required_audit(),
+            "failure": self.failure,
+        })
+    }
     /// The required items that are not published yet, and where each waits.
     fn missing_required_audit(&self) -> serde_json::Value {
         let road_surface = |id: u32| {
