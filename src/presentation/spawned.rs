@@ -40,6 +40,8 @@ struct SpawnedInstance {
 #[derive(Resource, Default)]
 pub struct SpawnedVisuals {
     instances: HashMap<ItemId, SpawnedInstance>,
+    /// World session of `instances`.
+    session: u64,
     generation: u64,
     /// Count of `sync` runs. An instance with an older `seen` has no item in the frame.
     sync_stamp: u64,
@@ -240,6 +242,11 @@ pub(crate) fn sync(
     }
     let manifest = &reference.0;
     let items = frame.spawned();
+    if frame.new_session(&mut spawned.session) {
+        for (_, instance) in spawned.instances.drain() {
+            commands.entity(instance.root).despawn();
+        }
+    }
     spawned.sync_stamp += 1;
     let stamp = spawned.sync_stamp;
     for item in items {

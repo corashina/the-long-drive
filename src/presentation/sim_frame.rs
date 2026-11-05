@@ -82,6 +82,12 @@ pub(crate) struct SimFrameResource {
 }
 
 impl SimFrameResource {
+    /// True once per world session change. `last` holds the session of the caller's state.
+    /// A new world session can reuse the simulation ids for other objects.
+    pub fn new_session(&self, last: &mut u64) -> bool {
+        let session = self.frame.state.session;
+        std::mem::replace(last, session) != session
+    }
     /// Applies the frame changes to the pose index.
     pub fn apply_changes(&mut self) {
         for row in &self.frame.conditions {
