@@ -10,6 +10,10 @@ use glam::{Quat, Vec3};
 /// World step milliseconds of a loading frame. The loading panel covers the screen.
 const LOADING_BUDGET_MS: f64 = 12.;
 
+/// Seconds of hold before the first hold report, and between reports.
+const HOLD_REPORT_AFTER: f64 = 2.;
+const HOLD_REPORT_EVERY: f64 = 5.;
+
 pub struct SimDriver {
     pub runtime: GarageRuntime,
     /// Input of the next fixed step.
@@ -49,6 +53,9 @@ pub struct SimDriver {
     /// Answer of the last world step to the renderer report.
     pub(crate) grant: Option<crate::world::PresentationGrant>,
     skip_elapsed: bool,
+    /// Seconds that a started, unpaused game ran no step, and when the next hold report goes.
+    held_seconds: f64,
+    next_hold_report: f64,
     /// The renderer shows the garage.
     pub(crate) ready: bool,
     delta_seconds: f64,
@@ -100,6 +107,8 @@ impl SimDriver {
             world: WorldInput::default(),
             grant: None,
             skip_elapsed: false,
+            held_seconds: 0.,
+            next_hold_report: HOLD_REPORT_AFTER,
             ready: false,
             delta_seconds: 0.,
             measure: false,
@@ -121,9 +130,43 @@ impl SimDriver {
         frame: &mut SimFrame,
     ) {
         self.accept(reference, command);
+        let simulated = self.runtime.simulation_seconds;
         self.advance(reference);
         self.advance_world(reference);
+        self.report_hold(simulated);
         self.fill(reference, frame);
+    }
+
+    /// Writes why the step holds after 2 s of a started, unpaused game with no step, then every 5 s.
+    fn report_hold(&mut self, simulated: f64) {
+        if !self.ready
+            || !self.runtime.started
+            || self.runtime.paused
+            || self.runtime.simulation_seconds != simulated
+        {
+            self.held_seconds = 0.;
+            self.next_hold_report = HOLD_REPORT_AFTER;
+            return;
+        }
+        self.held_seconds += self.delta_seconds;
+        if self.held_seconds < self.next_hold_report {
+            return;
+        }
+        self.next_hold_report += HOLD_REPORT_EVERY;
+        let mut report = self.runtime.hold_report();
+        report["driver"] = serde_json::json!({
+            "held_seconds": self.held_seconds,
+            "skip_elapsed": self.skip_elapsed,
+            "frame_steps": self.frame_steps,
+            "delta_seconds": self.delta_seconds,
+            "accepted_seq": self.accepted_seq,
+            "consumed_seq": self.consumed_seq,
+            "lamps_admitted": self.world.lamps_admitted(),
+        });
+        #[cfg(target_arch = "wasm32")]
+        crate::host::game_hold_report(&report.to_string());
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = report;
     }
 
     /// Applies the menu actions and settings of `command` and queues its input.

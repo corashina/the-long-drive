@@ -6,6 +6,8 @@ self.gameNow=()=>performance.now();
 let inputConsumed=false,clearInput=false,memory,netOn=false;
 self.gameCpuInputConsumed=()=>{inputConsumed=true;};
 self.gameCpuClearInput=()=>{clearInput=true;};
+// A step that holds for 2 s writes why. Copy the line from the console.
+self.gameHoldReport=report=>console.warn('[hold] '+report);
 installTerrainBridge(self,createTerrain(new Worker(new URL('./terrain-worker.js',import.meta.url),{type:'module'}),null));
 installRoadBridge(self,null);
 const ready=init().then(exports=>{memory=exports.memory;});
