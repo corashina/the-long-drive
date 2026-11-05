@@ -24,6 +24,15 @@ export class FrameTimings {
   }
   return {fps:1000*this.count/elapsed,average:elapsed/this.count,worst,physics:physics/this.count,rapier:rapier/this.count,world:world/this.count,update:update/this.count,render:render/this.count};
  }
+ // Frame intervals of the frames after `time` in the window, oldest first. For the bench only.
+ since(time){
+  const out=[];
+  for(let n=0;n<this.count;n++){
+   const i=(this.head-this.count+n+CAPACITY)%CAPACITY;
+   if(this.times[i]>time)out.push(this.intervals[i]);
+  }
+  return out;
+ }
 }
 
 // GPU ms per world view stage, from timestamp queries. Unavailable without the browser feature.
@@ -84,11 +93,13 @@ export function createPerformance(readWasmBytes,readRender,watchRender,readDrawD
   },
   // The F3 values as numbers, for `tests/bench/fps.mjs`. It reads the worker tick average, as F3 does.
   // The first call starts the renderer audit, so its render counts can be stale.
-  snapshot(){
+  // `lastFrame` is the time of the last frame. With `since`, `frameIntervals` has the frame ms of the frames after it.
+  snapshot(since){
    if(!benched){benched=true;watchRender(true);}
    const sample=timings.summary(),worker=readWorker();
    return {fps:sample?.fps??null,frameMs:sample?.average??null,worstMs:sample?.worst??null,updateMs:sample?.update??null,renderMs:sample?.render??null,
-    physicsMs:sample?.physics??null,rapierMs:sample?.rapier??null,worldMs:sample?.world??null,workerTickMs:worker?.tickMs??null,...bodyCounts,...renderCounts(readRender())};
+    physicsMs:sample?.physics??null,rapierMs:sample?.rapier??null,worldMs:sample?.world??null,workerTickMs:worker?.tickMs??null,...bodyCounts,...renderCounts(readRender()),
+    lastFrame:timings.previous,frameIntervals:Number.isFinite(since)?timings.since(since):null};
   },
   stop(){stopped=true;timings.reset();values.textContent='Performance counters stopped.';document.removeEventListener('visibilitychange',reset);},
  };
