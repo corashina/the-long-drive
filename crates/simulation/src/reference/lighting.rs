@@ -883,6 +883,18 @@ impl LightingRecord {
             )?;
         }
         check(self.cameras.len() == 4, &self.source, "camera count")?;
+        let mask = |roles: &[&str]| {
+            self.cameras
+                .iter()
+                .filter(|c| roles.contains(&c.role.as_str()))
+                .fold(0, |mask, c| mask | c.culling_mask)
+        };
+        check(
+            mask(&["Cam", "mainCam"]) == NEAR_CAMERA_MASK
+                && mask(&["farCamera"]) == FAR_CAMERA_MASK,
+            &self.source,
+            "camera layer masks",
+        )?;
         ids(
             self.cameras.iter().map(|v| &v.role),
             "duplicate lighting camera role",
@@ -1001,6 +1013,10 @@ pub struct LightingQualityReference {
     pub shadow_near_plane_offset: f32,
     pub shadow_cascade_splits: [f32; 3],
 }
+/// Layers of the source Cam and mainCam. They draw nearer than `Cam1FarPlane`.
+pub const NEAR_CAMERA_MASK: u32 = 0x14D2_8F33;
+/// Layers of the source farCamera. They draw from `Cam2NearPlane` to `Cam2FarPlane`.
+pub const FAR_CAMERA_MASK: u32 = 0x0008_8001;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LightingCameraReference {

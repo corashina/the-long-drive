@@ -33,6 +33,8 @@ fn frame_round_trips() {
             dead_weight: 0.5,
             motion_revision: 2,
             far_plane: 1500.,
+            cam1_far_plane: 400.,
+            cam2_near_plane: 300.,
             sleep_camera: row(9.),
             view_camera: PoseRow::default(),
             prepared_roads: 12,

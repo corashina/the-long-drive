@@ -175,6 +175,10 @@ pub struct StateBlock {
     pub motion_revision: u32,
     /// Source `Cam2FarPlane` of the draw distance.
     pub far_plane: f32,
+    /// Source `Cam1FarPlane`: Cam and mainCam layers draw nearer than it.
+    pub cam1_far_plane: f32,
+    /// Source `Cam2NearPlane`: farCamera layers draw beyond it.
+    pub cam2_near_plane: f32,
     /// Sleep camera in stream space. `ACTIVE` while the sleep view shows.
     pub sleep_camera: PoseRow,
     /// Camera of the seated outside view, drop cam or map view. `ACTIVE` while one shows.

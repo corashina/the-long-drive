@@ -45,29 +45,69 @@ type CameraMesh = (
     Option<&'static SourceSortData>,
     Has<SourceMaterialWarmup>,
     Has<CameraHidden>,
+    (
+        Option<&'static bevy::camera::visibility::RenderLayers>,
+        Option<&'static bevy::camera::primitives::Aabb>,
+        &'static GlobalTransform,
+    ),
 );
+
+/// Source camera depth range of the entity layer. An entity without bounds stays.
+fn layer_visible(
+    ranges: &super::camera::LayerRanges,
+    layers: Option<&bevy::camera::visibility::RenderLayers>,
+    aabb: Option<&bevy::camera::primitives::Aabb>,
+    transform: &GlobalTransform,
+) -> bool {
+    let layer = layers.and_then(|l| l.iter().next()).unwrap_or(0);
+    let Some(aabb) = aabb else {
+        return true;
+    };
+    let affine = transform.affine();
+    let center = affine.transform_point3a(aabb.center);
+    let m = affine.matrix3;
+    let extents = m.x_axis.abs() * aabb.half_extents.x
+        + m.y_axis.abs() * aabb.half_extents.y
+        + m.z_axis.abs() * aabb.half_extents.z;
+    // The source frame negates z.
+    ranges.visible(
+        layer as u8,
+        [center.x, center.y, -center.z],
+        extents.to_array(),
+    )
+}
 
 /// Keep the Mesh3d class even when empty so Bevy can remove retained phase items.
 /// Retain order and capacity. This system does not change ViewVisibility and shadow masks.
 pub fn filter_camera_visibility(
-    mut views: Query<(&Camera, &mut VisibleEntities)>,
+    mut views: Query<(
+        &Camera,
+        &mut VisibleEntities,
+        Option<&super::surface_views::SourceSurfaceView>,
+    )>,
     meshes: Query<CameraMesh, With<Mesh3d>>,
+    frame: Res<super::view_frame::SourceViewFrame>,
     mut output: ResMut<CameraVisibility>,
 ) {
     output.entities.clear();
     output.sort_data.clear();
     let class = TypeId::of::<Mesh3d>();
-    for (camera, mut visible) in &mut views {
+    for (camera, mut visible, view) in &mut views {
+        let ranges = view
+            .and_then(|view| frame.views.get(view.index).copied().flatten())
+            .map_or(super::camera::LayerRanges::ALL, |s| s.layer_ranges);
         let entities = visible.get_mut(class);
         if !camera.is_active {
             entities.clear();
             continue;
         }
         entities.retain(|entity| {
-            let Ok((renderer, mode, sort, warmup, hidden)) = meshes.get(*entity) else {
+            let Ok((renderer, mode, sort, warmup, hidden, (layers, aabb, transform))) =
+                meshes.get(*entity)
+            else {
                 return false;
             };
-            if hidden {
+            if hidden || !(warmup || layer_visible(&ranges, layers, aabb, transform)) {
                 return false;
             }
             // With ShadowsOnly, the shadow scene draws it and the camera does not.
