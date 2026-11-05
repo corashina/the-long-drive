@@ -911,3 +911,102 @@ fn the_start_car_wheels_stay_on_the_driving_body() {
     }
     assert!(wheels >= 4, "the start car has its wheels");
 }
+
+/// A spawned car drives at 10 m/s. Each frame between two steps shows every wheel mesh at its
+/// rest offset from the wheel center, so the wheels do not trail behind their arches.
+#[test]
+#[ignore = "requires the installed source export"]
+fn the_wheel_meshes_stay_on_the_driving_wheels() {
+    use crate::boundary::NodePoseRow;
+    use crate::world::ObjectKey;
+    use rapier3d::math::{Pose, Rotation, Vector};
+    let (reference, mut run) = outdoors();
+    let parked: Vec<_> = run.vehicles.keys().cloned().collect();
+    act(
+        &mut run,
+        &reference,
+        r#"{"action":"spawn","name":"Car01Full","forward":8}"#,
+    );
+    let mut key = None;
+    for _ in 0..500 {
+        key = run.vehicles.keys().find(|k| !parked.contains(k)).cloned();
+        if key.is_some() {
+            break;
+        }
+        frame(&mut run, &reference);
+    }
+    let key = key.expect("the spawned car loads");
+    seconds(&mut run, &reference, 2.);
+    let ObjectKey::Generated(car_id) = key.clone() else {
+        panic!("the spawned car is a world car");
+    };
+    let handle = run.physics.chassis_handle(&key);
+    let mut out = crate::boundary::SimFrame::default();
+    let mut checked = 0;
+    for _ in 0..30 {
+        run.physics.edit_body(handle, |b| {
+            let forward = b.rotation() * Vector::Z;
+            b.set_linvel(forward * 10. + Vector::Y * b.linvel().y, true);
+        });
+        frame(&mut run, &reference);
+        run.fill_frame(&reference, 0.5, &mut out);
+        let structure = run
+            .stream
+            .frame()
+            .structures
+            .iter()
+            .find(|s| s.placement.id == car_id)
+            .unwrap();
+        let prototype = reference
+            .world
+            .prototypes
+            .iter()
+            .find(|p| p.source == structure.placement.prototype)
+            .unwrap();
+        let slot = run.structure_views.slots[&car_id];
+        let row = out.structures.iter().find(|r| r.slot == slot).unwrap();
+        let rows = &out.structure_poses[row.poses[0] as usize..row.poses[1] as usize];
+        let pose = |p: &NodePoseRow| {
+            Pose::from_parts(
+                Vector::from_array(p.translation),
+                Rotation::from_array(p.rotation),
+            )
+        };
+        let car = rows
+            .iter()
+            .find(|p| p.kind == NodePoseRow::BODY && p.node == 0)
+            .map(pose)
+            .unwrap();
+        let chassis = *run.physics.rapier().bodies[handle].position();
+        let record = prototype.vehicle.as_ref().unwrap();
+        for (index, wheel) in record.wheels.iter().enumerate() {
+            let center = (chassis.inverse()
+                * crate::vehicle::to_rapier(run.physics.wheel_pose(&key, index)))
+            .translation;
+            let rest = prototype.root_relative(wheel.mount as usize).0.translation;
+            for p in rows.iter().filter(|p| p.kind == NodePoseRow::CONTENT) {
+                // Only nodes on a body under the wheel mount, such as the rim and the tire.
+                let mut node = Some(p.node);
+                let mut on_wheel = false;
+                while let Some(n) = node.filter(|&n| n != wheel.mount) {
+                    on_wheel |= prototype.bodies.iter().any(|b| b.node == n);
+                    node = prototype.nodes[n as usize].parent;
+                }
+                if node.is_none() || !on_wheel {
+                    continue;
+                }
+                let offset =
+                    (prototype.root_relative(p.node as usize).0.translation - rest).length();
+                let shown = (car.inverse() * pose(p)).translation;
+                let error = (shown - center).length() - offset;
+                assert!(
+                    error < 0.01,
+                    "node {} of wheel {index} is {error} m off its wheel",
+                    prototype.nodes[p.node as usize].name
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 0, "the wheels have content poses");
+}
