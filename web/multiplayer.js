@@ -17,8 +17,8 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
  let looksJson=null,names=new Map();
  try{name.value=storage()?.getItem(NAME_KEY)??'';}catch{}
  const storeName=()=>{try{storage()?.setItem(NAME_KEY,name.value);}catch{}};
- // Source `ResetSettings`: voice chat on, push to talk.
- let voice={on:true,mode:MODES[0]};
+ // Voice chat starts off, so the game asks for the microphone only after the player turns it on. Source `ResetSettings` has it on.
+ let voice={on:false,mode:MODES[0]};
  try{const v=JSON.parse(storage()?.getItem(VOICE_KEY)??'null');if(typeof v?.on==='boolean'&&MODES.includes(v.mode))voice=v;}catch{}
  voiceOn.checked=voice.on;voiceMode.value=voice.mode;
  const output=createVoiceOutput({audio});
