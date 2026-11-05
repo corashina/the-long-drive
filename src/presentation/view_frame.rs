@@ -181,6 +181,8 @@ pub struct ViewSnapshot {
     pub fov_degrees: f32,
     pub mask: u32,
     pub shadow_distance: f32,
+    /// Source camera depth range per layer. Only the camera draw of GPU props and entities uses it.
+    pub layer_ranges: super::camera::LayerRanges,
 }
 #[derive(Resource, Clone, Default, ExtractResource)]
 pub struct SourceViewFrame {
@@ -488,6 +490,13 @@ pub(crate) fn snapshot(
         if index < PROBE_START {
             snapshot.extent = UVec2::from_array(scale.0.extent(extent.to_array()));
         }
+        if index < WORLD_VIEWS {
+            snapshot.layer_ranges = super::camera::LayerRanges::world(
+                snapshot.source_world_from_view.to_cols_array(),
+                sim.frame.state.cam1_far_plane,
+                sim.frame.state.cam2_near_plane,
+            );
+        }
         Some(snapshot)
     });
     let main_motion = antialiasing.taa().then(|| {
@@ -766,6 +775,7 @@ pub(crate) fn camera_snapshot(
         fov_degrees: fov,
         mask,
         shadow_distance: distance,
+        layer_ranges: super::camera::LayerRanges::ALL,
     }
 }
 

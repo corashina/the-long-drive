@@ -32,11 +32,13 @@ struct CullView {
     planes: array<vec4<f32>, 6>,
     // x: camera layer mask, y: row count, z: batch count, w: visible list stride.
     counts: vec4<u32>,
-    // x: view index for the totals.
+    // x: view index for the totals, y: Cam and mainCam layers, z: farCamera layers.
     view: vec4<u32>,
     // Probe slots of the scene. extents.w=1 when the slot is enabled and published.
     probe_center: array<vec4<f32>, 4>,
     probe_extents: array<vec4<f32>, 4>,
+    // Far plane at Cam1FarPlane and near plane at Cam2NearPlane. See `LayerRanges` in camera.rs.
+    layer_planes: array<vec4<f32>, 2>,
 }
 // It has the same layout as GpuLight and LightingUniform in lighting.rs.
 struct SourceLight {
@@ -105,6 +107,20 @@ fn intersects_camera(center: vec3<f32>, extents: vec3<f32>) -> bool {
         }
     }
     return true;
+}
+
+// Port of `LayerRanges::visible`. Keep its addition order.
+fn layer_visible(layer: u32, center: vec3<f32>, extents: vec3<f32>) -> bool {
+    let bit = 1u << layer;
+    for (var i = 0u; i < 2u; i++) {
+        let plane = view.layer_planes[i];
+        let distance = (plane.x * center.x + plane.y * center.y) + plane.z * center.z + plane.w;
+        let radius = (abs(plane.x) * extents.x + abs(plane.y) * extents.y) + abs(plane.z) * extents.z;
+        if (view.view[1u + i] & bit) != 0u && distance + radius >= 0.0 {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Returns the entry in the list.
@@ -211,7 +227,8 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_
             // HIDDEN also holds the LOD selection.
             if (row.key & (HIDDEN | SHADOW_ONLY)) == 0u
                 && (view.counts.x & (1u << (row.key & 31u))) != 0u
-                && intersects_camera(row.center, row.extents) {
+                && intersects_camera(row.center, row.extents)
+                && layer_visible(row.key & 31u, row.center, row.extents) {
                 lights[append(0u, i, batch)] = row_object(row);
             }
             let mask = masks[i / 4u] >> ((i % 4u) * 8u);

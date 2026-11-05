@@ -1,3 +1,5 @@
+use crate::reference::lighting::{FAR_CAMERA_MASK, NEAR_CAMERA_MASK};
+pub use crate::reference::shadow_planes::LayerRanges;
 use bevy::ecs as bevy_ecs;
 use bevy::prelude::*;
 
@@ -9,10 +11,10 @@ pub struct WorldCameraSettings {
 }
 
 /// Source culling mask of the world camera.
-pub const WORLD_MASK: u32 = 0x14DA8F33;
+pub const WORLD_MASK: u32 = NEAR_CAMERA_MASK | FAR_CAMERA_MASK;
 
 /// The source draws near and far with Cam1 and Cam2. The port draws with one camera.
-/// It uses `Cam2FarPlane` as `far`. The Cam1 far and Cam2 near planes stay unused.
+/// It uses `Cam2FarPlane` as `far`. `LayerRanges` applies the Cam1 far and Cam2 near planes per layer.
 pub fn world_camera_settings(fov_degrees: f32, far: f32) -> WorldCameraSettings {
     WorldCameraSettings {
         near: 0.05,
