@@ -252,6 +252,7 @@ impl Plugin for SourceFramePlugin {
         super::motion_vectors::install(app);
         super::gpu_timing::install(app);
         super::play_pipelines::install(app);
+        super::prewarm_list::install(app);
         let render = app.sub_app_mut(RenderApp);
         render
             .insert_resource(progress)

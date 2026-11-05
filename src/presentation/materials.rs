@@ -1124,6 +1124,8 @@ fn prewarm_materials(world: &mut World) {
     if pending.state != RenderingState::Loading {
         return;
     }
+    // Listed pipelines compile beside the material pipelines.
+    let listed = super::prewarm_list::ready(world);
     let keys = world.resource::<ViewKeyCache>();
     if keys.is_empty() {
         return;
@@ -1160,7 +1162,7 @@ fn prewarm_materials(world: &mut World) {
         pending.state = RenderingState::Failed(error);
         return;
     }
-    if !pending.sealed || !done {
+    if !pending.sealed || !done || !listed {
         return;
     }
     let cache = world.resource::<PipelineCache>();
