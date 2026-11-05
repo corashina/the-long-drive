@@ -649,8 +649,9 @@ fn tp_k12_a_paint_spray_in_the_hand_owns_lmb() {
 }
 
 /// K13. The start car drives away from the start along the road at 25 m/s. Each 100 m the
-/// road plan rereads about 256 candidates. The step never holds for 1 s, so the car does not
-/// stop in place while the world loads.
+/// road plan rereads about 256 candidates. After about 340 m the terrain under the cars parked
+/// at the start unloads, and those cars freeze. The step never holds for 1 s, so the car does
+/// not stop in place while the world loads.
 #[test]
 #[ignore = "requires the installed source export"]
 fn tp_k13_driving_away_from_the_start_never_stops_the_car() {
