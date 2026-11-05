@@ -4,7 +4,7 @@
 #import bevy_pbr::{mesh_functions, mesh_view_bindings::view, view_transformations::position_world_to_clip}
 
 struct TerrainUniform {
-    displacement: vec4<f32>,
+    vertex_color: vec4<f32>,
     renderer: vec4<u32>,
     texcoord: vec4<f32>,
     scale_slope: vec4<f32>,
@@ -29,6 +29,22 @@ struct TerrainUniform {
 @group(#{MATERIAL_BIND_GROUP}) @binding(9) var bank4: texture_2d_array<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(10) var sampler4: sampler;
 #endif
+// Port choice: drawn tiles of the finer tier. Grid 0 is tier 0 for tier 1, grid 1 is tier 1 for tier 2.
+struct CoverageGrid { base: vec4<f32>, bits: array<vec4<u32>,32>, }
+struct TerrainCoverage { grids: array<CoverageGrid,2>, }
+@group(#{MATERIAL_BIND_GROUP}) @binding(11) var<uniform> coverage: TerrainCoverage;
+// A distant tier skips a pixel over a drawn tile of the finer tier. `base` is cell 0 x and z, size, valid.
+fn covered(p:vec3<f32>)->bool {
+    let tier=terrain.renderer.y;
+    if tier==0u {return false;}
+    let base=coverage.grids[tier-1u].base;
+    if base.w==0. {return false;}
+    let cell=vec2<i32>(round(vec2(p.x-base.x,base.y-p.z)/base.z));
+    if any(cell<vec2(0)) || any(cell>=vec2(64)) {return false;}
+    let index=u32(cell.y*64+cell.x);
+    let word=coverage.grids[tier-1u].bits[index/128u][(index/32u)%4u];
+    return ((word>>(index%32u))&1u)!=0u;
+}
 struct TerrainVertex {
     @builtin(instance_index) instance: u32,
     @location(0) position: vec3<f32>,
@@ -49,15 +65,10 @@ struct TerrainOutput {
 @vertex
 fn vertex(v: TerrainVertex)->TerrainOutput {
     let world=mesh_functions::get_world_from_local(v.instance);
-    let position=mesh_functions::mesh_position_local_to_world(world,vec4(v.position,1.));
-    // Compiled source offsets 64 and 68 are FarDist and NearDist, in this order.
-    let distance=length(position.xyz-view.world_position);
-    let quotient=(distance-terrain.displacement.x)/(terrain.displacement.y-terrain.displacement.x);
-    let factor=select(0.,clamp(quotient,0.,1.),quotient==quotient);
-    var local=v.position;
-    local.y+=factor*terrain.displacement.z;
+    // Port choice: no source `_NearDist`/`_FarDist`/`_Amount` sink. A distant tier keeps its
+    // true height, and `covered` hides it under the drawn tiles of the finer tier.
     var out:TerrainOutput;
-    out.world_position=mesh_functions::mesh_position_local_to_world(world,vec4(local,1.)).xyz;
+    out.world_position=mesh_functions::mesh_position_local_to_world(world,vec4(v.position,1.)).xyz;
     out.position=position_world_to_clip(out.world_position);
 #ifdef SOURCE_CASTER
     out.position=world_caster_clip(out.world_position,normalize(mesh_functions::mesh_normal_local_to_world(v.normal,v.instance)));
@@ -108,7 +119,7 @@ fn terrain_surface(v:TerrainOutput)->TerrainSurface {
     let grass=(1.-v.color.b)*(1.-v.color.r)*v.color.g*ground;
     let dirt=(1.-v.color.b)*(1.-v.color.r)*(1.-v.color.g)*ground;
     let snow=v.color.b*ground;
-    let normal_weight=1.-terrain.displacement.w;
+    let normal_weight=1.-terrain.vertex_color.x;
     let n_sand=terrain_normal(0u,v.uv*(scaling*terrain.layers[0].x),sand*terrain.layers[0].y*normal_weight);
     let n_grass=terrain_normal(1u,v.uv*(scaling*terrain.layers[1].x),grass*terrain.layers[1].y*normal_weight);
     let n_dirt=terrain_normal(2u,v.uv*(scaling*terrain.layers[2].x),dirt*terrain.layers[2].y*normal_weight);
@@ -125,7 +136,7 @@ fn terrain_surface(v:TerrainOutput)->TerrainSurface {
     albedo=mix(albedo,mix(terrain.colors[4].rgb,terrain.colors[5].rgb,a)*sample_terrain(9u,v.uv*(scaling*terrain.layers[0].x)).rgb,clamp(v.color.r,0.,1.));
     albedo=mix(albedo,mix(terrain.colors[6].rgb,terrain.colors[7].rgb,a)*sample_terrain(10u,v.uv*(scaling*terrain.layers[3].x)).rgb,clamp(v.color.b,0.,1.));
     albedo=mix(albedo,mix(terrain.colors[8].rgb,terrain.colors[9].rgb,a)*sample_terrain(11u,v.uv*(scaling*terrain.layers[4].x)).rgb,cliff);
-    albedo=mix(albedo,v.color.rgb,terrain.displacement.w);
+    albedo=mix(albedo,v.color.rgb,terrain.vertex_color.x);
     // These source smoothness names differ from their compiled biome weights.
     let smoothness=clamp(sand*terrain.layers[3].z+grass*terrain.layers[2].z+dirt*terrain.layers[1].z+snow*terrain.layers[0].z+cliff*terrain.layers[4].z,0.,1.);
     return TerrainSurface(albedo,normalize(mat3x3(v.tangent,v.bitangent,v.normal)*normal),smoothness);
@@ -161,6 +172,7 @@ fn source_brdf(diffuse: vec3<f32>, specular: vec3<f32>, smoothness: f32, normal:
 #import bevy_pbr::{pbr_types::pbr_input_new, forward_io::FragmentOutput}
 @fragment
 fn fragment(in:TerrainOutput)->FragmentOutput {
+    if covered(in.world_position) {discard;}
     let surface=terrain_surface(in);
     var pbr=pbr_input_new();
     pbr.frag_coord=in.position;
@@ -223,5 +235,5 @@ fn fragment(in:TerrainOutput)->FragmentOutput {
 }
 
 #else
-@fragment fn fragment(in:TerrainOutput) {}
+@fragment fn fragment(in:TerrainOutput) {if covered(in.world_position) {discard;}}
 #endif

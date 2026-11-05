@@ -14,6 +14,11 @@ pub struct SourceRenderer(pub RendererRecord);
 #[derive(Component)]
 pub struct SourceMaterialWarmup;
 
+/// Port choice: a near terrain tile draws past `Cam1FarPlane`. The distant tier skips the pixels
+/// of every drawn near tile (`terrain_coverage`), so a cut tile would leave a hole.
+#[derive(Component)]
+pub struct NearTerrain;
+
 /// Source `makeinvisible`. The camera does not draw a worn item renderer. Its shadow stays.
 #[derive(Component)]
 pub struct CameraHidden;
@@ -45,6 +50,7 @@ type CameraMesh = (
     Option<&'static SourceSortData>,
     Has<SourceMaterialWarmup>,
     Has<CameraHidden>,
+    Has<NearTerrain>,
     (
         Option<&'static bevy::camera::visibility::RenderLayers>,
         Option<&'static bevy::camera::primitives::Aabb>,
@@ -102,12 +108,12 @@ pub fn filter_camera_visibility(
             continue;
         }
         entities.retain(|entity| {
-            let Ok((renderer, mode, sort, warmup, hidden, (layers, aabb, transform))) =
+            let Ok((renderer, mode, sort, warmup, hidden, near, (layers, aabb, transform))) =
                 meshes.get(*entity)
             else {
                 return false;
             };
-            if hidden || !(warmup || layer_visible(&ranges, layers, aabb, transform)) {
+            if hidden || !(warmup || near || layer_visible(&ranges, layers, aabb, transform)) {
                 return false;
             }
             // With ShadowsOnly, the shadow scene draws it and the camera does not.

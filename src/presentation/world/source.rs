@@ -365,7 +365,7 @@ impl SourceWorldVisuals {
                     }
                 } else {
                     let tier = tier(published.key.layer)?;
-                    commands.spawn((
+                    let mut entity = commands.spawn((
                         Mesh3d(mesh.clone()),
                         crate::presentation::renderer_visibility::SourceRenderer(record.clone()),
                         MeshMaterial3d(self.terrain[tier].as_ref().unwrap().clone()),
@@ -376,6 +376,9 @@ impl SourceWorldVisuals {
                         bevy::light::NotShadowCaster,
                         ChildOf(root),
                     ));
+                    if tier == 0 {
+                        entity.insert(crate::presentation::renderer_visibility::NearTerrain);
+                    }
                 }
             }
             self.surfaces.push(SurfaceVisual {
