@@ -56,6 +56,8 @@ const LIGHT_BYTES: u64 = 16;
 const TOTAL_WORDS: usize = 16;
 /// More dirty ranges than this upload all rows. Fading rows give one range per few rows.
 const UPLOAD_RANGES: usize = 256;
+/// Dirty ranges closer than this many rows go up in one write. 64 rows are 9 KiB.
+const MERGE_ROWS: u32 = 64;
 
 fn align(bytes: u64) -> u64 {
     bytes.div_ceil(ALIGN) * ALIGN
@@ -343,6 +345,8 @@ pub struct PropDraws {
     templates: Vec<Option<Template>>,
     buffers: Option<Buffers>,
     views: [ViewState; VIEW_COUNT],
+    /// `CullView` words of every view, one 256-byte region each. One write per frame.
+    cull_words: Vec<u32>,
     cull: Option<[CachedComputePipelineId; 2]>,
     readback: Option<Readback>,
     pub ready: [bool; VIEW_COUNT],
@@ -364,6 +368,7 @@ impl FromWorld for PropDraws {
             templates: Vec::new(),
             buffers: None,
             views: std::array::from_fn(|_| ViewState::default()),
+            cull_words: vec![0; VIEW_COUNT * ALIGN as usize / 4],
             cull: None,
             readback: None,
             ready: [false; VIEW_COUNT],
@@ -479,11 +484,23 @@ impl PropDraws {
             };
             views[view.index] = Some(key);
         }
+        let mut prepared = VIEW_COUNT..0;
         for (index, key) in views.into_iter().enumerate() {
             let Some(key) = key else {
                 continue;
             };
             self.ready[index] = self.prepare_view(world, index, key)?;
+            prepared = prepared.start.min(index)..prepared.end.max(index + 1);
+        }
+        if !prepared.is_empty() {
+            let region = ALIGN as usize / 4;
+            world.resource::<RenderQueue>().write_buffer(
+                &self.buffers.as_ref().unwrap().cull_views,
+                (prepared.start * ALIGN as usize) as u64,
+                bytemuck::cast_slice(
+                    &self.cull_words[prepared.start * region..prepared.end * region],
+                ),
+            );
         }
         self.frame = frame;
         Ok(())
@@ -606,30 +623,52 @@ impl PropDraws {
             queue.write_buffer(&buffers.rows, 0, bytemuck::cast_slice(&self.words));
             self.full = false;
         } else {
-            for range in &self.dirty {
-                let words = range.start as usize * ROW_WORDS..range.end as usize * ROW_WORDS;
+            // Near ranges merge, so most frames send one write.
+            self.dirty.sort_unstable_by_key(|range| range.start);
+            let write = |span: Range<u32>| {
+                let words = span.start as usize * ROW_WORDS..span.end as usize * ROW_WORDS;
                 queue.write_buffer(
                     &buffers.rows,
-                    u64::from(range.start) * ROW_BYTES,
+                    u64::from(span.start) * ROW_BYTES,
                     bytemuck::cast_slice(&self.words[words]),
                 );
+            };
+            let mut span: Option<Range<u32>> = None;
+            for range in &self.dirty {
+                match &mut span {
+                    Some(span) if range.start <= span.end.saturating_add(MERGE_ROWS) => {
+                        span.end = span.end.max(range.end);
+                    }
+                    _ => {
+                        if let Some(done) = span.replace(range.clone()) {
+                            write(done);
+                        }
+                    }
+                }
+            }
+            if let Some(done) = span {
+                write(done);
             }
         }
         self.dirty.clear();
         if self.batch_upload {
-            // The table is small. Write it whole.
-            for (index, template) in self.templates.iter().enumerate() {
-                let gpu = template.map_or([0; 4], |t| t.gpu);
-                queue.write_buffer(
-                    &buffers.batches,
-                    index as u64 * 16,
-                    bytemuck::cast_slice(&gpu),
-                );
-                queue.write_buffer(
-                    &buffers.batch_offsets,
-                    index as u64 * ALIGN,
-                    bytemuck::cast_slice(&[gpu[0], 0, 0, 0]),
-                );
+            // The tables are small. Each goes up whole in one write.
+            let batches: Vec<u32> = self
+                .templates
+                .iter()
+                .flat_map(|template| template.map_or([0; 4], |t| t.gpu))
+                .collect();
+            let offsets: Vec<u32> = batches
+                .chunks_exact(4)
+                .flat_map(|gpu| {
+                    let mut slot = [0; ALIGN as usize / 4];
+                    slot[0] = gpu[0];
+                    slot
+                })
+                .collect();
+            if !batches.is_empty() {
+                queue.write_buffer(&buffers.batches, 0, bytemuck::cast_slice(&batches));
+                queue.write_buffer(&buffers.batch_offsets, 0, bytemuck::cast_slice(&offsets));
             }
             self.batch_upload = false;
         }
@@ -742,7 +781,9 @@ impl PropDraws {
             }
         }
         let snapshot = world.resource::<SourceViewFrame>().views[index].unwrap();
-        let mut cull = [0u32; CULL_WORDS];
+        let region = ALIGN as usize / 4;
+        let cull = &mut self.cull_words[index * region..index * region + CULL_WORDS];
+        cull.fill(0);
         for (plane, words) in snapshot.source_camera_planes.iter().zip(cull.chunks_mut(4)) {
             for (word, value) in words.iter_mut().zip(plane) {
                 *word = value.to_bits();
@@ -766,11 +807,6 @@ impl PropDraws {
                 }
             }
         }
-        queue.write_buffer(
-            &buffers.cull_views,
-            index as u64 * ALIGN,
-            bytemuck::cast_slice(&cull),
-        );
         Ok(ready)
     }
     fn poll_readback(&mut self) {

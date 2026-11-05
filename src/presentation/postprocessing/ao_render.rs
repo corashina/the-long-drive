@@ -1,5 +1,6 @@
 //! One persistent interleaved AO draw per scale over the source depth phase arrays.
 use super::ao_depth::{AoDepthPass, AoDepthTarget};
+use crate::presentation::uniform_slots::UniformSlots;
 use bevy::prelude::*;
 use bevy::render::{
     render_resource::{binding_types::*, *},
@@ -17,7 +18,9 @@ pub struct AoRenderPass {
     pub logical_bytes: u64,
     pipeline: CachedRenderPipelineId,
     bindings: Vec<BindGroup>,
-    uniforms: Vec<UniformBuffer<AoParams>>,
+    params: Vec<AoParams>,
+    /// One slot per scale. One write per frame.
+    uniforms: UniformSlots<AoParams>,
     thickness: [f32; 12],
     atlas_width: Vec<u32>,
 }
@@ -25,7 +28,6 @@ impl AoRenderPass {
     pub fn new(
         adapter: &RenderAdapter,
         device: &RenderDevice,
-        queue: &RenderQueue,
         cache: &PipelineCache,
         shader: Handle<Shader>,
         depth: &AoDepthPass,
@@ -95,28 +97,27 @@ impl AoRenderPass {
                 ),
             ),
         );
-        let uniforms: Vec<_> = depth
-            .tiled
-            .iter()
-            .map(|_| {
-                let mut b = UniformBuffer::from(AoParams {
-                    inverse_thickness: [Vec4::ZERO; 3],
-                    weights: packed,
-                    settings: Vec4::new(-1. / thickness, intensity, 0., 0.),
-                });
-                b.write_buffer(device, queue);
-                b
-            })
-            .collect();
+        let params = vec![
+            AoParams {
+                inverse_thickness: [Vec4::ZERO; 3],
+                weights: packed,
+                settings: Vec4::new(-1. / thickness, intensity, 0., 0.),
+            };
+            depth.tiled.len()
+        ];
+        let mut uniforms = UniformSlots::new(device, "source_ao_interleaved", params.len());
+        for (scale, value) in params.iter().enumerate() {
+            uniforms.set(scale, value);
+        }
         let bindings = depth
             .tiled
             .iter()
-            .zip(&uniforms)
-            .map(|(tiled, uniform)| {
+            .enumerate()
+            .map(|(scale, tiled)| {
                 device.create_bind_group(
                     "source_ao_interleaved",
                     &cache.get_bind_group_layout(&layout),
-                    &BindGroupEntries::sequential((uniform.binding().unwrap(), &tiled.view)),
+                    &BindGroupEntries::sequential((uniforms.binding(scale), &tiled.view)),
                 )
             })
             .collect();
@@ -151,6 +152,7 @@ impl AoRenderPass {
             logical_bytes,
             pipeline,
             bindings,
+            params,
             uniforms,
             thickness: sample_thickness,
             atlas_width: depth.tiled.iter().map(|t| t.extent[0]).collect(),
@@ -165,7 +167,6 @@ impl AoRenderPass {
     pub fn encode(
         &mut self,
         encoder: &mut CommandEncoder,
-        device: &RenderDevice,
         queue: &RenderQueue,
         cache: &PipelineCache,
         projection_00: f32,
@@ -179,12 +180,15 @@ impl AoRenderPass {
         for i in 0..self.output.len() {
             let inverse_scale =
                 1. / ((2. * (1. / projection_00) * 10.) / self.atlas_width[i] as f32);
-            self.uniforms[i].get_mut().inverse_thickness = std::array::from_fn(|j| {
+            self.params[i].inverse_thickness = std::array::from_fn(|j| {
                 Vec4::from_array(std::array::from_fn(|k| {
                     inverse_scale / self.thickness[j * 4 + k]
                 }))
             });
-            self.uniforms[i].write_buffer(device, queue);
+            self.uniforms.set(i, &self.params[i]);
+        }
+        self.uniforms.upload(queue);
+        for i in 0..self.output.len() {
             let colors = [Some(RenderPassColorAttachment {
                 view: &self.output[i].view,
                 depth_slice: None,

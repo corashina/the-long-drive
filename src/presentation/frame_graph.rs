@@ -566,8 +566,6 @@ fn prepare_frame(
             Vec3::ZERO,
             assets.record.cameras[0].far,
             skybox_clip,
-            &device,
-            &queue,
         );
     }
     if let (Some(sky), Some(ProbeJob::Face(face))) = (sky.as_mut(), frame.probe_job)
@@ -584,8 +582,6 @@ fn prepare_frame(
             scene.probe_position[frame.probe_index],
             snapshot.far,
             projection * snapshot.view_from_world,
-            &device,
-            &queue,
         );
     }
     if let Some(sky) = sky.as_mut() {
@@ -604,15 +600,14 @@ fn prepare_frame(
                 snapshot.view_from_world.inverse().w_axis.truncate(),
                 snapshot.far,
                 projection * snapshot.view_from_world,
-                &device,
-                &queue,
             );
         }
+        sky.upload(&queue);
     }
     if let Some(clouds) = clouds.as_mut()
         && sky_views.single().is_ok()
     {
-        clouds.write_live(Vec3::ZERO, sky_clip, &scene, &device, &queue);
+        clouds.write_live(Vec3::ZERO, sky_clip, &scene, &queue);
     }
     let Some((_, target)) = views.iter().find(|(source, _)| source.index == 0) else {
         return;

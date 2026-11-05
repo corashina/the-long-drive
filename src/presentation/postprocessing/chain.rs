@@ -714,7 +714,6 @@ impl SourceAoChain {
         let depth = AoDepthPass::new(
             adapter,
             device,
-            queue,
             cache,
             shaders.ao_depth.clone(),
             camera_depth,
@@ -725,7 +724,6 @@ impl SourceAoChain {
         let render = AoRenderPass::new(
             adapter,
             device,
-            queue,
             cache,
             shaders.ao_render.clone(),
             &depth,
@@ -808,10 +806,8 @@ impl SourceAoChain {
         {
             return Err("Invalid source AO frame".into());
         }
-        self.depth
-            .encode(encoder, device, queue, cache, near, far)?;
-        self.render
-            .encode(encoder, device, queue, cache, projection_00)?;
+        self.depth.encode(encoder, queue, cache, near, far)?;
+        self.render.encode(encoder, queue, cache, projection_00)?;
         self.upsample.encode(encoder, cache);
         self.composite
             .encode(encoder, device, queue, cache, color, near, far, fog_density)

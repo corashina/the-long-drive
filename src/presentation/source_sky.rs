@@ -18,20 +18,18 @@ struct SkyParams {
     ground_exposure: Vec4,
     sun: Vec4,
 }
-struct SkyBinding {
-    uniform: UniformBuffer<SkyParams>,
-    group: BindGroup,
-}
 #[derive(Resource)]
 pub struct SkyPass {
     pipelines: [CachedRenderPipelineId; 2],
     vertices: Buffer,
-    bindings: [SkyBinding; super::surface_views::VIEW_COUNT],
+    params: [SkyParams; super::surface_views::VIEW_COUNT],
+    /// One slot for each view. `upload` sends the frame's changed views in one write.
+    uniforms: super::uniform_slots::UniformSlots<SkyParams>,
+    groups: [BindGroup; super::surface_views::VIEW_COUNT],
 }
 impl SkyPass {
     pub fn new(
         device: &RenderDevice,
-        queue: &RenderQueue,
         cache: &PipelineCache,
         shader: Handle<Shader>,
         record: &LightingRecord,
@@ -144,28 +142,34 @@ impl SkyPass {
         let target_direction = Quat::from_array(record.lights[0].world_pose.rotation) * Vec3::Z;
         let source_direction =
             Vec3::new(target_direction.x, target_direction.y, -target_direction.z);
-        let bindings = std::array::from_fn(|_| {
-            let mut uniform = UniformBuffer::from(SkyParams {
-                world_from_source: Mat4::IDENTITY,
-                clip_from_world: Mat4::IDENTITY,
-                light_direction: source_direction.extend(0.),
-                light_radiance: Vec3::from_array(record.lights[0].radiance).extend(0.),
-                tint_thickness: tint,
-                ground_exposure: ground,
-                sun: Vec4::new(record.sky.sun_size, record.sky.sun_convergence, 0., 0.),
-            });
-            uniform.write_buffer(device, queue);
-            let group = device.create_bind_group(
+        let params = [SkyParams {
+            world_from_source: Mat4::IDENTITY,
+            clip_from_world: Mat4::IDENTITY,
+            light_direction: source_direction.extend(0.),
+            light_radiance: Vec3::from_array(record.lights[0].radiance).extend(0.),
+            tint_thickness: tint,
+            ground_exposure: ground,
+            sun: Vec4::new(record.sky.sun_size, record.sky.sun_convergence, 0., 0.),
+        }; super::surface_views::VIEW_COUNT];
+        let mut uniforms =
+            super::uniform_slots::UniformSlots::new(device, "source_sky", params.len());
+        for (index, value) in params.iter().enumerate() {
+            uniforms.set(index, value);
+        }
+        let layout = cache.get_bind_group_layout(&layout);
+        let groups = std::array::from_fn(|index| {
+            device.create_bind_group(
                 "source_sky",
-                &cache.get_bind_group_layout(&layout),
-                &BindGroupEntries::single(uniform.binding().unwrap()),
-            );
-            SkyBinding { uniform, group }
+                &layout,
+                &BindGroupEntries::single(uniforms.binding(index)),
+            )
         });
         Self {
             pipelines,
             vertices,
-            bindings,
+            params,
+            uniforms,
+            groups,
         }
     }
     pub fn ready(&self, cache: &PipelineCache) -> bool {
@@ -175,24 +179,20 @@ impl SkyPass {
     }
     /// View zero is the sky camera. Other indices are the surface views of the same index.
     /// The caller supplies its established source-to-target clip conversion.
-    pub fn write_view(
-        &mut self,
-        index: usize,
-        position: Vec3,
-        far: f32,
-        clip_from_world: Mat4,
-        device: &RenderDevice,
-        queue: &RenderQueue,
-    ) {
+    fn write_view(&mut self, index: usize, position: Vec3, far: f32, clip_from_world: Mat4) {
         let scale = far * 10.;
-        let value = self.bindings[index].uniform.get_mut();
+        let value = &mut self.params[index];
         value.world_from_source = Mat4::from_scale_rotation_translation(
             Vec3::new(scale, scale, -scale),
             Quat::IDENTITY,
             position,
         );
         value.clip_from_world = clip_from_world;
-        self.bindings[index].uniform.write_buffer(device, queue);
+        self.uniforms.set(index, value);
+    }
+    /// One write for the views that `write_live` changed this frame.
+    pub fn upload(&mut self, queue: &RenderQueue) {
+        self.uniforms.upload(queue);
     }
     /// Draw the sky into a pass that the caller owns.
     pub fn draw<'a>(
@@ -206,7 +206,7 @@ impl SkyPass {
             return false;
         };
         pass.set_render_pipeline(pipeline);
-        pass.set_bind_group(0, &self.bindings[index].group, &[]);
+        pass.set_bind_group(0, &self.groups[index], &[]);
         pass.set_vertex_buffer(0, self.vertices.slice(..));
         pass.draw(0..5040, 0..1);
         true
@@ -219,7 +219,6 @@ pub(crate) fn prepare_sky(
     assets: Option<Res<super::lighting_assets::LightingRenderAssets>>,
     existing: Option<Res<SkyPass>>,
     device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     status: Res<super::readiness::RendererStateHandle>,
     antialiasing: Res<super::antialiasing::Antialiasing>,
@@ -240,7 +239,6 @@ pub(crate) fn prepare_sky(
     let Some(assets) = assets else { return };
     commands.insert_resource(SkyPass::new(
         &device,
-        &queue,
         &cache,
         assets.shaders.sky.clone(),
         &assets.record,
@@ -256,15 +254,13 @@ impl SkyPass {
         position: Vec3,
         far: f32,
         clip_from_world: Mat4,
-        device: &RenderDevice,
-        queue: &RenderQueue,
     ) {
-        let value = self.bindings[index].uniform.get_mut();
+        let value = &mut self.params[index];
         let direction = scene.direction_to_sun;
         value.light_direction = Vec4::new(direction.x, direction.y, -direction.z, 0.);
         value.light_radiance = scene.sun_radiance;
         value.tint_thickness = scene.sky.tint.truncate().extend(scene.sky.parameters.y);
         value.ground_exposure = scene.sky.ground.truncate().extend(scene.sky.parameters.x);
-        self.write_view(index, position, far, clip_from_world, device, queue);
+        self.write_view(index, position, far, clip_from_world);
     }
 }

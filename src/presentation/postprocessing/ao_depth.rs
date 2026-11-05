@@ -1,4 +1,5 @@
 //! Source AO depth storage. Allocate once per physical extent and scale count.
+use crate::presentation::uniform_slots::UniformSlots;
 use bevy::prelude::*;
 use bevy::render::{
     render_resource::{binding_types::*, *},
@@ -76,13 +77,14 @@ pub struct AoDepthPass {
     pipelines: [CachedRenderPipelineId; 3],
     /// One binding per scale, then the copy binding.
     bindings: Vec<BindGroup>,
-    uniforms: Vec<UniformBuffer<DepthParams>>,
+    params: Vec<DepthParams>,
+    /// One slot per scale. One write per frame.
+    uniforms: UniformSlots<DepthParams>,
 }
 impl AoDepthPass {
     pub fn new(
         adapter: &RenderAdapter,
         device: &RenderDevice,
-        queue: &RenderQueue,
         cache: &PipelineCache,
         shader: Handle<Shader>,
         camera_depth: &TextureView,
@@ -202,24 +204,26 @@ impl AoDepthPass {
             |pass| pass.pipelines,
         );
         // Scales 0 and 1 read the raw copy and linearize. Scales 2 and 3 read the linear scale 1.
-        let uniforms: Vec<_> = (0..scales)
+        let params: Vec<_> = (0..scales)
             .map(|scale| {
                 let stride = if scale % 2 == 0 { 2 } else { 4 };
-                let mut buffer = UniformBuffer::from(DepthParams {
+                DepthParams {
                     projection: Vec4::ZERO,
                     control: UVec4::new(stride, u32::from(scale < 2), 0, 0),
-                });
-                buffer.write_buffer(device, queue);
-                buffer
+                }
             })
             .collect();
+        let mut uniforms = UniformSlots::new(device, "source_ao_depth", scales);
+        for (scale, value) in params.iter().enumerate() {
+            uniforms.set(scale, value);
+        }
         let mut bindings: Vec<_> = (0..scales)
             .map(|scale| {
                 device.create_bind_group(
                     "source_ao_depth",
                     &cache.get_bind_group_layout(&layout),
                     &BindGroupEntries::sequential((
-                        uniforms[scale].binding().unwrap(),
+                        uniforms.binding(scale),
                         if scale < 2 { &copy.view } else { &low[1].view },
                         camera_depth,
                     )),
@@ -229,10 +233,7 @@ impl AoDepthPass {
         bindings.push(device.create_bind_group(
             "source_ao_depth_copy",
             &cache.get_bind_group_layout(&copy_layout),
-            &BindGroupEntries::with_indices((
-                (0, uniforms[0].binding().unwrap()),
-                (2, camera_depth),
-            )),
+            &BindGroupEntries::with_indices(((0, uniforms.binding(0)), (2, camera_depth))),
         ));
         Ok(Self {
             copy,
@@ -242,6 +243,7 @@ impl AoDepthPass {
             logical_bytes,
             pipelines,
             bindings,
+            params,
             uniforms,
         })
     }
@@ -256,7 +258,6 @@ impl AoDepthPass {
     pub fn encode(
         &mut self,
         encoder: &mut CommandEncoder,
-        device: &RenderDevice,
         queue: &RenderQueue,
         cache: &PipelineCache,
         near: f32,
@@ -268,10 +269,11 @@ impl AoDepthPass {
         if !self.ready(cache) {
             return Ok(false);
         }
-        for buffer in &mut self.uniforms {
-            buffer.get_mut().projection = Vec4::new(far / near - 1., 1., 0., 0.);
-            buffer.write_buffer(device, queue);
+        for (scale, value) in self.params.iter_mut().enumerate() {
+            value.projection = Vec4::new(far / near - 1., 1., 0., 0.);
+            self.uniforms.set(scale, value);
         }
+        self.uniforms.upload(queue);
         let scales = self.low.len();
         self.draw(
             encoder,

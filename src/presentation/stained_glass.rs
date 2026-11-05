@@ -4,7 +4,7 @@ use bevy::ecs::{query::ROQueryItem, system::SystemParamItem};
 use bevy::render::{
     render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
     render_resource::{binding_types::*, *},
-    renderer::{RenderDevice, RenderQueue},
+    renderer::RenderDevice,
 };
 use bevy::{ecs as bevy_ecs, prelude::*};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -131,7 +131,6 @@ pub struct SourceGlassView {
     texture: Texture,
     _sampled: TextureView,
     _sampler: Sampler,
-    uniform: UniformBuffer<GlassViewUniform>,
     bind_group: BindGroup,
     /// Source named `_GrabTexture`. The view captures it once per view frame before the first distortion particle.
     named: Texture,
@@ -145,11 +144,12 @@ pub struct SourceGlassView {
     audit: std::sync::Mutex<GlassAudit>,
 }
 impl SourceGlassView {
+    /// `uniform` is the view's glass slot. It holds `value` before the graph runs.
     pub fn new(
         device: &RenderDevice,
-        queue: &RenderQueue,
         cache: &PipelineCache,
-        value: GlassViewUniform,
+        value: &GlassViewUniform,
+        uniform: BindingResource,
         camera_depth: Option<&TextureView>,
     ) -> Result<Self, &'static str> {
         let extent = UVec2::new(
@@ -210,19 +210,16 @@ impl SourceGlassView {
             mipmap_filter: MipmapFilterMode::Nearest,
             ..default()
         });
-        let mut uniform = UniformBuffer::from(value);
-        uniform.set_label(Some("source_glass_view_uniform"));
-        uniform.write_buffer(device, queue);
         let bind_group = device.create_bind_group(
             "source_glass_view",
             &cache.get_bind_group_layout(&glass_view_layout()),
-            &BindGroupEntries::sequential((uniform.binding().unwrap(), &sampled, &sampler)),
+            &BindGroupEntries::sequential((uniform.clone(), &sampled, &sampler)),
         );
         let particle_group = device.create_bind_group(
             "source_particle_view",
             &cache.get_bind_group_layout(&particle_view_layout()),
             &BindGroupEntries::sequential((
-                uniform.binding().unwrap(),
+                uniform,
                 camera_depth.or(placeholder_view.as_ref()).unwrap(),
                 &named_sampled,
                 &sampler,
@@ -232,7 +229,6 @@ impl SourceGlassView {
             texture,
             _sampled: sampled,
             _sampler: sampler,
-            uniform,
             bind_group,
             named,
             _named_sampled: named_sampled,
@@ -273,25 +269,13 @@ impl SourceGlassView {
     pub fn captures(&self) -> u32 {
         self.captures.load(Ordering::Relaxed)
     }
-    pub fn unchanged(&self, value: &GlassViewUniform) -> bool {
-        self.uniform.get() == value
-    }
-    pub fn write(
-        &mut self,
-        value: GlassViewUniform,
-        device: &RenderDevice,
-        queue: &RenderQueue,
-    ) -> Result<(), &'static str> {
+    /// A new extent needs a new view. The uniform slot itself lives in `SurfaceResources`.
+    pub fn check(&self, value: &GlassViewUniform) -> Result<(), &'static str> {
         if value.grab_texel_size.z != self.extent.x as f32
             || value.grab_texel_size.w != self.extent.y as f32
         {
             return Err("Source glass view requires physical resize");
         }
-        if self.unchanged(&value) {
-            return Ok(());
-        }
-        self.uniform.set(value);
-        self.uniform.write_buffer(device, queue);
         Ok(())
     }
     /// End preceding draws before calling. Resolve the current active HDR8 surface.
