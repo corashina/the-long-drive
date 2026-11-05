@@ -1,5 +1,7 @@
 //! Flat prop entities. An instance spawns entities only for dynamic glTF nodes.
 //! Renderers of static nodes attach to the nearest dynamic ancestor with a baked matrix.
+//! A body node attaches to the nearest body ancestor. Its body row gives its world pose, so
+//! local rows of the nodes between, such as a car wheel `T`, must not move it again.
 use bevy::math::{DMat4, Mat3, Mat4, Quat, Vec3};
 use bevy::transform::components::Transform;
 
@@ -14,6 +16,8 @@ pub struct NodePlan {
     has_children: Vec<bool>,
     /// Runtime code writes the transform or visibility of the node.
     dynamic: Vec<bool>,
+    /// The node is a physics body node. Body rows write its world pose.
+    bodies: Vec<bool>,
 }
 /// The flat layout of one instance.
 pub struct FlatNodes {
@@ -28,7 +32,13 @@ pub struct FlatNodes {
 }
 impl NodePlan {
     /// `children` holds the glTF children of each node. `dynamic` holds the dynamic glTF nodes.
-    pub fn new(children: &[&[u32]], sources: Vec<Option<u32>>, dynamic: Vec<bool>) -> Self {
+    /// `bodies` holds the glTF nodes of physics bodies. They must be dynamic.
+    pub fn new(
+        children: &[&[u32]],
+        sources: Vec<Option<u32>>,
+        dynamic: Vec<bool>,
+        bodies: Vec<bool>,
+    ) -> Self {
         let count = children.len();
         let mut parents = vec![None; count];
         for (parent, list) in children.iter().enumerate() {
@@ -49,6 +59,7 @@ impl NodePlan {
             order,
             has_children: children.iter().map(|c| !c.is_empty()).collect(),
             dynamic,
+            bodies,
         }
     }
     /// Places the nodes of one instance from its local matrices.
@@ -62,10 +73,18 @@ impl NodePlan {
             rest: vec![Mat4::IDENTITY; count],
             chain: vec![Mat4::IDENTITY; count],
         };
+        // Nearest body ancestor of each node, or the node itself for a body.
+        let mut body_anchors: Vec<Option<u32>> = vec![None; count];
         for &node in &self.order {
             let node = node as usize;
             let local = locals[node];
             flat.spawned[node] = self.dynamic[node] || (self.has_children[node] && !uniform(local));
+            let body_anchor = self.parents[node].and_then(|p| body_anchors[p as usize]);
+            if self.bodies[node] {
+                body_anchors[node] = Some(node as u32);
+            } else {
+                body_anchors[node] = body_anchor;
+            }
             match self.parents[node] {
                 None => {
                     flat.rest[node] = local;
@@ -74,7 +93,12 @@ impl NodePlan {
                 Some(parent) => {
                     let parent = parent as usize;
                     flat.chain[node] = flat.chain[parent] * local;
-                    if flat.spawned[parent] {
+                    if self.bodies[node] {
+                        flat.anchors[node] = body_anchor;
+                        flat.rest[node] = body_anchor
+                            .map_or(Mat4::IDENTITY, |a| flat.chain[a as usize].inverse())
+                            * flat.chain[node];
+                    } else if flat.spawned[parent] {
                         flat.anchors[node] = Some(parent as u32);
                         flat.rest[node] = local;
                     } else {
@@ -137,5 +161,36 @@ pub fn matrix_transform(m: Mat4) -> Transform {
         translation: m.w_axis.truncate(),
         rotation,
         scale,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A car wheel body sits under the wheel `T` node, which local rows turn. The body anchors to
+    /// the car body, so the turn of `T` does not move the wheel off its axle again.
+    #[test]
+    fn a_body_anchors_to_the_nearest_body_ancestor() {
+        // 0 car body, 1 wheel `T`, 2 wheel body, 3 hubcap under the wheel.
+        let children: [&[u32]; 4] = [&[1], &[2], &[3], &[]];
+        let plan = NodePlan::new(
+            &children,
+            vec![Some(0), Some(1), Some(2), Some(3)],
+            vec![true, true, true, false],
+            vec![true, false, true, false],
+        );
+        let locals = [
+            Mat4::IDENTITY,
+            Mat4::from_translation(Vec3::new(0.7, -0.2, 1.)),
+            Mat4::from_translation(Vec3::new(0.1, 0., 0.)),
+            Mat4::IDENTITY,
+        ];
+        let flat = plan.flatten(&locals);
+        assert_eq!(flat.anchors, [None, Some(0), Some(0), Some(2)]);
+        assert_eq!(
+            flat.rest[2],
+            Mat4::from_translation(Vec3::new(0.8, -0.2, 1.))
+        );
     }
 }
