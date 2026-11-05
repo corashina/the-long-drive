@@ -457,7 +457,11 @@ impl StructureViews {
         // A part mounted on another body takes the move of that body.
         let anchor = car
             .and_then(|(record, _, _)| structure.bodies.get(record.body as usize).copied())
-            .or_else(|| carrier(items, entry.food, &structure.bodies))
+            .or_else(|| {
+                // An item keeps the handle of a removed body.
+                carrier(items, entry.food, &structure.bodies)
+                    .filter(|b| physics.rapier().bodies.contains(*b))
+            })
             .or(structure.bodies.first().copied());
         let moved = anchor.map_or(Pose::IDENTITY, |handle| {
             physics.presented_move(handle, inputs.alpha)
@@ -490,7 +494,10 @@ impl StructureViews {
             // mechanism frames are one update old. So a mounted part shows on its shown carrier.
             let mounted = content.render_item(*handle).and_then(|(item, local)| {
                 let state = items.get(item)?;
-                let carrier = state.body.filter(|b| b != handle)?;
+                // An item keeps the handle of a removed body, such as a car the stream dropped.
+                let carrier = state
+                    .body
+                    .filter(|b| b != handle && physics.rapier().bodies.contains(*b))?;
                 let node = body.1.node as usize;
                 let above = prototype.nodes[node]
                     .parent

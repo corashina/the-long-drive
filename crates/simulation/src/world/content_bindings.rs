@@ -1065,10 +1065,13 @@ impl WorldStream {
     /// A car whose ground the stream does not load stops in place, as source bodies do. So the
     /// step never waits for ground that no request loads. The car moves again when its ground
     /// loads or the player takes it. It covers every car, also cars the content freeze skips.
+    /// A persistent body that `persistent` has not restored, such as the garage floor after the
+    /// player drives away, is ground that is not loaded too.
     pub(super) fn stop_cars_without_ground(
         &mut self,
         physics: &mut PhysicsWorld,
         vehicles: &std::collections::BTreeMap<ObjectKey, crate::car::VehicleRuntime>,
+        persistent: &crate::save::PersistentWorld,
     ) {
         self.ground_frozen
             .retain(|h| vehicles.keys().any(|key| physics.chassis_handle(key) == *h));
@@ -1079,9 +1082,9 @@ impl WorldStream {
             }
             let body = &physics.rapier().bodies[handle];
             let kept = self.kept.contains(&Some(handle));
-            let grounded = self.grounded(crate::world::collision_window(
-                self.origin.absolute(body.translation().to_array()),
-            ));
+            let bounds =
+                crate::world::collision_window(self.origin.absolute(body.translation().to_array()));
+            let grounded = self.grounded(bounds) && !persistent.waits_for(bounds);
             let frozen = self.ground_frozen.contains(&handle);
             if !grounded && !kept && !frozen && body.is_dynamic() {
                 physics.edit_body(handle, |b| {

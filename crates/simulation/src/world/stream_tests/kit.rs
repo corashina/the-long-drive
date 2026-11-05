@@ -185,6 +185,7 @@ pub(crate) fn prepare_step_for_views(
             &mut run.wheels,
             &mut run.vehicles,
             &mut run.powertrain,
+            &run.persistent_world,
         )
         .unwrap();
     assert!(stream.failure.is_none(), "{:?}", stream.failure);

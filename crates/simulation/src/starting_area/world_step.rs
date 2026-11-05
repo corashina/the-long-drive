@@ -97,6 +97,7 @@ impl GarageRuntime {
             &mut self.wheels,
             &mut self.vehicles,
             &mut self.powertrain,
+            &self.persistent_world,
         )?;
         self.stream.lay_ground(&mut self.physics);
         timer.next(stream_profile::Stage::Stream);
