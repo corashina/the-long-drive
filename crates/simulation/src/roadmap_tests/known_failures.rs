@@ -943,6 +943,7 @@ fn the_wheel_meshes_stay_on_the_driving_wheels() {
     let handle = run.physics.chassis_handle(&key);
     let mut out = crate::boundary::SimFrame::default();
     let mut checked = 0;
+    let mut plates = 0;
     for _ in 0..30 {
         run.physics.edit_body(handle, |b| {
             let forward = b.rotation() * Vector::Z;
@@ -978,6 +979,25 @@ fn the_wheel_meshes_stay_on_the_driving_wheels() {
             .map(pose)
             .unwrap();
         let chassis = *run.physics.rapier().bodies[handle].position();
+        // The plate meshes stay on the car. They lag one mechanism update, about 0.2 m here.
+        let on_plate = |mut node: Option<u32>| {
+            while let Some(n) = node {
+                if prototype.nodes[n as usize].name == "plate" {
+                    return true;
+                }
+                node = prototype.nodes[n as usize].parent;
+            }
+            false
+        };
+        for p in rows
+            .iter()
+            .filter(|p| p.kind == NodePoseRow::CONTENT && on_plate(Some(p.node)))
+        {
+            let rest = prototype.root_relative(p.node as usize).0.translation;
+            let error = ((car.inverse() * pose(p)).translation - rest).length();
+            assert!(error < 0.3, "a plate is {error} m off its car");
+            plates += 1;
+        }
         let record = prototype.vehicle.as_ref().unwrap();
         for (index, wheel) in record.wheels.iter().enumerate() {
             let center = (chassis.inverse()
@@ -1009,4 +1029,5 @@ fn the_wheel_meshes_stay_on_the_driving_wheels() {
         }
     }
     assert!(checked > 0, "the wheels have content poses");
+    assert!(plates > 0, "the plate has content poses");
 }
