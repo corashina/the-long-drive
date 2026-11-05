@@ -31,7 +31,7 @@ export class MenuState {
  back(){if(SUBSCREENS.includes(this.state))this.state=this.origin;}
  recover(){if(this.state==='pause-menu'&&!this.pending&&!this.dead)this.actions=ACTIONS.RECOVER;}
  // Multiplayer: the dead player lives again. The next frame of the simulation confirms it.
- respawn(){if(this.state!=='pause-menu'||this.pending||!this.deathComplete)return false;this.dead=false;this.deathComplete=false;return true;}
+ respawn(){if(this.state!=='pause-menu'||this.pending||!this.dead)return false;this.dead=false;this.deathComplete=false;return true;}
  takeActions(){const a=this.actions;this.actions=0;return a;}
  async run(operation,saveSession,...args){
   if(!this.readyFlag||this.pending||!['start-menu','pause-menu','saves','multiplayer'].includes(this.state)||(operation==='save'&&!this.started))return;
@@ -58,7 +58,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  const art=document.querySelector('#menu-art'),frame=document.querySelector('#menu-frame'),hud=document.querySelector('#hud');
  // The menus have their own layout (style.css), not the source sprites.
  const initialNodes=['#new-game','#start-load','#start-load-last','#start-settings','#start-game-mode','#start-appearance','#start-multiplayer'];
- const pauseNodes=['#resume','#save','#load','#pause-respawn','#pause-new-game','#recover','#settings','#pause-game-mode','#appearance','#multiplayer'];
+ const pauseNodes=['#pause-respawn','#resume','#save','#load','#pause-new-game','#recover','#settings','#pause-game-mode','#appearance','#multiplayer'];
  const actionNodes=[...initialNodes,...pauseNodes],backNodes=['#back','#game-mode-back','#save-back','#appearance-back','#multiplayer-back'];
  let lastState='',lastError='',lastStatus='',lastTravel=-1,pendingDriving=0,canLast=false,startResult=null;
  const screen=createSaveScreen({settings,word:language.word,paint:()=>paint(),run:(operation,name)=>operate(operation,...(operation==='save'?[name,thumbnail()]:operation==='loadLast'?[buildId]:[name]))});
@@ -98,8 +98,8 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
   for(const id of ['#save','#load'])document.querySelector(id).hidden=guest();
   // The player already started, so the pause menu offers New game only after death.
   document.querySelector('#pause-new-game').hidden=guest()||!model.dead;
-  // In a multiplayer session a dead player respawns. The world goes on.
-  document.querySelector('#pause-respawn').hidden=!online()||!model.deathComplete;
+  // In a multiplayer session a dead player respawns at once, also before the death card. The world goes on.
+  document.querySelector('#pause-respawn').hidden=!online()||!model.dead;
   startLast.hidden=!canLast;
   if(state==='saves')screen.paint(!model.readyFlag||model.pending);
   error.hidden=!model.error;if(lastError!==model.error){error.textContent=model.error;lastError=model.error;}
