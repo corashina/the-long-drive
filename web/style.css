@@ -41,6 +41,15 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .pause-menu #resume {border-color:var(--paint);background:var(--paint);color:var(--ink);font-weight:700;}
 .pause-menu #resume:hover:enabled {background:var(--paint-hi);}
 /* Keyboard focus shows as the hover border and a light ring. The ring also shows on the paint-filled main button. */
+/* Death card: an asphalt panel with the lane line on top. It sits above the buttons. New game becomes the main button. */
+#death-card {position:relative;margin-bottom:10px;padding:22px 18px 18px;border:1px solid var(--seam);border-radius:6px;overflow:hidden;background:var(--asphalt);box-shadow:0 12px 32px #0009;text-align:center;animation:death-in .6s ease-out backwards;}
+#death-card::before {content:"";position:absolute;left:0;right:0;top:0;height:4px;background:var(--lane);}
+#death-card h2 {margin:0;color:var(--bleach);font-size:40px;font-weight:800;line-height:1.05;}
+#death-card p {margin:8px 0 0;color:var(--dust);font-size:17px;line-height:1.35;}
+@keyframes death-in {from {opacity:0;transform:translateY(-10px);}}
+@media (prefers-reduced-motion:reduce) {#death-card {animation:none;}}
+.pause-menu:has(#death-card:not([hidden])) #pause-new-game {border-color:var(--paint);background:var(--paint);color:var(--ink);font-weight:700;}
+.pause-menu:has(#death-card:not([hidden])) #pause-new-game:hover:enabled {background:var(--paint-hi);}
 :is(.pause-menu,.start-primary) button:focus-visible {outline:2px solid var(--bleach);outline-offset:3px;border-color:var(--paint);}
 /* Start menu: the garage car turns on its stage (canvas) in the middle. The buttons sit centered under it. */
 #menu.road-view :is(#menu-art,#menu-frame) {display:none;}
