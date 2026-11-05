@@ -163,7 +163,6 @@ impl SourceWorldVisuals {
             .map(|(request, surface)| (request, surface.key));
         if self.pending.as_ref().is_some_and(|pending| {
             current.is_none_or(|(request, key)| !matches(pending, request, key))
-                || pending.request.revision != stream.frame().request.revision
                 || pending.request.session != stream.frame().request.session
         }) {
             self.pending.as_ref().unwrap().continuation.stop_flight();
@@ -194,9 +193,8 @@ impl SourceWorldVisuals {
             return Ok(());
         };
         let key = surface.key;
-        if request.revision != stream.frame().request.revision
-            || request.session != stream.frame().request.session
-        {
+        // The surface keeps the request of its creation. Only a new session ends it.
+        if request.session != stream.frame().request.session {
             return Ok(());
         }
         if let Some(source) = &surface.prototype {

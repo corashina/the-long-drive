@@ -164,7 +164,12 @@ struct PreparedSurface {
     /// The renderer may see the surface. The stream charges its render staging and memory.
     offered: bool,
     renderer_reserved: bool,
+    /// The request at creation. It names the surface to the renderer and never changes.
     request: WorldRequest,
+    /// Terrain job input hash. None for a road.
+    input: Option<u64>,
+    /// The inputs of the reserved surface changed. The renderer discards it.
+    stale: bool,
     published: PublishedSurface,
 }
 struct SelectedRoad {
@@ -291,6 +296,8 @@ pub struct WorldStream {
     structure_focus: [[f64; 3]; 2],
     planned_road_focus: [[f64; 3]; 2],
     terrain_context_dirty: bool,
+    /// The terrain context changed. Running and ready terrain wait for a check of their input.
+    terrain_check: bool,
     selection_changes: u64,
     road_candidates: Vec<u32>,
     next_road: usize,
@@ -916,6 +923,7 @@ impl WorldStream {
             structure_focus: [[f64::INFINITY; 3]; 2],
             planned_road_focus: [[f64::INFINITY; 3]; 2],
             terrain_context_dirty: false,
+            terrain_check: false,
             selection_changes: 0,
             road_candidates: Vec::new(),
             next_road: 0,
@@ -1212,8 +1220,9 @@ impl WorldStream {
                 "offered": w.offered,
                 "renderer_ready": w.renderer_ready,
                 "renderer_reserved": w.renderer_reserved,
-                "current": same_request(w.request, self.request),
-                "road_valid": self.road_publication_valid(w),
+                "current": self.surface_current(w),
+                "stale": w.stale,
+                "terrain_check": self.terrain_check,
             })
         });
         let (want, waits) = self.ledger.last_wait();
@@ -1687,11 +1696,17 @@ impl WorldStream {
         {
             return;
         }
+        if self.terrain_check
+            && let Err(error) = self.check_terrain_input()
+        {
+            self.failure = Some(error.0);
+            return;
+        }
         self.retarget_road_work();
         if self
             .ready
             .as_ref()
-            .is_some_and(|work| !self.road_publication_valid(work))
+            .is_some_and(|work| !self.surface_current(work))
         {
             self.discard_unreserved_surface();
         }
@@ -2729,35 +2744,34 @@ impl WorldStream {
                 )));
             }
         }
-        let retain_terrain = !self.terrain_context_dirty
-            && self
-                .terrain_execution
-                .key()
-                .is_some_and(|key| self.wanted_tiles.contains(&key));
+        // A changed terrain context drops only terrain whose own input changed.
+        // `prepare_geometry` checks it once road discovery completes.
+        let retain_terrain = self
+            .terrain_execution
+            .key()
+            .is_some_and(|key| self.wanted_tiles.contains(&key));
         self.terrain_execution
             .reconcile(self.request, retain_terrain);
-        if let Some(work) = &mut self.ready
+        if let Some(work) = &self.ready
             && !work.renderer_reserved
         {
-            let valid = if work.published.key.layer == WorldLayer::Road {
-                work.published.road.is_some_and(|road| {
+            let valid = match work.published.road {
+                Some(road) => {
                     self.selected_roads.iter().any(|r| r.segment == road)
                         && self.road_focus.into_iter().any(|p| {
                             source_distance_squared(p, road.position())
                                 <= self.distances.road_gen_dist.powi(2)
                         })
-                })
-            } else {
-                !self.terrain_context_dirty && self.wanted_tiles.contains(&work.published.key)
+                }
+                None => self.wanted_tiles.contains(&work.published.key),
             };
-            if valid {
-                work.request = self.request;
-            } else {
+            if !valid {
                 self.discard_unreserved_surface();
             }
         }
         if self.terrain_context_dirty {
             self.ground.terrain_changed();
+            self.terrain_check = true;
         }
         self.terrain_context_dirty = false;
         self.selection_changes = self.changes.revision();
@@ -3094,6 +3108,8 @@ impl WorldStream {
                 offered: false,
                 renderer_reserved: false,
                 request: self.request,
+                input: None,
+                stale: false,
                 published: PublishedSurface {
                     key: SurfaceKey {
                         layer: WorldLayer::Road,
@@ -3296,6 +3312,8 @@ impl WorldStream {
                     offered: false,
                     renderer_reserved: false,
                     request: metadata.request,
+                    input: Some(metadata.input),
+                    stale: false,
                     published: PublishedSurface {
                         key: metadata.key,
                         bounds: surface_bounds(&surface),
@@ -3363,35 +3381,18 @@ impl WorldStream {
             #[cfg(target_arch = "wasm32")]
             let _profile =
                 crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::TerrainInputPreparation);
-            let mut foundations = Vec::new();
-            let mut holes = Vec::new();
-            let mut generated = Vec::new();
-            let mut roads = Vec::new();
-            if tier == 0
-                && let Err(error) =
-                    self.tile_foundations(key.unit, &mut holes, &mut foundations, &mut generated)
-            {
+            let mut input = Vec::new();
+            if let Err(error) = self.terrain_input(key, &mut input) {
                 self.failure = Some(error.0);
                 return;
             }
-            tile_roads(&self.road_points, key.unit, tile, &mut roads);
-            let mut input = Vec::new();
-            TerrainJob {
-                settings: self.evaluator.settings(),
-                unit: key.unit,
-                tile,
-                biome_override: self.mode.biome_override(),
-                roads: &roads,
-                foundations: &foundations,
-                holes: &holes,
-            }
-            .encode(&mut input);
             self.terrain_execution.enqueue(
                 TerrainMetadata {
                     pending_bytes,
                     request: self.request,
                     key,
                     tile,
+                    input: input_hash(&input),
                 },
                 input,
             );
@@ -3399,6 +3400,61 @@ impl WorldStream {
                 self.failure = Some(error.0);
             }
         }
+    }
+    /// Encodes the terrain job input of tile `key`.
+    fn terrain_input(
+        &mut self,
+        key: SurfaceKey,
+        input: &mut Vec<u8>,
+    ) -> Result<(), ReferenceError> {
+        let tier = layer_tier(key.layer);
+        let tile = self.tiles[tier];
+        let mut foundations = Vec::new();
+        let mut holes = Vec::new();
+        let mut generated = Vec::new();
+        let mut roads = Vec::new();
+        if tier == 0 {
+            self.tile_foundations(key.unit, &mut holes, &mut foundations, &mut generated)?;
+        }
+        tile_roads(&self.road_points, key.unit, tile, &mut roads);
+        input.clear();
+        TerrainJob {
+            settings: self.evaluator.settings(),
+            unit: key.unit,
+            tile,
+            biome_override: self.mode.biome_override(),
+            roads: &roads,
+            foundations: &foundations,
+            holes: &holes,
+        }
+        .encode(input);
+        Ok(())
+    }
+    /// Drops running and ready terrain whose input changed since its job started.
+    fn check_terrain_input(&mut self) -> Result<(), ReferenceError> {
+        let mut input = Vec::new();
+        if let Some(key) = self.terrain_execution.key() {
+            self.terrain_input(key, &mut input)?;
+            if self.terrain_execution.input() != Some(input_hash(&input)) {
+                self.terrain_execution.reconcile(self.request, false);
+            }
+        }
+        if let Some((key, hash)) = self
+            .ready
+            .as_ref()
+            .and_then(|work| work.input.map(|hash| (work.published.key, hash)))
+        {
+            self.terrain_input(key, &mut input)?;
+            if hash != input_hash(&input) {
+                if self.ready.as_ref().unwrap().renderer_reserved {
+                    self.ready.as_mut().unwrap().stale = true;
+                } else {
+                    self.discard_unreserved_surface();
+                }
+            }
+        }
+        self.terrain_check = false;
+        Ok(())
     }
     /// Startup holes and terrain foundations of near tile `unit`, in tile job order.
     fn tile_foundations(
@@ -3453,34 +3509,37 @@ impl WorldStream {
         }));
         Ok(())
     }
-    fn road_publication_valid(&self, work: &PreparedSurface) -> bool {
+    /// True while the prepared surface is still wanted with the same inputs.
+    /// A request change alone keeps it.
+    fn surface_current(&self, work: &PreparedSurface) -> bool {
+        work.request.session == self.request.session
+            && !work.stale
+            && !self.surfaces.iter().any(|s| s.key == work.published.key)
+            && match work.published.road {
+                Some(_) => self.road_current(work),
+                None => self.wanted_tiles.contains(&work.published.key),
+            }
+    }
+    fn road_current(&self, work: &PreparedSurface) -> bool {
         let Some(road) = work.published.road else {
-            return true;
+            return false;
         };
         work.road_claim.is_some_and(|(identity, source_revision)| {
             identity.session == self.request.session
                 && identity.owner == road.index
                 && source_revision == self.road_source_revisions[road.biome as usize]
-        }) && self.plan_revision == self.request.revision
-            && self.next_road == self.road_candidates.len()
-            && work.published.key
-                == SurfaceKey {
-                    layer: WorldLayer::Road,
-                    unit: [i64::from(road.index), 0],
-                }
+        }) && work.published.key
+            == SurfaceKey {
+                layer: WorldLayer::Road,
+                unit: [i64::from(road.index), 0],
+            }
             && self.wanted_roads.contains(&road.index)
             && self.selected_roads.iter().any(|r| r.segment == road)
-            && !self.surfaces.iter().any(|s| s.key == work.published.key)
-            && (self.required.roads.contains(&road.index) || self.required_ready())
     }
     pub fn prepared_surface(&self) -> Option<(WorldRequest, &PublishedSurface)> {
         self.ready
             .as_ref()
-            .filter(|work| {
-                work.offered
-                    && same_request(work.request, self.request)
-                    && self.road_publication_valid(work)
-            })
+            .filter(|work| work.offered && self.surface_current(work))
             .map(|work| (work.request, &work.published))
     }
     /// Applies the facts of the last renderer step in order.
@@ -3672,8 +3731,16 @@ impl WorldStream {
             Some(source) => self.prototype_holds.get(source).is_some_and(|bound| *bound),
             None => self.terrain_ready[layer_tier(work.published.key.layer)],
         };
-        // A road waits for `required_ready`, which can wait for a required structure.
-        admitted && work.renderer_ready && self.road_publication_valid(work)
+        // A road waits for a current plan and its complete road selection.
+        // Terrain waits for the check of its input.
+        let settled = match work.published.road {
+            Some(_) => {
+                self.plan_revision == self.request.revision
+                    && self.next_road == self.road_candidates.len()
+            }
+            None => !self.terrain_check,
+        };
+        admitted && work.renderer_ready && settled && self.surface_current(work)
     }
     fn publish_unit(
         &mut self,
@@ -3686,7 +3753,7 @@ impl WorldStream {
         if self
             .ready
             .as_ref()
-            .is_some_and(|work| !same_request(work.request, self.request))
+            .is_some_and(|work| !self.surface_current(work))
         {
             self.discard_unreserved_surface();
             return Ok(());
@@ -5425,6 +5492,12 @@ struct HelperKey {
     startup: Option<usize>,
 }
 
+fn input_hash(input: &[u8]) -> u64 {
+    use std::hash::Hasher;
+    let mut hasher = std::hash::DefaultHasher::new();
+    hasher.write(input);
+    hasher.finish()
+}
 fn same_request(a: WorldRequest, b: WorldRequest) -> bool {
     a.session == b.session && a.revision == b.revision
 }
