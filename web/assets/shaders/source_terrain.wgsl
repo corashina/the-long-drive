@@ -65,8 +65,9 @@ struct TerrainOutput {
 @vertex
 fn vertex(v: TerrainVertex)->TerrainOutput {
     let world=mesh_functions::get_world_from_local(v.instance);
-    // Port choice: no source `_NearDist`/`_FarDist`/`_Amount` sink. A distant tier keeps its
-    // true height, and `covered` hides it under the drawn tiles of the finer tier.
+    // Port choice: no source `_NearDist`/`_FarDist`/`_Amount` sink. A distant tile sits a few
+    // metres below its true height (`terrain_tile`), and `covered` hides it under the drawn tiles
+    // of the finer tier.
     var out:TerrainOutput;
     out.world_position=mesh_functions::mesh_position_local_to_world(world,vec4(v.position,1.)).xyz;
     out.position=position_world_to_clip(out.world_position);

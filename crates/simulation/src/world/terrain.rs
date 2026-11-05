@@ -12,6 +12,26 @@ pub fn terrain_tile(
     distances: &super::DrawDistances,
     tier: usize,
 ) -> Result<TerrainTile, ReferenceError> {
+    let mut tile = grid_tile(reference, distances, tier)?;
+    if tier != 0 {
+        let finer = grid_error(grid_tile(reference, distances, 1)?);
+        let sink = ROAD_CUT + finer;
+        // Tier 2 also sinks under the lowest point of tier 1: its sink and error.
+        tile.y -= if tier == 2 {
+            sink + finer + grid_error(tile)
+        } else {
+            sink
+        };
+    }
+    Ok(tile)
+}
+
+/// The tile without the port choice sink.
+fn grid_tile(
+    reference: &WorldReference,
+    distances: &super::DrawDistances,
+    tier: usize,
+) -> Result<TerrainTile, ReferenceError> {
     let tile = reference
         .terrain
         .tiles
@@ -48,14 +68,40 @@ pub fn terrain_tile(
     if size == 0 || !scale.is_finite() || scale <= 0.0 {
         return Err(ReferenceError(format!("Terrain tier {tier} scale")));
     }
-    Ok(TerrainTile {
+    let resolution = ((tile.resolution as f64 * scale as f64) as u32).max(4);
+    let mut result = TerrainTile {
         tier,
         size,
-        resolution: ((tile.resolution as f64 * scale as f64) as u32).max(4),
+        resolution,
         draw_distance: ((draw as f64 / size as f64) as u32).max(1),
         y: tile.y_coord,
         material_scale: scale,
-    })
+    };
+    if tier != 0 {
+        // Port choice: finer distant tiers. See `DISTANT_DETAIL`.
+        result.resolution = (resolution * DISTANT_DETAIL).min(DISTANT_RESOLUTION);
+    }
+    Ok(result)
+}
+
+/// Port choice: distant tiers have this many times the source vertices, up to
+/// `DISTANT_RESOLUTION` per side. The source spacing of about 350 m puts a tier up to 21 m
+/// above the true ground. It then covers the road and the near tiles past the near ring.
+/// At the 2500 m default the spacing is 36 m for tier 1 and 249 m for tier 2.
+const DISTANT_DETAIL: u32 = 8;
+const DISTANT_RESOLUTION: u32 = 64;
+/// Largest height of the terrain above a road point, plus the 0.1 m road cut of a near tile.
+/// The road averages the ground over 40 m and turns at most 6 degrees per bone.
+const ROAD_CUT: f32 = 5.;
+
+/// Port choice: upper bound of the height error of the grid of `tile`, fit over the source
+/// noise with a margin. Measured maxima: 1.7 m at 44 m spacing, 32 m at 453 m. A distant tier
+/// sinks by it, so it stays under the finer tier and the roads. It replaces the source
+/// `_NearDist`/`_FarDist`/`_Amount` sink near the camera, which showed pits where a near tile was
+/// not loaded.
+fn grid_error(tile: TerrainTile) -> f32 {
+    let spacing = tile.size as f32 / (tile.resolution - 1) as f32;
+    spacing / 20. + spacing * spacing / 10000.
 }
 
 pub fn terrain_settings(reference: &WorldReference, seed: i32) -> TerrainSettings {
@@ -183,5 +229,47 @@ impl TerrainWorker {
     }
     fn discard(&mut self) {
         crate::host::game_terrain_discard();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The sink holds the triangle grid of a distant tile under the source noise.
+    #[test]
+    fn grid_error_bounds_the_source_noise() {
+        for (size, resolution) in [(1111, 26), (7708, 32), (11111, 64)] {
+            let tile = TerrainTile {
+                tier: 1,
+                size,
+                resolution,
+                draw_distance: 1,
+                y: 0.,
+                material_scale: 1.,
+            };
+            let h = size as f32 / (resolution - 1) as f32;
+            let bound = grid_error(tile);
+            for seed in [1, -1705217151, 7777] {
+                let e = TerrainEvaluator::new(TerrainSettings {
+                    seed,
+                    edge: 2.0e7,
+                    edge_gradient: 20000.,
+                });
+                for cell in 0..400 {
+                    let [x, z] = [cell % 20, cell / 20].map(|i| (i as f32 - 10.) * 997. * h);
+                    let c = [[0., 0.], [h, 0.], [0., h], [h, h]]
+                        .map(|[u, v]| e.base_height([x + u, z + v], true));
+                    for i in 0..=8 {
+                        for j in 0..=8 - i {
+                            let [u, v] = [i as f32 / 8., j as f32 / 8.];
+                            let grid = c[0] + (c[1] - c[0]) * u + (c[2] - c[0]) * v;
+                            let truth = e.base_height([x + u * h, z + v * h], true);
+                            assert!((grid - truth).abs() <= bound, "{h} m: {grid} vs {truth}");
+                        }
+                    }
+                }
+            }
+        }
     }
 }

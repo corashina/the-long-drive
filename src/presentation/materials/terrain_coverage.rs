@@ -1,6 +1,6 @@
 //! Port choice: drawn terrain tiles of the finer tiers, so a distant tier skips their pixels.
-//! It replaces the source distant tier sink. A tile that is not drawn yet shows the coarser tier
-//! at its true height, not the sunk tier below.
+//! A tile that is not drawn yet shows the coarser tier a few metres below its true height
+//! (`terrain_tile`), not the deep source sink. A tile hole shows nothing under it.
 use crate::world::{RendererFrame, WorldLayer};
 #[cfg(target_arch = "wasm32")]
 use bevy::render::{
