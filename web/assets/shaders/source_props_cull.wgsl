@@ -32,8 +32,10 @@ struct CullView {
     planes: array<vec4<f32>, 6>,
     // x: camera layer mask, y: row count, z: batch count, w: visible list stride.
     counts: vec4<u32>,
-    // x: view index for the totals.
+    // x: view index for the totals, y: near camera layer mask, z: far camera layer mask.
     view: vec4<u32>,
+    // Far plane of the near camera layers and near plane of the far camera layers. See `LayerRanges`.
+    layer_planes: array<vec4<f32>, 2>,
     // Probe slots of the scene. extents.w=1 when the slot is enabled and published.
     probe_center: array<vec4<f32>, 4>,
     probe_extents: array<vec4<f32>, 4>,
@@ -97,14 +99,23 @@ fn reset(@builtin(global_invocation_id) id: vec3<u32>) {
 // Port of `intersects_camera`. Keep its addition order.
 fn intersects_camera(center: vec3<f32>, extents: vec3<f32>) -> bool {
     for (var p = 0u; p < 6u; p++) {
-        let plane = view.planes[p];
-        let distance = (plane.x * center.x + plane.y * center.y) + plane.z * center.z + plane.w;
-        let radius = (abs(plane.x) * extents.x + abs(plane.y) * extents.y) + abs(plane.z) * extents.z;
-        if distance + radius < 0.0 {
+        if outside(view.planes[p], center, extents) {
             return false;
         }
     }
     return true;
+}
+
+fn outside(plane: vec4<f32>, center: vec3<f32>, extents: vec3<f32>) -> bool {
+    let distance = (plane.x * center.x + plane.y * center.y) + plane.z * center.z + plane.w;
+    let radius = (abs(plane.x) * extents.x + abs(plane.y) * extents.y) + abs(plane.z) * extents.z;
+    return distance + radius < 0.0;
+}
+
+// Port of `LayerRanges::visible`. The source draws near layers to Cam1FarPlane and far layers from Cam2NearPlane.
+fn in_layer_range(layer: u32, center: vec3<f32>, extents: vec3<f32>) -> bool {
+    return ((view.view.y & layer) != 0u && !outside(view.layer_planes[0], center, extents))
+        || ((view.view.z & layer) != 0u && !outside(view.layer_planes[1], center, extents));
 }
 
 // Returns the entry in the list.
@@ -209,9 +220,11 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_
         let batch = row.key >> 8u;
         if batch != NO_BATCH {
             // HIDDEN also holds the LOD selection.
+            let layer = 1u << (row.key & 31u);
             if (row.key & (HIDDEN | SHADOW_ONLY)) == 0u
-                && (view.counts.x & (1u << (row.key & 31u))) != 0u
-                && intersects_camera(row.center, row.extents) {
+                && (view.counts.x & layer) != 0u
+                && intersects_camera(row.center, row.extents)
+                && in_layer_range(layer, row.center, row.extents) {
                 lights[append(0u, i, batch)] = row_object(row);
             }
             let mask = masks[i / 4u] >> ((i % 4u) * 8u);

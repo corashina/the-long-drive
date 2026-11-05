@@ -645,6 +645,7 @@ fn select_world_views(
                 pose,
                 state.fov_degrees,
                 state.far_plane,
+                [state.cam1_far_plane, state.cam2_near_plane],
                 reference.0.render_lighting.shadows.distance,
             )
         });

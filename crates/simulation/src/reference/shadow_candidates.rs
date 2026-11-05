@@ -207,7 +207,7 @@ pub fn no_umbra_candidate(
         && hull.intersects(bounds)
 }
 /// IntersectAABBFrustumFull35fe20 uses a different scalar addition boundary from the hull kernel.
-pub fn intersects_camera(bounds: Bounds, camera_planes: &[Plane; 6]) -> bool {
+pub fn intersects_camera(bounds: Bounds, camera_planes: &[Plane]) -> bool {
     camera_planes.iter().all(|p| {
         let n = normal(*p);
         let center = dot_xyz(n, bounds.center) + p[3];

@@ -130,6 +130,8 @@ impl GarageRuntime {
             dead_weight,
             motion_revision: self.audio_motion_revision,
             far_plane: self.distances.cam2_far_plane,
+            cam1_far_plane: self.distances.cam1_far_plane,
+            cam2_near_plane: self.distances.cam2_near_plane,
             sleep_camera: self
                 .sleep_camera()
                 .map_or(PoseRow::default(), |camera| PoseRow {

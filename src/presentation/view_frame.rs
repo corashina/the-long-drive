@@ -12,7 +12,7 @@ use crate::reference::{
     reflections::{
         ProbeJob, ProbeSchedule, capture_view_from_world, next_probe_index, prepare_probe_face,
     },
-    shadow_planes::{CullPlanes, implicit_cull_planes},
+    shadow_planes::{CullPlanes, LayerRanges, implicit_cull_planes},
 };
 use bevy::render::{extract_resource::ExtractResource, view::ExtractedView};
 use bevy::{ecs as bevy_ecs, prelude::*, render as bevy_render};
@@ -175,6 +175,8 @@ pub struct ViewSnapshot {
     pub source_world_from_view: Mat4,
     pub source_camera_planes: [[f32; 4]; 6],
     pub source_shadow_planes: [[f32; 4]; 6],
+    /// Source camera range of each layer. The camera pass tests it after the six camera planes.
+    pub layer_ranges: LayerRanges,
     pub frustum_points: [[f32; 3]; 8],
     pub near: f32,
     pub far: f32,
@@ -455,26 +457,28 @@ pub(crate) fn snapshot(
                 view.fov_degrees,
                 view.mask,
                 assets.record.shadows.distance,
+                None,
             ));
         }
         if index >= PROBE_START && !prepare_probe_face(job, index - PROBE_START, warmup) {
             return None;
         }
         let (extent, world_from_view) = input[index]?;
-        let (near, far, fov, mask, distance) = if index < WORLD_VIEWS {
-            let world =
-                super::camera::world_camera_settings(fov_degrees, sim.frame.state.far_plane);
+        let state = &sim.frame.state;
+        let (near, far, fov, mask, distance, ranges) = if index < WORLD_VIEWS {
+            let world = super::camera::world_camera_settings(fov_degrees, state.far_plane);
             (
                 world.near,
                 world.far,
                 world.fov_degrees,
                 world.mask,
                 assets.record.shadows.distance,
+                Some([state.cam1_far_plane, state.cam2_near_plane]),
             )
         } else {
             let p = &assets.record.probes[0];
             let near = scene.probe_near[clock.probe_index];
-            (near, p.far, 90., p.mask, p.shadow_distance)
+            (near, p.far, 90., p.mask, p.shadow_distance, None)
         };
         let view = if index < WORLD_VIEWS {
             world_from_view.inverse()
@@ -484,7 +488,7 @@ pub(crate) fn snapshot(
                 scene.probe_position[clock.probe_index].to_array(),
             ))
         };
-        let mut snapshot = camera_snapshot(extent, view, near, far, fov, mask, distance);
+        let mut snapshot = camera_snapshot(extent, view, near, far, fov, mask, distance, ranges);
         if index < PROBE_START {
             snapshot.extent = UVec2::from_array(scale.0.extent(extent.to_array()));
         }
@@ -703,6 +707,7 @@ pub(crate) fn world_view_snapshot(
     pose: &GlobalTransform,
     fov_degrees: f32,
     far_plane: f32,
+    ranges: [f32; 2],
     shadow_distance: f32,
 ) -> Option<ViewSnapshot> {
     let extent = camera
@@ -720,6 +725,7 @@ pub(crate) fn world_view_snapshot(
         world.fov_degrees,
         world.mask,
         shadow_distance,
+        Some(ranges),
     ))
 }
 pub(crate) fn camera_snapshot(
@@ -730,6 +736,8 @@ pub(crate) fn camera_snapshot(
     fov: f32,
     mask: u32,
     distance: f32,
+    // World views pass `Cam1FarPlane` and `Cam2NearPlane`. Other views draw every layer to `far`.
+    ranges: Option<[f32; 2]>,
 ) -> ViewSnapshot {
     let implicit = Mat4::perspective_rh_gl(
         fov.to_radians(),
@@ -751,6 +759,17 @@ pub(crate) fn camera_snapshot(
         distance,
         0.,
     );
+    let world_from_view = source_world_from_view.to_cols_array();
+    let layer_ranges = match ranges {
+        Some([cam1_far, cam2_near]) => LayerRanges::new(
+            world_from_view,
+            super::camera::NEAR_CAMERA_MASK,
+            super::camera::FAR_CAMERA_MASK,
+            cam1_far,
+            cam2_near,
+        ),
+        None => LayerRanges::single(world_from_view, mask, far),
+    };
     ViewSnapshot {
         extent,
         native_extent: extent,
@@ -760,6 +779,7 @@ pub(crate) fn camera_snapshot(
         source_world_from_view,
         source_camera_planes: camera,
         source_shadow_planes: shadow,
+        layer_ranges,
         frustum_points: corners(implicit.inverse()),
         near,
         far,
@@ -811,6 +831,7 @@ pub(crate) fn append_probe_required_views(
             90.,
             probe.mask,
             probe.shadow_distance,
+            None,
         );
         required_view(&snapshot, origin, light_forward, light_mask)
     })

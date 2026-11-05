@@ -48,8 +48,10 @@ const PASSES: usize = 9;
 const ALIGN: u64 = 256;
 const ROW_BYTES: u64 = ROW_WORDS as u64 * 4;
 const ARGS_BYTES: u64 = 20;
-/// Planes, counts, view index and probes of `CullView` in source_props_cull.wgsl.
-const CULL_WORDS: usize = 64;
+/// Planes, counts, view, layer planes and probes of `CullView` in source_props_cull.wgsl.
+const CULL_WORDS: usize = 72;
+/// Bytes of one view in the cull uniform buffer. It holds `CULL_WORDS` at the uniform offset alignment.
+const CULL_REGION: u64 = 512;
 /// One packed lamp mask and probe pair per camera-visible entry. See object_lighting.rs.
 const LIGHT_BYTES: u64 = 16;
 /// Visible rows per pass. Each view has sixteen words.
@@ -250,7 +252,7 @@ impl Buffers {
         );
         let cull_views = buffer(
             "source_prop_cull_views",
-            views * ALIGN,
+            views * CULL_REGION,
             BufferUsages::UNIFORM | copy,
         );
         let totals = buffer(
@@ -368,7 +370,7 @@ impl FromWorld for PropDraws {
             templates: Vec::new(),
             buffers: None,
             views: std::array::from_fn(|_| ViewState::default()),
-            cull_words: vec![0; VIEW_COUNT * ALIGN as usize / 4],
+            cull_words: vec![0; VIEW_COUNT * CULL_REGION as usize / 4],
             cull: None,
             readback: None,
             ready: [false; VIEW_COUNT],
@@ -493,10 +495,10 @@ impl PropDraws {
             prepared = prepared.start.min(index)..prepared.end.max(index + 1);
         }
         if !prepared.is_empty() {
-            let region = ALIGN as usize / 4;
+            let region = CULL_REGION as usize / 4;
             world.resource::<RenderQueue>().write_buffer(
                 &self.buffers.as_ref().unwrap().cull_views,
-                (prepared.start * ALIGN as usize) as u64,
+                prepared.start as u64 * CULL_REGION,
                 bytemuck::cast_slice(
                     &self.cull_words[prepared.start * region..prepared.end * region],
                 ),
@@ -781,27 +783,36 @@ impl PropDraws {
             }
         }
         let snapshot = world.resource::<SourceViewFrame>().views[index].unwrap();
-        let region = ALIGN as usize / 4;
+        let region = CULL_REGION as usize / 4;
         let cull = &mut self.cull_words[index * region..index * region + CULL_WORDS];
         cull.fill(0);
-        for (plane, words) in snapshot.source_camera_planes.iter().zip(cull.chunks_mut(4)) {
+        let ranges = &snapshot.layer_ranges;
+        let planes = snapshot.source_camera_planes.iter();
+        for (plane, words) in planes.zip(cull.chunks_mut(4)) {
             for (word, value) in words.iter_mut().zip(plane) {
                 *word = value.to_bits();
             }
         }
-        cull[24..29].copy_from_slice(&[
+        cull[24..31].copy_from_slice(&[
             snapshot.mask,
             rows,
             batches as u32,
             buffers.stride,
             index as u32,
+            ranges.near_mask,
+            ranges.far_mask,
         ]);
+        for (plane, words) in ranges.planes.iter().zip(cull[32..40].chunks_mut(4)) {
+            for (word, value) in words.iter_mut().zip(plane) {
+                *word = value.to_bits();
+            }
+        }
         if let Some(scene) = world
             .resource::<super::lighting_scene::SourceSceneLighting>()
             .0
         {
             let probes = scene.probe_center.iter().chain(&scene.probe_extents);
-            for (words, probe) in cull[32..].chunks_mut(4).zip(probes) {
+            for (words, probe) in cull[40..].chunks_mut(4).zip(probes) {
                 for (word, value) in words.iter_mut().zip(probe.to_array()) {
                     *word = value.to_bits();
                 }
@@ -905,7 +916,7 @@ pub(crate) fn cull(
     let offsets = [
         (index as u64 * buffers.args_region) as u32,
         (index as u64 * buffers.visible_region) as u32,
-        (index as u64 * ALIGN) as u32,
+        (index as u64 * CULL_REGION) as u32,
         (index as u64 * buffers.mask_region) as u32,
         buffers.lights_offset(index),
     ];

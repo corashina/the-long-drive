@@ -1,6 +1,10 @@
 //! Camera membership is separate from the union used for mesh and shadow extraction.
+use super::surface_views::SourceSurfaceView;
+use super::view_frame::SourceViewFrame;
 use crate::reference::render_lighting::RendererRecord;
-use bevy::camera::visibility::VisibleEntities;
+use crate::reference::shadow_candidates::Bounds;
+use bevy::camera::primitives::Aabb;
+use bevy::camera::visibility::{RenderLayers, VisibleEntities};
 use bevy::ecs::{
     self as bevy_ecs,
     entity::{EntityHashMap, EntityHashSet},
@@ -45,29 +49,65 @@ type CameraMesh = (
     Option<&'static SourceSortData>,
     Has<SourceMaterialWarmup>,
     Has<CameraHidden>,
+    Option<&'static Aabb>,
+    &'static GlobalTransform,
+    Option<&'static RenderLayers>,
 );
+
+/// Layer bits of the first 32 render layers. No `RenderLayers` is layer 0.
+fn layer_bits(layers: Option<&RenderLayers>) -> u32 {
+    layers.map_or(1, |layers| {
+        layers.bits().first().map_or(0, |bits| *bits as u32)
+    })
+}
+
+/// World bounds of `aabb` in the source frame of `LayerRanges`.
+fn source_bounds(aabb: &Aabb, transform: &GlobalTransform) -> Bounds {
+    let affine = transform.affine();
+    let center = affine.transform_point3a(aabb.center);
+    let m = affine.matrix3;
+    let extents = m.x_axis.abs() * aabb.half_extents.x
+        + m.y_axis.abs() * aabb.half_extents.y
+        + m.z_axis.abs() * aabb.half_extents.z;
+    Bounds {
+        center: [center.x, center.y, -center.z],
+        extents: extents.to_array(),
+    }
+}
 
 /// Keep the Mesh3d class even when empty so Bevy can remove retained phase items.
 /// Retain order and capacity. This system does not change ViewVisibility and shadow masks.
 pub fn filter_camera_visibility(
-    mut views: Query<(&Camera, &mut VisibleEntities)>,
+    mut views: Query<(&Camera, &mut VisibleEntities, Option<&SourceSurfaceView>)>,
     meshes: Query<CameraMesh, With<Mesh3d>>,
+    frame: Res<SourceViewFrame>,
     mut output: ResMut<CameraVisibility>,
 ) {
     output.entities.clear();
     output.sort_data.clear();
     let class = TypeId::of::<Mesh3d>();
-    for (camera, mut visible) in &mut views {
+    for (camera, mut visible, view) in &mut views {
         let entities = visible.get_mut(class);
         if !camera.is_active {
             entities.clear();
             continue;
         }
+        let ranges = view
+            .and_then(|view| frame.views.get(view.index).copied().flatten())
+            .map(|snapshot| snapshot.layer_ranges);
         entities.retain(|entity| {
-            let Ok((renderer, mode, sort, warmup, hidden)) = meshes.get(*entity) else {
+            let Ok((renderer, mode, sort, warmup, hidden, aabb, transform, layers)) =
+                meshes.get(*entity)
+            else {
                 return false;
             };
             if hidden {
+                return false;
+            }
+            // Bevy tested the six camera planes. An entity without bounds is not culled.
+            if let (Some(ranges), Some(aabb)) = (ranges, aabb)
+                && !ranges.visible(layer_bits(layers), source_bounds(aabb, transform))
+            {
                 return false;
             }
             // With ShadowsOnly, the shadow scene draws it and the camera does not.
