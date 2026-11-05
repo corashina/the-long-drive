@@ -81,7 +81,10 @@ Make a release build first. Enable R2 in the Cloudflare dashboard. Then prepare 
 npx wrangler login
 npx wrangler pages project create the-long-slop --production-branch main
 npx wrangler r2 bucket create the-long-slop-large
+npx wrangler d1 create the-long-slop-events
 ```
+
+Put the database ID in [wrangler.toml](wrangler.toml) if you make a new account.
 
 If Wrangler offers to make a Worker instead of a Pages project, refuse. Add `--force` to make the Pages project.
 Upload the game:
@@ -107,6 +110,18 @@ The site contains files from The Long Drive. Keep it for friends only:
 1. In the Cloudflare dashboard, open Zero Trust, then Access, then Applications.
 2. Add a self-hosted application for `the-long-slop.pages.dev` and `*.the-long-slop.pages.dev`.
 3. Add an Allow policy with the email addresses of your friends. The free plan allows 50 users.
+
+### Analytics
+
+The game sends a few events to `/api/event` on the hosted site only: start, ready (load time, GPU, quality), a heartbeat every 5 minutes (play time, FPS, worst frame, multiplayer role), end and start-up failure.
+`functions/api/event.js` adds the Access email, country and user agent, and stores each event in the D1 database `the-long-slop-events`.
+The deploy script applies [migrations](migrations) before the upload. Print a summary of the last 30 days:
+
+```powershell
+node scripts/analytics.mjs 30
+```
+
+For page visits and load timings, enable Web Analytics once: Workers & Pages, `the-long-slop`, Metrics, Web Analytics, Enable.
 
 ## FPS bench
 

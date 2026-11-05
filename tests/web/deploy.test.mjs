@@ -100,7 +100,7 @@ test('routes the WASM files to R2 with Brotli and a file over the Pages size lim
   }
   assert.ok(!await exists(join(site, path)));
   const routes = JSON.parse(await readFile(join(site, '_routes.json'), 'utf8'));
-  assert.deepEqual(routes.include, Object.keys(keys));
+  assert.deepEqual(routes.include, [...Object.keys(keys), '/api/*']);
 });
 
 test('the function sends Brotli only to clients that accept it', async () => {
