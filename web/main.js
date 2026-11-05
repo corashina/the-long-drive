@@ -107,7 +107,7 @@ let wasmMemory,renderAudit,watchRenderAudit,renderAuditWatched=false,initialRead
 const performancePanel=createPerformance(()=>wasmMemory?.buffer.byteLength,()=>renderAudit&&JSON.parse(renderAudit()),on=>{renderAuditWatched=on;watchRenderAudit?.(on);},()=>worldDrawDistance,()=>simulation.stats());
 window.gamePerformanceFrame=(physicsMs,worldMs,updateMs,renderMs)=>performancePanel.frame(performance.now(),physicsMs,worldMs,updateMs,renderMs);
 window.gamePerformanceCounters=performancePanel.counters;
-window.gamePerformance=()=>performancePanel.snapshot();
+window.gamePerformance=since=>performancePanel.snapshot(since);
 // The failure message after a startup or runtime failure, else null. `gameFailure` reports a failure.
 window.gameFailureMessage=()=>failure;
 // The start menu model, for `tests/bench/fps.mjs`. Null before the interface loads.
