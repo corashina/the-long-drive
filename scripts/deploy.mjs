@@ -1,7 +1,7 @@
 // Stages the built game for Cloudflare Pages and uploads it with Wrangler.
 // The WASM packages get a content hash in their path, so browsers cache them as immutable.
 // Files over the Pages size limit and the Brotli WASM files go to R2 under their SHA-256.
-// `functions/[[path]].js` serves them on the same site.
+// `functions/[[path]].js` serves them on the same site. `functions/api/` stores game events in D1.
 // Each deployment carries its own `r2.json` map, so a dashboard rollback also restores its R2 files.
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -19,6 +19,7 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const IMMUTABLE = ['assets/runtime/', 'pkg/'];
 const HEADERS = IMMUTABLE.map(path => `/${path}*\n  Cache-Control: public, max-age=31536000, immutable\n`).join('');
 const BUCKET = 'the-long-slop-large';
+const DATABASE = 'the-long-slop-events';
 const SITE = 'https://the-long-slop.pages.dev/';
 const TYPES = {'.wasm': 'application/wasm', '.json': 'application/json'};
 const KEY = /^[a-f0-9]{64}$/;
@@ -127,7 +128,7 @@ export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot
     routes[`/${site}`] = {...routes[`/${site}`], br: brotli.sha256};
   }
   await writeFile(resolve(siteRoot, 'r2.json'), JSON.stringify(routes));
-  await writeFile(resolve(siteRoot, '_routes.json'), JSON.stringify({version: 1, include: Object.keys(routes), exclude: []}));
+  await writeFile(resolve(siteRoot, '_routes.json'), JSON.stringify({version: 1, include: [...Object.keys(routes), '/api/*'], exclude: []}));
   return {count, bytes, uploads};
 }
 
@@ -153,5 +154,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     wrangler(['r2', 'object', 'put', `${BUCKET}/${key}`, '--file', source,
       '--content-type', TYPES[extname(path)] ?? 'application/octet-stream', '--remote']);
   }
+  wrangler(['d1', 'migrations', 'apply', DATABASE, '--remote']);
   wrangler(['pages', 'deploy', '--branch', 'main']);
 }

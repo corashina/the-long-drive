@@ -75,6 +75,7 @@ import {loadUiAssets} from './ui-layout.js';
 import {createSimulation,installSimulationBridge} from './simulation.js';
 import {createMultiplayer} from './multiplayer.js';
 import {ROLE} from './net.js';
+import {createAnalytics,hostedSite} from './analytics.js';
 import {installGrassBridge} from './grass.js';
 import {configureAssetCatalog,readAsset,releaseStartPacks,startPackMeasurements,worldBootstrapMeasurements,worldInputBytes,worldInputMetadataBytes,setAssetCpuProfile} from './world-assets.js';
 setAssetCpuProfile(cpuProfile);
@@ -103,6 +104,10 @@ window.gameStartupStage=(stage,started)=>{if(started){startup.begin(stage);cpuPr
 window.gameLoadingProgress=(...counts)=>loading.progress(...counts);
 window.gameLoadingBudget=(name,used,limit,unit)=>loading.budget(name,used,limit,unit);
 const bootStarted=performance.now();
+const analytics=createAnalytics({enabled:hostedSite(location.hostname),send:body=>navigator.sendBeacon('/api/event',body),session:crypto.randomUUID(),role:()=>multiplayer?.role??ROLE.OFF});
+analytics.event('start');
+window.addEventListener('pagehide',()=>analytics.end());
+let adapterName='';
 let wasmMemory,renderAudit,watchRenderAudit,renderAuditWatched=false,initialReadyMs=null,peakFrameMs=0,lastFrameTime=null,measureRequested=false;
 const performancePanel=createPerformance(()=>wasmMemory?.buffer.byteLength,()=>renderAudit&&JSON.parse(renderAudit()),on=>{renderAuditWatched=on;watchRenderAudit?.(on);},()=>worldDrawDistance,()=>simulation.stats());
 window.gamePerformanceFrame=(physicsMs,worldMs,updateMs,renderMs)=>performancePanel.frame(performance.now(),physicsMs,worldMs,updateMs,renderMs);
@@ -174,6 +179,7 @@ window.gameUpdate = (kmh, mode, x, y, z, contacts, steps, surfaces, colliders, a
   menu?.sync(started,paused,travelM);
   const playing=menu?.model.state==='playing';
   multiplayer?.frame(playing&&started&&!paused);
+  analytics.frame(now,playing&&started&&!paused);
   // Source guests have no save.
   if(autosave.tick(now/1000,playing,autosaveSafe,seated,toggles)&&!autosaving&&!saveSession.pending&&multiplayer?.role!==ROLE.GUEST)runAutosave();
   feedback?.setVisible(started&&!paused&&!dead&&!sleeping&&mode===0&&menu?.model.state==='playing');
@@ -198,11 +204,11 @@ const sleep={phase:0,eligible:false,showHint:false,charge:0,cooldownRemaining:0,
 window.gameSleep=(phase,eligible,showHint,charge,cooldownRemaining,progress)=>{
  sleep.phase=phase;sleep.eligible=eligible;sleep.showHint=showHint;sleep.charge=charge;sleep.cooldownRemaining=cooldownRemaining;sleep.progress=progress;sleep.held=(input.state.held&262144)!==0;sleep.dead=dead;sleeping=phase===2;survival?.updateSleep(sleep,feedback?.state.enabled);
 };
-function fail(message,notifyRenderer=true){if(failed)return;failed=true;failure=message;if(/Draw distance [\d.]+ m does not fit/.test(message))slider?.clear();performancePanel.stop();startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.fail({...startupFailureDetails,message,loading:loading.snapshot()});startupDone=true;loading.fail();const text='Cannot start the game. '+message+' Reload to try again.';if(menu){menu.fail(text);status.textContent='';}else{status.textContent='';runtimeError.textContent=text;runtimeError.hidden=false;}if(notifyRenderer)renderFailure?.(message);}
+function fail(message,notifyRenderer=true){if(failed)return;failed=true;failure=message;analytics.error(message);if(/Draw distance [\d.]+ m does not fit/.test(message))slider?.clear();performancePanel.stop();startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.fail({...startupFailureDetails,message,loading:loading.snapshot()});startupDone=true;loading.fail();const text='Cannot start the game. '+message+' Reload to try again.';if(menu){menu.fail(text);status.textContent='';}else{status.textContent='';runtimeError.textContent=text;runtimeError.hidden=false;}if(notifyRenderer)renderFailure?.(message);}
 function finishStartup(){if(failed||startupDone||!startupReady||!input||!menu)return;startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.finish({inputReady:true});startupDone=true;}
 window.gameFailure=message=>fail(message,false);
 window.gameLoading=()=>{if(failed)return;loading.start(true);menu.loading();};
-window.gameReady=()=>{if(failed||!worldAdmitted)return;if(initialReadyMs===null)initialReadyMs=performance.now()-bootStarted;releaseStartPacks();loading.finish();menu.ready();multiplayer?.ready();startupReady=true;finishStartup();};
+window.gameReady=()=>{if(failed||!worldAdmitted)return;if(initialReadyMs===null){initialReadyMs=performance.now()-bootStarted;analytics.event('ready',{loadMs:Math.round(initialReadyMs),gpu:adapterName,quality:settings.values.quality});}releaseStartPacks();loading.finish();menu.ready();multiplayer?.ready();startupReady=true;finishStartup();};
 window.addEventListener('error',event=>fail(event.message||'The runtime stopped.'));
 window.addEventListener('unhandledrejection',event=>fail(event.reason?.message||String(event.reason)));
 const mebibytes=bytes=>Math.round(bytes/1048576).toLocaleString('en-US');
@@ -230,6 +236,7 @@ async function load(){
  const adapter=await navigator.gpu?.requestAdapter({powerPreference:'high-performance'});
  if(!adapter)throw Error('This browser cannot use WebGPU.');
  const quality=firstQuality(adapter.info,navigator);
+ adapterName=[adapter.info.vendor,adapter.info.architecture,adapter.info.description].filter(Boolean).join(' ');
  startup.end('graphics');startup.begin('manifest');
  // Download and compile the game code while the manifest downloads.
  const code=Promise.all([import('./pkg/the_long_slop.js'),fetch('./pkg/the_long_slop_bg.wasm').then(response=>{
@@ -250,7 +257,7 @@ async function load(){
  // The bundled pipeline prewarm list plus this run's play pipelines. Save it as src/presentation/prewarm_pipelines.json.
  window.gamePrewarmList=()=>prewarm_pipeline_list();
  // Rust parses the manifest once and returns only the shell fields, so JS does not parse the rest.
- startup.begin('prepare');const text=prepare(bytes),manifest=JSON.parse(text);startup.end('prepare');
+ startup.begin('prepare');const text=prepare(bytes),manifest=JSON.parse(text);startup.end('prepare');analytics.build(manifest.build_id);
  const {manifest_sha256:manifestHash}=await manifestStamp(bytes,manifest);
  const bindings=manifest.driving.bindings,actionIds=actionIndex(bindings);
  settings=createSettings(()=>localStorage,manifest.settings,{...displayFields(manifest.world.mirrors.draw_distance,PRESETS[quality]),quality:qualityField(quality),...gameFields(manifest.world.start_cars.length),inputs:inputsField(bindings),language:languageField(manifest.language)});
