@@ -31,6 +31,8 @@ struct FoodInstance {
 #[derive(Resource, Default)]
 pub struct ConsumableVisuals {
     instances: HashMap<ItemId, FoodInstance>,
+    /// World session of `instances`.
+    session: u64,
     generation: u64,
     /// One far copy of each food glTF. It compiles food pipelines during loading.
     warmups: Vec<FoodInstance>,
@@ -60,6 +62,11 @@ pub(crate) fn sync(
     let manifest = &reference.0;
     let food = &mut *food;
     let starter = manifest.survival.starter_food;
+    if frame.new_session(&mut food.session) {
+        for (_, instance) in food.instances.drain() {
+            commands.entity(instance.root).despawn();
+        }
+    }
     // An eaten starter food leaves the frame.
     let starter_food = frame.food(starter);
     if let Some(&root) = visuals.nodes.get(

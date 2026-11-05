@@ -1,14 +1,14 @@
 import {gameFields,installGameMode,installGameOptions,installSeed,installStartCar} from './game-mode.js';
-// New game, Load and Join reload the page, as the source loads the game scene again. The simulation
-// then starts in the menu game mode, from the save or from the host world, so one world exists at a time.
-const NEW_GAME_KEY='tls-new-game',LOAD_KEY='tls-load',JOIN_KEY='tls-join';
+// New game and Load reload the page, as the source loads the game scene again. The simulation
+// then starts in the menu game mode, from the save, so one world exists at a time.
+// Join keeps the page. The worker replaces its world with the host world, and the renderer loads it.
+const NEW_GAME_KEY='tls-new-game',LOAD_KEY='tls-load';
 const takeSession=key=>{try{const v=sessionStorage.getItem(key);sessionStorage.removeItem(key);return v;}catch{return null;}};
 // A browser shortcut (Ctrl+W while the crouch key is held) must not close a running game. The game's own reloads skip the prompt.
 let reloading=false;
 const reloadWith=(key,value)=>{try{sessionStorage.setItem(key,value);}catch{}reloading=true;location.reload();return new Promise(()=>{});};
 const newGameSeed=(()=>{const v=Number(takeSession(NEW_GAME_KEY)??NaN);return Number.isInteger(v)?v:undefined;})();
 const loadName=takeSession(LOAD_KEY);
-const joinRoom=(()=>{try{return JSON.parse(takeSession(JOIN_KEY)??'null');}catch{return null;}})();
 const seed=installSeed(window,document.querySelector('#seed'),Math.random,newGameSeed);
 import {createSettings,frameLimit,installSettingsBridge} from './settings.js';
 import {displayFields,installDisplaySettings} from './display-settings.js';
@@ -277,15 +277,21 @@ async function load(){
  slider=installDrawDistance(()=>localStorage,()=>sessionStorage,document.querySelector('#draw-distance'),document.querySelector('#draw-distance-value'),{minimum:range.minimum.drawDistance,maximum:range.maximum.drawDistance,fallback:range.default});
  worldDrawDistance=slider.value();
  const garageMode=[worldDrawDistance,window.gameBiome(),window.gameStartCar(),window.gameSeed()];
- // The world of a Join reload, of a Load reload, or of Load last at start. `save` is its JSON.
- let joined;
+ // The world of a Load reload, or of Load last at start. `save` is its JSON.
  const storedSave=async()=>{
   const name=await startSave({loadName,newGame:newGameSeed!==undefined,autoLoad:settings.values.BAutoLoad,list:()=>saveStorage.list(),buildId:manifest.build_id});
   if(name===null)return null;
   const record=await saveStorage.read(name);if(record===null)throw new Error('No saved game.');
   return {save:new TextEncoder().encode(JSON.stringify(await verifyRecord(record))),operation:'load'};
  };
- const startWorld=joinRoom?new Promise(resolve=>{joined=resolve;}):storedSave().catch(error=>({error:error?.message??String(error),operation:'load'}));
+ const startWorld=storedSave().catch(error=>({error:error?.message??String(error),operation:'load'}));
+ // The host world replaces the current world. The menu shows the result once the renderer has loaded it.
+ const join=async save=>{
+  const drawDistance=slider.value(),{loadError}=await simulation.start(manifestHash,drawDistance,window.gameBiome(),window.gameStartCar(),window.gameSeed(),gameOptions.bits(),save);
+  menu.started(loadError,'join');
+  if(loadError){multiplayer.leave();return;}
+  worldDrawDistance=drawDistance;slider.store();
+ };
  const simulationStarted=startWorld.then(async world=>({world,...await simulation.start(manifestHash,...garageMode,gameOptions.bits(),world?.save??new Uint8Array())}));
  // False: the garage is the new game world.
  const reloadNewGame=started=>{
@@ -316,7 +322,7 @@ async function load(){
  const resets={graphics:[()=>slider.reset()],controls:[()=>drivingSettings.resetMouse()]};
  menu=createMenu({canvas,language,appearance,settings,resets,defaultAssists:manifest.driving.default_assists,ui:manifest.ui,bindings,saveSession,buildId:manifest.build_id,thumbnail:()=>lastThumbnail,sleeping:()=>sleeping,seated:()=>window.gameState.seated,guest:()=>multiplayer?.role===ROLE.GUEST,online:()=>Boolean(multiplayer)&&multiplayer.role!==ROLE.OFF,worldDrawDistance:()=>worldDrawDistance,slider,audio,onNewGame:()=>seed.reroll(),reloadNewGame,autoNewGame:newGameSeed!==undefined,onPause:()=>thumbnail.capture().then(blob=>{lastThumbnail=blob;}),clearInput:()=>input.clear(),queueAction:a=>{actions=a;}});
  multiplayer=createMultiplayer({document,target:window,Peer:window.peerjs.Peer,buildId:manifest.build_id,exportHash:manifestHash,simulation,saveSession,menu,outfit,storage:()=>localStorage,
-  room:joinRoom,joined:(save,error)=>joined({save,error,operation:'join'}),reloadJoin:room=>reloadWith(JOIN_KEY,JSON.stringify(room)),
+  joined:save=>{join(save).catch(()=>{});},
   audio,media:navigator.mediaDevices,voiceKeys:()=>actionIds.voicechat===undefined?[]:settings.values.inputs[actionIds.voicechat]});
  {const changed=outfit.changed;outfit.changed=()=>{changed();multiplayer.look(outfit.outfit);};}
  feedback=createFeedback(manifest.ui,manifest,settings,actionIds,language);
@@ -333,6 +339,5 @@ async function load(){
  if(world)menu.started(world.error||loadError,world.operation);
  // A draw distance applied in a game is kept once a world starts with it.
  if(world&&!world.error&&!loadError)slider.store();
- if(world?.operation==='join'&&(world.error||loadError))multiplayer.leave();
 }
 load().catch(error=>fail(error?.message??String(error)));
