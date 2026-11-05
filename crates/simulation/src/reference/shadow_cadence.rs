@@ -97,7 +97,7 @@ fn same_projection(a: &ShadowCascade, b: &ShadowCascade) -> bool {
     words(a).eq(words(b))
 }
 /// Cascade 0 renders each frame, cascade 1 on odd frames, cascade 2 when frame % 4 == 0, cascade 3 when frame % 4 == 2.
-/// So each frame renders cascade 0 and one other cascade.
+/// So each frame renders cascade 0 and one other cascade. Cascade 1 also renders when its static content changed.
 /// All render after an epoch change, a forced refresh, or a cascade 1, 2 or 3 sphere move above 25% of its radius.
 /// A rendered tile does not draw when its projection, sun and static content did not change.
 /// A rendered tile refreshes when it draws, or when it holds animated casters now or since its last refresh.
@@ -134,7 +134,15 @@ fn cascades_to_render(frame: u32, last: &CascadeHistory, current: &CascadeInputs
     if current.forced || last.epoch != Some(current.epoch) || moved {
         return [true; 4];
     }
-    [true, frame % 2 == 1, frame % 4 == 0, frame % 4 == 2]
+    // Cascade 1 holds the shadows near the camera, such as the shadow of the player car.
+    // A moved caster changes its content, so the shadow keeps the frame rate of the caster.
+    let near_moved = last.contents[1] != current.contents[1];
+    [
+        true,
+        frame % 2 == 1 || near_moved,
+        frame.is_multiple_of(4),
+        frame % 4 == 2,
+    ]
 }
 
 #[cfg(test)]
@@ -180,5 +188,36 @@ mod tests {
             ..current
         };
         assert_eq!(plan_cascades(0, &history, &current).render, [true; 4]);
+    }
+
+    #[test]
+    fn a_moved_caster_renders_cascade_1_each_frame() {
+        let epoch = CascadeEpoch {
+            session: 1,
+            scene: 1,
+            origin: [0; 3],
+            settings: [0; 6],
+        };
+        let mut current = CascadeInputs {
+            epoch,
+            cascades: std::array::from_fn(|_| ShadowCascade {
+                sphere_radius: 10.,
+                ..Default::default()
+            }),
+            sun: [0; 4],
+            contents: [0; 4],
+            animated: [false; 4],
+            forced: false,
+        };
+        let mut history = CascadeHistory::default();
+        history.commit(&CascadePlan::ALL, &current);
+        for frame in [2, 4] {
+            current.contents[1] += 1;
+            let plan = plan_cascades(frame, &history, &current);
+            assert!(plan.render[1] && plan.draw[1]);
+            history.commit(&plan, &current);
+        }
+        // A still cascade 1 keeps its odd frames.
+        assert!(!plan_cascades(6, &history, &current).render[1]);
     }
 }
