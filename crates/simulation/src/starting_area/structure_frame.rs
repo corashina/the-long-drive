@@ -143,6 +143,16 @@ impl GarageRuntime {
     }
 }
 
+/// The body of another structure that carries item `item`, as a car carries its mounted wheels.
+fn carrier(
+    items: &ItemStore,
+    item: Option<ItemId>,
+    bodies: &[RigidBodyHandle],
+) -> Option<RigidBodyHandle> {
+    let body = items.get(item?)?.body?;
+    (!bodies.contains(&body)).then_some(body)
+}
+
 struct Inputs<'a> {
     reference: &'a ReferenceManifest,
     stream: &'a crate::world::WorldStream,
@@ -325,8 +335,13 @@ impl StructureViews {
         let structures = stream.frame().structures;
         for (slot, entry) in self.entries.iter().enumerate() {
             let Some(entry) = entry else { continue };
-            for body in &structures[entry.structure].bodies {
+            let bodies = &structures[entry.structure].bodies;
+            for body in bodies {
                 self.bodies.entry(*body).or_default().push(slot as u32);
+            }
+            // A mounted part shows with the move of the body that carries it.
+            if let Some(carrier) = carrier(items, entry.food, bodies) {
+                self.bodies.entry(carrier).or_default().push(slot as u32);
             }
             if let Some(content) = entry.content {
                 self.content_slots
@@ -435,11 +450,13 @@ impl StructureViews {
         let start = poses.len() as u32;
         // Body and content rows come first. Local and rotation rows then turn nodes on top of them.
         // Parts placed after the physics step take the blend move of the car body.
+        // A part mounted on another body takes the move of that body.
         let anchor = car
-            .and_then(|(record, _, _)| structure.bodies.get(record.body as usize))
-            .or(structure.bodies.first());
+            .and_then(|(record, _, _)| structure.bodies.get(record.body as usize).copied())
+            .or_else(|| carrier(items, entry.food, &structure.bodies))
+            .or(structure.bodies.first().copied());
         let moved = anchor.map_or(Pose::IDENTITY, |handle| {
-            physics.presented_move(*handle, inputs.alpha)
+            physics.presented_move(handle, inputs.alpha)
         });
         for (body, handle) in prototype.bodies.iter().enumerate().zip(&structure.bodies) {
             let pose = physics.presented_pose_or(*handle, inputs.alpha, moved);

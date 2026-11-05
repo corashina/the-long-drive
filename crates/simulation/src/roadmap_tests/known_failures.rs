@@ -760,3 +760,73 @@ fn tp_k14_the_start_car_gauges_turn_over_the_part_poses() {
         );
     }
 }
+
+/// The start car drives. Each frame between two steps shows its mounted wheels at their rest
+/// offset on the car body, so the wheels do not trail or lead the body.
+#[test]
+#[ignore = "requires the installed source export"]
+fn the_start_car_wheels_stay_on_the_driving_body() {
+    use crate::boundary::NodePoseRow;
+    use crate::world::ObjectKey;
+    use rapier3d::math::{Pose, Rotation, Vector};
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let key = run.vehicle.clone().unwrap();
+    let ObjectKey::Generated(car_id) = key.clone() else {
+        panic!("the start car is a world car");
+    };
+    let car = run.physics.snapshot(&key).pose;
+    stand_near(&mut run, &reference, car.position, 2.);
+    act(&mut run, &reference, r#"{"action":"seat","seat":"driver"}"#);
+    let handle = run.physics.chassis_handle(&key);
+    let mut out = crate::boundary::SimFrame::default();
+    for _ in 0..50 {
+        run.physics.edit_body(handle, |b| {
+            let forward = b.rotation() * Vector::Z;
+            b.set_linvel(forward * 20., true);
+        });
+        frame(&mut run, &reference);
+    }
+    run.fill_frame(&reference, 0.5, &mut out);
+    let body_row = |slot: u32| {
+        let row = out.structures.iter().find(|r| r.slot == slot)?;
+        let pose = out.structure_poses[row.poses[0] as usize..row.poses[1] as usize]
+            .iter()
+            .find(|p| p.kind == NodePoseRow::BODY && p.node == 0)?;
+        Some(Pose::from_parts(
+            Vector::from_array(pose.translation),
+            Rotation::from_array(pose.rotation),
+        ))
+    };
+    let shown_car = body_row(run.structure_views.slots[&car_id]).expect("the car is shown");
+    let chassis = *run.physics.rapier().bodies[handle].position();
+    let mut wheels = 0;
+    for item in run.area.items.iter().filter(|i| i.body == Some(handle)) {
+        let ObjectKey::Generated(id) = run.area.items.object_key(item.id) else {
+            continue;
+        };
+        let Some(&slot) = run.structure_views.slots.get(&id) else {
+            continue;
+        };
+        let structure = run
+            .stream
+            .frame()
+            .structures
+            .iter()
+            .find(|s| s.placement.id == id)
+            .unwrap();
+        if structure.bodies.contains(&handle) {
+            continue;
+        }
+        let own = *run.physics.rapier().bodies[structure.bodies[0]].position();
+        let rest = chassis.inverse() * own;
+        let shown = body_row(slot).expect("a mounted part is shown with its car");
+        let error = (shown_car.inverse() * shown).translation - rest.translation;
+        assert!(
+            error.length() < 1e-3,
+            "part {id:?} is {error} m off its car"
+        );
+        wheels += 1;
+    }
+    assert!(wheels >= 4, "the start car has its wheels");
+}
