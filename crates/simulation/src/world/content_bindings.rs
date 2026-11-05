@@ -1190,16 +1190,26 @@ impl WorldStream {
                 .and_then(|id| items.get(id))
                 .is_some_and(|item| item.buried);
             if !departing && (distance < remove * remove || protected) && !removed {
-                if let Some(body) = id.and_then(|id| items.get(id)).and_then(|s| s.body)
+                if let Some(body) = body
                     && !protected
-                    && (buried || distance >= freeze * freeze || distance < unfreeze * unfreeze)
                 {
-                    let kind = if buried || distance >= freeze * freeze {
-                        rapier3d::prelude::RigidBodyType::KinematicPositionBased
+                    // A car whose ground the stream does not load stops in place, as source
+                    // bodies do. So the step never waits for ground that no request loads.
+                    let grounded = own.is_none()
+                        || self.supports(crate::world::collision_window(
+                            self.origin
+                                .absolute(physics.rapier().bodies[body].translation().to_array()),
+                        ));
+                    let kind = if buried || distance >= freeze * freeze || !grounded {
+                        Some(rapier3d::prelude::RigidBodyType::KinematicPositionBased)
+                    } else if distance < unfreeze * unfreeze {
+                        Some(rapier3d::prelude::RigidBodyType::Dynamic)
                     } else {
-                        rapier3d::prelude::RigidBodyType::Dynamic
+                        None
                     };
-                    if physics.rapier().bodies[body].body_type() != kind {
+                    if let Some(kind) = kind
+                        && physics.rapier().bodies[body].body_type() != kind
+                    {
                         physics.edit_body(body, |state| state.set_body_type(kind, true));
                         if kind == rapier3d::prelude::RigidBodyType::Dynamic
                             && let Some(item) = id
