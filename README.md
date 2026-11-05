@@ -123,6 +123,8 @@ Chrome runs without vsync and frame rate limit, so FPS can go above the display 
 Each scene prints frame ms of all frames in play: mean, p50, p99 and max. Compare frame ms and p99, not FPS.
 Options: `--seed`, `--scenes garage,road,town`, `--town NAME` (a building name part), `--settle 10`, `--seconds 20`, `--trace`.
 `--trace` writes a Chrome trace of the last scene. Results go to `tests/bench/out/`.
+`draws` is the mean count of WebGPU draws per frame, for all views and shadows. `drawsMax` is the most in one frame.
+The bench fails when a scene has a p90 of `draws` above `--draw-budget` (default 2700, the top of the GTA V range). `0` turns the check off.
 A `?sandbox` page has `window.gameSandbox(actions)` with the actions of `crates/simulation/src/sandbox.rs`.
 
 ## Development asset library

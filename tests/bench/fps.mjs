@@ -5,6 +5,7 @@
 //     [--scenes garage,road,town] [--town NAME] [--settle 10] [--seconds 20] [--trace] [--headless]
 //     [--channel chrome]   (the installed Google Chrome; an empty value takes the Playwright Chromium)
 //     [--quality ultra]    (a Graphics quality preset; empty keeps the setting defaults)
+//     [--draw-budget 2700] (most draws per frame at p90 in each scene; 0 turns the check off)
 //   node tests/bench/fps.mjs compare A.json B.json
 //
 // Run headed on the real GPU. Headless Chrome can take a software adapter: then GPU ms are null.
@@ -12,6 +13,7 @@
 // Each scene reports frame ms of all frames in play: mean, p50, p99 and max. Compare frame ms, not FPS.
 // Serve the build on port 4173 first. Nothing else heavy may run on the PC during a run.
 // Output: tests/bench/out/<label>-<time>.json (and a Chrome trace of the last scene with --trace).
+// The bench fails when a scene draws more than the draw budget. The JSON is written first.
 import {chromium} from 'playwright-core';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
@@ -20,8 +22,43 @@ import {PRESETS} from '../../web/quality-presets.js';
 const OUT=fileURLToPath(new URL('./out/',import.meta.url));
 const START_TIMEOUT_MS=600000,MOVE_TIMEOUT_MS=180000;
 // Values that the summary and the compare table show, in this order.
-const FIELDS=['fps','frameMs','worstMs','updateMs','renderMs','workerTickMs','physicsMs','rapierMs','worldMs','dynamicBodies','awakeBodies','ccdBodies','contactPairs','gpuShadow','gpuOpaque','gpuResolveAo','gpuTransparent','gpuPost','gpuSum','shadowDraws','surfaceDraws','propVisible','sceneScale'];
+const FIELDS=['fps','frameMs','worstMs','updateMs','renderMs','workerTickMs','physicsMs','rapierMs','worldMs','dynamicBodies','awakeBodies','ccdBodies','contactPairs','gpuShadow','gpuOpaque','gpuResolveAo','gpuTransparent','gpuPost','gpuSum','draws','drawsMax','shadowDraws','surfaceDraws','propVisible','sceneScale'];
 const GPU=['gpuShadow','gpuOpaque','gpuResolveAo','gpuTransparent','gpuPost'];
+// GTA V draws about 1,700 to 2,700 times per frame. The default budget is the top of that range.
+const DRAW_BUDGET=2700;
+
+// Page init script. It counts every WebGPU draw of the page: all views, shadows, post and UI.
+// A render bundle counts its draws each time a pass executes it. A frame starts at getCurrentTexture.
+// `window.benchDraws()` gives the totals and the most draws in one frame since the last read.
+function countDraws(){
+ if(!globalThis.GPURenderPassEncoder)return;
+ const totals={draws:0,frames:0,max:0},bundles=new WeakMap();
+ let frame=0;
+ const methods=['draw','drawIndexed','drawIndirect','drawIndexedIndirect'];
+ for(const method of methods){
+  const pass=GPURenderPassEncoder.prototype[method];
+  GPURenderPassEncoder.prototype[method]=function(a,b,c,d,e){frame++;return pass.call(this,a,b,c,d,e);};
+  const bundle=GPURenderBundleEncoder.prototype[method];
+  GPURenderBundleEncoder.prototype[method]=function(a,b,c,d,e){bundles.set(this,(bundles.get(this)??0)+1);return bundle.call(this,a,b,c,d,e);};
+ }
+ const finish=GPURenderBundleEncoder.prototype.finish;
+ GPURenderBundleEncoder.prototype.finish=function(descriptor){
+  const result=finish.call(this,descriptor);
+  bundles.set(result,bundles.get(this)??0);
+  return result;
+ };
+ const execute=GPURenderPassEncoder.prototype.executeBundles;
+ GPURenderPassEncoder.prototype.executeBundles=function(list){
+  for(const bundle of list)frame+=bundles.get(bundle)??0;
+  return execute.call(this,list);
+ };
+ const texture=GPUCanvasContext.prototype.getCurrentTexture;
+ GPUCanvasContext.prototype.getCurrentTexture=function(){
+  totals.draws+=frame;totals.frames++;totals.max=Math.max(totals.max,frame);frame=0;
+  return texture.call(this);
+ };
+ window.benchDraws=()=>{const value={...totals};totals.max=0;return value;};
+}
 
 // Scene actions for `simulation::sandbox`. `noon` and `night` are source cycle seconds.
 const SCENES={
@@ -31,9 +68,9 @@ const SCENES={
 };
 
 function options(argv){
- const o={label:'build',url:'http://localhost:4173/',seed:'1122282040',scenes:'garage,road,town',town:'',settle:10,seconds:20,trace:false,headless:false,channel:'chrome',quality:''};
+ const o={label:'build',url:'http://localhost:4173/',seed:'1122282040',scenes:'garage,road,town',town:'',settle:10,seconds:20,trace:false,headless:false,channel:'chrome',quality:'',drawBudget:DRAW_BUDGET};
  for(let i=0;i<argv.length;i++){
-  const name=argv[i].replace(/^--/,'');
+  const name=argv[i].replace(/^--/,'').replace(/-(\w)/g,(_,c)=>c.toUpperCase());
   if(!(name in o))throw new Error('Unknown option '+argv[i]);
   if(typeof o[name]==='boolean')o[name]=true;
   else{const value=argv[++i];o[name]=typeof o[name]==='number'?Number(value):value;}
@@ -127,6 +164,7 @@ async function startGame(browser,o,log){
   const keys=['tls-new-game','tls-load','tls-join'].filter(k=>sessionStorage.getItem(k)!==null).map(k=>k+'='+sessionStorage.getItem(k));
   console.info('[bench] load '+keys.join(' '));
  },[o.seed,settings]);
+ await context.addInitScript(countDraws);
  const page=await context.newPage();
  const started=Date.now(),event=text=>log.events.push(((Date.now()-started)/1000).toFixed(1)+' s '+text);
  page.on('console',m=>{
@@ -219,12 +257,16 @@ async function runScene(browser,page,name,cycle,o){
  // Each read takes the frame ms after the last frame of the previous read. The window holds 2 s of frames.
  const samples=[],intervals=[];
  let since=(await page.evaluate(()=>window.gamePerformance())).lastFrame;
+ let draws=await page.evaluate(()=>window.benchDraws());
  for(let i=0;i<o.seconds;i++){
   await sleep(1000);
   await checkGame(page);
   const snapshot=await page.evaluate(s=>window.gamePerformance(s),since);
   since=snapshot.lastFrame??since;
   const sample=flatten(snapshot);
+  // Mean draws per frame in the last second, and the most draws in one frame.
+  const now=await page.evaluate(()=>window.benchDraws()),frames=now.frames-draws.frames;
+  sample.draws=frames?(now.draws-draws.draws)/frames:null;sample.drawsMax=frames?now.max:null;draws=now;
   const menu=await resumePlay(page);
   sample.menu=menu?.state??null;
   if(sample.menu!=='playing')sample.menuStatus=menu?.status||menu?.error||'';
@@ -264,7 +306,10 @@ async function bench(o){
   }
  }catch(error){failure=error;}
  finally{await browser.close();}
- const result={label:o.label,seed:o.seed,quality:o.quality||null,url:o.url,date:new Date().toISOString(),adapter,scenes,errors:log.errors,events:log.events,error:failure?.message??null};
+ // A scene fails the budget when its p90 of draws per frame is above it.
+ const over=o.drawBudget?scenes.filter(s=>s.summary.draws.p90>o.drawBudget):[];
+ if(!failure&&over.length)failure=new Error(`Draw budget ${o.drawBudget} per frame exceeded: `+over.map(s=>`${s.name} p90 ${Math.round(s.summary.draws.p90)}`).join(', '));
+ const result={label:o.label,seed:o.seed,quality:o.quality||null,url:o.url,date:new Date().toISOString(),drawBudget:o.drawBudget||null,adapter,scenes,errors:log.errors,events:log.events,error:failure?.message??null};
  const path=OUT+o.label+'-'+result.date.replace(/[:.]/g,'-')+'.json';
  writeFileSync(path,JSON.stringify(result,null,1));
  console.log('Wrote '+path);
