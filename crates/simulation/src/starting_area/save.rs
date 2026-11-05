@@ -410,9 +410,10 @@ impl GarageRuntime {
         )?;
         super::hose::restore(reference, &mut candidate.area, &mut candidate.physics)?;
         candidate.restore_cigarettes(&saved.cigarettes);
+        let vehicle = selected_vehicle_position(saved);
         candidate
             .stream
-            .request_at(saved.player.pose.position, selected_vehicle_position(saved));
+            .request_at(saved.player.pose.position, vehicle, vehicle);
         candidate.persistent_world = PersistentWorld::restore(saved, &ids)?;
         finalize::RestoreFinalizer {
             area: &mut candidate.area,

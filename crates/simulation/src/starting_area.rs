@@ -605,7 +605,7 @@ impl GarageRuntime {
         let mut stream = WorldStream::new(reference, seed, mode, distances)?;
         if stream_world {
             let spawn = reference.area.player_spawn.translation.map(f64::from);
-            stream.request_at(spawn, spawn);
+            stream.request_at(spawn, spawn, spawn);
         }
         let mut wheels = crate::interaction::wheels::WheelAssemblies::new(reference)?;
         wheels.refresh_conditions(&area.interaction.conditions);
@@ -2305,7 +2305,10 @@ impl GarageRuntime {
             self.persistent_world
                 .absolute_vehicle_position(&self.physics, &self.stream.origin, key)
         });
-        self.stream.request_at(absolute, car);
+        let ahead = self.vehicle.as_ref().map_or(car, |key| {
+            crate::world::ahead_point(car, self.physics.snapshot(key).linear_velocity)
+        });
+        self.stream.request_at(absolute, car, ahead);
         let (world, physics, origin) = (&self.persistent_world, &self.physics, self.stream.origin);
         // Only the start car and the last seated car hold the area. Roadside cars follow the item rule.
         let last = self.vehicle.as_ref();
@@ -2357,9 +2360,9 @@ impl GarageRuntime {
         }
         // Source bodies return one sync after their own wider area loads. Wait for them too.
         let supported =
-            |bounds| self.stream.supports(bounds) && !self.persistent_world.waits_for(bounds);
-        // The stream loads its collision ranges before other work. The step waits for the same
-        // areas, so a wait never depends on work that waits for the camera view.
+            |bounds| self.stream.grounded(bounds) && !self.persistent_world.waits_for(bounds);
+        // The step waits only for ground under the player and the cars. Ground patches cover a
+        // near tile that is not loaded yet, so the wait is short. Structures can load late.
         // A frozen car does not fall. The stream stops a car whose ground it does not load.
         self.stream.collision_ranges().into_iter().all(supported)
             && self.vehicles.keys().all(|key| {

@@ -98,6 +98,7 @@ impl GarageRuntime {
             &mut self.vehicles,
             &mut self.powertrain,
         )?;
+        self.stream.lay_ground(&mut self.physics);
         timer.next(stream_profile::Stage::Stream);
         self.stream.prepare(budget_ms);
         self.stream.select_required(required_views);

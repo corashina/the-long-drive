@@ -697,7 +697,7 @@ fn tp_k13_driving_away_from_the_start_never_stops_the_car() {
             assert!(
                 held < 50,
                 "the step holds at {travelled:.0} m: {:?}",
-                run.stream.support_gap(bounds)
+                run.stream.ground_gap(bounds)
             );
         }
         frame(&mut run, &reference);
@@ -710,8 +710,22 @@ fn tp_k13_driving_away_from_the_start_never_stops_the_car() {
 #[test]
 #[ignore = "requires the installed source export"]
 fn tp_k15_cars_parked_at_the_start_never_stop_a_far_car() {
+    drive_spawned_car(25., 1000., 50);
+}
+
+/// K16. A spawned car drives along the road at 40 m/s. Near tiles and roadside structures load
+/// behind it. The step waits only for ground, and ground patches carry the car over a tile that
+/// is not loaded. So the step holds for at most two frames at a time.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_k16_a_fast_car_never_waits_for_the_world() {
+    drive_spawned_car(40., 2000., 3);
+}
+
+/// Spawns a car, seats the player and moves the car along the road at `speed` for `distance`.
+/// Fails when the step holds for `limit` frames in a row.
+fn drive_spawned_car(speed: f64, distance: f64, limit: u32) {
     use crate::simulation::FIXED_DT;
-    const SPEED: f64 = 25.;
     let (reference, mut run) = outdoors();
     let parked: Vec<_> = run.vehicles.keys().cloned().collect();
     act(
@@ -739,10 +753,10 @@ fn tp_k15_cars_parked_at_the_start_never_stop_a_far_car() {
     );
     let start = reference.area.player_spawn.translation[2] as f64 - 40.;
     let (mut travelled, mut held) = (0., 0);
-    while travelled < 1000. {
+    while travelled < distance {
         if run.world_supported() {
             held = 0;
-            travelled += SPEED * f64::from(FIXED_DT);
+            travelled += speed * f64::from(FIXED_DT);
             let point = run
                 .stream
                 .road_surface_points()
@@ -761,7 +775,7 @@ fn tp_k15_cars_parked_at_the_start_never_stop_a_far_car() {
         } else {
             held += 1;
             assert!(
-                held < 50,
+                held < limit,
                 "the step holds at {travelled:.0} m: {}",
                 run.hold_report()
             );

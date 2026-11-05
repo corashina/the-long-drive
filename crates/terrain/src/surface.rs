@@ -189,6 +189,34 @@ pub fn surface_origin(unit: [i64; 2], tile: TerrainTile) -> [f64; 3] {
     ]
 }
 
+/// Local coordinate of grid line `index` from the tile center, in phase 0 math.
+/// -1 and the resolution are border lines.
+pub fn grid_coordinate(tile: TerrainTile, index: f64) -> f32 {
+    let spacing = (tile.size as f64 / (tile.resolution as usize - 1) as f64) as f32;
+    let offset = -(tile.size as f32) * 0.5;
+    (index * spacing as f64 + offset as f64) as f32
+}
+
+/// Source point of local grid coordinates `x` and source `z` of a tile at `origin`.
+fn grid_point(origin: [f64; 3], x: f32, z: f32) -> [f32; 2] {
+    [
+        (x as f64 + origin[0] as f32 as f64) as f32,
+        (z as f64 + (-origin[2]) as f32 as f64) as f32,
+    ]
+}
+
+impl TerrainContext<'_> {
+    /// Height of grid vertex `x`, `z` (source z order) of tile `unit`. It is the vertex height
+    /// of a tile without holes.
+    pub fn grid_height(&self, unit: [i64; 2], x: usize, z: usize) -> f32 {
+        self.height(grid_point(
+            surface_origin(unit, self.tile),
+            grid_coordinate(self.tile, x as f64),
+            grid_coordinate(self.tile, z as f64),
+        ))
+    }
+}
+
 /// All phases retain their cursors across deadline checks and the 4096-work cap.
 /// A check follows at least 32 work units. One operation can use up to seven units.
 #[derive(Default)]
@@ -246,7 +274,6 @@ impl TerrainSurfaceJob {
         let n = tile.resolution as usize;
         let side = n + 2;
         let spacing = (tile.size as f64 / (n - 1) as f64) as f32;
-        let offset = -(tile.size as f32) * 0.5;
         let mut remaining = 4096;
         let mut checkpoint = 0;
         while self.phase < 8 {
@@ -273,12 +300,9 @@ impl TerrainSurfaceJob {
             let i = self.cursor;
             match self.phase {
                 0 => {
-                    let x = (((i % side) as f64 - 1.0) * spacing as f64 + offset as f64) as f32;
-                    let z = (((i / side) as f64 - 1.0) * spacing as f64 + offset as f64) as f32;
-                    let point = [
-                        (x as f64 + output.origin[0] as f32 as f64) as f32,
-                        (z as f64 + (-output.origin[2]) as f32 as f64) as f32,
-                    ];
+                    let x = grid_coordinate(tile, (i % side) as f64 - 1.0);
+                    let z = grid_coordinate(tile, (i / side) as f64 - 1.0);
+                    let point = grid_point(output.origin, x, z);
                     self.border.push([x, context.height(point), z]);
                     self.border_normals.push([0.0; 3]);
                     self.cursor += 1;
@@ -460,10 +484,8 @@ impl TerrainSurfaceJob {
 /// x and z, and every grid triangle. A building hole moves vertices or removes triangles.
 pub fn regular_grid(tile: TerrainTile, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> bool {
     let n = tile.resolution as usize;
-    let spacing = (tile.size as f64 / (n - 1) as f64) as f32;
-    let offset = -(tile.size as f32) * 0.5;
     // This is the same math as phase 0, with the phase 6 z flip.
-    let grid = |index: usize| (index as f64 * spacing as f64 + offset as f64) as f32;
+    let grid = |index: usize| grid_coordinate(tile, index as f64);
     vertices.len() == n * n
         && triangles.len() == 2 * (n - 1) * (n - 1)
         && vertices
