@@ -79,10 +79,13 @@ pub struct Net {
     figures: Vec<(u8, rapier3d::math::Pose)>,
     /// Peers that left since the last frame.
     left: Vec<u8>,
+    /// A new guest still stands on the host spot.
+    step_aside: bool,
 }
 
 impl Net {
     pub fn set_session(&mut self, role: NetRole, slot: u8) {
+        self.step_aside = role == NetRole::Guest;
         self.role = role;
         self.slot = slot;
         self.items.slot = slot;
@@ -104,14 +107,19 @@ impl Net {
     }
     /// Marks `runtime` for the role before each step, also the first after a load. Source
     /// `isServerOrNoMulti`. A guest spawns no rabbits or weeds. Guest spawn serials start at
-    /// `slot << 24`, so a host spawn never takes the serial of a guest spawn.
-    pub fn prepare(&self, runtime: &mut GarageRuntime) {
+    /// `slot << 24`, so a host spawn never takes the serial of a guest spawn. A new guest steps off
+    /// the host spot once its world stands.
+    pub fn prepare(&mut self, runtime: &mut GarageRuntime) {
         runtime.net_guest = self.role == NetRole::Guest;
         if runtime.net_guest {
             runtime
                 .area
                 .spawned
                 .reserve_serials(u32::from(self.slot) << 24);
+        }
+        if self.step_aside && runtime.started && runtime.world_supported() {
+            self.step_aside = false;
+            runtime.step_aside(f32::from(self.slot) / MAX_PLAYERS as f32);
         }
     }
     pub fn role(&self) -> NetRole {
@@ -256,6 +264,7 @@ impl Net {
         let origin = &runtime.stream.origin;
         self.figures.clear();
         let body = &reference.player.remote;
+        let player = runtime.area.player.body_handle();
         for remote in &mut self.remotes {
             let seated = remote
                 .smoothing
@@ -271,6 +280,9 @@ impl Net {
             ) else {
                 continue;
             };
+            if let Some(collision) = &mut remote.collision {
+                collision.tick(self.clock, &mut runtime.physics, player);
+            }
             self.figures
                 .push((remote.slot, crate::vehicle::to_rapier(pose)));
             frame.remotes.push(RemoteRow {

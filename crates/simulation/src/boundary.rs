@@ -1095,7 +1095,7 @@ pub struct SimCommand {
     /// Real seconds of the frame.
     pub delta_seconds: f64,
     pub input: FrameInput,
-    /// Menu actions: `PAUSE`, `START`, `RECOVER`.
+    /// Menu actions: `PAUSE`, `START`, `RESPAWN`, `RECOVER`.
     pub actions: u32,
     /// The renderer shows the garage.
     pub ready: bool,
@@ -1184,8 +1184,10 @@ impl WorldCommand {
 impl SimCommand {
     pub const PAUSE: u32 = 1 << 1;
     pub const START: u32 = 1 << 2;
+    /// A dead player in a multiplayer session lives again.
+    pub const RESPAWN: u32 = 1 << 3;
     pub const RECOVER: u32 = 1 << 4;
-    pub const ACTIONS: u32 = Self::PAUSE | Self::START | Self::RECOVER;
+    pub const ACTIONS: u32 = Self::PAUSE | Self::START | Self::RESPAWN | Self::RECOVER;
 
     /// Adds a later command. A held command drops the input before it.
     /// The field pattern does not compile when a new field has no merge rule.

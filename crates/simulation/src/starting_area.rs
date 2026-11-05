@@ -42,6 +42,7 @@ mod population;
 mod rabbits;
 mod ragdoll;
 mod reach;
+mod spawn;
 pub mod spawned;
 pub mod structure_frame;
 mod survival;

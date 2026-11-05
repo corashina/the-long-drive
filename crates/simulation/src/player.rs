@@ -1483,6 +1483,11 @@ impl PlayerState {
         });
         self.update_geometry(physics);
     }
+    /// Respawn: the player lives again on foot at `pose`, with the colliders on.
+    pub fn revive(&mut self, pose: VehiclePose, physics: &mut PhysicsWorld) {
+        self.dead = false;
+        self.recover(pose, physics);
+    }
     /// `Death2` turns the colliders off. A seat ends and keeps the world look, so the ragdoll can
     /// move the player.
     pub fn die(&mut self, physics: &mut PhysicsWorld) {
