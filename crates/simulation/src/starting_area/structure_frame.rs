@@ -10,7 +10,7 @@ use crate::vehicle::{from_rapier, to_rapier};
 use crate::world::stream::content_index::{ContentSlot, InstanceSelection};
 use crate::world::{ContentIndex, GeneratedId, NodeAppearance, ObjectKey};
 use bevy_platform::collections::HashMap;
-use rapier3d::math::{Pose, Rotation};
+use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::RigidBodyHandle;
 use std::collections::BTreeMap;
 
@@ -48,6 +48,8 @@ pub struct StructureViews {
     sources: HashMap<SourceId, u32>,
     /// Local wing pose of each bat prototype node. Reused each frame.
     wing_poses: Vec<Transform>,
+    /// Nearest body of each prototype node of the written slot, or `u32::MAX`. Reused each slot.
+    node_bodies: Vec<u32>,
     /// Hidden gun parts of the written slot. Reused each slot.
     gun_hidden: Vec<u32>,
     /// `GarageRuntime::other_view` of the written worn flags.
@@ -458,8 +460,61 @@ impl StructureViews {
         let moved = anchor.map_or(Pose::IDENTITY, |handle| {
             physics.presented_move(handle, inputs.alpha)
         });
+        // Nearest body of each prototype node.
+        let bodies = &mut self.node_bodies;
+        bodies.clear();
+        bodies.resize(prototype.nodes.len(), u32::MAX);
+        for (index, body) in prototype.bodies.iter().enumerate() {
+            bodies[body.node as usize] = index as u32;
+        }
+        for node in 0..prototype.nodes.len() {
+            if bodies[node] == u32::MAX
+                && let Some(parent) = prototype.nodes[node].parent
+            {
+                // Prototype parents come before their children.
+                bodies[node] = bodies[parent as usize];
+            }
+        }
+        let row_pose = |row: &NodePoseRow| {
+            Pose::from_parts(
+                Vector::from_array(row.translation),
+                Rotation::from_array(row.rotation),
+            )
+        };
         for (body, handle) in prototype.bodies.iter().enumerate().zip(&structure.bodies) {
-            let pose = physics.presented_pose_or(*handle, inputs.alpha, moved);
+            // The body of a mounted part follows its item only at the next binding sync, and the
+            // mechanism frames are one update old. So a mounted part shows on its shown carrier.
+            let mounted = content.render_item(*handle).and_then(|(item, local)| {
+                let state = items.get(item)?;
+                let carrier = state.body.filter(|b| b != handle)?;
+                let node = body.1.node as usize;
+                let above = prototype.nodes[node]
+                    .parent
+                    .map_or(u32::MAX, |p| bodies[p as usize]) as usize;
+                // A part in a slot of another mounted part, such as a hubcap on a rim, keeps its
+                // mechanism frame relative to that part.
+                let nested = (above < body.0 && structure.bodies[above] != carrier)
+                    .then(|| {
+                        let frame = content.node_pose(prototype.bodies[above].node as usize)?;
+                        let own = content.node_pose(node)?;
+                        Some(
+                            row_pose(&poses[start as usize + above])
+                                * to_rapier(frame).inverse()
+                                * to_rapier(own),
+                        )
+                    })
+                    .flatten();
+                // Else the part takes its item pose on the presented carrier, such as a rim on its car.
+                nested.or_else(|| {
+                    Some(
+                        physics.presented_move(carrier, inputs.alpha)
+                            * to_rapier(state.pose)
+                            * to_rapier(local).inverse(),
+                    )
+                })
+            });
+            let pose =
+                mounted.unwrap_or_else(|| physics.presented_pose_or(*handle, inputs.alpha, moved));
             poses.push(NodePoseRow {
                 node: body.0 as u32,
                 kind: NodePoseRow::BODY,
@@ -468,6 +523,7 @@ impl StructureViews {
                 scale: [1.; 3],
             });
         }
+        let shown_bodies = poses.len() as u32 - start;
         let tool = stream.tool_look(id);
         // In drotkefescript, the brush model slides on the contact.
         if let Some((node, pose)) = tool.and_then(|t| t.model) {
@@ -479,9 +535,18 @@ impl StructureViews {
                 scale: [1.; 3],
             });
         }
+        // Content poses are mechanism frames of the last update. A mounted wheel moved after it.
+        // So a node keeps its pose in the frame of its body and takes the shown body pose.
         for node in 0..prototype.nodes.len() {
             if let Some(pose) = content.node_pose(node) {
-                let pose = from_rapier(&(moved * to_rapier(pose)));
+                let body = bodies[node];
+                let on_body = (body < shown_bodies)
+                    .then(|| content.node_pose(prototype.bodies[body as usize].node as usize))
+                    .flatten()
+                    .map(|frame| {
+                        row_pose(&poses[(start + body) as usize]) * to_rapier(frame).inverse()
+                    });
+                let pose = from_rapier(&(on_body.unwrap_or(moved) * to_rapier(pose)));
                 poses.push(NodePoseRow {
                     node: node as u32,
                     kind: NodePoseRow::CONTENT,

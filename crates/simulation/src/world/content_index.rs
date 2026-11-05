@@ -35,6 +35,23 @@ impl<'a> IndexedContent<'a> {
     pub fn node_pose(&self, node: usize) -> Option<crate::vehicle::VehiclePose> {
         self.content.and_then(|c| c.poses.get(node)).copied()
     }
+    /// The item that `body` shows and the item pose in the body frame.
+    pub fn render_item(
+        &self,
+        body: rapier3d::prelude::RigidBodyHandle,
+    ) -> Option<(crate::reference::ItemId, crate::vehicle::VehiclePose)> {
+        let c = self.content?;
+        c.item
+            .zip(c.render_body)
+            .filter(|(_, (b, _))| *b == body)
+            .map(|(item, (_, local))| (item, local))
+            .or_else(|| {
+                c.bindings.iter().find_map(|binding| {
+                    let (b, local) = binding.render_body?;
+                    (b == body).then_some((binding.item, local))
+                })
+            })
+    }
 }
 impl ContentIndex {
     fn update_contents(
