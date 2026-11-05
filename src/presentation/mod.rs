@@ -25,6 +25,7 @@ pub mod outfit;
 pub mod outfit_preview;
 mod play_pipelines;
 pub mod player_body;
+pub(crate) mod prewarm_list;
 pub mod ragdoll;
 pub mod reference;
 pub mod remote_players;

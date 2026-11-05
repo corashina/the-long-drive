@@ -1,5 +1,7 @@
 //! Logs each pipeline that the cache first queues while the renderer is ready.
-//! Such a pipeline compiles during play and can cause a frame spike. Add it to the prewarm.
+//! Such a pipeline compiles during play and can cause a frame spike.
+//! Each one goes to the next prewarm list (`prewarm_list.rs`).
+use super::prewarm_list::Entry;
 use super::readiness::RendererStateHandle;
 use crate::render_readiness::RendererStatus;
 use bevy::render::{
@@ -42,6 +44,14 @@ fn log_play_pipelines(
     }
     PLAY_PIPELINES.fetch_add((len - first) as u32, Ordering::Relaxed);
     for (index, entry) in cache.pipelines().enumerate().skip(first) {
+        let listed = match &entry.descriptor {
+            PipelineDescriptor::RenderPipelineDescriptor(descriptor) => Entry::render(descriptor),
+            PipelineDescriptor::ComputePipelineDescriptor(descriptor) => Entry::compute(descriptor),
+        };
+        let listable = listed.is_some();
+        if let Some(listed) = listed {
+            super::prewarm_list::record(listed);
+        }
         let (kind, label, shader, defs) = match &entry.descriptor {
             PipelineDescriptor::RenderPipelineDescriptor(descriptor) => {
                 let stage = descriptor.fragment.as_ref();
@@ -62,7 +72,7 @@ fn log_play_pipelines(
             ),
         };
         warn!(
-            "Pipeline compiled during play: {kind} #{index} {:?}, shader {:?}, defs {defs:?}",
+            "Pipeline compiled during play: {kind} #{index} {:?}, shader {:?}, defs {defs:?}, listable {listable}",
             label.as_deref().unwrap_or("unlabeled"),
             shader.path().map(ToString::to_string),
         );

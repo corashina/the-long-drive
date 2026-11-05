@@ -16,6 +16,8 @@ Held IDs cannot enter automatic processing, including shader reload retries.
 An owned queue guard admits descriptor storage before material specialization.
 Descriptor accounting uses vector and string capacities. It also reserves cloned keys and retry links.
 Rejected metadata stays held as a terminal error. Normal active-cache processing stays unchanged.
+`prewarm_render_pipeline` and `prewarm_compute_pipeline` queue a listed pipeline and keep its descriptor.
+A later queue of an equal descriptor returns the listed ID. Owned queue scopes do not use listed IDs.
 
 The product owns candidate scopes, cancellation, readiness, promotion, and the persistent metadata budget.
 The patch does not change the mesh allocator, shader language, renderer backend, or normal active-cache queue.

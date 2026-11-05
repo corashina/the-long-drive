@@ -210,6 +210,9 @@ pub struct PipelineCache {
     held_pipelines: Mutex<HashSet<CachedPipelineId>>,
     owned_queue: Arc<Mutex<OwnedQueueBudget>>,
     new_pipelines: Mutex<Vec<CachedPipeline>>,
+    /// Listed pipelines. A later queue of an equal descriptor returns the listed ID.
+    prewarmed_render: Mutex<Vec<(RenderPipelineDescriptor, CachedRenderPipelineId)>>,
+    prewarmed_compute: Mutex<Vec<(ComputePipelineDescriptor, CachedComputePipelineId)>>,
     global_shader_defs: Vec<ShaderDefVal>,
     /// If `true`, disables asynchronous pipeline compilation.
     /// This has no effect on macOS, wasm, or without the `multi_threaded` feature.
@@ -339,6 +342,8 @@ impl PipelineCache {
             held_pipelines: default(),
             owned_queue: default(),
             new_pipelines: default(),
+            prewarmed_render: default(),
+            prewarmed_compute: default(),
             pipelines: default(),
             global_shader_defs,
             synchronous_pipeline_compilation,
@@ -471,6 +476,16 @@ impl PipelineCache {
         &self,
         descriptor: RenderPipelineDescriptor,
     ) -> CachedRenderPipelineId {
+        if !self.owned_queue.lock().unwrap().active
+            && let Some((_, id)) = self
+                .prewarmed_render
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|(listed, _)| *listed == descriptor)
+        {
+            return *id;
+        }
         let mut new_pipelines = self
             .new_pipelines
             .lock()
@@ -520,6 +535,15 @@ impl PipelineCache {
         &self,
         descriptor: ComputePipelineDescriptor,
     ) -> CachedComputePipelineId {
+        if let Some((_, id)) = self
+            .prewarmed_compute
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(listed, _)| *listed == descriptor)
+        {
+            return *id;
+        }
         let mut new_pipelines = self
             .new_pipelines
             .lock()
@@ -529,6 +553,34 @@ impl PipelineCache {
             descriptor: PipelineDescriptor::ComputePipelineDescriptor(Box::new(descriptor)),
             state: CachedPipelineState::Queued,
         });
+        id
+    }
+
+    /// Queue a listed render pipeline. Later queues of an equal descriptor return this ID,
+    /// except inside an owned queue scope.
+    pub fn prewarm_render_pipeline(
+        &self,
+        descriptor: RenderPipelineDescriptor,
+    ) -> CachedRenderPipelineId {
+        assert!(!self.owned_queue.lock().unwrap().active);
+        let id = self.queue_render_pipeline(descriptor.clone());
+        let mut listed = self.prewarmed_render.lock().unwrap();
+        if listed.iter().all(|(_, listed)| *listed != id) {
+            listed.push((descriptor, id));
+        }
+        id
+    }
+
+    /// Queue a listed compute pipeline. Later queues of an equal descriptor return this ID.
+    pub fn prewarm_compute_pipeline(
+        &self,
+        descriptor: ComputePipelineDescriptor,
+    ) -> CachedComputePipelineId {
+        let id = self.queue_compute_pipeline(descriptor.clone());
+        let mut listed = self.prewarmed_compute.lock().unwrap();
+        if listed.iter().all(|(_, listed)| *listed != id) {
+            listed.push((descriptor, id));
+        }
         id
     }
 
