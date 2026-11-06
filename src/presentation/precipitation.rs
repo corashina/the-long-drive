@@ -117,7 +117,11 @@ fn snapshot(
     let flake_velocity = Vec3::new(x, -FLAKE_FALL_SPEED, z);
     input.flake_offset = (input.flake_offset + flake_velocity * dt).rem_euclid(Vec3::splat(BOX));
     input.time = (input.time + dt).rem_euclid(FLUTTER_PERIOD);
-    let target = if weather.sheltered { 1. } else { 0. };
+    let target = if weather.shelter == simulation::weather::Shelter::None {
+        0.
+    } else {
+        1.
+    };
     let step = dt / SHELTER_SECONDS;
     input.shelter += (target - input.shelter).clamp(-step, step);
 }

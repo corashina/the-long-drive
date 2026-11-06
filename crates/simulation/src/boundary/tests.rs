@@ -200,7 +200,7 @@ fn frame_round_trips() {
             flash: 0.,
             wetness: 0.5,
             snow_cover: 0.3,
-            sheltered: true,
+            shelter: crate::weather::Shelter::Car,
             wind: [3., -4.],
             gust: 1.5,
             bolt: Some(BoltFrame {
