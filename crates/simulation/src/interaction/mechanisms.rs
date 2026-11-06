@@ -950,7 +950,15 @@ impl MechanismState {
             });
         }
     }
+    /// Source `usablescript.Rot`: clamp the values, then pose the targets.
+    /// A start value can be outside the limits (Car01 glovebox lid: 90 in [-90, 0]).
     fn apply(&mut self, index: usize) {
+        let c = &mut self.controls[index];
+        if let Some(r) = &c.reference.rotation {
+            for (value, [min, max]) in c.degrees.iter_mut().zip(r.limits_degrees) {
+                *value = value.clamp(min, max);
+            }
+        }
         let c = &self.controls[index];
         if let Some(r) = &c.reference.rotation {
             for target in &r.targets {

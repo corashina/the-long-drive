@@ -996,6 +996,11 @@ impl WorldReference {
             if let Some(rotation) = &row.recipe.rotation {
                 require(
                     rotation.targets.iter().all(|t| node(t.node))
+                        && rotation
+                            .limits_degrees
+                            .iter()
+                            .all(|v| finite(v) && v[0] <= v[1])
+                        && finite(&rotation.initial_degrees)
                         && rotation.sensitivity.is_finite(),
                     "world rotation inputs",
                 )?;
