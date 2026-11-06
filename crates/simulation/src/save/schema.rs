@@ -1,8 +1,8 @@
 use super::{InstanceId, SaveError, SourceKey};
 use serde::{Deserialize, Serialize};
 
-pub const SAVE_SCHEMA_VERSION: u32 = 47;
-pub const OLDEST_SAVE_SCHEMA_VERSION: u32 = 47;
+pub const SAVE_SCHEMA_VERSION: u32 = 48;
+pub const OLDEST_SAVE_SCHEMA_VERSION: u32 = 48;
 pub fn schema_supported(version: u32) -> bool {
     (OLDEST_SAVE_SCHEMA_VERSION..=SAVE_SCHEMA_VERSION).contains(&version)
 }
@@ -121,6 +121,16 @@ pub struct WeatherSnapshot {
     pub locked: bool,
     pub wetness: f32,
     pub snow_cover: f32,
+    pub wind: WindSnapshot,
+}
+/// The wind. A new feature: the source has no wind. The gust starts again from its noise.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindSnapshot {
+    /// Unit direction along world `x`, `z`.
+    pub dir: [f32; 2],
+    /// Meters per second without the gust.
+    pub speed: f32,
 }
 /// Source save_sandstorm: pos, euler rot y, prefabid, life, size, speed, xdir and ydir.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -512,7 +522,7 @@ mod g04_ordered_state {
     fn older_schemas_are_rejected_before_payload_reconstruction() {
         for version in [
             6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-            31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48,
+            31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49,
         ] {
             let payload = format!(r#"{{"schema_version":{version}}}"#);
             assert!(matches!(
@@ -524,15 +534,15 @@ mod g04_ordered_state {
 
     #[test]
     fn current_schema_passes_the_version_gate() {
-        // Schema 47 reaches payload parsing. The empty payload then fails as corrupt data.
+        // Schema 48 reaches payload parsing. The empty payload then fails as corrupt data.
         assert!(matches!(
-            SaveSnapshot::from_json(br#"{"schema_version":47}"#),
+            SaveSnapshot::from_json(br#"{"schema_version":48}"#),
             Err(SaveError::CorruptData(_))
         ));
     }
 
     #[test]
-    fn weather_cells_round_trip() {
+    fn weather_cells_and_wind_round_trip() {
         let weather = WeatherSnapshot {
             since_spawn: 1.,
             wait: 2.,
@@ -547,6 +557,10 @@ mod g04_ordered_state {
             locked: false,
             wetness: 0.8,
             snow_cover: 0.4,
+            wind: WindSnapshot {
+                dir: [0.6, -0.8],
+                speed: 7.5,
+            },
         };
         let json = serde_json::to_string(&weather).unwrap();
         assert!(json.contains(r#""kind":"thunderstorm""#));

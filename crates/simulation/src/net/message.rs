@@ -184,14 +184,18 @@ pub struct WeatherCellWire {
     pub kind: u32,
 }
 
-/// The host weather cells. The first `count` cells are live.
+/// The host weather cells, wind and surface state. The first `count` cells are live.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct WeatherCellsMessage {
     pub cells: [WeatherCellWire; crate::weather::MAX_CELLS],
-    pub drift: [f32; 2],
+    /// `Wind::dir`.
+    pub wind_dir: [f32; 2],
+    /// `Wind::speed`.
+    pub wind_speed: f32,
     pub count: u32,
     pub wetness: f32,
+    pub snow_cover: f32,
     pub locked: u32,
     pub padding: u32,
 }

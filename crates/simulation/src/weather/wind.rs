@@ -3,11 +3,13 @@ use super::{CellSample, StormRandom, WeatherKind};
 use std::f32::consts::{PI, TAU};
 
 /// Wind speed in meters per second of each kind, in `WeatherKind` order.
-const SPEEDS: [f32; 6] = [2., 4., 6., 12., 1., 5.];
+const SPEEDS: [f32; 6] = [2., 4., 6., MAX_SPEED, 1., 5.];
 /// Largest direction change in radians per second: 9 degrees per minute.
 const TURN_RATE: f32 = 9. * PI / 180. / 60.;
 /// Seconds between the keys of the turn noise.
 const TURN_PERIOD: f32 = 40.;
+/// The largest wind speed in meters per second.
+pub const MAX_SPEED: f32 = 12.;
 /// Seconds for the speed to close 63 % of the gap to its target.
 const SPEED_SECONDS: f32 = 15.;
 /// Seconds between the keys of the low and the high gust octave.
@@ -54,6 +56,8 @@ pub struct Wind {
     pub speed: f32,
     /// Speed factor, 0.5 to 2.
     pub gust: f32,
+    /// The host speed that a guest wind moves toward.
+    host_speed: f32,
     angle: f32,
     turn: Noise,
     gusts: [Noise; 2],
@@ -70,6 +74,7 @@ impl Wind {
             dir: [angle.cos(), angle.sin()],
             speed: SPEEDS[WeatherKind::Clear as usize],
             gust: 1.,
+            host_speed: SPEEDS[WeatherKind::Clear as usize],
             angle,
             turn,
             gusts,
@@ -91,33 +96,55 @@ impl Wind {
         [self.dir[0] * speed, self.dir[1] * speed]
     }
 
+    /// Sets the direction and the speed target of a guest. `dir` is a unit vector.
+    pub fn follow(&mut self, dir: [f32; 2], speed: f32) {
+        self.angle = dir[1].atan2(dir[0]).rem_euclid(TAU);
+        self.dir = dir;
+        self.host_speed = speed;
+    }
+
     /// Turns the direction, moves the speed toward the kind strength of `sample` and gives a new gust.
-    /// `heading` replaces the random turn: a guest follows the drift of the host.
-    pub fn advance(&mut self, dt: f32, sample: &CellSample, heading: Option<[f32; 2]>) {
+    /// A `guest` keeps the host direction and moves the speed toward the host speed.
+    pub fn advance(&mut self, dt: f32, sample: &CellSample, guest: bool) {
         let turn = self.turn.advance(dt, &mut self.random);
-        match heading.filter(|h| *h != [0.; 2]) {
-            Some(h) => self.angle = h[1].atan2(h[0]),
-            None => self.angle = (self.angle + turn * TURN_RATE * dt).rem_euclid(TAU),
+        if !guest {
+            self.angle = (self.angle + turn * TURN_RATE * dt).rem_euclid(TAU);
+            self.dir = [self.angle.cos(), self.angle.sin()];
         }
-        self.dir = [self.angle.cos(), self.angle.sin()];
-        // Clear also gets the share that no cell covers.
-        let covered: f32 = sample.weights[1..].iter().sum();
-        let mut total = 0.;
-        let mut weighted = 0.;
-        for (i, &speed) in SPEEDS.iter().enumerate() {
-            let w = if i == 0 {
-                sample.weights[0].max(1. - covered)
-            } else {
-                sample.weights[i]
-            };
-            total += w;
-            weighted += w * speed;
-        }
-        let target = weighted / total.max(1e-6);
+        let target = if guest {
+            self.host_speed
+        } else {
+            target_speed(sample)
+        };
         self.speed += (target - self.speed) * (dt / SPEED_SECONDS).min(1.);
         let [low, high] = &mut self.gusts;
         let noise =
             0.65 * low.advance(dt, &mut self.random) + 0.35 * high.advance(dt, &mut self.random);
         self.gust = noise.exp2();
     }
+
+    /// A valid unit direction and speed.
+    pub fn valid(dir: [f32; 2], speed: f32) -> bool {
+        dir.iter().all(|v| v.is_finite())
+            && (dir[0].hypot(dir[1]) - 1.).abs() < 1e-3
+            && (0. ..=MAX_SPEED).contains(&speed)
+    }
+}
+
+/// The wind speed of the kind weights in `sample`.
+fn target_speed(sample: &CellSample) -> f32 {
+    // Clear also gets the share that no cell covers.
+    let covered: f32 = sample.weights[1..].iter().sum();
+    let mut total = 0.;
+    let mut weighted = 0.;
+    for (i, &speed) in SPEEDS.iter().enumerate() {
+        let w = if i == 0 {
+            sample.weights[0].max(1. - covered)
+        } else {
+            sample.weights[i]
+        };
+        total += w;
+        weighted += w * speed;
+    }
+    weighted / total.max(1e-6)
 }
