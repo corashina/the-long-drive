@@ -50,6 +50,8 @@ export function installWorkerClients(target,name,url,create,profile){
   const dispose=client.dispose;client.dispose=()=>{dispose();clients.delete(client);};return client;
  };
  return {
+  // WASM memory of the live clients.
+  wasmBytes(){let total=0;for(const client of clients)total+=client.wasmBytes();return total;},
   profileState(){let jobActive=false,publicationActive=false;for(const client of clients){const s=client.profileState();jobActive||=s.jobActive;publicationActive||=Boolean(s.publicationActive);}return {jobActive,publicationActive};},
  };
 }

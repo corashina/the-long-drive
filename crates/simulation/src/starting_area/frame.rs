@@ -196,14 +196,12 @@ impl GarageRuntime {
         self.fill_hud(reference, frame);
         self.fill_audio(reference, alpha, self.render_input, &mut frame.audio);
         frame.budgets.clear();
-        if !self.started {
-            frame
-                .budgets
-                .extend(self.stream.budgets().map(|b| BudgetRow {
-                    used: b.used as f64,
-                    limit: b.limit as f64,
-                }));
-        }
+        frame
+            .budgets
+            .extend(self.stream.budgets().map(|b| BudgetRow {
+                used: b.used as f64,
+                limit: b.limit as f64,
+            }));
         if let Some(aims) = self.home_cable(reference) {
             frame.changes.push(Change::HomeCable(aims));
         }
@@ -378,7 +376,6 @@ impl GarageRuntime {
 
 impl GarageRuntime {
     fn perf_block(&self) -> crate::boundary::PerfBlock {
-        let counters = self.stream.performance_counters();
         let [dynamic_bodies, awake_bodies, ccd_bodies, contact_pairs] =
             self.physics.body_counters();
         crate::boundary::PerfBlock {
@@ -387,11 +384,6 @@ impl GarageRuntime {
             }),
             bodies: self.physics.rapier().bodies.len() as u32,
             colliders: self.physics.collider_count() as u32,
-            roads: counters.roads as u32,
-            terrain: counters.terrain as u32,
-            objects: counters.objects as u32,
-            jobs: counters.jobs as u32,
-            pending: counters.pending as u32,
             storms: self.weather.storms().len() as u32,
             storm_strength: self.weather.influence().strength,
             weather_particles: self.weather.particle_count() as u32,

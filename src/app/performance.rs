@@ -1,7 +1,8 @@
 use super::Drive;
-use crate::browser::{game_performance_counters, game_performance_frame};
+use crate::browser::{game_performance_budget, game_performance_counters, game_performance_frame};
 use crate::presentation::sim_frame::SimFrameResource;
 use bevy::prelude::*;
+use simulation::world::metrics::BUDGET_LABELS;
 
 pub(super) fn publish(
     drive: Res<Drive>,
@@ -19,16 +20,14 @@ pub(super) fn publish(
     ) {
         return;
     }
+    for (index, (budget, (name, unit))) in sim.frame.budgets.iter().zip(BUDGET_LABELS).enumerate() {
+        game_performance_budget(index as u32, name, budget.used, budget.limit, unit);
+    }
     game_performance_counters(
         perf.frame_steps,
         perf.contacts,
         perf.bodies,
         perf.colliders,
-        perf.roads,
-        perf.terrain,
-        perf.objects,
-        perf.jobs,
-        perf.pending,
         perf.storms,
         perf.storm_strength,
         perf.weather_particles,

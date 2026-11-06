@@ -18,16 +18,6 @@ pub struct ResourceBudget {
     pub unit: &'static str,
 }
 
-/// Live counts. Excludes retained simulation and source data.
-#[derive(Default)]
-pub struct WorldPerformance {
-    pub roads: usize,
-    pub terrain: usize,
-    pub objects: usize,
-    pub jobs: usize,
-    pub pending: usize,
-}
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize)]
 pub struct WorldMetrics {
     pub road_checkpoints: usize,

@@ -215,11 +215,6 @@ pub struct PerfBlock {
     pub contacts: u32,
     pub bodies: u32,
     pub colliders: u32,
-    pub roads: u32,
-    pub terrain: u32,
-    pub objects: u32,
-    pub jobs: u32,
-    pub pending: u32,
     pub storms: u32,
     pub storm_strength: f32,
     pub weather_particles: u32,
@@ -230,6 +225,8 @@ pub struct PerfBlock {
     pub ccd_bodies: u32,
     /// Narrow-phase collider pairs with overlapping bounds.
     pub contact_pairs: u32,
+    /// Keeps the block free of padding.
+    pub pad: u32,
 }
 
 impl PerfBlock {
@@ -1046,7 +1043,7 @@ pub struct SimFrame {
     pub spray_colors: Vec<[f32; 4]>,
     /// Browser audio calls. Empty without audio.
     pub audio: Vec<AudioCall>,
-    /// World budgets in `BUDGET_LABELS` order. Empty after the start.
+    /// World counts against their caps, in `BUDGET_LABELS` order.
     pub budgets: Vec<BudgetRow>,
     pub lighting: FrameLighting,
     /// Lights in `LightingRecord::lights` order.
