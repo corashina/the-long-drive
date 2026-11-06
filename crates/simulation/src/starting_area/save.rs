@@ -727,9 +727,8 @@ fn selected_vehicle_position(saved: &SaveSnapshot) -> [f64; 3] {
     saved
         .world
         .changes
-        .get(key)
-        .and_then(|c| c.snapshot.as_ref())
-        .map_or(saved.player.pose.position, |s| s.pose.position)
+        .position(key)
+        .unwrap_or(saved.player.pose.position)
 }
 impl StartingArea {
     pub fn capture_save(

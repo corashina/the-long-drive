@@ -72,7 +72,7 @@ impl GarageRuntime {
         if !self.recovering {
             return Ok(false);
         }
-        let Some(vehicle) = self.vehicle.clone() else {
+        let Some(vehicle) = self.loaded_vehicle().cloned() else {
             self.recovering = false;
             return Ok(false);
         };
