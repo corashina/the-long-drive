@@ -216,6 +216,56 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
     }
 }
 
+/// A seat with another player in it takes nobody else. The host sits in the driver seat. The
+/// guest cannot sit there, and the hint offers no seat. A guest that joins in the host seat gets
+/// out, because the lower slot keeps a seat.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_mp_a_seat_with_another_player_takes_nobody_else() {
+    let (reference, mut host) = load_garage();
+    settle(&mut host, &reference);
+    let mut guest = save_load(&host, &reference);
+    frame(&mut guest, &reference);
+    act(
+        &mut host,
+        &reference,
+        r#"{"action":"seat","seat":"driver"}"#,
+    );
+    let key = host
+        .area
+        .player
+        .seat_vehicle()
+        .cloned()
+        .expect("the host sits");
+    let mut pair = Pair::new();
+    pair.run(&reference, &mut host, &mut guest, 1.);
+    assert!(
+        !guest.area.interaction.in_use.seats.is_empty(),
+        "the guest sees the host seat"
+    );
+    let reply = try_act(
+        &mut guest,
+        &reference,
+        r#"{"action":"seat","seat":"driver"}"#,
+    );
+    assert_eq!(reply["ok"], false, "the guest cannot sit in the host seat");
+    assert!(!guest.area.player.seated());
+    // A guest that starts in the host seat gets out.
+    let mut joined = save_load(&host, &reference);
+    frame(&mut joined, &reference);
+    assert_eq!(
+        joined.area.player.seat_vehicle(),
+        Some(&key),
+        "the save puts it in the seat"
+    );
+    pair.run(&reference, &mut host, &mut joined, 1.);
+    assert!(
+        !joined.area.player.seated(),
+        "the guest gets out of the host seat"
+    );
+    assert!(host.area.player.seated(), "the host keeps it");
+}
+
 /// MP5 (M01). Source `mpplayerscript`. The figure of the other player turns solid 3 s after it
 /// shows, on layer 0, but not while it overlaps the player. The guest steps off the host spot
 /// first. A ray with the player capsule layers
@@ -844,7 +894,7 @@ fn tp_mp2_the_guest_starts_before_the_host_car_spawns() {
         "the car is not spawned yet"
     );
     guest.started = true;
-    guest.paused = false;
+    guest.menu = false;
     let mut out = SimFrame::default();
     for _ in 0..600 {
         frame(&mut guest, &reference);
