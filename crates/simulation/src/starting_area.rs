@@ -2188,7 +2188,7 @@ impl GarageRuntime {
         self.audio_motion_revision = self.audio_motion_revision.wrapping_add(1);
         self.previous_speed = None;
         self.death_protected = true;
-        let position = match &self.vehicle {
+        let position = match self.loaded_vehicle() {
             Some(key) if self.physics.body_active(self.physics.chassis_handle(key)) => self
                 .persistent_world
                 .absolute_vehicle_position(&self.physics, &self.stream.origin, key),
@@ -2198,8 +2198,7 @@ impl GarageRuntime {
                 .absolute(self.area.player.focus_position(&self.physics)),
         };
         let empty = self
-            .vehicle
-            .as_ref()
+            .loaded_vehicle()
             .and_then(|key| self.vehicles[key].fuel_tank)
             .and_then(|tank| self.area.items.get(tank))
             .and_then(|item| item.fluid.as_ref())
@@ -2289,6 +2288,13 @@ impl GarageRuntime {
                 .temperature = Some(part.state.temperature);
         }
     }
+    /// The last seated car when it is loaded. A loaded save names its car before the stream
+    /// spawns it.
+    pub fn loaded_vehicle(&self) -> Option<&ObjectKey> {
+        self.vehicle
+            .as_ref()
+            .filter(|key| self.vehicles.contains_key(*key))
+    }
     /// Asks the stream for the area of the player focus. Returns the local focus.
     fn request_focus(&mut self) -> [f32; 3] {
         // An item seat moves the player with the item body, so the player stays the focus.
@@ -2302,11 +2308,17 @@ impl GarageRuntime {
     }
     /// Asks the stream for the area of `absolute` (the player), the cars that hold an area and the kept bodies.
     pub fn request_world(&mut self, absolute: [f64; 3]) {
-        let car = self.vehicle.as_ref().map_or(absolute, |key| {
-            self.persistent_world
-                .absolute_vehicle_position(&self.physics, &self.stream.origin, key)
-        });
-        let ahead = self.vehicle.as_ref().map_or(car, |key| {
+        let car = match (&self.vehicle, self.loaded_vehicle()) {
+            (_, Some(key)) => self.persistent_world.absolute_vehicle_position(
+                &self.physics,
+                &self.stream.origin,
+                key,
+            ),
+            // The car of a loaded save waits for the stream. Its saved change has its position.
+            (Some(key), None) => self.stream.changes().position(key).unwrap_or(absolute),
+            (None, None) => absolute,
+        };
+        let ahead = self.loaded_vehicle().map_or(car, |key| {
             crate::world::ahead_point(car, self.physics.snapshot(key).linear_velocity)
         });
         self.stream.request_at(absolute, car, ahead);
@@ -2326,8 +2338,7 @@ impl GarageRuntime {
         });
         self.stream.request_cars(cars);
         let last_car = self
-            .vehicle
-            .as_ref()
+            .loaded_vehicle()
             .map(|key| self.physics.chassis_handle(key));
         self.stream
             .request_kept([self.area.player.seat_body(), last_car]);

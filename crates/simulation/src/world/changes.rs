@@ -458,6 +458,10 @@ impl ChangeRecords {
             .get(key.borrow())
             .map(|i| &self.records[i].1)
     }
+    /// The saved absolute position of object `key`. `None`: no change or a removal.
+    pub fn position(&self, key: &ObjectKey) -> Option<[f64; 3]> {
+        Some(self.get(key)?.snapshot.as_ref()?.pose.position)
+    }
     /// The change of a generated object, without a key clone.
     pub fn get_generated(&self, id: &super::GeneratedId) -> Option<&ObjectChange> {
         self.identities
