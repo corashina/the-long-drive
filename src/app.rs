@@ -240,7 +240,6 @@ pub fn run() -> Result<(), JsValue> {
         .add_systems(
             Update,
             (
-                follow_world_session,
                 presentation::readiness::observe_main_readiness.before(check_ready),
                 check_ready,
                 select_world_views,
@@ -329,26 +328,6 @@ fn setup(
         &reference.0,
         *antialiasing,
     );
-}
-
-/// Join replaces the world in the running page. The renderer then loads the new world session
-/// as at the start: the loading screen shows, and the simulation gets `ready` again once it is drawn.
-fn follow_world_session(
-    mut drive: ResMut<Drive>,
-    sim: Res<SimFrameResource>,
-    mut last: Local<u64>,
-) {
-    // Session 0: no world yet.
-    let session = sim.frame.state.session;
-    if session == 0 || session == *last {
-        return;
-    }
-    let first = *last == 0;
-    *last = session;
-    if !first && drive.ready {
-        drive.ready = false;
-        game_loading();
-    }
 }
 
 fn check_ready(

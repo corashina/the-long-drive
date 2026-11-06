@@ -158,9 +158,6 @@ extern "C" {
     #[wasm_bindgen(js_namespace = window, js_name = gameMeasurements)]
     pub fn game_measurements(json: &str);
 
-    /// A new world loads in the running page. `gameReady` follows when it is ready.
-    #[wasm_bindgen(js_namespace = window, js_name = gameLoading)]
-    pub fn game_loading();
     #[wasm_bindgen(js_namespace = window, js_name = gameReady)]
     pub fn game_ready();
     #[wasm_bindgen(js_namespace = window, js_name = gameFailure)]
