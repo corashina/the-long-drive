@@ -4031,6 +4031,12 @@ impl WorldStream {
     pub fn terrain_color(&mut self, point: [f64; 3]) -> [f32; 4] {
         self.terrain_sample(point).1
     }
+    /// The biome at absolute `x`, `z`. It reads only the noise: no roads, no helpers. Use it far from loaded terrain.
+    pub fn biome_at(&self, xz: [f64; 2]) -> u8 {
+        let xz = [xz[0] as f32, -xz[1] as f32];
+        let height = self.evaluator.base_height(xz, true);
+        super::biome(self.evaluator.color(xz, height), self.mode.biome_override())
+    }
     /// Terrain surface height and color at an absolute point. Source Z is the negated world Z.
     pub fn terrain_sample(&mut self, point: [f64; 3]) -> (f32, [f32; 4]) {
         self.refresh_helper_context(window(point, 1000.));

@@ -139,17 +139,14 @@ impl GarageRuntime {
         let local = self.area.player.body_pose(&self.physics).position;
         let player = self.stream.origin.absolute(local);
         self.weather.sheltered = bindings.sheltered(&self.physics, local);
-        // Biome color channels: red desert, blue winter, green grass.
-        let channel = [0, 2, 1][reference.weather.storm.biome as usize];
-        let desert_weight = self.lighting.cycle.output().biome_color[channel];
         let stream = &mut self.stream;
+        self.weather
+            .advance_cells(dt, player, self.net_guest, |xz| stream.biome_at(xz));
         self.weather.advance(
             &reference.weather,
             self.simulation_seconds,
             dt,
             player,
-            desert_weight,
-            self.net_guest,
             |point| stream.terrain_sample(point),
         );
         self.physics.set_wetness(self.weather.mix().wetness);

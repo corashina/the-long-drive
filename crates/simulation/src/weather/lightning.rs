@@ -1,6 +1,6 @@
 //! Thunderstorm lightning. A new feature: the source has no lightning.
 //! A strike flashes the light. Its thunder plays after the sound travel time.
-use super::{StormRandom, WeatherCycle, WeatherKind};
+use super::StormRandom;
 
 /// Seconds between strikes at full thunderstorm weight.
 const WAIT_SECONDS: [f32; 2] = [6., 25.];
@@ -50,11 +50,12 @@ impl Lightning {
     }
 
     /// Decays the flash and moves the thunder delays. `draw` lets this step draw a strike.
+    /// `storm` is the thunderstorm weight at the player, 0 to 1.
     /// Returns the absolute strike position when a strike occurs.
     pub fn advance(
         &mut self,
         dt: f32,
-        cycle: &WeatherCycle,
+        storm: f32,
         player: [f64; 3],
         draw: bool,
     ) -> Option<[f64; 3]> {
@@ -65,11 +66,10 @@ impl Lightning {
         if !draw {
             return None;
         }
-        let weight = storm_weight(cycle);
-        if weight <= 0. {
+        if storm <= 0. {
             return None;
         }
-        self.wait -= dt * weight;
+        self.wait -= dt * storm;
         if self.wait > 0. {
             return None;
         }
@@ -120,12 +120,6 @@ impl Lightning {
     }
 }
 
-/// The thunderstorm share of the blend, 0 to 1.
-fn storm_weight(cycle: &WeatherCycle) -> f32 {
-    let share = |kind: WeatherKind| f32::from(u8::from(kind == WeatherKind::Thunderstorm));
-    share(cycle.current) * (1. - cycle.blend) + share(cycle.next) * cycle.blend
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,13 +127,12 @@ mod tests {
     #[test]
     fn one_strike_gives_one_thunder_at_the_delay() {
         let mut lightning = Lightning::new(1);
-        let cycle = WeatherCycle::new(1);
         lightning.strike([686., 0., 0.], [0.; 3]);
         assert_eq!(lightning.flash(), 1.);
         let dt = 0.01;
         let mut seconds = 0.;
         let thunder = loop {
-            lightning.advance(dt, &cycle, [0.; 3], false);
+            lightning.advance(dt, 0., [0.; 3], false);
             seconds += dt;
             if let Some(thunder) = lightning.pop_thunder() {
                 break thunder;
@@ -149,7 +142,7 @@ mod tests {
         assert!((seconds - 2.).abs() < 0.02);
         assert_eq!(thunder.distance, 686.);
         assert_eq!(lightning.flash(), 0.);
-        lightning.advance(dt, &cycle, [0.; 3], false);
+        lightning.advance(dt, 0., [0.; 3], false);
         assert_eq!(lightning.pop_thunder(), None);
     }
 }

@@ -77,7 +77,7 @@ export function createPerformance(readWasmBytes,readRender,watchRender,readDrawD
    if((root.hidden&&!benched)||now-lastPaint<250)return false;
    lastPaint=now;return true;
   },
-  counters(steps,wheelContacts,bodies,colliders,roads,terrain,objects,jobs,pending,cpuBytes,gpuBytes,storms,stormInfluence,stormParticles,weatherKind,weatherNext,weatherBlend,weatherRain,entities,dynamicBodies,awakeBodies,ccdBodies,contactPairs){
+  counters(steps,wheelContacts,bodies,colliders,roads,terrain,objects,jobs,pending,cpuBytes,gpuBytes,storms,stormInfluence,stormParticles,weatherKind,weatherCells,weatherRain,weatherWetness,entities,dynamicBodies,awakeBodies,ccdBodies,contactPairs){
    const sample=timings.summary(),worker=readWorker();
    bodyCounts={dynamicBodies,awakeBodies,ccdBodies,contactPairs};
    values.textContent=(sample?
@@ -90,7 +90,7 @@ export function createPerformance(readWasmBytes,readRender,watchRender,readDrawD
     '\nBodies dynamic / awake / CCD: '+dynamicBodies+' / '+awakeBodies+' / '+ccdBodies+'\nContact pairs: '+contactPairs+
     '\nRoads / terrain tiles: '+roads+' / '+terrain+'\nActive generated objects: '+objects+'\nECS entities: '+entities+'\nJobs / queued work: '+jobs+' / '+pending+
     '\nStorms / strongest influence / particles: '+storms+' / '+stormInfluence.toFixed(2)+' / '+stormParticles+
-    '\nWeather '+WEATHER[weatherKind]+' '+WEATHER[weatherNext]+' '+weatherBlend.toFixed(2)+' rain '+weatherRain.toFixed(2)+
+    '\nWeather '+WEATHER[weatherKind]+' cells '+weatherCells+' rain '+weatherRain.toFixed(2)+' wet '+weatherWetness.toFixed(2)+
     '\nWASM main / worker: '+mib(readWasmBytes())+' / '+mib(worker?.wasmBytes)+'\nJS heap: '+mib(performance.memory?.usedJSHeapSize)+
     '\nWorld render CPU reserve: '+mib(cpuBytes)+'\nWorld render GPU reserve: '+mib(gpuBytes)+renderLines(readRender());
   },

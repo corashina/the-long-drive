@@ -1,4 +1,4 @@
-//! Source sandstorm and the weather cycle on the fixed step. Presentation reads this state and does not advance it.
+//! Source sandstorm and the weather cells on the fixed step. Presentation reads this state and does not advance it.
 use crate::particles::ParticleState;
 use crate::reference::WeatherReference;
 use crate::save::{StormSnapshot, WeatherSnapshot};
@@ -6,9 +6,11 @@ use crate::vehicle::PhysicsWorld;
 use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{Ball, Collider, ColliderHandle, QueryFilter, RigidBodyHandle};
 
+mod cells;
 mod condition;
 mod lightning;
 mod tumbleweeds;
+pub use cells::{CellSample, LOCK_RADIUS, MAX_CELLS, WeatherCell, WeatherCells};
 pub use condition::*;
 pub use lightning::{Lightning, STRIKE_DISTANCE, Thunder};
 pub use tumbleweeds::{ImportantObject, Tumbleweeds};
@@ -78,8 +80,14 @@ pub struct WeatherState {
     origin: [f64; 3],
     body_capacity: usize,
     pub tumbleweeds: Tumbleweeds,
-    pub cycle: WeatherCycle,
+    pub cells: WeatherCells,
+    /// Cell drift in meters per second along world `x`, `z`.
+    pub drift: [f32; 2],
     pub lightning: Lightning,
+    /// The cell sample at the player.
+    sample: CellSample,
+    /// 0 to 1. Rain raises it, dry weather lowers it.
+    pub wetness: f32,
     mix: WeatherMix,
     /// The player capsule is inside a live interior volume. Set each step.
     pub sheltered: bool,
@@ -94,6 +102,7 @@ impl WeatherState {
             reference.min_interval_seconds,
             reference.max_interval_seconds,
         );
+        let angle = random.range(0., std::f32::consts::TAU);
         Self {
             storms: Vec::new(),
             influence: StormInfluence::default(),
@@ -104,15 +113,71 @@ impl WeatherState {
             origin: [0.; 3],
             body_capacity: 0,
             tumbleweeds: Tumbleweeds::new(seed),
-            cycle: WeatherCycle::new(seed),
+            cells: WeatherCells::new(seed),
+            drift: [angle.cos() * DRIFT_SPEED, angle.sin() * DRIFT_SPEED],
             lightning: Lightning::new(seed),
+            sample: CellSample::default(),
+            wetness: 0.,
             mix: WeatherMix::default(),
             sheltered: false,
             strike: None,
         }
     }
+    /// The cell sample at the player with wetness and flash. Presentation, audio and physics read only this.
     pub fn mix(&self) -> WeatherMix {
         self.mix
+    }
+    /// The kind weights at the player.
+    pub fn sample(&self) -> CellSample {
+        self.sample
+    }
+    /// The kind with the largest weight at the player.
+    pub fn kind(&self) -> WeatherKind {
+        self.sample.dominant()
+    }
+
+    /// `Some` holds the kind at the player. `None` lets the cells change it again.
+    pub fn lock(&mut self, kind: Option<WeatherKind>, player: [f64; 3]) {
+        self.cells.lock(kind, [player[0], player[2]]);
+        self.sample = self.cells.sample([player[0], player[2]]);
+        self.mix = WeatherMix {
+            wetness: self.wetness,
+            flash: self.lightning.flash(),
+            ..self.sample.mix()
+        };
+    }
+
+    /// Advances the cells, the wetness and the lightning. Call it before `advance`.
+    /// A `guest` does not age or spawn cells and does not draw strikes. The host sends them.
+    /// `biome_at` gives the biome at absolute `x`, `z`.
+    pub fn advance_cells(
+        &mut self,
+        dt: f32,
+        player: [f64; 3],
+        guest: bool,
+        biome_at: impl FnOnce([f64; 2]) -> u8,
+    ) {
+        if !dt.is_finite() || dt <= 0. || !player.iter().all(|v| v.is_finite()) {
+            return;
+        }
+        self.cells
+            .advance(dt, self.drift, [player[0], player[2]], guest, biome_at);
+        self.sample = self.cells.sample([player[0], player[2]]);
+        let mix = self.sample.mix();
+        self.wetness = if mix.rain > 0. {
+            (self.wetness + mix.rain * WET_RATE * dt).min(1.)
+        } else {
+            (self.wetness - DRY_RATE * dt).max(0.)
+        };
+        let storm = self.sample.weight(WeatherKind::Thunderstorm);
+        if let Some(position) = self.lightning.advance(dt, storm, player, !guest) {
+            self.strike = Some(position);
+        }
+        self.mix = WeatherMix {
+            wetness: self.wetness,
+            flash: self.lightning.flash(),
+            ..mix
+        };
     }
     pub fn storms(&self) -> &[Storm] {
         &self.storms
@@ -142,7 +207,9 @@ impl WeatherState {
                     direction: storm.direction,
                 })
                 .collect(),
-            cycle: self.cycle.snapshot(),
+            cells: self.cells.iter().copied().collect(),
+            locked: self.cells.locked(),
+            wetness: self.wetness,
         }
     }
 
@@ -156,9 +223,14 @@ impl WeatherState {
         for storm in &saved.storms {
             self.push_storm(reference, storm);
         }
-        self.cycle.restore(&saved.cycle);
-        self.mix = self.cycle.look();
+        self.cells.set(saved.cells.iter().copied(), saved.locked);
+        self.wetness = saved.wetness;
         self.lightning.clear();
+        self.sample = CellSample::default();
+        self.mix = WeatherMix {
+            wetness: self.wetness,
+            ..WeatherMix::default()
+        };
     }
 
     /// Call when bodies enter the world. Wind scans then do not grow target buffers.
@@ -256,19 +328,14 @@ impl WeatherState {
         id
     }
 
-    /// `now` is normal simulation time, with the sleep time scale and no extra cycle time.
+    /// Advances the sandstorms. `now` is normal simulation time, with the sleep time scale and no extra cycle time.
     /// `terrain` gives the terrain height and color at an absolute position.
-    /// `desert_weight` is how much of the player biome is the sandstorm biome, 0 to 1.
-    /// A `guest` does not pick kinds or draw strikes. The host sends them.
-    #[allow(clippy::too_many_arguments)]
     pub fn advance(
         &mut self,
         reference: &WeatherReference,
         now: f64,
         dt: f32,
         player_absolute: [f64; 3],
-        desert_weight: f32,
-        guest: bool,
         mut terrain: impl FnMut([f64; 3]) -> (f32, [f32; 4]),
     ) {
         if !now.is_finite()
@@ -278,14 +345,6 @@ impl WeatherState {
         {
             return;
         }
-        self.mix = self.cycle.advance(dt, desert_weight, guest);
-        if let Some(position) = self
-            .lightning
-            .advance(dt, &self.cycle, player_absolute, !guest)
-        {
-            self.strike = Some(position);
-        }
-        self.mix.flash = self.lightning.flash();
         if self.spawn_due(now, dt) {
             self.last_spawn_time = now;
             self.wait = self.random.range(
@@ -348,9 +407,9 @@ impl WeatherState {
         self.storms.retain(|storm| storm.life > 0.);
     }
 
-    /// Source spawn timer. Rain, thunderstorm and fog hold it: lastTime moves with `now`.
+    /// Source spawn timer. A local sample of mostly rain, thunderstorm or fog holds it: lastTime moves with `now`.
     fn spawn_due(&mut self, now: f64, dt: f32) -> bool {
-        if self.cycle.kind().holds_sandstorm() {
+        if self.kind().holds_sandstorm() {
             self.last_spawn_time += dt as f64;
         }
         now >= self.next_spawn_time()
@@ -509,6 +568,9 @@ fn small_emitter(player: [f64; 3], last: [f64; 3], dt: f32, yoffset: f32) -> [f6
     })
 }
 
+/// Cell drift speed in meters per second.
+const DRIFT_SPEED: f32 = 3.;
+
 /// A separate deterministic stream. The port does not recover Unity's native random sequence.
 #[derive(Debug)]
 pub(crate) struct StormRandom(pub(crate) u64);
@@ -556,15 +618,18 @@ mod tests {
             origin: [0.; 3],
             body_capacity: 0,
             tumbleweeds: Tumbleweeds::new(1),
-            cycle: WeatherCycle::new(1),
+            cells: WeatherCells::new(1),
+            drift: [0.; 2],
             lightning: Lightning::new(1),
+            sample: CellSample::default(),
+            wetness: 0.,
             mix: WeatherMix::default(),
             sheltered: false,
             strike: None,
         };
-        state.cycle.lock(Some(WeatherKind::Rain));
+        state.lock(Some(WeatherKind::Rain), [0.; 3]);
         assert!((1..=1000).all(|t| !state.spawn_due(t as f64, 1.)));
-        state.cycle.lock(Some(WeatherKind::Clear));
+        state.lock(Some(WeatherKind::Clear), [0.; 3]);
         assert!((1001..=1100).any(|t| state.spawn_due(t as f64, 1.)));
     }
 }

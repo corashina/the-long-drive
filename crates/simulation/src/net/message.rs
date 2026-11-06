@@ -173,16 +173,27 @@ pub struct TimeMessage {
     pub cycle_seconds: f64,
 }
 
-/// The host weather cycle. Kinds are `WeatherKind` values.
+/// One host weather cell. `kind` is a `WeatherKind` value.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
-pub struct WeatherMessage {
-    pub current: u32,
-    pub next: u32,
-    pub blend: f32,
+pub struct WeatherCellWire {
+    pub center: [f64; 2],
+    pub radius: f32,
+    pub life: f32,
+    pub age: f32,
+    pub kind: u32,
+}
+
+/// The host weather cells. The first `count` cells are live.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct WeatherCellsMessage {
+    pub cells: [WeatherCellWire; crate::weather::MAX_CELLS],
+    pub drift: [f32; 2],
+    pub count: u32,
     pub wetness: f32,
-    pub remaining: f32,
     pub locked: u32,
+    pub padding: u32,
 }
 
 /// One host lightning strike at an absolute position.
@@ -568,7 +579,7 @@ impl Message for RadioMessage {
 impl Message for TimeMessage {
     const TYPE: u8 = TIME;
 }
-impl Message for WeatherMessage {
+impl Message for WeatherCellsMessage {
     const TYPE: u8 = WEATHER;
 }
 impl Message for StrikeMessage {

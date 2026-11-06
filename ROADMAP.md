@@ -35,8 +35,26 @@ Not planned: VR, stereo 3D, mod events, Steam features.
 ### Weather
 
 Weather types are a new feature, not parity. The source has only the sandstorm. It stays as in the source and spawns only in Clear and Cloudy.
-Spec: Clear, Cloudy, Rain, Thunderstorm, Fog. Each kind holds 8 to 25 game minutes and blends over 90 s.
+Spec: Clear, Cloudy, Rain, Thunderstorm, Fog. Regional weather cells move over the world. The weather at the player is the sum of the cells there.
 Test on the PC after all rows: force each kind with F4, check the look, the rain cost (under 0.3 ms GPU), wet grip and MP sync.
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
+
+### Weather v2
+
+Weather is a place, not a global filter. Spec and plan: `plans/weather-v2` (spec.md, plan.md) in the project files.
+Test on the PC after all rows: the section test pass in plan.md, with a bench compare of Clear, Thunderstorm and Snow on High.
+
+| ID | Task | Size | Remaining work |
+| --- | --- | --- | --- |
+| WX2 | Wind | M | Sim wind drives cell drift, grass, clouds, rain slant, tumbleweeds and a wind loop. |
+| WX3 | Snow | M | Snow kind in the snow biome, flakes, snow cover, snow grip. |
+| WX4 | Wet surfaces | M | Wetness darkens and glosses terrain, roads and props. Puddles on flat ground. |
+| WX5 | Distant weather | M | Rain shafts under far cells. Sky darkens toward the nearest wet cell. |
+| WX6 | Weather temperature | S | Kind offsets on the ambient temperature for survival and the engine. |
+| WX7 | Car cabin shelter | S | A roofed car cabin is a shelter. Rain-on-roof loop. |
+| WX8 | Spray and glass drops | M | Wheel spray on wet roads. Drops on the windshield of the seated car. |
+| WX9 | Lightning v2 | S | Visible bolt at the strike point. Close strikes play a sharp crack. |
+| WX10 | F4 panel v2 | S | Cell map, wind, temperature, spawn a cell at the player. |
+| WX11 | Multiplayer and save v2 | S | Wind and snow cover in the save and the cells message. |
