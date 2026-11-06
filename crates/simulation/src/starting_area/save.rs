@@ -66,6 +66,8 @@ impl GarageRuntime {
                 self.stream.saved_bindings_ready(&self.area.items),
                 self.stream.required_ready(),
             );
+            out += &self.stream.saved_bindings_blocker(&self.area.items);
+            out += "\n";
         }
         out += &format!(
             "aligned={} generation_ready={} ranges grounded={:?} waits={:?} vehicles={:?}",

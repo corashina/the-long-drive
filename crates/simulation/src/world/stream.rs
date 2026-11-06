@@ -602,6 +602,42 @@ impl WorldStream {
                 source_distance_squared(*focus, position) < self.distances.item_spawn_dist.powi(2)
             })
     }
+    /// Why `saved_bindings_ready` is false, for test failures.
+    #[cfg(test)]
+    pub fn saved_bindings_blocker(&self, items: &crate::interaction::items::ItemStore) -> String {
+        let waiting: Vec<_> = self
+            .replay_indices
+            .iter()
+            .filter_map(|&index| {
+                let (key, change) = self.changes.get_indexed(index);
+                if matches!(key, super::ObjectKey::Imported(_)) || change.snapshot.is_none() {
+                    return None;
+                }
+                let resolved = items.resolve_key(key).is_some();
+                let bound = change
+                    .instance
+                    .as_ref()
+                    .map(|id| self.bindings_ready(id));
+                (!resolved || bound != Some(true)).then(|| {
+                    format!(
+                        "{key:?} resolved={resolved} instance={:?} bindings_ready={bound:?} replay={} at {:?}",
+                        change.instance,
+                        change.replay.is_some(),
+                        change.snapshot.as_ref().map(|s| s.pose.position),
+                    )
+                })
+            })
+            .collect();
+        format!(
+            "change_bounds={} revision {} vs {} replay_indices={} replay_roots={} pending_work={} waiting={waiting:#?}",
+            self.change_bounds.is_some(),
+            self.change_revision,
+            self.changes.revision(),
+            self.replay_indices.len(),
+            self.replay_roots.len(),
+            self.pending_work(),
+        )
+    }
     pub fn saved_bindings_ready(&self, items: &crate::interaction::items::ItemStore) -> bool {
         self.required_ready()
             && self.change_bounds.is_some()
