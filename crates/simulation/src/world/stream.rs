@@ -4435,10 +4435,10 @@ impl WorldStream {
                 })
             })
             .or_else(|| {
-                self.wanted_structures.iter().filter(ready).min_by(|a, b| {
-                    focus_distance_squared(request, a.pose.position)
-                        .total_cmp(&focus_distance_squared(request, b.pose.position))
-                })
+                self.wanted_structures
+                    .iter()
+                    .filter(ready)
+                    .min_by(|a, b| load_order(request, a, b))
             })
         else {
             return Ok(());
@@ -5649,6 +5649,24 @@ fn path_point(request: WorldRequest, position: [f64; 3]) -> [f64; 3] {
     [a[0] + path[0] * t, a[1], a[2] + path[1] * t]
 }
 /// Squared source distance from the nearer of the player and the car path.
+/// Port choice: the source spawns a structure in one frame, but the port loads one at a time.
+/// Nearest first starves a large far structure behind small near props. So a structure in a
+/// collision window loads first, because the step waits for it. Then larger projected size
+/// loads first: bounds radius over focus distance.
+fn load_order(request: WorldRequest, a: &Placement, b: &Placement) -> std::cmp::Ordering {
+    let key = |p: &Placement| {
+        let near = [request.player, request.vehicle]
+            .into_iter()
+            .any(|point| intersects(collision_window(point), p.bounds));
+        let b = p.bounds;
+        let radius = ((b.max[0] - b.min[0]).max(b.max[2] - b.min[2]) * 0.5) as f32;
+        let distance = focus_distance_squared(request, p.pose.position).max(1.);
+        (near, radius * radius / distance)
+    };
+    let (a, b) = (key(a), key(b));
+    // Larger first: the larger key orders first.
+    b.0.cmp(&a.0).then(b.1.total_cmp(&a.1))
+}
 fn focus_distance_squared(request: WorldRequest, position: [f64; 3]) -> f32 {
     source_distance_squared(request.player, position).min(source_distance_squared(
         path_point(request, position),

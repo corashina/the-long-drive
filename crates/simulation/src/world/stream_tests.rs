@@ -68,3 +68,54 @@ fn a_request_change_keeps_a_finished_terrain_tile() {
     stream.publish(&mut run.physics, &[]).unwrap();
     assert!(stream.surfaces.iter().any(|s| s.key == key));
 }
+
+/// A bus stop 600 m away looks larger than a 1 m rock 120 m away, so it loads first.
+/// A rock in the collision window of the player loads before both. The step waits for it.
+#[test]
+fn a_large_far_structure_loads_before_a_small_near_prop() {
+    use super::{AbsolutePose, Placement, WorldBounds, WorldLayer, WorldRequest};
+    use crate::reference::SourceId;
+    use crate::world::GeneratedKey;
+    let placement = |z: f64, radius: f64| {
+        let source = SourceId {
+            file: "test".into(),
+            path_id: 0,
+        };
+        Placement {
+            id: GeneratedKey {
+                layer: WorldLayer::Building,
+                generator: source.clone(),
+                unit: [z as i64, 0],
+                ordinal: 0,
+                children: Vec::new(),
+            }
+            .into(),
+            prototype: source,
+            pose: AbsolutePose {
+                position: [0., 0., z],
+                rotation: [0., 0., 0., 1.],
+            },
+            scale: [1.; 3],
+            bounds: WorldBounds {
+                min: [-radius, -radius, z - radius],
+                max: [radius, radius, z + radius],
+            },
+            object_seed: 0,
+        }
+    };
+    let request = WorldRequest {
+        session: 1,
+        revision: 0,
+        player: [0.; 3],
+        vehicle: [0.; 3],
+        ahead: [0.; 3],
+    };
+    let (rock, bus_stop, touched) = (
+        placement(120., 1.),
+        placement(600., 6.6),
+        placement(5., 0.5),
+    );
+    let mut list = [&rock, &bus_stop, &touched];
+    list.sort_by(|a, b| super::load_order(request, a, b));
+    assert_eq!(list.map(|p| p.pose.position[2]), [5., 600., 120.]);
+}

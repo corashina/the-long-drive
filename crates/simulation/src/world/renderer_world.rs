@@ -419,9 +419,9 @@ impl RendererWorld {
             );
         }
     }
-    /// Squared source distance from the nearer of the player and vehicle.
-    pub fn focus_distance_squared(&self, position: [f64; 3]) -> f32 {
-        super::focus_distance_squared(self.request, position)
+    /// Structure load order, first is less. See `load_order`.
+    pub fn load_order(&self, a: &Placement, b: &Placement) -> std::cmp::Ordering {
+        super::load_order(self.request, a, b)
     }
 }
 
