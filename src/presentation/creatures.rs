@@ -41,8 +41,6 @@ pub struct CreatureVisuals {
     rig: Option<Result<Rig, ()>>,
     /// Rabbit id to scene instance.
     instances: HashMap<u32, Instance>,
-    /// World session of `instances`.
-    session: u64,
     /// Converted eye materials by material, mirror and receiver mask.
     eye_materials: Vec<(
         (crate::reference::AssetId, u32),
@@ -89,11 +87,6 @@ pub(crate) fn sync(
     let manifest = &reference.0;
     let r = &manifest.creatures.rabbit;
     let creatures = &mut *creatures;
-    if frame.new_session(&mut creatures.session) {
-        for (_, instance) in creatures.instances.drain() {
-            commands.entity(instance.root).despawn();
-        }
-    }
     // The renderer logs a rig error once and stops the rabbit visuals.
     let rig = creatures.rig.get_or_insert_with(|| {
         Rig::new(&manifest.nodes, r.root, &r.animator)

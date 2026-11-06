@@ -34,8 +34,6 @@ struct SkyInstance {
 pub struct SkyTrafficVisuals {
     /// Plane id to scene instance.
     instances: HashMap<u32, SkyInstance>,
-    /// World session of `instances`.
-    session: u64,
     generation: u64,
 }
 
@@ -61,11 +59,6 @@ pub(crate) fn sync(
     let manifest = &reference.0;
     let planes = &frame.frame.planes;
     let sky = &mut *sky;
-    if frame.new_session(&mut sky.session) {
-        for (_, instance) in sky.instances.drain() {
-            commands.entity(instance.root).despawn();
-        }
-    }
     sky.instances.retain(|id, instance| {
         let keep = planes
             .iter()
