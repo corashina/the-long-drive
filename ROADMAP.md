@@ -40,4 +40,3 @@ Test on the PC after all rows: force each kind with F4, check the look, the rain
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| WT7 | Multiplayer weather sync | S | Host sends the cycle and strikes. Guests do not run the cycle. |

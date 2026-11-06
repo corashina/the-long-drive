@@ -115,13 +115,14 @@ impl WeatherCycle {
     }
 
     /// `desert_weight` is 0 to 1: how much of the player biome is the sandstorm biome.
-    pub fn advance(&mut self, dt: f32, desert_weight: f32) -> WeatherMix {
+    /// A `guest` does not pick kinds. It holds a full blend until the host sends the next kind.
+    pub fn advance(&mut self, dt: f32, desert_weight: f32, guest: bool) -> WeatherMix {
         if !self.locked {
             if self.remaining > 0. {
                 self.remaining = (self.remaining - dt).max(0.);
             } else {
                 self.blend = (self.blend + dt / BLEND_SECONDS).min(1.);
-                if self.blend >= 1. {
+                if self.blend >= 1. && !guest {
                     self.current = self.next;
                     self.blend = 0.;
                     self.remaining = self.random.range(HOLD_SECONDS[0], HOLD_SECONDS[1]);
@@ -229,13 +230,13 @@ mod tests {
         let next = cycle.next;
         let mut seconds = 0.;
         while cycle.current != next {
-            cycle.advance(1., 0.);
+            cycle.advance(1., 0., false);
             seconds += 1.;
             assert!(seconds <= HOLD_SECONDS[1] + BLEND_SECONDS + 1.);
         }
         assert_eq!(cycle.blend, 0.);
         assert_ne!(cycle.next, next);
-        let mix = cycle.advance(0.001, 0.);
+        let mix = cycle.advance(0.001, 0., false);
         assert_eq!(mix.rain, TARGETS[next as usize].rain);
     }
 
@@ -245,7 +246,7 @@ mod tests {
             let mut cycle = WeatherCycle::new(seed);
             let mut kinds = vec![cycle.current];
             while kinds.len() < 11 {
-                cycle.advance(10., 0.3);
+                cycle.advance(10., 0.3, false);
                 if *kinds.last().unwrap() != cycle.current {
                     kinds.push(cycle.current);
                 }

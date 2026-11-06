@@ -83,6 +83,8 @@ pub struct WeatherState {
     mix: WeatherMix,
     /// The player capsule is inside a live interior volume. Set each step.
     pub sheltered: bool,
+    /// The last strike position. The host sends it, then clears it.
+    pub strike: Option<[f64; 3]>,
 }
 
 impl WeatherState {
@@ -106,6 +108,7 @@ impl WeatherState {
             lightning: Lightning::new(seed),
             mix: WeatherMix::default(),
             sheltered: false,
+            strike: None,
         }
     }
     pub fn mix(&self) -> WeatherMix {
@@ -256,6 +259,8 @@ impl WeatherState {
     /// `now` is normal simulation time, with the sleep time scale and no extra cycle time.
     /// `terrain` gives the terrain height and color at an absolute position.
     /// `desert_weight` is how much of the player biome is the sandstorm biome, 0 to 1.
+    /// A `guest` does not pick kinds or draw strikes. The host sends them.
+    #[allow(clippy::too_many_arguments)]
     pub fn advance(
         &mut self,
         reference: &WeatherReference,
@@ -263,6 +268,7 @@ impl WeatherState {
         dt: f32,
         player_absolute: [f64; 3],
         desert_weight: f32,
+        guest: bool,
         mut terrain: impl FnMut([f64; 3]) -> (f32, [f32; 4]),
     ) {
         if !now.is_finite()
@@ -272,9 +278,13 @@ impl WeatherState {
         {
             return;
         }
-        self.mix = self.cycle.advance(dt, desert_weight);
-        self.lightning
-            .advance(dt, &self.cycle, player_absolute, true);
+        self.mix = self.cycle.advance(dt, desert_weight, guest);
+        if let Some(position) = self
+            .lightning
+            .advance(dt, &self.cycle, player_absolute, !guest)
+        {
+            self.strike = Some(position);
+        }
         self.mix.flash = self.lightning.flash();
         if self.spawn_due(now, dt) {
             self.last_spawn_time = now;
@@ -550,6 +560,7 @@ mod tests {
             lightning: Lightning::new(1),
             mix: WeatherMix::default(),
             sheltered: false,
+            strike: None,
         };
         state.cycle.lock(Some(WeatherKind::Rain));
         assert!((1..=1000).all(|t| !state.spawn_due(t as f64, 1.)));

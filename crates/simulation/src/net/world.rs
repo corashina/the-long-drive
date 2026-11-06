@@ -1,13 +1,15 @@
-//! World messages: the host clock (`SendTime`), the radio stations (`SRadioChannel`), body sounds (`SSound`)
-//! and radio controls (`SRadio`).
+//! World messages: the host clock (`SendTime`), the radio stations (`SRadioChannel`), body sounds (`SSound`),
+//! radio controls (`SRadio`), and the port weather cycle and lightning strikes.
 use super::NetRole;
 use super::message::{
     self, HEADER, Message, RADIO_CHANNEL, RadioChannelMessage, RadioMessage, SoundMessage,
-    TimeMessage,
+    StrikeMessage, TimeMessage, WeatherMessage,
 };
 use super::objects::{NetKey, ObjectIndex};
 use crate::audio::{AudioAction, AudioKind, SurvivalAudioEvent};
+use crate::save::WeatherCycleSnapshot;
 use crate::starting_area::GarageRuntime;
+use crate::weather::{WeatherCycle, WeatherKind};
 
 /// The wait of source `multiSyncTime` between clock sends.
 pub const TIME_SYNC: f32 = 10.;
@@ -51,8 +53,12 @@ impl WorldSync {
             }
         }
         runtime.shared_radios.clear();
+        let strike = runtime.weather.strike.take();
         if role != NetRole::Host {
             return;
+        }
+        if let Some(position) = strike {
+            message::push(slot, &StrikeMessage { position }, out);
         }
         let joined = std::mem::take(&mut self.joined);
         self.time_timer += dt;
@@ -62,6 +68,7 @@ impl WorldSync {
                 cycle_seconds: runtime.lighting.cycle.cycle_seconds(),
             };
             message::push(slot, &time, out);
+            message::push(slot, &weather_message(&runtime.weather.cycle), out);
         }
         if let Some(audio) = &mut runtime.audio
             && (audio.broadcasts.take_changed() || joined)
@@ -80,6 +87,16 @@ impl WorldSync {
         if let Ok((slot, time)) = TimeMessage::decode(packet) {
             if from_host(slot) && time.cycle_seconds.is_finite() {
                 runtime.lighting.cycle.set_cycle_seconds(time.cycle_seconds);
+            }
+        } else if let Ok((slot, m)) = WeatherMessage::decode(packet) {
+            if from_host(slot) {
+                apply_weather(&mut runtime.weather.cycle, &m);
+            }
+        } else if let Ok((slot, m)) = StrikeMessage::decode(packet) {
+            if from_host(slot) && m.position.iter().all(|v| v.is_finite()) {
+                let local = runtime.area.player.body_pose(&runtime.physics).position;
+                let player = runtime.stream.origin.absolute(local);
+                runtime.weather.lightning.strike(m.position, player);
             }
         } else if packet.first() == Some(&RADIO_CHANNEL) {
             if let Ok((slot, channels)) = RadioChannelMessage::decode(packet)
@@ -104,6 +121,40 @@ impl WorldSync {
             play(runtime, slot, &sound);
         }
     }
+}
+
+fn weather_message(cycle: &WeatherCycle) -> WeatherMessage {
+    WeatherMessage {
+        current: cycle.current as u32,
+        next: cycle.next as u32,
+        blend: cycle.blend,
+        wetness: cycle.wetness,
+        remaining: cycle.remaining,
+        locked: cycle.locked.into(),
+    }
+}
+
+/// Sets the guest cycle to the host values. Drops a message with a bad kind or value.
+fn apply_weather(cycle: &mut WeatherCycle, m: &WeatherMessage) {
+    let kind = |k: u32| WeatherKind::ALL.get(k as usize).copied();
+    let (Some(current), Some(next)) = (kind(m.current), kind(m.next)) else {
+        return;
+    };
+    if !(0. ..=1.).contains(&m.blend)
+        || !(0. ..=1.).contains(&m.wetness)
+        || !(m.remaining.is_finite() && m.remaining >= 0.)
+        || m.locked > 1
+    {
+        return;
+    }
+    cycle.restore(&WeatherCycleSnapshot {
+        current,
+        next,
+        blend: m.blend,
+        remaining: m.remaining,
+        wetness: m.wetness,
+    });
+    cycle.locked = m.locked != 0;
 }
 
 /// Source `soundMainScript.PlaySound`: a one-shot at the sender position.
@@ -150,4 +201,34 @@ fn play(runtime: &mut GarageRuntime, slot: u8, sound: &SoundMessage) {
         pitch: sound.pitch,
         position: sound.position,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guest_applies_the_host_weather() {
+        let mut host = WeatherCycle::new(1);
+        host.lock(Some(WeatherKind::Thunderstorm));
+        host.advance(5., 0., false);
+        let mut out = Vec::new();
+        weather_message(&host).encode(0, &mut out);
+        let (slot, m) = WeatherMessage::decode(&out).unwrap();
+        assert_eq!((slot, m), (0, weather_message(&host)));
+        let mut guest = WeatherCycle::new(2);
+        apply_weather(&mut guest, &WeatherMessage { current: 9, ..m });
+        apply_weather(
+            &mut guest,
+            &WeatherMessage {
+                blend: f32::NAN,
+                ..m
+            },
+        );
+        assert_eq!(guest.kind(), WeatherKind::Clear);
+        apply_weather(&mut guest, &m);
+        assert_eq!(guest.kind(), WeatherKind::Thunderstorm);
+        assert_eq!(guest.look(), host.look());
+        assert!(guest.locked);
+    }
 }

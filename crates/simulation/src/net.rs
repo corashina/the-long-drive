@@ -187,6 +187,7 @@ impl Net {
             runtime.shared_breaks.clear();
             runtime.area.interaction.push.pushes.clear();
             runtime.shared_radios.clear();
+            runtime.weather.strike = None;
             self.cars.end(runtime);
             self.inventory.clear(runtime);
             return;
@@ -369,9 +370,12 @@ impl Net {
                 | message::CAR_IGNITION => {
                     self.cars.receive(reference, runtime, self.clock, packet)
                 }
-                message::TIME | message::RADIO_CHANNEL | message::RADIO | message::SOUND => {
-                    WorldSync::receive(self.role, packet, index, runtime)
-                }
+                message::TIME
+                | message::RADIO_CHANNEL
+                | message::RADIO
+                | message::SOUND
+                | message::WEATHER
+                | message::STRIKE => WorldSync::receive(self.role, packet, index, runtime),
                 message::CREATURE if self.role == NetRole::Guest => {
                     creatures::receive(reference, packet, runtime)
                 }
