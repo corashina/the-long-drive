@@ -112,7 +112,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   try{save=await gzip(new TextEncoder().encode(await capture()));}catch{return refuse('save');}
   if(!guests.has(g.id))return;
   const chunks=Math.ceil(save.length/CHUNK);
-  g.reliable.send({t:'welcome',slot:free,chunks,looks:[...looks]});
+  g.reliable.send({t:'welcome',slot:free,max,chunks,looks:[...looks]});
   for(let i=0;i<chunks;i++)g.reliable.send({t:'save',i,data:save.subarray(i*CHUNK,(i+1)*CHUNK)});
   g.welcomed=true;
   if(mic)relay(g,0,mic);
@@ -203,7 +203,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   host.seen=now();
   if(m.t==='refuse')return stop(STATUS[m.reason]??STATUS.connect);
   if(m.t==='welcome'){
-   slot=m.slot;host.welcomed=true;host.chunks=Array(m.chunks);host.received=0;
+   slot=m.slot;max=m.max;host.welcomed=true;host.chunks=Array(m.chunks);host.received=0;
    for(const [s,look] of m.looks)looks.set(s,look);
    looks.set(slot,{name:me.name,outfit:me.outfit});emit('looks',new Map(looks));
    host.pose=peer.connect(host.reliable.peer,{label:'pose',reliable:false,serialization:'raw'});
@@ -236,6 +236,8 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   get slot(){return slot;},
   // The code of the open or joined room, or ''.
   get code(){return room;},
+  // The player limit of the room.
+  get max(){return max;},
   // Opens a room. Resolves with the room code.
   host({maxPlayers=MAX_PLAYERS,password:pass='',name,outfit}){
    stop();
