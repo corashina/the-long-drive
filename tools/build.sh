@@ -6,14 +6,13 @@ set -eu
 wasm="$CARGO_TARGET_DIR/wasm32-unknown-unknown/$PROFILE"
 
 cargo build --locked --profile "$PROFILE" --target wasm32-unknown-unknown --lib \
-    -p the-long-slop -p simulation-worker -p terrain-worker
-for crate in road-worker grass-worker; do
-    cargo rustc --locked --profile "$PROFILE" --target wasm32-unknown-unknown --lib -p "$crate" \
-        -- -C link-arg=--initial-memory=2097152
-done
+    -p the-long-slop -p simulation-worker
+# Road and grass admit a 2 MiB WASM memory first, so the mesh worker starts at that size.
+cargo rustc --locked --profile "$PROFILE" --target wasm32-unknown-unknown --lib -p mesh-worker \
+    -- -C link-arg=--initial-memory=2097152
 
 mkdir -p web/pkg
-for module in the_long_slop simulation_worker terrain_worker road_worker grass_worker; do
+for module in the_long_slop simulation_worker mesh_worker; do
     wasm-bindgen --target web --out-dir web/pkg --out-name "$module" "$wasm/$module.wasm"
 done
 

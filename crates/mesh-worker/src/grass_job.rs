@@ -1,8 +1,7 @@
-//! Grass worker entry. Immutable input and planned output belong to this WASM instance.
+//! Grass jobs. Immutable input and planned output belong to this WASM instance.
 use grass_mesh::{GrassDomain, GrassExpansion, GrassMeshData, GrassPatch, GrassSettings};
 use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 use wasm_bindgen::prelude::*;
-use wasm_heap as _;
 
 struct Dataset {
     patches: Arc<[GrassPatch]>,
@@ -24,7 +23,7 @@ fn error(message: String) -> JsError {
 }
 
 #[wasm_bindgen]
-pub fn install(owner: u64, input: &[u8]) -> Result<(), JsError> {
+pub fn grass_install(owner: u64, input: &[u8]) -> Result<(), JsError> {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
         if state.datasets.contains_key(&owner) {
@@ -74,7 +73,7 @@ impl GrassAllocation {
     }
 }
 #[wasm_bindgen]
-pub fn plan(owner: u64, input: &[u8]) -> Result<GrassAllocation, JsError> {
+pub fn grass_plan(owner: u64, input: &[u8]) -> Result<GrassAllocation, JsError> {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
         if state.task.is_some() {
@@ -127,7 +126,7 @@ impl GrassSurface {
 }
 /// Calling evaluate acknowledges main-thread admission of this worker's current plan.
 #[wasm_bindgen]
-pub fn evaluate() -> Result<GrassSurface, JsError> {
+pub fn grass_evaluate() -> Result<GrassSurface, JsError> {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
         state.owner = None;
@@ -143,7 +142,7 @@ pub fn evaluate() -> Result<GrassSurface, JsError> {
 }
 
 #[wasm_bindgen]
-pub fn discard() {
+pub fn grass_discard() {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
         state.task = None;
@@ -151,7 +150,7 @@ pub fn discard() {
     });
 }
 #[wasm_bindgen]
-pub fn retire(owner: u64) -> Result<(), JsError> {
+pub fn grass_retire(owner: u64) -> Result<(), JsError> {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
         if state.owner == Some(owner) {

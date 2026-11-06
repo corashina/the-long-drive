@@ -1,14 +1,13 @@
-//! Road worker entry. Source data belongs to this WASM instance.
+//! Road jobs. Source data belongs to this WASM instance.
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
-use wasm_heap as _;
 
 thread_local! {
     static PROTOTYPES: RefCell<[Option<road_mesh::RoadPrototype>; 3]> = const { RefCell::new([None, None, None]) };
 }
 
 #[wasm_bindgen]
-pub fn install(owner: u32, input: &[u8]) -> Result<(), JsError> {
+pub fn road_install(owner: u32, input: &[u8]) -> Result<(), JsError> {
     if owner >= 3 {
         return Err(JsError::new("Invalid road source owner"));
     }
@@ -26,7 +25,7 @@ pub struct RoadSurface(road_mesh::RoadMesh, f64, f64);
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(js_name = roadCpuNow)]
+    #[wasm_bindgen(js_name = meshCpuNow)]
     fn cpu_now() -> f64;
 }
 
@@ -70,7 +69,7 @@ impl RoadSurface {
 }
 
 #[wasm_bindgen]
-pub fn evaluate(owner: u32, input: &[u8], profile: bool) -> Result<RoadSurface, JsError> {
+pub fn road_evaluate(owner: u32, input: &[u8], profile: bool) -> Result<RoadSurface, JsError> {
     let started = if profile { cpu_now() } else { 0.0 };
     let pose = road_mesh::decode_pose(input).map_err(|error| JsError::new(&error))?;
     let decoded = if profile { cpu_now() } else { 0.0 };
