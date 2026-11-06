@@ -387,7 +387,7 @@ impl GarageRuntime {
         crate::boundary::PerfBlock {
             render_cpu_bytes: counters.render_cpu_bytes as f64,
             render_gpu_bytes: counters.render_gpu_bytes as f64,
-            contacts: self.vehicle.as_ref().map_or(0, |key| {
+            contacts: self.loaded_vehicle().map_or(0, |key| {
                 self.physics.wheel_contacts(key).filter(|v| *v).count() as u32
             }),
             bodies: self.physics.rapier().bodies.len() as u32,
@@ -474,7 +474,7 @@ impl GarageRuntime {
     }
     pub fn measurements(&self, reference: &ReferenceManifest) -> serde_json::Value {
         let frame = self.stream.frame();
-        let car = self.vehicle.as_ref().map(|key| {
+        let car = self.loaded_vehicle().map(|key| {
             let snapshot = self.physics.snapshot(key);
             serde_json::json!({
                 "position": snapshot.pose.position, "rotation": snapshot.pose.rotation,
