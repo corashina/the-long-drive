@@ -186,6 +186,7 @@ Body poses contain translation and rotation. `parent_body` identifies moving par
 Node extras contain the resolved source ID in `reference_id`.
 Bind this ID to the manifest's numeric node ID once during loading.
 Asset records include hashes for each referenced buffer and texture.
+Primary textures are source BC blocks (`.bc`) or decoded RGBA8 levels (`.rgba`). The game decodes no image.
 Lighting records include separate hashes for shader records, native bytes, sprites, textures, and SMIP chains.
 The runtime verifier checks these files before promotion.
 Runtime lighting shader evidence retains accepted typed JSON and native program bytes.

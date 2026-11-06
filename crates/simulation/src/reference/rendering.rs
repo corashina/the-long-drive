@@ -258,8 +258,11 @@ pub struct TextureRecord<S = TextureStorage> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TextureStorage {
-    PngChain {
-        mips: Vec<TextureMip>,
+    /// Decoded RGBA8 levels in ascending mip order. The game uploads them without a decode.
+    Rgba8 {
+        width: u32,
+        height: u32,
+        input: super::FileReceipt,
     },
     NativeBc {
         format: NativeBcFormat,
@@ -290,13 +293,16 @@ impl NativeBcFormat {
 impl TextureRecord {
     pub fn file(&self) -> &str {
         match &self.storage {
-            TextureStorage::PngChain { mips } => mips.first().map_or("", |m| m.file.as_str()),
-            TextureStorage::NativeBc { input, .. } => &input.file,
+            TextureStorage::Rgba8 { input, .. } | TextureStorage::NativeBc { input, .. } => {
+                &input.file
+            }
         }
     }
     pub fn payload_bytes(&self) -> Result<usize, ReferenceError> {
         match &self.storage {
-            TextureStorage::PngChain { mips } => super::fixed_reservation::png_pixels(mips),
+            TextureStorage::Rgba8 { width, height, .. } => {
+                super::fixed_reservation::rgba_payload(*width, *height, self.sampler.mip_count)
+            }
             TextureStorage::NativeBc {
                 format,
                 width,
@@ -311,11 +317,7 @@ impl TextureRecord {
             + self.slot.capacity()
             + self.source.file.capacity()
             + match &self.storage {
-                TextureStorage::PngChain { mips } => {
-                    mips.capacity() * std::mem::size_of::<TextureMip>()
-                        + mips.iter().map(|m| m.file.capacity()).sum::<usize>()
-                }
-                TextureStorage::NativeBc { input, .. } => {
+                TextureStorage::Rgba8 { input, .. } | TextureStorage::NativeBc { input, .. } => {
                     input.file.capacity() + input.sha256.capacity()
                 }
             }
@@ -331,13 +333,6 @@ pub struct SamplerRecord {
     pub aniso: u8,
     pub mip_bias: f32,
     pub mip_count: u32,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TextureMip {
-    pub file: String,
-    pub width: u32,
-    pub height: u32,
 }
 
 pub(super) fn safe_path(path: &str) -> bool {
@@ -723,18 +718,21 @@ impl RenderingRecord {
                     &field,
                 )?;
                 let normal = matches!(texture.slot.as_str(), "_BumpMap" | "_DetailNormalMap");
-                // A decoded normal PNG holds RGB. Standard native BC normals keep the source AG channels.
+                // A decoded RGBA8 normal holds RGB. Native BC normals keep the source DXT5nm channels.
                 let native = matches!(texture.storage, TextureStorage::NativeBc { .. });
+                let native_normal = match material.shader_family {
+                    ShaderFamily::Standard => TextureEncoding::Ag,
+                    ShaderFamily::PlayerModel => TextureEncoding::Rag,
+                    _ => TextureEncoding::Rgb,
+                };
                 require(
                     texture.encoding
                         == match (normal, native) {
                             (false, _) => TextureEncoding::Rgba,
                             (true, false) => TextureEncoding::Rgb,
-                            (true, true) => TextureEncoding::Ag,
+                            (true, true) => native_normal,
                         }
-                        && (!normal || texture.color_space == TextureColorSpace::Linear)
-                        && (!(normal && native)
-                            || material.shader_family == ShaderFamily::Standard),
+                        && (!normal || texture.color_space == TextureColorSpace::Linear),
                     &field,
                 )?;
                 let sampler = &texture.sampler;
@@ -748,33 +746,15 @@ impl RenderingRecord {
                     &field,
                 )?;
                 match &texture.storage {
-                    TextureStorage::PngChain { mips } => {
-                        require(mips.len() == sampler.mip_count as usize, &field)?;
-                        let mut dimensions: Option<(u32, u32)> = None;
-                        let mut paths = HashSet::new();
-                        for mip in mips {
-                            require(
-                                safe_path(&mip.file)
-                                    && paths.insert(&mip.file)
-                                    && mip.width > 0
-                                    && mip.height > 0
-                                    && asset.dependencies.iter().any(|dependency| {
-                                        dependency.file == mip.file
-                                            && dependency.image_size
-                                                == Some([mip.width, mip.height])
-                                    }),
-                                &field,
-                            )?;
-                            if let Some((width, height)) = dimensions {
-                                require(
-                                    (width > 1 || height > 1)
-                                        && mip.width == (width / 2).max(1)
-                                        && mip.height == (height / 2).max(1),
-                                    &field,
-                                )?;
-                            }
-                            dimensions = Some((mip.width, mip.height));
-                        }
+                    TextureStorage::Rgba8 { input, .. } => {
+                        super::fixed_reservation::validate_rgba(texture)?;
+                        require(
+                            asset
+                                .dependencies
+                                .iter()
+                                .any(|dependency| dependency == input),
+                            &field,
+                        )?;
                     }
                     TextureStorage::NativeBc { input, .. } => {
                         super::fixed_reservation::validate_native_bc(texture)?;

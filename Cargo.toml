@@ -26,13 +26,13 @@ async-lock = "=3.4.2"
 bytemuck = "=1.25.2"
 js-sys = "=0.3.106"
 wgpu = { version = "=29.0.4", default-features = false, features = ["serde"] }
-# `png` decodes primary texture PNG chains (primary_image.rs). `reflect_auto_register` fills the
-# type registry that glTF scene spawning (`WorldAssetRoot`) needs. Without it the WASM is not smaller.
+# `reflect_auto_register` fills the type registry that glTF scene spawning (`WorldAssetRoot`) needs.
+# Without it the WASM is not smaller.
 bevy = { version = "=0.19.1", default-features = false, features = [
     "std", "async_executor", "bevy_asset", "bevy_log", "bevy_window",
     "bevy_winit", "bevy_render", "bevy_core_pipeline", "bevy_pbr",
     "bevy_light", "bevy_mesh", "bevy_camera", "bevy_color",
-    "keyboard", "mouse", "bevy_gltf", "png", "reflect_auto_register", "webgpu",
+    "keyboard", "mouse", "bevy_gltf", "reflect_auto_register", "webgpu",
 ] }
 # Bevy `info!` goes through tracing. Release builds drop info, debug and trace at compile time (V6).
 # The simulation crate sets the same feature on `log`, which wgpu uses.

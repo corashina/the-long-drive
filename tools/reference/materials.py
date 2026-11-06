@@ -218,7 +218,7 @@ def recover_material(source, reader, color_override=None, condition=None, textur
         if settings['m_FilterMode'] not in (0, 1, 2) or settings['m_WrapU'] not in (0, 1, 2, 3) or settings['m_WrapV'] not in (0, 1, 2, 3):
             raise ValueError(f'{source_id(reader)} {slot}: unsupported sampler')
         suffix = f'-normal-{encoding}' if encoding else ''
-        name = f'texture-{texture_reader.assets_file.name}-{texture_reader.path_id}-{color_space}{suffix}.png'
+        name = f'texture-{texture_reader.assets_file.name}-{texture_reader.path_id}-{color_space}{suffix}.rgba'
         width, height = texture['m_Width'], texture['m_Height']
         if family == 'player_model':
             main, bump = PLAYER_TEXTURES[reader.path_id]
@@ -228,8 +228,7 @@ def recover_material(source, reader, color_override=None, condition=None, textur
             if (not 0 <= settings['m_Aniso'] <= 16 or not math.isfinite(settings['m_MipBias'])
                     or min(width, height) <= 0 or not 0 < texture['m_MipCount'] <= max(width, height).bit_length()):
                 raise ValueError(f'{source_id(reader)} {slot}: player texture sampler or mips')
-        mips = [{'file': f'reference/{name}' if level == 0 else f'reference/{name[:-4]}-mip-{level}.png',
-                 'width': max(1, width >> level), 'height': max(1, height >> level)}
+        mips = [{'width': max(1, width >> level), 'height': max(1, height >> level)}
                 for level in range(texture['m_MipCount'])]
         textures.append({'slot': slot, 'source': source_id(texture_reader), 'file': f'reference/{name}',
             'color_space': color_space, 'encoding': 'rgb' if encoding else 'rgba',
@@ -292,6 +291,26 @@ def source_mip_images(texture):
         offset += size
 
 
+def rgba_levels(texture, entry):
+    """Decoded RGBA8 levels in ascending mip order. The game uploads them without a decode."""
+    payload = bytearray()
+    for level, image in enumerate(source_mip_images(texture)):
+        if image.size != (max(1, texture.m_Width >> level), max(1, texture.m_Height >> level)):
+            raise ValueError(f'{source_id(texture.object_reader)} source mip {level}: wrong extent')
+        if entry['slot'] in NORMAL_SLOTS:
+            image = decode_normal_image(image, entry['source_encoding'])
+        payload += image.convert('RGBA').transpose(Image.Transpose.FLIP_TOP_BOTTOM).tobytes()
+    return bytes(payload)
+
+
+def rgba_storage(texture, file, entry):
+    import hashlib
+    payload = rgba_levels(texture, entry)
+    return {'kind': 'rgba8', 'width': texture.m_Width, 'height': texture.m_Height,
+            'input': {'file': file, 'bytes': len(payload), 'sha256': hashlib.sha256(payload).hexdigest(),
+                      'image_size': None}}
+
+
 def export_material_textures(source, owner, record, output):
     environments = dict(source.read(owner)['m_SavedProperties'].get('m_TexEnvs', []))
     dependencies = {}
@@ -304,12 +323,9 @@ def export_material_textures(source, owner, record, output):
         identity = str((output / paths[0].removeprefix('reference/')).resolve())
         if identity not in cache:
             texture = source.texture_object(reader)
-            if entry['storage']['kind'] == 'native_bc':
-                (output / paths[0].removeprefix('reference/')).write_bytes(b''.join(source_blocks(texture)))
-            else:
-                for mip, image in zip(entry['storage']['mips'], source_mip_images(texture), strict=True):
-                    pixels = decode_normal_image(image, entry['source_encoding']) if entry['slot'] in NORMAL_SLOTS else image.convert('RGBA')
-                    pixels.transpose(Image.Transpose.FLIP_TOP_BOTTOM).save(output / mip['file'].removeprefix('reference/'))
+            payload = (b''.join(source_blocks(texture)) if entry['storage']['kind'] == 'native_bc'
+                       else rgba_levels(texture, entry))
+            (output / paths[0].removeprefix('reference/')).write_bytes(payload)
             cache.add(identity)
         from .runtime_package import file_receipt
         from .native_bc import validate_storage

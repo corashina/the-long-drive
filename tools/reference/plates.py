@@ -3,7 +3,7 @@ import hashlib
 import json
 from .source import key, source_id
 from .gltf import converted_transform
-from .materials import shader_defaults, export_material_textures
+from .materials import shader_defaults, export_material_textures, rgba_storage
 
 def _resource(reader, output, suffix, payload):
     name=f'plate-{reader.assets_file.name}-{reader.path_id}.{suffix}'
@@ -51,26 +51,25 @@ def _material(source, reader, output):
         if not tr:continue
         td=source.read(tr);settings=td['m_TextureSettings']
         if slot=='_BumpMap' and (td['m_TextureFormat']!=29 or sd['platforms']!=[4]):raise ValueError(f'{key(tr)} required TMP D3D11 DXT5nm packing')
-        name=f'plate-{tr.assets_file.name}-{tr.path_id}.png'
-        mips=[{'file':f'reference/{name}' if level==0 else f'reference/{name[:-4]}-mip-{level}.png',
-            'width':max(1,td['m_Width']>>level),'height':max(1,td['m_Height']>>level)} for level in range(td['m_MipCount'])]
-        textures.append({'slot':slot,'source':source_id(tr),
+        entry={'slot':slot,'source':source_id(tr),
             'color_space':'linear' if slot in ('_MainTex','_BumpMap') else 'srgb','encoding':'rgb' if slot=='_BumpMap' else 'rgba',
             'source_encoding':'ag' if slot=='_BumpMap' else 'rgba','uv_channel':0,
             'scale':[env['m_Scale'][k] for k in ('x','y')],'offset':[env['m_Offset'][k] for k in ('x','y')],
             'sampler':{'filter':settings['m_FilterMode'],'wrap_u':settings['m_WrapU'],'wrap_v':settings['m_WrapV'],
-                'aniso':settings['m_Aniso'],'mip_bias':settings['m_MipBias'],'mip_count':td['m_MipCount']},'storage':{'kind':'png_chain','mips':mips}})
+                'aniso':settings['m_Aniso'],'mip_bias':settings['m_MipBias'],'mip_count':td['m_MipCount']}}
+        entry['storage']=rgba_storage(source.texture_object(tr),f'reference/plate-{tr.assets_file.name}-{tr.path_id}.rgba',entry)
+        textures.append(entry)
     passes=sd['m_ParsedForm']['m_SubShaders'][0]['m_Passes'];state=passes[0]['m_State']
     def value(field):return floats.get(field['name'],field['val'])
     material_state={'alpha_mode':'blend','cull':int(value(state['culling'])),'z_write':bool(value(state['zWrite'])),
         'z_test':int(value(state['zTest'])),'src_blend':int(value(state['rtBlend0']['srcBlend'])),
         'dst_blend':int(value(state['rtBlend0']['destBlend'])),'render_queue':data['m_CustomRenderQueue']}
     # Use the existing checked image and mip export independently of Standard material conversion.
-    dependencies=export_material_textures(source,reader,{'source':source_id(reader),'properties':{'textures':textures}},output)
+    export_material_textures(source,reader,{'source':source_id(reader),'properties':{'textures':textures}},output)
     suffix,payload=source.shader_resource(shader)
     shader_data=_resource(shader,output,suffix,payload);compiled=_resource(shader,output,'shader.bin',source.raw_data(shader))
-    receipts=[{'source':t['source'],'path':m['file'],'sha256':next(d['sha256'] for d in dependencies if d['file']==m['file'])}
-        for t in textures for m in t['storage']['mips']]
+    receipts=[{'source':t['source'],'path':t['storage']['input']['file'],'sha256':t['storage']['input']['sha256']}
+        for t in textures]
     unique={r['path']:r for r in receipts}
     return {'source':source_id(reader),'shader':shader_data,'compiled_shader':compiled,'shader_name':shader_name,
         'keywords':data['m_ValidKeywords'],'disabled_passes':data['disabledShaderPasses'],'state':material_state,

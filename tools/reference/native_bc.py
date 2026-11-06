@@ -1,4 +1,5 @@
 """Source BC primary storage and checked private-package conversion."""
+import copy
 import hashlib
 
 
@@ -12,17 +13,20 @@ def mip_sizes(width, height, count, block):
 NORMAL_SLOTS = {'_BumpMap', '_DetailNormalMap'}
 
 
+NATIVE_NORMALS = {('standard', 'ag'), ('player_model', 'rag')}
+
+
 def stored_encoding(entry, family):
-    """Encoding of native blocks: color as stored, or a Standard DXT5nm normal in AG."""
+    """Encoding of native blocks: color as stored, or a DXT5nm normal."""
     if entry['slot'] not in NORMAL_SLOTS:
         return 'rgba' if entry['source_encoding'] == 'rgba' else None
-    # Standard samples x = r * a and y = g, as Unity UnpackNormal does.
-    return 'ag' if family == 'standard' and entry['source_encoding'] == 'ag' else None
+    # The surface shader samples x = r * a and y = g, as Unity UnpackNormal does.
+    return entry['source_encoding'] if (family, entry['source_encoding']) in NATIVE_NORMALS else None
 
 
 def eligible(entry, data, family):
     encoding = stored_encoding(entry, family)
-    formats = (12, 29) if encoding == 'ag' else (10, 12, 28, 29)
+    formats = (12, 29) if encoding in ('ag', 'rag') else (10, 12, 28, 29)
     width, height = data['m_Width'], data['m_Height']
     return (encoding is not None and data['m_TextureFormat'] in formats
             and data['m_ImageCount'] == 1 and data['m_TextureDimension'] == 2
@@ -55,7 +59,15 @@ def storage(source, reader, entry, family):
     Native storage sets the entry encoding to the stored channels."""
     data = source.read(reader)
     if not eligible(entry, data, family):
-        return {'kind': 'png_chain', 'mips': entry['mips']}
+        from .materials import rgba_storage
+        if [(m['width'], m['height']) for m in entry['mips']] != [
+                (max(1, data['m_Width'] >> i), max(1, data['m_Height'] >> i)) for i in range(data['m_MipCount'])]:
+            raise ValueError('Primary metadata differs from source')
+        # Materials share textures. Decode each stored file once here.
+        cache = source.__dict__.setdefault('rgba_storage_cache', {})
+        if entry['file'] not in cache:
+            cache[entry['file']] = rgba_storage(source.texture_object(reader), entry['file'], entry)
+        return copy.deepcopy(cache[entry['file']])
     settings = data['m_TextureSettings']
     expected_sampler = dict(filter=settings['m_FilterMode'], wrap_u=settings['m_WrapU'], wrap_v=settings['m_WrapV'],
         aniso=settings['m_Aniso'], mip_bias=settings['m_MipBias'], mip_count=data['m_MipCount'])
@@ -76,33 +88,34 @@ def storage(source, reader, entry, family):
 
 def texture_inputs(entry):
     value = entry['storage']
-    if value['kind'] == 'png_chain':
-        return [m['file'] for m in value['mips']]
-    if value['kind'] == 'native_bc':
+    if value['kind'] in ('rgba8', 'native_bc'):
         return [value['input']['file']]
     raise ValueError('Unknown primary storage')
 
 
+def rgba_bytes(width, height, count):
+    if min(width, height) <= 0 or not 0 < count <= max(width, height).bit_length():
+        raise ValueError('RGBA8 extent or mip count')
+    return sum(max(1, width >> level) * max(1, height >> level) * 4 for level in range(count))
+
+
 def validate_storage(entry, files):
-    """Check the same native admission contract as the Rust reservation boundary."""
+    """Check the same admission contract as the Rust reservation boundary."""
     value = entry['storage']
-    if value['kind'] == 'png_chain':
-        if set(value) != {'kind', 'mips'} or len(value['mips']) != entry['sampler']['mip_count'] or not value['mips']:
-            raise ValueError('PNG chain mip count')
-        previous = None
-        for mip in value['mips']:
-            w, h = mip['width'], mip['height']
-            if min(w, h) <= 0 or files[mip['file']]['image_size'] != [w, h]:
-                raise ValueError('PNG chain receipt dimensions')
-            if previous and (previous == (1, 1) or (w, h) != tuple(max(1, n // 2) for n in previous)):
-                raise ValueError('PNG chain mip progression')
-            previous = w, h
+    if value['kind'] == 'rgba8':
+        receipt = value['input']
+        if (set(value) != {'kind', 'width', 'height', 'input'} or not receipt['file'].endswith('.rgba')
+                or receipt['image_size'] is not None
+                or receipt['bytes'] != rgba_bytes(value['width'], value['height'], entry['sampler']['mip_count'])):
+            raise ValueError('RGBA8 receipt bytes')
+        if files[receipt['file']] != receipt:
+            raise ValueError('RGBA8 catalog receipt')
         return
     fields = {'kind', 'format', 'source_format', 'width', 'height', 'mip_count', 'image_count',
               'dimension', 'mips_stripped', 'input'}
     if set(value) != fields or value['kind'] != 'native_bc':
         raise ValueError('Required primary storage fields')
-    normal = entry['encoding'] == entry['source_encoding'] == 'ag' and entry['slot'] in NORMAL_SLOTS
+    normal = entry['encoding'] == entry['source_encoding'] in ('ag', 'rag') and entry['slot'] in NORMAL_SLOTS
     if not ((entry['encoding'] == entry['source_encoding'] == 'rgba' or normal and value['format'] == 'bc3')
             and (value['format'], value['source_format']) in (('bc1', 10), ('bc1', 28), ('bc3', 12), ('bc3', 29))
             and value['image_count'] == 1 and value['dimension'] == 2 and value['mips_stripped'] == 0
