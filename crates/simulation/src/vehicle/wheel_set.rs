@@ -90,7 +90,7 @@ impl WheelSet {
     }
 
     /// One physics step. `torques` and `steer` hold one value per wheel.
-    /// A disabled set or a sleeping body does no work.
+    /// `grip` multiplies the tire stiffness. A disabled set or a sleeping body does no work.
     pub(super) fn step(
         &mut self,
         physics: &mut rapier3d::prelude::PhysicsWorld,
@@ -99,6 +99,7 @@ impl WheelSet {
         filter: QueryFilter,
         torques: &[WheelTorques],
         steer: &[f32],
+        grip: f32,
     ) {
         assert_eq!(torques.len(), self.wheels.len());
         assert_eq!(steer.len(), self.wheels.len());
@@ -168,6 +169,7 @@ impl WheelSet {
                 velocity: relative_velocity(&physics.bodies, own, ground, point),
                 sprung_mass: sprung.get(wheel.connection),
                 gravity,
+                grip,
             };
             *contact = wheel::solve(wheel, collider, frame, *torques, FIXED_DT)
                 .map(|force| (force, point, ground));
