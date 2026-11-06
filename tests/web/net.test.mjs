@@ -166,15 +166,19 @@ test('refuse reasons reach the join status',async()=>{
  assert.equal(first.net.role,ROLE.GUEST);
 });
 
-test('guests see the host leave',async()=>{
+test('guests see the host leave, and the room code clears',async()=>{
  const {Peer}=broker(),clock={t:0};
  const host=setup(Peer,clock),a=setup(Peer,clock);
  const code=await host.net.host({});
  a.net.join({code});
  for(let i=0;i<10;i++)await tick();
+ assert.equal(host.net.code,code);
+ assert.equal(a.net.code,code);
  host.net.leave();
  assert.deepEqual(a.events.status.at(-1),STATUS.hostLeft);
  assert.equal(a.net.role,ROLE.OFF);
+ assert.equal(host.net.code,'');
+ assert.equal(a.net.code,'');
  assert.ok(PREFIX);
 });
 
