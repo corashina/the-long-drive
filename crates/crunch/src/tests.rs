@@ -39,3 +39,15 @@ fn split_files_unpack_like_the_exporter() {
         assert!(unpack(&start[..start.len() - 1], 1).is_err());
     }
 }
+
+#[test]
+fn bit_reader_reads_zero_past_its_end() {
+    use crate::crn::crn_symbol_codec::symbol_codec;
+    let data = [0xab, 0xcd, 0xef];
+    let mut codec = symbol_codec::default();
+    // The reader gets only the first byte, so it must not read on into the rest of the slice.
+    assert!(codec.start_decoding(&data, 1));
+    assert_eq!(codec.decode_bits(8), Ok(0xab));
+    assert_eq!(codec.decode_bits(24), Ok(0));
+    assert!(!codec.start_decoding(&data, 4));
+}
