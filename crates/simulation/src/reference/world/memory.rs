@@ -166,7 +166,9 @@ impl ImmutableInputBytes for super::super::rendering::TextureStorage {
     fn heap_bytes(&self) -> usize {
         match self {
             Self::PngChain { mips } => mips.heap_bytes(),
-            Self::NativeBc { input, .. } => input.heap_bytes(),
+            Self::NativeBc { input, top, .. } => {
+                input.heap_bytes() + top.as_ref().map_or(0, |t| t.heap_bytes())
+            }
         }
     }
 }

@@ -189,6 +189,46 @@ pub fn bc_payload(
             .ok_or_else(overflow)
     })
 }
+/// Fills the top mip of a BC1 or BC3 chain from mip 1 with nearest sampling.
+/// Each mip 1 block gives four top blocks with the same endpoints, so no block is decoded.
+pub fn upscale_bc(block: usize, width: u32, height: u32, mip1: &[u8], top: &mut [u8]) {
+    let (columns, rows) = (width as usize / 4, height as usize / 4);
+    let source_columns = ((width as usize / 2).max(1)).div_ceil(4);
+    // Two 2-bit color indices of one source row half become one 4-pixel row.
+    let color = |row: u8, half: usize| {
+        let pair = row >> (4 * half);
+        let (a, b) = (pair & 3, (pair >> 2) & 3);
+        a | a << 2 | b << 4 | b << 6
+    };
+    for y in 0..rows {
+        for x in 0..columns {
+            let source = &mip1[((y / 2) * source_columns + x / 2) * block..][..block];
+            let target = &mut top[(y * columns + x) * block..][..block];
+            let (half_x, half_y) = (x % 2, (y % 2) * 2);
+            if block == 16 {
+                // BC3 alpha: two endpoints, then 4 rows of four 3-bit indices.
+                let mut bits = [0; 8];
+                bits[..6].copy_from_slice(&source[2..8]);
+                let indices = u64::from_le_bytes(bits);
+                let mut out = 0u64;
+                for row in 0..4 {
+                    let line = indices >> (12 * (half_y + row / 2)) & 0xfff;
+                    let pair = line >> (6 * half_x);
+                    let (a, b) = (pair & 7, (pair >> 3) & 7);
+                    out |= (a | a << 3 | b << 6 | b << 9) << (12 * row);
+                }
+                target[..2].copy_from_slice(&source[..2]);
+                target[2..8].copy_from_slice(&out.to_le_bytes()[..6]);
+            }
+            let (source, target) = (&source[block - 8..], &mut target[block - 8..]);
+            target[..4].copy_from_slice(&source[..4]);
+            for row in 0..4 {
+                target[4 + row] = color(source[4 + half_y + row / 2], half_x);
+            }
+        }
+    }
+}
+
 pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, ReferenceError> {
     use super::{NativeBcFormat, TextureEncoding, TextureStorage};
     let TextureStorage::NativeBc {
@@ -201,6 +241,7 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
         dimension,
         mips_stripped,
         input,
+        top,
     } = &texture.storage
     else {
         return Err(ReferenceError("Expected native BC storage".into()));
@@ -244,8 +285,24 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
     )?;
     input.validate()?;
     let bytes = bc_payload(*format, *width, *height, *mip_count)?;
+    // A texture with more than one mip keeps its top mip in a second file.
+    let top_bytes = match top {
+        None => 0,
+        Some(top) => {
+            top.validate()?;
+            require(
+                top.file.strip_suffix(".top.bc") == input.file.strip_suffix(".bc")
+                    && top.image_size.is_none()
+                    && top.bytes as usize == bc_payload(*format, *width, *height, 1)?,
+                "Native BC top mip receipt",
+            )?;
+            top.bytes as usize
+        }
+    };
     require(
-        input.image_size.is_none() && input.bytes as usize == bytes,
+        top.is_some() == (*mip_count > 1)
+            && input.image_size.is_none()
+            && input.bytes as usize + top_bytes == bytes,
         "Native BC receipt bytes",
     )?;
     Ok(bytes)
@@ -259,12 +316,16 @@ pub fn primary_staging(
         super::TextureStorage::PngChain { mips } => {
             png_chain_staging(mips, texture.sampler.mip_count, catalog)
         }
-        super::TextureStorage::NativeBc { width, input, .. } => {
+        super::TextureStorage::NativeBc {
+            width, input, top, ..
+        } => {
             let bytes = validate_native_bc(texture)?;
-            require(
-                catalog.file(&input.file)? == input,
-                "Native BC catalog receipt",
-            )?;
+            for receipt in std::iter::once(input).chain(top) {
+                require(
+                    catalog.file(&receipt.file)? == receipt,
+                    "Native BC catalog receipt",
+                )?;
+            }
             png_staging(bytes, *width)
         }
     }
@@ -360,4 +421,35 @@ pub fn shader_input(path: &str) -> Result<FixedReservation, ReferenceError> {
         gpu: 0,
         staging: bytes.checked_mul(2).ok_or_else(overflow)?,
     })
+}
+
+#[cfg(test)]
+mod upscale_tests {
+    #[test]
+    fn upscale_repeats_each_mip1_pixel_on_2x2_top_pixels() {
+        // An 8x8 BC3 top mip: one 4x4 mip 1 block gives four top blocks.
+        let mut source = [0u8; 16];
+        source[..2].copy_from_slice(&[200, 10]);
+        // Alpha index of pixel i is i % 8.
+        let alpha: u64 = (0..16).map(|i| (i % 8) << (3 * i)).sum();
+        source[2..8].copy_from_slice(&alpha.to_le_bytes()[..6]);
+        source[8..12].copy_from_slice(&[1, 2, 3, 4]);
+        // Color index of pixel i is i % 4.
+        let color: u32 = (0..16).map(|i| (i % 4) << (2 * i)).sum();
+        source[12..].copy_from_slice(&color.to_le_bytes());
+        let mut top = [0u8; 64];
+        super::upscale_bc(16, 8, 8, &source, &mut top);
+        for (y, x) in (0..8).flat_map(|y| (0..8).map(move |x| (y, x))) {
+            let block = &top[((y / 4) * 2 + x / 4) * 16..][..16];
+            let pixel = (y % 4) * 4 + x % 4;
+            let expected = ((y / 2) * 4 + x / 2) as u64;
+            let mut bits = [0; 8];
+            bits[..6].copy_from_slice(&block[2..8]);
+            assert_eq!(u64::from_le_bytes(bits) >> (3 * pixel) & 7, expected % 8);
+            let color = u32::from_le_bytes(block[12..].try_into().unwrap());
+            assert_eq!(color >> (2 * pixel) & 3, expected as u32 % 4);
+            assert_eq!(&block[..2], &[200, 10]);
+            assert_eq!(&block[8..12], &[1, 2, 3, 4]);
+        }
+    }
 }

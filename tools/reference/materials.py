@@ -299,13 +299,16 @@ def export_material_textures(source, owner, record, output):
     if cache is None: source.material_texture_cache = cache = set()
     for entry in record['properties']['textures']:
         reader = source.get(entry['source']['file'], entry['source']['path_id'])
-        from .native_bc import source_blocks, texture_inputs
+        from .native_bc import split_blocks, texture_inputs
         paths = texture_inputs(entry)
         identity = str((output / paths[0].removeprefix('reference/')).resolve())
         if identity not in cache:
             texture = source.texture_object(reader)
             if entry['storage']['kind'] == 'native_bc':
-                (output / paths[0].removeprefix('reference/')).write_bytes(b''.join(source_blocks(texture)))
+                top, rest = split_blocks(texture)
+                (output / paths[0].removeprefix('reference/')).write_bytes(rest)
+                if top:
+                    (output / paths[1].removeprefix('reference/')).write_bytes(top)
             else:
                 for mip, image in zip(entry['storage']['mips'], source_mip_images(texture), strict=True):
                     pixels = decode_normal_image(image, entry['source_encoding']) if entry['slot'] in NORMAL_SLOTS else image.convert('RGBA')

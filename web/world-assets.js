@@ -4,10 +4,12 @@ export function setAssetCpuProfile(profile){cpuProfile=profile;}
 // Entry bytes of one start pack. Same limit as `PACK_BYTES` in the exporter.
 const PACK_BYTES=16*1024*1024;
 let contentBase,files=new Map(),plans=new Map(),onFetched=()=>{};
-// Start pack entries that were not read yet, by file.
+// Start and top pack entries that were not read yet, by file.
 let packed=new Map(),packHeld=0;
+// Top packs hold the top mips of start textures. They load in order after the game starts.
+let topPacks=[],topPackOf=new Map(),topStarted=0,topRead=0;
 export const worldBootstrapMeasurements={dependencyWorkers:0,maxDependencyBytes:0,dependencyPayloadCopyBytes:0,inputMetadataBytes:0,dependencyStagingReserve:0};
-export const startPackMeasurements={packs:0,entries:0,read:0,unused:0,heldPeakBytes:0};
+export const startPackMeasurements={packs:0,topPacks:0,entries:0,read:0,unused:0,heldPeakBytes:0};
 function canonical(path){return typeof path==='string'&&!/[^a-zA-Z0-9_./ -]/.test(path)&&!path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith(' ')||p.endsWith(' '));}
 export function assetUrl(base,path){
  if(typeof base!=='string'||!/^\.?\/?assets\/runtime\/[a-zA-Z0-9_-]+\/$/.test(base)||!canonical(path))throw Error('Invalid package path.');
@@ -29,34 +31,49 @@ export function configureAssetCatalog(base,catalog,record=()=>{}){
   nextPlans.set(plan.asset_file,plan.input);metadata+=384+plan.asset_file.length*2+plan.input.file.length*2;
  }
  if(!Number.isInteger(catalog.dependency_staging_reserve)||catalog.dependency_staging_reserve<=0||catalog.dependency_staging_reserve>=MAX_WORLD_STAGING)throw Error('Invalid dependency staging reservation.');
- if(!Array.isArray(catalog.packs))throw Error('Invalid start pack receipts.');
- const nextPacked=new Set();
- catalog.packs.forEach((pack,index)=>{
+ if(!Array.isArray(catalog.packs)||!Array.isArray(catalog.top_packs))throw Error('Invalid start pack receipts.');
+ const nextPacked=new Set(),nextTopOf=new Map();
+ const checkPack=kind=>(pack,index)=>{
   let bytes=0;
-  if(pack.file!=='packs/start-'+index+'.gz'||!Number.isSafeInteger(pack.bytes)||pack.bytes<0||!/^[a-f0-9]{64}$/.test(pack.sha256)||!Array.isArray(pack.files)||!pack.files.length)throw Error('Invalid start pack receipt.');
+  if(pack.file!=='packs/'+kind+'-'+index+'.gz'||!Number.isSafeInteger(pack.bytes)||pack.bytes<0||!/^[a-f0-9]{64}$/.test(pack.sha256)||!Array.isArray(pack.files)||!pack.files.length)throw Error('Invalid start pack receipt.');
   for(const file of pack.files){
    if(!nextFiles.has(file)||nextPacked.has(file))throw Error('Invalid start pack entry.');
    nextPacked.add(file);bytes+=nextFiles.get(file).bytes;
+   if(kind==='top')nextTopOf.set(file,index);
   }
   if(bytes>PACK_BYTES)throw Error('Start pack entry bytes exceed the limit.');
- });
+ };
+ catalog.packs.forEach(checkPack('start'));
+ catalog.top_packs.forEach(checkPack('top'));
  contentBase=base;files=nextFiles;plans=nextPlans;onFetched=record;
  worldBootstrapMeasurements.inputMetadataBytes=metadata;
  worldBootstrapMeasurements.dependencyStagingReserve=catalog.dependency_staging_reserve;
  releaseStartPacks();
- Object.assign(startPackMeasurements,{packs:catalog.packs.length,entries:nextPacked.size,read:0,unused:0,heldPeakBytes:0});
+ topPacks=catalog.top_packs;topPackOf=nextTopOf;topStarted=0;topRead=0;
+ Object.assign(startPackMeasurements,{packs:catalog.packs.length,topPacks:topPacks.length,entries:nextPacked.size,read:0,unused:0,heldPeakBytes:0});
  for(const pack of catalog.packs)readPack(base,pack);
 }
-/** Drops the start pack entries that were not read. Later reads fetch single files. */
+/** Drops the pack entries that were not read. Later reads fetch single files. */
 export function releaseStartPacks(){
  startPackMeasurements.unused+=packed.size;
  packed=new Map();packHeld=0;
 }
+// The game reads top mips in pack order. A read from top pack `index` starts it and the next one,
+// so at most two top packs are held. Entries of earlier top packs that were not read drop.
+function readTopPacks(index){
+ for(;topStarted<=Math.min(index+1,topPacks.length-1);topStarted++)readPack(contentBase,topPacks[topStarted],topStarted);
+ if(index<=topRead)return;
+ topRead=index;
+ for(const [file,entry] of packed)if(entry.top<index){
+  packed.delete(file);startPackMeasurements.unused++;
+  if(entry.ready)packHeld-=entry.receipt.bytes;
+ }
+}
 // A pack is gzip at rest. The hosted site sends a Brotli copy of the decoded pack, which fetch decodes.
 // Otherwise this stream decodes the gzip. The entry receipts check the decoded bytes.
-function readPack(base,pack){
+function readPack(base,pack,top){
  const entries=pack.files.map(file=>{
-  const entry={receipt:files.get(file),ready:false};
+  const entry={receipt:files.get(file),ready:false,top};
   entry.bytes=new Promise((resolve,reject)=>{entry.resolve=resolve;entry.reject=reject;});
   // A failed entry that nobody reads is not an unhandled rejection.
   entry.bytes.catch(()=>{});
@@ -126,6 +143,7 @@ export function checkImageSize(receipt,width,height){
 export function readPackageAsset(path,signal){return readAsset(contentBase,assetReceipt(path),signal);}
 export async function readAsset(base,receipt,signal){
  checkReceipt(receipt);
+ if(base===contentBase&&topPackOf.has(receipt.file))readTopPacks(topPackOf.get(receipt.file));
  // A start pack gives each entry once. A later read of the same file fetches it alone.
  if(base===contentBase&&packed.get(receipt.file)?.receipt.sha256===receipt.sha256)return takePacked(receipt,signal);
  const url=assetUrl(base,receipt.file);let received=0;

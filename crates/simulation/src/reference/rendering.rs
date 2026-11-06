@@ -270,7 +270,10 @@ pub enum TextureStorage {
         image_count: u32,
         dimension: u32,
         mips_stripped: u32,
+        /// Mips 1+, or the only mip. The game loads it at start.
         input: super::FileReceipt,
+        /// The top mip of a texture with more than one mip. The game loads it after start.
+        top: Option<super::FileReceipt>,
     },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -315,8 +318,12 @@ impl TextureRecord {
                     mips.capacity() * std::mem::size_of::<TextureMip>()
                         + mips.iter().map(|m| m.file.capacity()).sum::<usize>()
                 }
-                TextureStorage::NativeBc { input, .. } => {
-                    input.file.capacity() + input.sha256.capacity()
+                TextureStorage::NativeBc { input, top, .. } => {
+                    input.file.capacity()
+                        + input.sha256.capacity()
+                        + top
+                            .as_ref()
+                            .map_or(0, |t| t.file.capacity() + t.sha256.capacity())
                 }
             }
     }
@@ -776,13 +783,15 @@ impl RenderingRecord {
                             dimensions = Some((mip.width, mip.height));
                         }
                     }
-                    TextureStorage::NativeBc { input, .. } => {
+                    TextureStorage::NativeBc { input, top, .. } => {
                         super::fixed_reservation::validate_native_bc(texture)?;
                         require(
-                            asset
-                                .dependencies
-                                .iter()
-                                .any(|dependency| dependency == input),
+                            std::iter::once(input).chain(top).all(|receipt| {
+                                asset
+                                    .dependencies
+                                    .iter()
+                                    .any(|dependency| dependency == receipt)
+                            }),
                             &field,
                         )?;
                     }

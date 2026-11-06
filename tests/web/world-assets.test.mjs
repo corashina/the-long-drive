@@ -29,7 +29,7 @@ test('real fetch checks decoded Brotli bytes against the receipt', {timeout: 500
   const origin = `http://127.0.0.1:${server.address().port}/`;
   const fetch = globalThis.fetch;
   const fetched = [];
-  configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: []}, value => fetched.push(value));
+  configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: [], top_packs: []}, value => fetched.push(value));
   globalThis.fetch = (url, options) => fetch(new URL(url, origin), options);
   try {
     await t.test('fetch decodes the body and keeps the encoded Content-Length', async () => {
@@ -81,7 +81,7 @@ test('real fetch checks decoded Brotli bytes against the receipt', {timeout: 500
     });
   } finally {
     globalThis.fetch = fetch;
-    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: []});
+    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: [], top_packs: []});
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
   }
@@ -127,7 +127,7 @@ test('start pack gives each entry once, then the file loads alone', async () => 
     sha256: createHash('sha256').update(other).digest('hex'), image_size: null};
   const pack = gzipSync(Uint8Array.from([...blocks, ...other]));
   const catalog = {files: [receipt, second], plans: [], dependency_staging_reserve: 1,
-    packs: [{file: 'packs/start-0.gz', bytes: pack.length, sha256: 'a'.repeat(64), files: [receipt.file, second.file]}]};
+    packs: [{file: 'packs/start-0.gz', bytes: pack.length, sha256: 'a'.repeat(64), files: [receipt.file, second.file]}], top_packs: []};
   const urls = [];
   globalThis.fetch = async url => {
     urls.push(url);
@@ -148,16 +148,36 @@ test('start pack gives each entry once, then the file loads alone', async () => 
   }
 });
 
+test('top packs load only when the game reads a top mip', async () => {
+  const fetch = globalThis.fetch;
+  const pack = gzipSync(blocks);
+  const urls = [];
+  globalThis.fetch = async url => {
+    urls.push(url);
+    return new Response(pack);
+  };
+  try {
+    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: [],
+      top_packs: [{file: 'packs/top-0.gz', bytes: pack.length, sha256: 'a'.repeat(64), files: [receipt.file]}]});
+    assert.deepEqual(urls, []);
+    assert.deepEqual(await readAsset(base, receipt), blocks);
+    assert.deepEqual(urls, [base + 'packs/top-0.gz']);
+  } finally {
+    globalThis.fetch = fetch;
+    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: [], top_packs: []});
+  }
+});
+
 test('a Brotli start pack response gives the decoded entries', async () => {
   const fetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(blocks, {headers: {'Content-Encoding': 'br'}});
   try {
     configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1,
-      packs: [{file: 'packs/start-0.gz', bytes: 1, sha256: 'a'.repeat(64), files: [receipt.file]}]});
+      packs: [{file: 'packs/start-0.gz', bytes: 1, sha256: 'a'.repeat(64), files: [receipt.file]}], top_packs: []});
     assert.deepEqual(await readAsset(base, receipt), blocks);
   } finally {
     globalThis.fetch = fetch;
-    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: []});
+    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: [], top_packs: []});
   }
 });
 
@@ -167,10 +187,10 @@ test('a bad start pack entry rejects its read', async () => {
   globalThis.fetch = async () => new Response(pack);
   try {
     configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1,
-      packs: [{file: 'packs/start-0.gz', bytes: pack.length, sha256: 'a'.repeat(64), files: [receipt.file]}]});
+      packs: [{file: 'packs/start-0.gz', bytes: pack.length, sha256: 'a'.repeat(64), files: [receipt.file]}], top_packs: []});
     await assert.rejects(readAsset(base, receipt), /SHA-256 mismatch/);
   } finally {
     globalThis.fetch = fetch;
-    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: []});
+    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: [], top_packs: []});
   }
 });

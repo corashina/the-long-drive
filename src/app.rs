@@ -366,7 +366,7 @@ fn check_ready(
         Res<presentation::lighting::SourceLighting>,
         Res<presentation::fixed_assets::SourceFixedAssets>,
     ),
-    materials: Res<presentation::materials::SourceMaterials>,
+    mut materials: ResMut<presentation::materials::SourceMaterials>,
     plates: (
         Res<presentation::plates::PlateTextStatus>,
         Res<presentation::particles::ParticleRender>,
@@ -500,6 +500,7 @@ fn check_ready(
             if !drive.ready {
                 drive.ready = true;
                 game_ready();
+                materials.start_top_mips(&reference.0.file_catalog);
             }
         }
         crate::render_readiness::RendererStatus::Failed(error) => {

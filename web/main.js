@@ -85,6 +85,7 @@ simulation.hooks({inputConsumed:()=>window.gameCpuInputConsumed(),clearInput:()=
 installSimulationBridge(window,simulation);
 const grassClients=installGrassBridge(window,cpuProfile);
 window.sourceReadAsset=(base,receipt)=>readAsset(base,JSON.parse(receipt));
+window.sourceReleasePacks=releaseStartPacks;
 window.sourceInputBytes=worldInputBytes;
 window.sourceInputMetadataBytes=worldInputMetadataBytes;
 const canvas=document.querySelector('#game'),status=document.querySelector('#status'),runtimeError=document.querySelector('#runtime-error');

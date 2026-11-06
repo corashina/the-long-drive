@@ -50,6 +50,20 @@ def source_blocks(texture):
         raise ValueError('Native BC source has trailing data')
 
 
+def split_blocks(texture):
+    """The top mip and the mips 1+ of a texture. A one-level texture has no top file."""
+    levels = list(source_blocks(texture))
+    return (levels[0], b''.join(levels[1:])) if len(levels) > 1 else (None, levels[0])
+
+
+def top_file(name):
+    return name.removesuffix('.bc') + '.top.bc'
+
+
+def receipt(name, data):
+    return {'file': name, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(), 'image_size': None}
+
+
 def storage(source, reader, entry, family):
     """Select one required representation from checked source metadata.
     Native storage sets the entry encoding to the stored channels."""
@@ -63,7 +77,7 @@ def storage(source, reader, entry, family):
     if (entry['sampler'] != expected_sampler or entry['color_space'] != ('srgb' if data['m_ColorSpace'] == 1 else 'linear')
             or [(m['width'], m['height']) for m in entry['mips']] != expected_mips):
         raise ValueError('Primary metadata differs from source')
-    blocks = b''.join(source_blocks(source.texture_object(reader)))
+    top, rest = split_blocks(source.texture_object(reader))
     entry['encoding'] = stored_encoding(entry, family)
     identity = entry['source']
     name = f"reference/texture-{identity['file']}-{identity['path_id']}-{entry['color_space']}.bc"
@@ -71,7 +85,8 @@ def storage(source, reader, entry, family):
         'source_format': data['m_TextureFormat'], 'width': data['m_Width'], 'height': data['m_Height'],
         'mip_count': data['m_MipCount'], 'image_count': data['m_ImageCount'],
         'dimension': data['m_TextureDimension'], 'mips_stripped': data['m_MipsStripped'],
-        'input': {'file': name, 'bytes': len(blocks), 'sha256': hashlib.sha256(blocks).hexdigest(), 'image_size': None}}
+        # The game loads mips 1+ at start and the top mip later.
+        'input': receipt(name, rest), 'top': top and receipt(top_file(name), top)}
 
 
 def texture_inputs(entry):
@@ -79,7 +94,7 @@ def texture_inputs(entry):
     if value['kind'] == 'png_chain':
         return [m['file'] for m in value['mips']]
     if value['kind'] == 'native_bc':
-        return [value['input']['file']]
+        return [value['input']['file']] + ([value['top']['file']] if value['top'] else [])
     raise ValueError('Unknown primary storage')
 
 
@@ -99,7 +114,7 @@ def validate_storage(entry, files):
             previous = w, h
         return
     fields = {'kind', 'format', 'source_format', 'width', 'height', 'mip_count', 'image_count',
-              'dimension', 'mips_stripped', 'input'}
+              'dimension', 'mips_stripped', 'input', 'top'}
     if set(value) != fields or value['kind'] != 'native_bc':
         raise ValueError('Required primary storage fields')
     normal = entry['encoding'] == entry['source_encoding'] == 'ag' and entry['slot'] in NORMAL_SLOTS
@@ -116,7 +131,12 @@ def validate_storage(entry, files):
     if receipt['file'] != f"reference/texture-{identity['file']}-{identity['path_id']}-{entry['color_space']}.bc":
         raise ValueError('Native BC source identity')
     sizes = mip_sizes(value['width'], value['height'], value['mip_count'], 8 if value['format'] == 'bc1' else 16)
-    if receipt['image_size'] is not None or receipt['bytes'] != sum(sizes):
+    top = value['top']
+    if (top is None) != (len(sizes) == 1) or top and (
+            top['file'] != top_file(receipt['file']) or top['image_size'] is not None or top['bytes'] != sizes[0]
+            or files[top['file']] != top):
+        raise ValueError('Native BC top mip receipt')
+    if receipt['image_size'] is not None or receipt['bytes'] != sum(sizes[1:] if top else sizes):
         raise ValueError('Native BC receipt bytes')
     if files[receipt['file']] != receipt:
         raise ValueError('Native BC catalog receipt')

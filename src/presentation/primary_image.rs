@@ -20,6 +20,8 @@ pub struct SourcePrimaryImageLoader;
 pub struct SourcePrimaryImageSettings {
     pub record: Option<Arc<TextureRecord>>,
     pub encoded_bytes: Vec<usize>,
+    /// Fill the top mip from mip 1 and do not read the top file. The top mip loads after start.
+    pub defer_top: bool,
 }
 fn invalid(message: impl Into<String>) -> Error {
     Error::new(ErrorKind::InvalidData, message.into())
@@ -46,20 +48,44 @@ impl AssetLoader for SourcePrimaryImageLoader {
             width,
             height,
             input,
+            top,
             ..
         } = &record.storage
         {
             let byte_count = crate::reference::fixed_reservation::validate_native_bc(record)
                 .map_err(|e| invalid(e.to_string()))?;
-            if settings.encoded_bytes.as_slice() != [byte_count] {
+            if settings.encoded_bytes.as_slice() != [input.bytes as usize] {
                 return Err(invalid("Native BC input reservation differs"));
             }
-            // Read directly into the final block vector. The checked reader retains its own input.
+            // Read directly into the final block vector, after the top mip.
+            // The checked reader retains its own input.
+            let top_bytes = byte_count - input.bytes as usize;
             let mut bytes = vec![0; byte_count];
-            reader.read_exact(&mut bytes).await?;
+            reader.read_exact(&mut bytes[top_bytes..]).await?;
             let mut extra = [0];
             if reader.read(&mut extra).await? != 0 {
                 return Err(invalid(format!("{}: BC exceeds receipt", input.file)));
+            }
+            if let Some(top) = top {
+                if settings.defer_top {
+                    let (head, tail) = bytes.split_at_mut(top_bytes);
+                    crate::reference::fixed_reservation::upscale_bc(
+                        format.block_bytes(),
+                        *width,
+                        *height,
+                        tail,
+                        head,
+                    );
+                } else {
+                    let data = context
+                        .read_asset_bytes(top.file.clone())
+                        .await
+                        .map_err(|e| invalid(format!("{}: {e}", top.file)))?;
+                    if data.len() != top_bytes {
+                        return Err(invalid(format!("{}: BC differs from receipt", top.file)));
+                    }
+                    bytes[..top_bytes].copy_from_slice(&data);
+                }
             }
             use bevy::render::render_resource::{
                 Extent3d, TextureDataOrder, TextureDimension, TextureFormat,
@@ -166,5 +192,33 @@ impl AssetLoader for SourcePrimaryImageLoader {
         image.asset_usage = RenderAssetUsages::RENDER_WORLD;
         super::source_images::apply_sampler(&mut image, &record.sampler);
         Ok(SourcePrimaryImage(image))
+    }
+}
+
+/// Top mip blocks of one native BC texture, loaded after start.
+#[derive(Asset, TypePath)]
+pub struct SourceTopMip(pub Vec<u8>);
+#[derive(Default, TypePath)]
+pub struct SourceTopMipLoader;
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+pub struct SourceTopMipSettings {
+    pub bytes: usize,
+}
+impl AssetLoader for SourceTopMipLoader {
+    type Asset = SourceTopMip;
+    type Settings = SourceTopMipSettings;
+    type Error = Error;
+    async fn load(
+        &self,
+        reader: &mut dyn Reader,
+        settings: &Self::Settings,
+        _: &mut LoadContext<'_>,
+    ) -> Result<Self::Asset, Error> {
+        let mut bytes = vec![0; settings.bytes];
+        reader.read_exact(&mut bytes).await?;
+        if reader.read(&mut [0]).await? != 0 {
+            return Err(invalid("Top mip exceeds receipt"));
+        }
+        Ok(SourceTopMip(bytes))
     }
 }
