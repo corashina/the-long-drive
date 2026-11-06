@@ -2099,13 +2099,15 @@ impl WorldStream {
             return false;
         }
         for content in self.contents.instances() {
-            if self.box_content_withheld(&content.placement.id) {
+            let id = &content.placement.id;
+            let changed = self.changes.get_generated(id);
+            // A saved box content item was a live item, so it publishes with its box intact.
+            // `refresh_structures` publishes active box content the same way.
+            if self.box_content_withheld(id) && !changed.is_some_and(|c| c.snapshot.is_some()) {
                 continue;
             }
-            let id = &content.placement.id;
             let selected =
                 replay_ids::selects(&self.replay_ids, &self.replay_indices, &self.changes, id);
-            let changed = self.changes.get_generated(id);
             if changed.is_some_and(|c| c.snapshot.is_none() || !selected) {
                 continue;
             }
