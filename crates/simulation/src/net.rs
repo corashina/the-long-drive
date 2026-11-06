@@ -17,6 +17,7 @@ pub mod state;
 pub mod world;
 
 use crate::boundary::{PoseRow, RemoteRow, SimFrame};
+use crate::player::SeatOwner;
 use crate::player::body::BodyState;
 use crate::reference::ReferenceManifest;
 use crate::starting_area::GarageRuntime;
@@ -113,13 +114,14 @@ impl Net {
     /// so they do not hold the step.
     pub fn prepare(&mut self, runtime: &mut GarageRuntime) {
         runtime.net_guest = self.role == NetRole::Guest;
+        runtime.online = self.role != NetRole::Off;
         if runtime.net_guest {
             runtime
                 .area
                 .spawned
                 .reserve_serials(u32::from(self.slot) << 24);
         }
-        if self.step_aside && runtime.started && runtime.world_supported() {
+        if self.step_aside && settled(runtime) {
             self.step_aside = false;
             runtime.step_aside(f32::from(self.slot) / MAX_PLAYERS as f32);
         }
@@ -180,6 +182,7 @@ impl Net {
         }
         self.prepare(runtime);
         if self.role == NetRole::Off {
+            runtime.area.interaction.in_use.clear();
             runtime.shared_sounds.clear();
             runtime.shared_breaks.clear();
             runtime.area.interaction.push.pushes.clear();
@@ -195,6 +198,7 @@ impl Net {
         self.objects
             .refresh(&runtime.area.items, &runtime.area.spawned);
         self.read_inbox(reference, runtime);
+        self.mark_in_use(reference, runtime);
         self.cars.send(
             runtime,
             self.clock,
@@ -309,6 +313,63 @@ impl Net {
         }
     }
 
+    /// Tells interaction what the other players hold and sit on. Two players can sit down in the
+    /// same moment. The lower slot keeps the seat, and this player gets out.
+    fn mark_in_use(&self, reference: &ReferenceManifest, runtime: &mut GarageRuntime) {
+        let interaction = &mut runtime.area.interaction;
+        let mut in_use = std::mem::take(&mut interaction.in_use);
+        in_use.clear();
+        in_use.items.extend(self.items.claims.others());
+        for remote in &self.remotes {
+            let Some((car, seat)) = remote.smoothing.car() else {
+                continue;
+            };
+            let Some((key, vehicle)) = runtime.vehicles.iter().find(|(_, v)| v.net.key == car)
+            else {
+                continue;
+            };
+            let Some(source) = vehicle
+                .record(reference)
+                .seats
+                .get(seat as usize)
+                .map(|s| &s.source)
+            else {
+                continue;
+            };
+            let owner = SeatOwner::Vehicle(key.clone());
+            if let Some(seat) = interaction
+                .controls
+                .seats()
+                .find(|s| s.owner == owner && &s.seat.source == source)
+            {
+                // Nobody takes out the seat part under a player.
+                if seat.seat_item != seat.item {
+                    in_use.items.push((seat.seat_item, remote.slot));
+                }
+                in_use.seats.push((seat.clone(), remote.slot));
+            }
+        }
+        let player = &runtime.area.player;
+        let taken = match player.seat_owner() {
+            Some(SeatOwner::Vehicle(key)) => in_use.seats.iter().any(|(seat, slot)| {
+                *slot < self.slot
+                    && matches!(&seat.owner, SeatOwner::Vehicle(k) if k == key)
+                    && Some(&seat.seat.source) == player.seat_source()
+            }),
+            Some(SeatOwner::Item(key)) => runtime
+                .area
+                .items
+                .resolve_key(key)
+                .and_then(|item| in_use.item(item))
+                .is_some(),
+            _ => false,
+        };
+        runtime.area.interaction.in_use = in_use;
+        if taken && settled(runtime) {
+            runtime.area.player.try_exit(&mut runtime.physics);
+        }
+    }
+
     /// Routes each packet on its type byte to the module that owns the message. That module
     /// decodes it and checks who may send it.
     fn read_inbox(&mut self, reference: &ReferenceManifest, runtime: &mut GarageRuntime) {
@@ -347,7 +408,10 @@ impl Net {
                     host,
                     packet,
                 ),
-                message::INVENTORY => self.inventory.receive(runtime, index, packet),
+                message::INVENTORY => {
+                    self.inventory
+                        .receive(runtime, index, &self.items.claims, packet)
+                }
                 message::FLUID | message::TANK_CAP | message::USABLE => {
                     self.state.receive(runtime, index, packet)
                 }
@@ -438,4 +502,11 @@ impl Net {
     fn push<M: Message>(&mut self, message: &M) {
         message::push(self.slot, message, &mut self.outbox);
     }
+}
+
+/// The world of `runtime` stands. `world_supported` waits for the save restore, so the saved seat
+/// is back first. Attachments to far owners can stay deferred for the whole session, so they do
+/// not count.
+fn settled(runtime: &GarageRuntime) -> bool {
+    runtime.started && runtime.world_supported()
 }

@@ -145,7 +145,7 @@ impl SimDriver {
     fn report_hold(&mut self, simulated: f64) {
         if !self.ready
             || !self.runtime.started
-            || self.runtime.paused
+            || self.runtime.paused()
             || self.runtime.simulation_seconds != simulated
         {
             self.held_seconds = 0.;
@@ -196,7 +196,7 @@ impl SimDriver {
         }
         let actions = command.actions;
         if actions & SimCommand::PAUSE != 0 {
-            self.runtime.paused = true;
+            self.runtime.menu = true;
             self.clear_input();
         }
         if actions & SimCommand::RESPAWN != 0 && self.net.role() != crate::net::NetRole::Off {
@@ -205,7 +205,7 @@ impl SimDriver {
         }
         if actions & SimCommand::START != 0 && self.ready && !self.runtime.needs_output().menu_due {
             self.runtime.started = true;
-            self.runtime.paused = false;
+            self.runtime.menu = false;
             self.clear_input();
         }
         if actions & SimCommand::RECOVER != 0 {
@@ -231,12 +231,16 @@ impl SimDriver {
             self.runtime.set_player_settings(settings);
         }
         let frame = command.input;
-        if !self.ready || !self.runtime.started || self.runtime.paused {
+        if !self.ready || !self.runtime.started || self.runtime.menu {
             self.input.clear();
             self.raw_mouse = [0.; 2];
             clear_profile_input();
             self.drop_frame_input();
-            self.runtime.clear_input();
+            // Online the world runs on. A clear each frame would cancel the car input of other
+            // players on the host. The pause cleared the input once.
+            if !self.runtime.online {
+                self.runtime.clear_input();
+            }
             // The Controls screen shows the pad axes while the game is paused.
             self.runtime.driving_input.preview(&frame.gamepad);
             return;
@@ -275,7 +279,7 @@ impl SimDriver {
                 self.failed = true;
             }
         }
-        if !self.ready || !self.runtime.started || self.runtime.paused {
+        if !self.ready || !self.runtime.started || self.runtime.paused() {
             return;
         }
         let blocked = self.skip_elapsed
@@ -345,7 +349,7 @@ impl SimDriver {
             }
             self.camera_seat = [seat, self.camera_seat()];
             self.camera.shift(shift);
-            if self.runtime.paused {
+            if self.runtime.paused() {
                 self.clock.reset();
                 break;
             }
@@ -412,7 +416,7 @@ impl SimDriver {
         let alpha = self
             .clock
             .alpha(self.runtime.clock_factors(reference).time_scale);
-        if self.ready && self.runtime.started && !self.runtime.paused {
+        if self.ready && self.runtime.started && !self.runtime.paused() {
             self.update_camera(reference, alpha);
         }
         self.runtime.fill_frame(reference, alpha, frame);
@@ -478,7 +482,7 @@ impl SimDriver {
         self.clock = StepClock::default();
         self.frame_steps = 0;
         self.ready = false;
-        self.runtime.paused = true;
+        self.runtime.menu = true;
         self.skip_elapsed = true;
     }
 

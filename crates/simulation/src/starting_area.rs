@@ -515,7 +515,10 @@ pub struct GarageRuntime {
     recovery_held_bodies: Vec<RigidBodyHandle>,
     /// The vehicle the player last sat in. The HUD and recovery follow it.
     pub vehicle: Option<ObjectKey>,
-    pub paused: bool,
+    /// The menu is open. The player gets no input.
+    pub menu: bool,
+    /// Multiplayer is on. Net sets it. Online, the menu does not stop the world.
+    pub online: bool,
     pub started: bool,
     pub attempts: u64,
     /// Kilometers that the player drove as driver.
@@ -550,6 +553,10 @@ pub struct GarageRuntime {
 }
 
 impl GarageRuntime {
+    /// The world does not step. Online, the menu does not stop it: other players use the same world.
+    pub fn paused(&self) -> bool {
+        self.menu && !self.online
+    }
     pub fn set_player_settings(&mut self, settings: crate::reference::PlayerSettings) {
         self.player_settings = settings;
         self.area.player.set_settings(settings);
@@ -561,7 +568,7 @@ impl GarageRuntime {
         &mut self,
         mut requested: crate::reference::DrivingAssists,
     ) -> Result<(), ReferenceError> {
-        if self.started && !self.paused {
+        if self.started && !self.menu {
             return Err(ReferenceError("Driving assists require pause".into()));
         }
         requested.automatic_gears &= requested.automatic_clutch;
@@ -727,7 +734,8 @@ impl GarageRuntime {
             vehicles: BTreeMap::new(),
             powertrain: PowertrainParts::default(),
             vehicle: None,
-            paused: false,
+            menu: false,
+            online: false,
             started: false,
             attempts: 0,
             driven_km: 0.,
@@ -965,7 +973,7 @@ impl GarageRuntime {
             self.stream.fail(ReferenceError(error.to_string()));
         }
         // The check reads the stream request, so the request is the current position.
-        let held = !self.started || self.paused || self.recovering || {
+        let held = !self.started || self.paused() || self.recovering || {
             self.request_focus();
             !self.world_supported()
         };
@@ -1596,7 +1604,7 @@ impl GarageRuntime {
             &reference.sleep,
             crate::sleep::SleepInput {
                 held: sleep_held,
-                active: !self.paused,
+                active: !self.paused(),
                 camera_allowed: !self.other_view || !self.area.player.seated(),
                 dead: self.needs_output().dead,
                 show_text: self.area.player.show_sleep_text(),
@@ -1877,7 +1885,7 @@ impl GarageRuntime {
         input: crate::boundary::RenderInput,
     ) {
         self.render_input = input;
-        if self.started && !self.paused {
+        if self.started && !self.paused() {
             self.advance_instruments(reference, input.dt, false);
             // Source `carscript.Update` eases the lever once per frame by scaled frame time.
             self.advance_levers(reference, input.dt);
@@ -2158,13 +2166,15 @@ impl GarageRuntime {
     }
 
     pub fn initialize_storage_frame(&mut self, dt: f32) -> Result<bool, ReferenceError> {
+        // It runs only while the world loads.
+        let dt = if self.menu { 0.0 } else { dt };
         let changed = self.area.interaction.storage.initialize_frame(
             &mut self.area.items,
             &mut self.physics,
             &self.area.interaction.parts,
             &self.area.interaction.mechanisms,
             self.area.player.item_seat_body(),
-            if self.paused { 0.0 } else { dt },
+            dt,
         )?;
         if changed {
             self.wheels.sync(&mut self.area.items, &mut self.physics)?;

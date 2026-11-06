@@ -687,7 +687,7 @@ impl GarageRuntime {
         self.survival.output()
     }
     pub fn advance_needs(&mut self, reference: &ReferenceManifest, dt: f32, need_scale: f32) {
-        if !self.started || self.paused {
+        if !self.started || self.paused() {
             return;
         }
         self.simulation_seconds += f64::from(dt);
@@ -701,7 +701,7 @@ impl GarageRuntime {
         );
         self.announce_death(reference);
         if self.needs_output().menu_due {
-            self.paused = true;
+            self.menu = true;
         }
     }
     pub(super) fn draw_survival(&mut self) -> f32 {

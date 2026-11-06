@@ -72,9 +72,19 @@ impl Claims {
         }
     }
 
-    /// Source `snItemsync.Claim`.
-    pub fn got(&mut self, item: ItemId, slot: u8, claim: bool) {
+    /// Items that other players claim, with the slot of the owner.
+    pub fn others(&self) -> impl Iterator<Item = (ItemId, u8)> + '_ {
+        self.others.iter().map(|(item, slot)| (*item, *slot))
+    }
+
+    /// Source `snItemsync.Claim`. `me`: the slot of this peer.
+    /// Two players can take one item in the same moment. The lower slot keeps it.
+    pub fn got(&mut self, item: ItemId, slot: u8, claim: bool, me: u8) {
         if claim {
+            let mine = self.mine.contains(&item) && self.held.contains(&Some(item));
+            if (mine && me < slot) || self.others.get(&item).is_some_and(|s| *s < slot) {
+                return;
+            }
             self.others.insert(item, slot);
             self.mine.remove(&item);
             self.releasing.retain(|(i, _)| *i != item);
@@ -132,15 +142,38 @@ mod tests {
     fn another_claim_takes_the_item() {
         let (mut claims, mut out, item) = (Claims::default(), Vec::new(), ItemId(4));
         claims.observe(held(Some(item), None), 0., &mut out);
-        claims.got(item, 2, true);
+        claims.got(item, 2, true, 3);
         assert!(!claims.owns(item, true), "not even the host owns it");
         assert_eq!(claims.other(item), Some(2));
         out.clear();
         claims.observe(held(Some(item), None), 1., &mut out);
         assert!(out.is_empty(), "a held item does not claim again");
-        claims.got(item, 3, false);
+        claims.got(item, 3, false, 3);
         assert_eq!(claims.other(item), Some(2), "only the owner releases");
         claims.leave(2);
         assert!(claims.owns(item, true));
+    }
+
+    #[test]
+    fn the_lower_slot_keeps_an_item_that_two_players_take() {
+        let (mut claims, mut out, item) = (Claims::default(), Vec::new(), ItemId(4));
+        claims.observe(held(Some(item), None), 0., &mut out);
+        claims.got(item, 2, true, 1);
+        assert!(claims.claimed(item), "slot 1 keeps it against slot 2");
+        assert_eq!(claims.other(item), None);
+        let mut third = Claims::default();
+        third.got(item, 1, true, 3);
+        third.got(item, 2, true, 3);
+        assert_eq!(
+            third.other(item),
+            Some(1),
+            "a third peer keeps the lower slot"
+        );
+        third.got(item, 2, false, 3);
+        assert_eq!(
+            third.other(item),
+            Some(1),
+            "the loser's release does not end it"
+        );
     }
 }
