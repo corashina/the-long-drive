@@ -110,8 +110,14 @@ impl RendererReadinessAccess<'_, '_> {
         )
     }
     pub(crate) fn graph_ready(&self, content: RendererContentCheck) -> bool {
-        self.request(content)
-            .is_some_and(|request| self.state.lock().proof.graph_ready(request))
+        self.graph_blocker(content).is_none()
+    }
+    /// The first condition that holds the graph proof.
+    pub(crate) fn graph_blocker(&self, content: RendererContentCheck) -> Option<&'static str> {
+        match self.request(content) {
+            Some(request) => self.state.lock().proof.graph_blocker(request),
+            None => Some("no readiness request"),
+        }
     }
 }
 pub(crate) fn control_bytes() -> usize {

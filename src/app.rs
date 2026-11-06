@@ -890,6 +890,15 @@ fn update_camera(
         );
     }
 }
+/// The loading gate count that holds, since when, and the graph blocker changes in that time.
+#[derive(Default)]
+struct LoadingStall {
+    gates: u32,
+    since: f64,
+    blocker: Option<&'static str>,
+    changes: u32,
+    logged: bool,
+}
 fn publish_loading(
     reference: Res<RuntimeReference>,
     drive: Res<Drive>,
@@ -903,26 +912,64 @@ fn publish_loading(
     time: Res<Time<Real>>,
     mut last: Local<f64>,
     mut traced: Local<u8>,
+    mut stall: Local<LoadingStall>,
 ) {
     let now = time.elapsed_secs_f64();
     let state = &sim.frame.state;
+    let blocker = renderer.graph_blocker(presentation::readiness::RendererContentCheck {
+        preparation: crate::render_readiness::ContentPreparation::Prepared(
+            crate::render_readiness::ContentKey {
+                session: state.session,
+                selection_revision: state.selection_revision,
+            },
+        ),
+        history_revision: state.motion_revision,
+    });
     let gates = [
         visuals.bound,
         materials.state == presentation::materials::RenderingState::Ready,
         lighting.state == presentation::lighting::RenderingState::Ready,
-        renderer.graph_ready(presentation::readiness::RendererContentCheck {
-            preparation: crate::render_readiness::ContentPreparation::Prepared(
-                crate::render_readiness::ContentKey {
-                    session: state.session,
-                    selection_revision: state.selection_revision,
-                },
-            ),
-            history_revision: state.motion_revision,
-        }),
+        blocker.is_none(),
         plates.ready(),
     ];
     let gates_ready = gates.iter().filter(|ready| **ready).count() as u32;
     let rendering = gates_ready == gates.len() as u32;
+    // A loading that holds on the same gate count for 20 s after the world area writes why. Copy the line from the console.
+    // A graph that never settles shows many blocker changes.
+    if stall.gates != gates_ready {
+        *stall = LoadingStall {
+            gates: gates_ready,
+            since: now,
+            ..default()
+        };
+    }
+    if stall.blocker != blocker {
+        stall.blocker = blocker;
+        stall.changes += 1;
+    }
+    let world_loaded = state.required_total > 0 && state.required_ready >= state.required_total;
+    if !world_loaded {
+        stall.since = now;
+    }
+    if !drive.ready && !stall.logged && now - stall.since >= 20. {
+        stall.logged = true;
+        const NAMES: [&str; 5] = ["visuals", "materials", "lighting", "graph", "plates"];
+        let waiting: Vec<_> = NAMES
+            .iter()
+            .zip(gates)
+            .filter(|(_, ready)| !ready)
+            .map(|(name, _)| *name)
+            .collect();
+        warn!(
+            "Loading holds for 20 s on {waiting:?}. Graph: {} ({} changes). Session {}, selection {}, motion {}, flags {:#x}",
+            blocker.unwrap_or("ready"),
+            stall.changes,
+            state.session,
+            state.selection_revision,
+            state.motion_revision,
+            state.flags,
+        );
+    }
     if state.flags & StateBlock::GENERATION_READY != 0 && *traced & 1 == 0 {
         game_startup_stage("generation", false);
         *traced |= 1;
