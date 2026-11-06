@@ -310,7 +310,7 @@ impl GrassJobs {
         materials: &mut Assets<GrassMaterial>,
         pipelines: &mut WorldPipelines,
         fixed: &crate::presentation::fixed_assets::SourceFixedAssets,
-        uploads: &mut crate::presentation::upload_budget::UploadBudget,
+        uploads: &mut crate::presentation_logic::upload_budget::UploadBudget,
     ) -> Result<(), ReferenceError> {
         let result = self.prepare_inner(
             stream,
@@ -338,7 +338,7 @@ impl GrassJobs {
         materials: &mut Assets<GrassMaterial>,
         pipelines: &mut WorldPipelines,
         fixed: &crate::presentation::fixed_assets::SourceFixedAssets,
-        uploads: &mut crate::presentation::upload_budget::UploadBudget,
+        uploads: &mut crate::presentation_logic::upload_budget::UploadBudget,
     ) -> Result<(), ReferenceError> {
         if !self.instances.is_empty() {
             if self.actor_cpu == 0 {
@@ -776,7 +776,6 @@ impl GrassJobs {
             if !self.worker.retiring(entity_bits)? {
                 return Ok(false);
             }
-            self.worker.remove(entity_bits);
         }
         let physical = self.instances[index]
             .continuation

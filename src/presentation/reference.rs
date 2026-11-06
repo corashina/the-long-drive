@@ -34,7 +34,7 @@ pub struct ValveVisibility {
     pub(crate) opening: OpeningId,
     pub(crate) open: bool,
 }
-pub use super::cap_motion::CapVisual;
+pub use crate::presentation_logic::cap_motion::CapVisual;
 
 #[derive(Resource, Default)]
 pub struct ReferenceVisuals {

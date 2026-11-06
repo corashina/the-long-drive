@@ -5,7 +5,6 @@ pub mod impostor;
 pub mod primary;
 pub mod specular;
 pub mod terrain;
-pub mod terrain_coverage;
 use crate::ownership::upload_receipt;
 mod world_texture_upload;
 pub mod world_textures;
@@ -373,7 +372,7 @@ impl Plugin for SourceMaterialPlugin {
             ExtractResourcePlugin::<MaterialLoading>::default(),
             ExtractResourcePlugin::<RetainedColors>::default(),
             MaterialPlugin::<terrain::TerrainMaterial>::default(),
-            terrain_coverage::TerrainCoveragePlugin,
+            crate::presentation_logic::terrain_coverage::TerrainCoveragePlugin,
             MaterialPlugin::<specular::SpecularMaterial>::default(),
             MaterialPlugin::<impostor::ImpostorMaterial>::default(),
             MaterialPlugin::<grass::material::GrassMaterial>::default(),

@@ -29,7 +29,7 @@ struct Entry {
     staging: usize,
     state: State,
     lods: Option<Arc<super::lod::LodTable>>,
-    nodes: Option<Arc<super::node_plan::NodePlan>>,
+    nodes: Option<Arc<crate::presentation_logic::node_plan::NodePlan>>,
 }
 #[derive(Resource, Default)]
 pub struct SourcePrototypes {
@@ -213,8 +213,11 @@ impl SourcePrototypes {
         &mut self,
         session: u64,
         source: &SourceId,
-        build: impl FnOnce(&LoadedPrototype) -> Result<super::node_plan::NodePlan, ReferenceError>,
-    ) -> Result<Option<Arc<super::node_plan::NodePlan>>, ReferenceError> {
+        build: impl FnOnce(
+            &LoadedPrototype,
+        )
+            -> Result<crate::presentation_logic::node_plan::NodePlan, ReferenceError>,
+    ) -> Result<Option<Arc<crate::presentation_logic::node_plan::NodePlan>>, ReferenceError> {
         let Some(entry) = self
             .entries
             .iter_mut()
@@ -395,7 +398,7 @@ impl SourcePrototypes {
         plans: &mut Assets<SourcePlan>,
         meshes: &mut Assets<Mesh>,
         skins: &mut Assets<SkinnedMeshInverseBindposes>,
-        uploads: &mut crate::presentation::upload_budget::UploadBudget,
+        uploads: &mut crate::presentation_logic::upload_budget::UploadBudget,
     ) -> Result<(), ReferenceError> {
         let session = stream.frame().request.session;
         for entry in &mut self.entries {

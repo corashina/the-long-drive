@@ -1,8 +1,8 @@
 //! Source live car mirrors: `mainscript.MirrorsUpdate`, the "Mirrors" toggle and the
 //! "Mirror draw distance" setting. Each live mirror draws a surface view into its slot image.
-use super::mirror_turns::{draws_per_frame, pick_draws, skipped};
 use super::surface_views::{MIRROR_COUNT, MIRROR_EXTENT, MIRROR_START, SourceSurfaceView};
 use super::world::{instance_materials::InstanceMaterials, instances::SourceInstances};
+use crate::presentation_logic::mirror_turns::{draws_per_frame, pick_draws, skipped};
 use bevy::camera::visibility::RenderLayers;
 use bevy::render::extract_resource::ExtractResource;
 use bevy::{ecs as bevy_ecs, prelude::*, render as bevy_render};

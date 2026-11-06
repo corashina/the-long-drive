@@ -78,11 +78,11 @@ pub struct WorldPresentation<'w, 's> {
     pub writers: ResMut<'w, GrassWriters>,
     pub materials: InstanceMaterials<'w>,
     pub terrain: ResMut<'w, Assets<TerrainMaterial>>,
-    pub coverage: ResMut<'w, crate::presentation::materials::terrain_coverage::TerrainCoverage>,
+    pub coverage: ResMut<'w, crate::presentation_logic::terrain_coverage::TerrainCoverage>,
     pub assets: ResMut<'w, Assets<SourceGltf>>,
     pub plans: ResMut<'w, Assets<super::preflight::SourcePlan>>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
-    pub uploads: ResMut<'w, crate::presentation::upload_budget::UploadBudget>,
+    pub uploads: ResMut<'w, crate::presentation_logic::upload_budget::UploadBudget>,
     pub skins: ResMut<'w, Assets<SkinnedMeshInverseBindposes>>,
     pub batches: ResMut<'w, Assets<crate::presentation::texture_batches::SourceTextureBatch>>,
     pub chains: ResMut<'w, Assets<crate::presentation::primary_image::SourcePrimaryImage>>,
@@ -241,7 +241,7 @@ impl WorldPresentation<'_, '_> {
             &mut self.roots,
         )?;
         {
-            use crate::presentation::materials::terrain_coverage::*;
+            use crate::presentation_logic::terrain_coverage::*;
             self.coverage
                 .set_if_neq(TerrainCoverage(TerrainCoverageUniform::of(&stream.frame())));
         }

@@ -186,7 +186,7 @@ impl SourceWorldVisuals {
         meshes: &mut Assets<Mesh>,
         pipelines: &mut WorldPipelines,
         fixed: &SourceFixedAssets,
-        uploads: &mut crate::presentation::upload_budget::UploadBudget,
+        uploads: &mut crate::presentation_logic::upload_budget::UploadBudget,
     ) -> Result<(), ReferenceError> {
         self.retire_stale(stream, facts, meshes)?;
         let Some((request, surface)) = stream.prepared_surface() else {
