@@ -311,6 +311,7 @@ impl GarageRuntime {
         frame.weather = crate::boundary::WeatherFrame {
             rain: mix.rain,
             flash: mix.flash,
+            wetness: mix.wetness,
             sheltered: self.weather.sheltered,
             wind: wind.dir.map(|v| v * wind.speed),
             gust: wind.gust,

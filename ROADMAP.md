@@ -49,7 +49,6 @@ Test on the PC after all rows: the section test pass in plan.md, with a bench co
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
 | WX3 | Snow | M | Snow kind in the snow biome, flakes, snow cover, snow grip. |
-| WX4 | Wet surfaces | M | Wetness darkens and glosses terrain, roads and props. Puddles on flat ground. |
 | WX5 | Distant weather | M | Rain shafts under far cells. Sky darkens toward the nearest wet cell. |
 | WX7 | Car cabin shelter | S | A roofed car cabin is a shelter. Rain-on-roof loop. |
 | WX8 | Spray and glass drops | M | Wheel spray on wet roads. Drops on the windshield of the seated car. |

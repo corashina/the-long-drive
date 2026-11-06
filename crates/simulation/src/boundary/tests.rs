@@ -197,6 +197,7 @@ fn frame_round_trips() {
         weather: WeatherFrame {
             rain: 0.75,
             flash: 0.,
+            wetness: 0.5,
             sheltered: true,
             wind: [3., -4.],
             gust: 1.5,

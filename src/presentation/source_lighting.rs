@@ -50,6 +50,8 @@ pub struct LightingUniform {
     /// Lamp shadow slots. Only the world view fills them.
     pub lamp_shadows:
         [super::lamp_shadows::LampShadowUniform; crate::reference::lamp_shadows::LAMP_SLOTS],
+    /// `SceneLighting::weather_surface`.
+    pub weather_surface: Vec4,
 }
 
 /// Layout specialization happens only when a pipeline is prepared.
