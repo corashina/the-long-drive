@@ -228,9 +228,19 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .multiplayer-body [hidden] {display:none;}
 #net-room {text-transform:uppercase;}
 #net-host-hint {color:var(--dust);}
+#net-session {display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px;border:2px solid var(--paint);border-radius:3px;text-align:center;}
+#net-session[hidden] {display:none;}
+#net-code-row {display:flex;align-items:center;justify-content:center;gap:12px;}
+#net-code-row span, #net-count {color:var(--dust);}
+#net-code {font:700 2em/1 ui-monospace,Consolas,monospace;letter-spacing:.15em;color:var(--paint);user-select:all;}
+.multiplayer-body #net-players {align-self:stretch;margin:0;padding:0;list-style:none;}
+#net-players li {display:flex;align-items:center;justify-content:center;gap:10px;padding:4px 0;border-top:1px solid var(--seam-soft);}
+#net-players .tag {padding:0 6px;border-radius:3px;background:var(--paint);color:var(--ink);font-size:.8em;font-weight:700;}
+#net-players .ping {color:var(--dust);}
+#net-status {text-align:center;}
+#net-status:empty {display:none;}
 .multiplayer-body fieldset > button {align-self:flex-start;margin-top:6px;}
 .multiplayer-body p {margin:4px 0;}
-.multiplayer-body ul {margin:0;padding-left:20px;}
 #net-chat {position:absolute;left:16px;bottom:96px;width:min(480px,calc(100% - 32px));font:16px Arial,sans-serif;color:#fff;text-shadow:2px 2px 2px #000;pointer-events:none;}
 #net-chat ul {margin:0;padding:0;list-style:none;}
 #net-chat input {width:100%;box-sizing:border-box;min-height:32px;background:#000a;border:1px solid var(--paint);font:inherit;color:#fff;pointer-events:auto;}

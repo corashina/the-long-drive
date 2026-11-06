@@ -67,7 +67,7 @@ export function chatText(text){
 // `save(bytes)`, `download(chunks,total)` of the host world, `session(role,slot)`, `peers([{slot,name,ping}])`. `packets(batch)`: a batch of inbound packets.
 export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performance.now(),setTimer=setInterval,clearTimer=clearInterval}){
  let role=ROLE.OFF,slot=0,peer=null,timer=null,joinStarted=0,lastTick=0,me={name:'',outfit:null};
- let max=MAX_PLAYERS,password='',host=null,mic=null,micCall=null;
+ let max=MAX_PLAYERS,password='',host=null,mic=null,micCall=null,room='';
  const guests=new Map(),looks=new Map();
  const emit=(name,...args)=>on[name]?.(...args);
  const peers=()=>emit('peers',[...looks].map(([s,l])=>({slot:s,name:l.name,ping:s===slot?null:(role===ROLE.HOST?guestBySlot(s)?.ping:host?.ping)??null})));
@@ -75,7 +75,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  const setLook=(s,look)=>{if(look)looks.set(s,look);else looks.delete(s);emit('looks',new Map(looks));peers();};
  function stop(status){
   // Clear the role first. The closes below fire close events that must not stop again.
-  const was=role;role=ROLE.OFF;slot=0;looks.clear();
+  const was=role;role=ROLE.OFF;slot=0;room='';looks.clear();
   if(timer!==null)clearTimer(timer);timer=null;
   const closing=[...guests.values()];guests.clear();
   for(const g of closing){g.reliable?.close();g.pose?.close();closeVoice(g);}
@@ -112,7 +112,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   try{save=await gzip(new TextEncoder().encode(await capture()));}catch{return refuse('save');}
   if(!guests.has(g.id))return;
   const chunks=Math.ceil(save.length/CHUNK);
-  g.reliable.send({t:'welcome',slot:free,chunks,looks:[...looks]});
+  g.reliable.send({t:'welcome',slot:free,max,chunks,looks:[...looks]});
   for(let i=0;i<chunks;i++)g.reliable.send({t:'save',i,data:save.subarray(i*CHUNK,(i+1)*CHUNK)});
   g.welcomed=true;
   if(mic)relay(g,0,mic);
@@ -203,7 +203,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   host.seen=now();
   if(m.t==='refuse')return stop(STATUS[m.reason]??STATUS.connect);
   if(m.t==='welcome'){
-   slot=m.slot;host.welcomed=true;host.chunks=Array(m.chunks);host.received=0;
+   slot=m.slot;max=m.max;host.welcomed=true;host.chunks=Array(m.chunks);host.received=0;
    for(const [s,look] of m.looks)looks.set(s,look);
    looks.set(slot,{name:me.name,outfit:me.outfit});emit('looks',new Map(looks));
    host.pose=peer.connect(host.reliable.peer,{label:'pose',reliable:false,serialization:'raw'});
@@ -234,6 +234,10 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  return {
   get role(){return role;},
   get slot(){return slot;},
+  // The code of the open or joined room, or ''.
+  get code(){return room;},
+  // The player limit of the room.
+  get max(){return max;},
   // Opens a room. Resolves with the room code.
   host({maxPlayers=MAX_PLAYERS,password:pass='',name,outfit}){
    stop();
@@ -241,7 +245,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
    const code=roomCode();
    return new Promise((resolve,reject)=>{
     peer=new Peer(PREFIX+code);
-    peer.on('open',()=>{role=ROLE.HOST;slot=0;setLook(0,me);lastTick=now();timer=setTimer(tick,TICK_MS);emit('session',ROLE.HOST,0);resolve(code);});
+    peer.on('open',()=>{role=ROLE.HOST;slot=0;room=code;setLook(0,me);lastTick=now();timer=setTimer(tick,TICK_MS);emit('session',ROLE.HOST,0);resolve(code);});
     peer.on('connection',accept);
     peer.on('call',hostCall);
     peer.on('error',error=>{if(role===ROLE.OFF){stop();reject(error);}else if(error?.type!=='peer-unavailable')failure(error);});
@@ -257,7 +261,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
    peer.on('error',failure);
    peer.on('call',guestCall);
    peer.on('open',()=>{
-    role=ROLE.GUEST;lastTick=now();timer=setTimer(tick,TICK_MS);
+    role=ROLE.GUEST;room=code;lastTick=now();timer=setTimer(tick,TICK_MS);
     const reliable=peer.connect(PREFIX+code,{label:'reliable',reliable:true,serialization:'binary'});
     host={reliable,pose:null,welcomed:false,ready:false,seen:now(),ping:null,chunks:null,received:0,voices:new Map()};
     reliable.on('open',()=>reliable.send({t:'hello',name:me.name,outfit:me.outfit,build:buildId,exportHash,password:pass}));
