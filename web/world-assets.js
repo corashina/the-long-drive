@@ -52,7 +52,8 @@ export function releaseStartPacks(){
  startPackMeasurements.unused+=packed.size;
  packed=new Map();packHeld=0;
 }
-// Fetch decodes HTTP encodings only. A pack is gzip at rest, so this stream decodes it.
+// A pack is gzip at rest. The hosted site sends a Brotli copy of the decoded pack, which fetch decodes.
+// Otherwise this stream decodes the gzip. The entry receipts check the decoded bytes.
 function readPack(base,pack){
  const entries=pack.files.map(file=>{
   const entry={receipt:files.get(file),ready:false};
@@ -72,7 +73,7 @@ function readPack(base,pack){
   if(declared!==null&&(!/^\d+$/.test(declared)||((!encoding||encoding==='identity')&&Number(declared)!==pack.bytes)))throw Error('Asset declared size differs: '+pack.file);
   if(!response.body)throw Error('Missing asset body.');
   const counted=response.body.pipeThrough(new TransformStream({transform(chunk,control){received+=chunk.byteLength;control.enqueue(chunk);}}));
-  const reader=counted.pipeThrough(new DecompressionStream('gzip')).getReader();
+  const reader=(encoding==='br'?counted:counted.pipeThrough(new DecompressionStream('gzip'))).getReader();
   let index=0,offset=0,bytes=new Uint8Array(entries[0].receipt.bytes);
   const complete=async()=>{
    while(index<entries.length&&offset===bytes.length){

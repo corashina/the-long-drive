@@ -148,6 +148,19 @@ test('start pack gives each entry once, then the file loads alone', async () => 
   }
 });
 
+test('a Brotli start pack response gives the decoded entries', async () => {
+  const fetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(blocks, {headers: {'Content-Encoding': 'br'}});
+  try {
+    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1,
+      packs: [{file: 'packs/start-0.gz', bytes: 1, sha256: 'a'.repeat(64), files: [receipt.file]}]});
+    assert.deepEqual(await readAsset(base, receipt), blocks);
+  } finally {
+    globalThis.fetch = fetch;
+    configureAssetCatalog(base, {files: [receipt], plans: [], dependency_staging_reserve: 1, packs: []});
+  }
+});
+
 test('a bad start pack entry rejects its read', async () => {
   const fetch = globalThis.fetch;
   const pack = gzipSync(new Uint8Array(blocks.length));

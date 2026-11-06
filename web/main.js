@@ -223,7 +223,8 @@ async function downloadManifest(response){
  show();const timer=setInterval(show,250);
  try{
   const packed=new Uint8Array(await new Response(counted).arrayBuffer());
-  // The file is gzip at rest. A host that sends Content-Encoding: gzip gives the plain file here.
+  // The file is gzip at rest. The hosted site sends a Brotli copy of the plain file, and fetch decodes it.
+  // A host that sends Content-Encoding: gzip also gives the plain file here.
   const bytes=packed[0]===0x1f&&packed[1]===0x8b?new Uint8Array(await new Response(new Blob([packed]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()):packed;
   loading.step('download',1,1,mebibytes(bytes.byteLength)+' MiB');
   return bytes;
