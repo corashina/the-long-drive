@@ -30,6 +30,8 @@ export const ROWS={
  ambient_occlusion:{values:LEVELS,default:0},
  // 0 high (a probe job each frame), 1 low (a probe job every 2nd frame), 2 off.
  reflections:{values:LEVELS,default:0},
+ // 0 full, 1 half (mips 1+ only, as Unity masterTextureLimit 1). Applies after a reload.
+ textures:{values:[0,1],default:0},
 };
 const NAMES=Object.keys(ROWS);
 const POSITIONS=1000;

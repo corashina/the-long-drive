@@ -81,9 +81,7 @@ fn game_mode(reference: &ReferenceManifest) -> crate::world::GameMode {
 
 /// The parsed reference of `prepare`, for `run`.
 struct Prepared {
-    reference: Arc<ReferenceManifest>,
-    materials: presentation::materials::SourceMaterials,
-    fixed_assets: presentation::fixed_assets::SourceFixedAssets,
+    reference: ReferenceManifest,
 }
 thread_local! {
     static PREPARED: std::cell::RefCell<Option<Prepared>> = const { std::cell::RefCell::new(None) };
@@ -95,17 +93,9 @@ thread_local! {
 pub fn prepare(manifest: &[u8]) -> Result<String, JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
     console_error_panic_hook::set_once();
-    let reference = Arc::new(ReferenceManifest::from_checked_runtime(manifest).map_err(js_error)?);
+    let reference = ReferenceManifest::from_checked_runtime(manifest).map_err(js_error)?;
     let shell = crate::manifest_shell::shell(&reference).map_err(js_error)?;
-    // The simulation worker checks the reference. Systems need these resources.
-    let materials = presentation::materials::load_materials(&reference).map_err(js_error)?;
-    let fixed_assets =
-        presentation::fixed_assets::SourceFixedAssets::new(&reference).map_err(js_error)?;
-    PREPARED.set(Some(Prepared {
-        reference,
-        materials,
-        fixed_assets,
-    }));
+    PREPARED.set(Some(Prepared { reference }));
     Ok(shell)
 }
 
@@ -114,13 +104,18 @@ pub fn prepare(manifest: &[u8]) -> Result<String, JsValue> {
 /// the first command waits in its queue, and the first frame gives the camera and the world session.
 pub fn run() -> Result<(), JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
-    let Prepared {
-        reference,
-        materials,
-        fixed_assets,
-    } = PREPARED
+    let Prepared { mut reference } = PREPARED
         .take()
         .ok_or_else(|| JsValue::from_str("The reference is not prepared."))?;
+    // The display settings come after `prepare`. Half textures change the renderer records.
+    if crate::display_settings::half_textures() {
+        reference.drop_top_mips();
+    }
+    let reference = Arc::new(reference);
+    // The simulation worker checks the reference. Systems need these resources.
+    let materials = presentation::materials::load_materials(&reference).map_err(js_error)?;
+    let fixed_assets =
+        presentation::fixed_assets::SourceFixedAssets::new(&reference).map_err(js_error)?;
     // The audio bridge exists only after `prepare`.
     if let Err(error) = reference.audio.playback() {
         game_audio_error(&error.to_string());

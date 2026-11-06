@@ -13,7 +13,8 @@ pub(crate) fn wrap(value: u8) -> ImageAddressMode {
     }
 }
 
-pub(super) fn apply_sampler(image: &mut Image, settings: &SamplerRecord) {
+/// `mip_count` is the image mip count. Half texture quality has one fewer than the record.
+pub(super) fn apply_sampler(image: &mut Image, settings: &SamplerRecord, mip_count: u32) {
     let filter = if settings.filter == 0 {
         ImageFilterMode::Nearest
     } else {
@@ -30,7 +31,7 @@ pub(super) fn apply_sampler(image: &mut Image, settings: &SamplerRecord) {
             ImageFilterMode::Nearest
         },
         anisotropy_clamp: u16::from(settings.aniso.max(1)),
-        lod_max_clamp: (settings.mip_count - 1) as f32,
+        lod_max_clamp: (mip_count - 1) as f32,
         ..default()
     });
 }

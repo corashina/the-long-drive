@@ -2,14 +2,14 @@
 // High is the row defaults. Ultra adds 4x MSAA to High. Medium and Low lower the most expensive rows first.
 // A row change by hand that leaves the preset values sets the preset to Custom.
 import {ROWS} from './display-settings.js';
-const NAMES=['shadows','lamp_shadows','ambient_occlusion','antialiasing','reflections','mirrors','grass','scene_scale'];
+const NAMES=['shadows','lamp_shadows','ambient_occlusion','antialiasing','reflections','mirrors','grass','scene_scale','textures'];
 const high={};
 for(const name of NAMES)high[name]=ROWS[name].default;
 export const PRESETS={
  ultra:{...high,antialiasing:0},
  high,
- medium:{...high,shadows:1,ambient_occlusion:1,lamp_shadows:false,antialiasing:1,reflections:1,mirrors:1,grass:1},
- low:{shadows:2,lamp_shadows:false,ambient_occlusion:1,antialiasing:2,reflections:2,mirrors:2,grass:2,scene_scale:75},
+ medium:{...high,shadows:1,ambient_occlusion:1,lamp_shadows:false,antialiasing:1,reflections:1,mirrors:1,grass:1,textures:1},
+ low:{shadows:2,lamp_shadows:false,ambient_occlusion:1,antialiasing:2,reflections:2,mirrors:2,grass:2,scene_scale:75,textures:1},
 };
 const CUSTOM='custom';
 // Integrated GPU vendors of `GPUAdapterInfo`. Intel Arc architectures (`gen-12hp`, `xe-hpg`, `xe2-hpg`) are discrete.

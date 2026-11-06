@@ -83,10 +83,13 @@ impl SourceMaterials {
             .enumerate()
             .map(|(i, f)| (f.as_str(), i))
             .collect();
+        // Half texture quality has no top mip to load.
+        let half = crate::display_settings::half_textures();
         let mut queue: Vec<_> = self
             .textures
             .iter()
             .filter(|t| t.persistent && !t.failed)
+            .filter(|t| t.record.levels(half).is_ok_and(|l| l.skip == 0))
             .filter_map(|t| {
                 let TextureStorage::NativeBc {
                     format,
