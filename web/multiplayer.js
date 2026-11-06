@@ -10,7 +10,7 @@ const NAME_KEY='the-long-slop.player-name',VOICE_KEY='the-long-slop.voice-chat',
 // `voiceKeys()`: the codes of the `voicechat` action. `media`: `navigator.mediaDevices`.
 export function createMultiplayer({document,target,Peer,buildId,exportHash,simulation,saveSession,menu,outfit,storage,room:joinRoom=null,joined=()=>{},reloadJoin,loading,audio,voiceKeys=()=>[],media}){
  const $=selector=>document.querySelector(selector);
- const name=$('#net-name'),hostPassword=$('#net-host-password'),joinPassword=$('#net-join-password'),hostHint=$('#net-host-hint'),codeRow=$('#net-code-row'),max=$('#net-max'),room=$('#net-room'),code=$('#net-code'),status=$('#net-status');
+ const name=$('#net-name'),hostPassword=$('#net-host-password'),joinPassword=$('#net-join-password'),hostHint=$('#net-host-hint'),codeRow=$('#net-code-row'),copyButton=$('#net-code-copy'),max=$('#net-max'),room=$('#net-room'),code=$('#net-code'),status=$('#net-status');
  const hostButton=$('#net-host-start'),joinButton=$('#net-join-start'),leaveButton=$('#net-leave'),players=$('#net-players');
  const log=$('#net-chat-log'),line=$('#net-chat-line'),labels=$('#net-labels'),labelNodes=new Map();
  const voiceOn=$('#net-voice'),voiceMode=$('#net-voice-mode'),micIcon=$('#net-mic');
@@ -27,7 +27,8 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
  function paint(){
   const off=net.role===ROLE.OFF;
   hostButton.disabled=!off||!menu.model.started||menu.model.pending;
-  hostHint.hidden=menu.model.started||!off;codeRow.hidden=net.role!==ROLE.HOST;
+  hostHint.hidden=menu.model.started||!off;
+  codeRow.hidden=!net.code;if(code.textContent!==net.code){code.textContent=net.code;copyButton.textContent='Copy';}
   joinButton.disabled=!off||menu.model.pending;
   leaveButton.hidden=off;
   for(const node of [name,hostPassword,max,room,joinPassword])node.disabled=!off;
@@ -100,11 +101,12 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
  target.gameRemoteVoice=(slot,x,y,z,alive)=>output.place(slot,x,y,z,alive);
  hostButton.addEventListener('click',async()=>{
   storeName();say('Opening a room…');
-  try{const value=await net.host({maxPlayers:Number(max.value),password:hostPassword.value,name:name.value,outfit:outfit.outfit});code.textContent=value;say(`Room code: ${value}`);}
+  try{await net.host({maxPlayers:Number(max.value),password:hostPassword.value,name:name.value,outfit:outfit.outfit});say('Room open. Share the room code above.');}
   catch{say('Cannot reach the connection server.');}
  });
  joinButton.addEventListener('click',()=>{storeName();say('Connecting…');reloadJoin({code:room.value.trim().toUpperCase(),name:name.value,password:joinPassword.value});});
  for(const node of [room,joinPassword])node.addEventListener('keydown',event=>{if(event.code==='Enter'&&!joinButton.disabled)joinButton.click();});
+ copyButton.addEventListener('click',()=>{document.defaultView?.navigator?.clipboard?.writeText(net.code).then(()=>{copyButton.textContent='Copied';},()=>{});});
  leaveButton.addEventListener('click',()=>{net.leave();say('Left the game.');});
  // Enter opens the chat line while playing. Enter sends it, Escape closes it.
  target.addEventListener('keydown',event=>{
