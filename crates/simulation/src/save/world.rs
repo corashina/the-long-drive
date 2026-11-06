@@ -285,9 +285,11 @@ impl PersistentWorld {
         origin: &WorldOrigin,
         vehicle: &crate::world::ObjectKey,
     ) -> [f64; 3] {
+        // One chassis lookup, not one per record: callers run this for every car each step.
+        let chassis = Some(physics.chassis_handle(vehicle));
         self.records
             .iter()
-            .find(|r| r.handle == Some(physics.chassis_handle(vehicle)) && r.state.is_some())
+            .find(|r| r.handle == chassis && r.state.is_some())
             .and_then(|r| r.state)
             .map_or_else(
                 || origin.absolute(physics.snapshot(vehicle).pose.position),

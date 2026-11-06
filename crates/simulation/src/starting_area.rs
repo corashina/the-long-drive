@@ -956,8 +956,11 @@ impl GarageRuntime {
     }
 
     pub fn step(&mut self, reference: &ReferenceManifest, mut input: FrameInput) {
+        use crate::cpu_profile::{Stage, Timer};
+        let mut profile = Timer::new(Stage::StepConditions);
         self.wheels
             .refresh_conditions(&self.area.interaction.conditions);
+        profile.next(Stage::StepWorld);
         if let Err(error) = self.sync_world_activity(reference) {
             self.stream.fail(ReferenceError(error.to_string()));
         }
@@ -980,6 +983,7 @@ impl GarageRuntime {
         if crate::cpu_profile::enabled() {
             crate::host::game_cpu_input_consumed();
         }
+        profile.next(Stage::StepSurvival);
         let factors = self.clock_factors(reference);
         let sleep = self.sleep.output();
         self.lighting.cycle.advance(
@@ -1014,6 +1018,7 @@ impl GarageRuntime {
         self.step_wear(&mut input);
         let smoking = self.step_cigarettes(reference, &mut input);
         self.step_hum(reference, &mut input, smoking);
+        profile.next(Stage::StepVehicles);
         for (key, vehicle) in &mut self.vehicles {
             vehicle.previous = self.persistent_world.absolute_vehicle_position(
                 &self.physics,
@@ -1024,6 +1029,7 @@ impl GarageRuntime {
             vehicle.last_speed = crash::forward_kmh(&self.physics, key);
         }
 
+        profile.next(Stage::StepInteraction);
         self.area.begin_step();
         let preliminary_aim = if self.sleeping() {
             ResolvedAim::default()
@@ -1261,6 +1267,7 @@ impl GarageRuntime {
         {
             self.vehicle = Some(vehicle.clone());
         }
+        profile.next(Stage::StepVehicles);
         let vehicle_input = if previous_seat != self.area.player.seat_body() {
             self.clear_driving_input();
             // Pads stay, so a button held across the seat change gives no edge.
@@ -1372,6 +1379,7 @@ impl GarageRuntime {
             .step_sleds(&mut self.physics, sled_seat, driving_output.controls);
         self.stream.step_trailers(&mut self.physics);
         self.stream.step_followers(&self.physics);
+        profile.next(Stage::StepCreatures);
         self.advance_urine(reference, FIXED_DT);
         self.advance_ambient(reference, FIXED_DT);
         self.advance_weather(reference, FIXED_DT);
@@ -1382,8 +1390,11 @@ impl GarageRuntime {
             .interaction
             .mechanisms
             .apply_reactions(&mut self.physics);
+        profile.next(Stage::StepRapier);
         self.physics.step_physics();
+        profile.next(Stage::StepVehicles);
         self.step_crashes(reference);
+        profile.next(Stage::StepItems);
         self.area
             .player
             .step_head_bob(walking_input, needs.dead, &self.physics, FIXED_DT);
@@ -1423,6 +1434,7 @@ impl GarageRuntime {
         self.area.items.sync_poses(&self.physics);
         self.break_targets(reference);
         self.area.commit_poses(&self.physics, false);
+        profile.next(Stage::StepAudio);
         if let Some(audio) = &mut self.audio {
             audio.fixed_step(&self.area, &self.physics, &self.stream, FIXED_DT);
             audio.hits(
@@ -1477,6 +1489,7 @@ impl GarageRuntime {
                 });
         }
         self.step_car_sounds(reference, input);
+        profile.next(Stage::StepVehicles);
         let driven = self
             .area
             .player
@@ -1532,6 +1545,7 @@ impl GarageRuntime {
             }
         }
 
+        profile.next(Stage::StepWorld);
         self.advance_under_map();
         let focus = self.request_focus();
         let absolute = self.stream.origin.absolute(focus);
@@ -1567,6 +1581,7 @@ impl GarageRuntime {
                 &mut self.physics,
             )
             .expect("persistent world bindings");
+        profile.next(Stage::StepSurvival);
         self.advance_light_fades(reference, FIXED_DT);
         self.advance_cigarettes();
         self.heat_haze

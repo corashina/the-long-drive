@@ -261,7 +261,10 @@ impl SimDriver {
         self.rapier_ms = 0.;
         self.runtime.physics.take_step_ms();
         self.frame_steps = 0;
-        self.net.prepare(&mut self.runtime);
+        {
+            let _profile = crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::StepNetwork);
+            self.net.prepare(&mut self.runtime);
+        }
         if !self.ready && !self.failed {
             // Source storage startup runs once per loading frame.
             if let Err(error) = self
@@ -296,11 +299,12 @@ impl SimDriver {
         }
         self.input_seq = self.frame_seq;
         let started = now();
-        #[cfg(target_arch = "wasm32")]
         let _profile = crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::Physics);
         let real = self.delta_seconds as f32;
         let delta = real * self.runtime.clock_factors(reference).time_scale;
+        let conditions = crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::StepConditions);
         self.runtime.area.interaction.conditions.update(delta, true);
+        drop(conditions);
         let frame = self
             .runtime
             .advance_inventory_frame(reference, raw, delta, self.rendered);

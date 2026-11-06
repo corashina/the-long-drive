@@ -80,6 +80,8 @@ pub struct ItemStore {
     names: Vec<String>,
     slot_owners: HashMap<PartSlotId, Option<ItemId>>,
     generated: BevyHashMap<GeneratedId, ItemId>,
+    /// The inverse of `generated`, so a step finds the key of a dirty item without a scan.
+    generated_keys: BevyHashMap<ItemId, GeneratedId>,
     membership_revision: u64,
     initialized_supplies: HashSet<ItemId>,
     next_generated: u32,
@@ -184,16 +186,18 @@ impl ItemStore {
     pub fn mark_dirty(&mut self, id: ItemId) {
         self.dirty.insert(id);
     }
+    pub fn has_dirty(&self) -> bool {
+        !self.dirty.is_empty()
+    }
     pub fn take_dirty(&mut self) -> Option<ItemId> {
         let id = self.dirty.iter().next().copied()?;
         self.dirty.remove(&id);
         Some(id)
     }
     pub fn object_key(&self, id: ItemId) -> crate::world::ObjectKey {
-        self.generated
-            .iter()
-            .find(|(_, value)| **value == id)
-            .map_or(crate::world::ObjectKey::Imported(id), |(key, _)| {
+        self.generated_keys
+            .get(&id)
+            .map_or(crate::world::ObjectKey::Imported(id), |key| {
                 crate::world::ObjectKey::Generated(key.clone())
             })
     }
@@ -203,8 +207,18 @@ impl ItemStore {
             crate::world::ObjectKey::Generated(id) => self.generated.get(id).copied(),
         }
     }
+    /// Keeps `generated` and its inverse `generated_keys` equal.
+    fn bind_generated(&mut self, key: GeneratedId, id: ItemId) {
+        self.generated_keys.insert(id, key.clone());
+        self.generated.insert(key, id);
+    }
+    fn unbind_generated(&mut self, id: ItemId) {
+        if let Some(key) = self.generated_keys.remove(&id) {
+            self.generated.remove(&key);
+        }
+    }
     pub fn is_generated(&self, id: ItemId) -> bool {
-        self.generated.values().any(|value| *value == id)
+        self.generated_keys.contains_key(&id)
     }
     pub fn generated_bindings(&self) -> impl Iterator<Item = (&GeneratedId, &ItemState)> {
         self.generated
@@ -223,7 +237,9 @@ impl ItemStore {
             + strings(&self.names)
             + map(&self.slot_owners)
             + platform_map(&self.generated)
+            + platform_map(&self.generated_keys)
             + set(&self.initialized_supplies)
+            // `generated_keys` shares the key allocations of `generated`.
             + self
                 .generated
                 .keys()
@@ -309,6 +325,7 @@ impl ItemStore {
         Ok(Self {
             dirty: HashSet::new(),
             generated: BevyHashMap::new(),
+            generated_keys: BevyHashMap::new(),
             membership_revision: 0,
             initialized_supplies: HashSet::new(),
             next_generated: reference
@@ -671,7 +688,7 @@ impl ItemStore {
             buried: false,
         });
         self.membership_revision += 1;
-        self.generated.insert(key, id);
+        self.bind_generated(key, id);
         self.next_generated = next;
         Ok(id)
     }
@@ -769,7 +786,7 @@ impl ItemStore {
         if self.initialized_supplies.contains(&id) {
             return Ok(());
         }
-        if !self.generated.values().any(|value| *value == id) {
+        if !self.is_generated(id) {
             return Err(ReferenceError("Supply is not a generated item".into()));
         }
         let mut entries = Vec::with_capacity(source.fluids.len());
@@ -873,7 +890,7 @@ impl ItemStore {
         Ok(())
     }
     pub fn can_remove_generated(&self, id: ItemId) -> bool {
-        self.generated.values().any(|value| *value == id)
+        self.is_generated(id)
             && self
                 .get(id)
                 .is_some_and(|item| item.location == ItemLocation::World && item.body.is_none())
@@ -881,7 +898,7 @@ impl ItemStore {
 
     /// Unbind colliders first. Held, mounted, and attached items retain their identity.
     pub fn remove_generated(&mut self, id: ItemId) -> bool {
-        if !self.generated.values().any(|value| *value == id) {
+        if !self.is_generated(id) {
             return false;
         }
         let Some(index) = self.indices.get(&id).copied() else {
@@ -890,7 +907,7 @@ impl ItemStore {
         if self.states[index].location != ItemLocation::World || self.states[index].body.is_some() {
             return false;
         }
-        self.generated.retain(|_, value| *value != id);
+        self.unbind_generated(id);
         self.initialized_supplies.remove(&id);
         self.remove_state(index);
         true
@@ -1092,4 +1109,57 @@ pub fn node_pose(reference: &ReferenceManifest, id: NodeId) -> Result<VehiclePos
         position: position.to_array(),
         rotation: rotation.to_array(),
     })
+}
+
+#[cfg(test)]
+mod generated_key_tests {
+    use super::*;
+
+    fn key(ordinal: u32) -> GeneratedId {
+        crate::world::GeneratedKey {
+            layer: crate::world::WorldLayer::Prop,
+            generator: crate::reference::SourceId {
+                file: "props".into(),
+                path_id: 1,
+            },
+            unit: [0, 0],
+            ordinal,
+            children: Vec::new(),
+        }
+        .into()
+    }
+
+    #[test]
+    fn item_keys_follow_generated_bindings() {
+        let mut items = ItemStore {
+            dirty: HashSet::new(),
+            states: Vec::new(),
+            indices: BevyHashMap::new(),
+            body_ids: Vec::new(),
+            names: Vec::new(),
+            slot_owners: HashMap::new(),
+            generated: BevyHashMap::new(),
+            generated_keys: BevyHashMap::new(),
+            membership_revision: 0,
+            initialized_supplies: HashSet::new(),
+            next_generated: 10,
+            origin: WorldOrigin::default(),
+        };
+        let (a, b) = (key(1), key(2));
+        items.bind_generated(a.clone(), ItemId(10));
+        items.bind_generated(b.clone(), ItemId(11));
+        let generated = |items: &ItemStore, id| match items.object_key(id) {
+            crate::world::ObjectKey::Generated(key) => Some(key),
+            crate::world::ObjectKey::Imported(_) => None,
+        };
+        assert!(generated(&items, ItemId(10)) == Some(a.clone()));
+        assert!(generated(&items, ItemId(11)) == Some(b.clone()));
+        assert!(generated(&items, ItemId(3)).is_none(), "an imported item");
+        items.unbind_generated(ItemId(10));
+        assert!(generated(&items, ItemId(10)).is_none());
+        assert!(!items.is_generated(ItemId(10)));
+        assert!(items.is_generated(ItemId(11)));
+        assert_eq!(items.generated_item_id(&a), None);
+        assert_eq!(items.generated_item_id(&b), Some(ItemId(11)));
+    }
 }
