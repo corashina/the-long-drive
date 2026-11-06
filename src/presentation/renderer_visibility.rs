@@ -1,10 +1,7 @@
 //! Camera membership is separate from the union used for mesh and shadow extraction.
 use crate::reference::render_lighting::RendererRecord;
 use bevy::camera::visibility::VisibleEntities;
-use bevy::ecs::{
-    self as bevy_ecs,
-    entity::{EntityHashMap, EntityHashSet},
-};
+use bevy::ecs as bevy_ecs;
 use bevy::prelude::*;
 use std::any::TypeId;
 
@@ -38,16 +35,29 @@ pub struct SourceSortData {
     pub grab: bool,
 }
 
+/// `SourceSortData` changes of this frame, for the render world sort index.
 #[derive(Resource, Default)]
-pub struct CameraVisibility {
-    pub entities: EntityHashSet,
-    pub sort_data: EntityHashMap<SourceSortData>,
+pub struct SortDataChanges {
+    pub removed: Vec<Entity>,
+    pub set: Vec<(Entity, SourceSortData)>,
+}
+
+pub fn collect_sort_data(
+    mut changes: ResMut<SortDataChanges>,
+    changed: Query<(Entity, &SourceSortData), Changed<SourceSortData>>,
+    mut removed: RemovedComponents<SourceSortData>,
+) {
+    changes.removed.clear();
+    changes.removed.extend(removed.read());
+    changes.set.clear();
+    changes
+        .set
+        .extend(changed.iter().map(|(entity, data)| (entity, *data)));
 }
 
 type CameraMesh = (
     Option<&'static SourceRenderer>,
     Option<&'static super::materials::SourceShadowMode>,
-    Option<&'static SourceSortData>,
     Has<SourceMaterialWarmup>,
     Has<CameraHidden>,
     Has<NearTerrain>,
@@ -93,10 +103,7 @@ pub fn filter_camera_visibility(
     )>,
     meshes: Query<CameraMesh, With<Mesh3d>>,
     frame: Res<super::view_frame::SourceViewFrame>,
-    mut output: ResMut<CameraVisibility>,
 ) {
-    output.entities.clear();
-    output.sort_data.clear();
     let class = TypeId::of::<Mesh3d>();
     for (camera, mut visible, view) in &mut views {
         let ranges = view
@@ -108,7 +115,7 @@ pub fn filter_camera_visibility(
             continue;
         }
         entities.retain(|entity| {
-            let Ok((renderer, mode, sort, warmup, hidden, near, (layers, aabb, transform))) =
+            let Ok((renderer, mode, warmup, hidden, near, (layers, aabb, transform))) =
                 meshes.get(*entity)
             else {
                 return false;
@@ -123,10 +130,6 @@ pub fn filter_camera_visibility(
                     || mode.is_some_and(|mode| mode.0 == 3))
             {
                 return false;
-            }
-            output.entities.insert(*entity);
-            if let Some(sort) = sort {
-                output.sort_data.insert(*entity, *sort);
             }
             true
         });
