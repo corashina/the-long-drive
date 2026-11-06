@@ -62,6 +62,8 @@ enum Action {
     Weather {
         kind: Option<crate::weather::WeatherKind>,
     },
+    /// Answers the weather cycle, as `weather` does. It changes nothing. For the F4 weather panel.
+    Forecast,
     /// Answers the player, the cycle, the cars and the items within `radius` metres.
     State { radius: f32 },
     /// Answers the worker CPU profile. `window.gameCpuProfile(true)` starts it and clears it.
@@ -279,6 +281,7 @@ fn apply(
             runtime.weather.cycle.lock(kind);
             Ok(("Weather set.".into(), weather(runtime)))
         }
+        Action::Forecast => Ok(("Weather.".into(), weather(runtime))),
         Action::State { radius } => Ok(("State.".into(), state(runtime, reference, radius))),
         Action::Profile => profile(),
     }
