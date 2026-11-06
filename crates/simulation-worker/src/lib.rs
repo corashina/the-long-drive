@@ -26,7 +26,7 @@ pub fn load(manifest: &[u8]) -> Result<(), JsValue> {
     Ok(())
 }
 
-/// Starts the simulation on the manifest of `load`. A later call replaces the world, as Join does.
+/// Starts the simulation on the manifest of `load`.
 #[wasm_bindgen]
 pub fn start(
     manifest_sha256: String,
@@ -38,10 +38,8 @@ pub fn start(
     save: Vec<u8>,
 ) -> Result<(), JsValue> {
     let reference = REFERENCE
-        .with_borrow(Option::clone)
+        .take()
         .ok_or_else(|| JsValue::from_str("The manifest is not loaded."))?;
-    // The old world goes first, so two worlds never share the WASM memory.
-    SESSION.set(None);
     let init = SimInit {
         mode: GameMode::from_menu(&reference.world, biome, start_car, seed),
         options: GameOptions::from_bits(options),

@@ -739,10 +739,6 @@ impl RendererWorld {
         if !delta.synced {
             return;
         }
-        // A new world session diffs against an empty copy, as Join does. Drop the old world first.
-        if self.request.session != delta.request.session {
-            *self = Self::with_lookups(Arc::clone(&self.lookups));
-        }
         self.request = delta.request;
         self.origin = delta.origin;
         self.failure.clone_from(&delta.failure);

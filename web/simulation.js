@@ -27,7 +27,6 @@ export function createSimulation(worker,onFailure){
   load(manifest){worker.postMessage({manifest},[manifest.buffer]);},
   // `save` moves to the worker. It is the save JSON, or empty for a new game.
   // Resolves with why the save did not load. Commands sent before the start wait in the worker queue.
-  // A later start replaces the world. The worker keeps the multiplayer session for the new world.
   start(hash,drawDistance,biome,startCar,seed,options,save){
    return new Promise((resolve,reject)=>{starting={resolve,reject};worker.postMessage({start:{hash,drawDistance,biome,startCar,seed,options,save}},[save.buffer]);});
   },

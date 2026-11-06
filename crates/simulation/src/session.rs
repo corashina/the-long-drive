@@ -138,29 +138,4 @@ mod tests {
         // The renderer reads session 0 as no world yet.
         assert_ne!(frame.state.session, 0);
     }
-
-    #[test]
-    #[ignore = "requires the installed source export"]
-    fn a_second_session_on_the_kept_reference_has_a_new_world_session() {
-        // Join starts a second session in the worker. The renderer sees the new world by its id.
-        let bytes = crate::reference::read_manifest(crate::reference::INSTALLED_MANIFEST).unwrap();
-        let reference = Arc::new(ReferenceManifest::from_runtime(&bytes).unwrap());
-        let init = || SimInit {
-            mode: Default::default(),
-            options: Default::default(),
-            draw_distance: reference.world.draw_distance.default,
-            manifest_sha256: String::new(),
-            save: Vec::new(),
-        };
-        let mut sessions = [init(), init()].map(|init| {
-            let mut session = Session::new(Arc::clone(&reference), init).unwrap();
-            let mut command = Vec::new();
-            encode_command(&SimCommand::default(), &mut command);
-            let mut frame = SimFrame::default();
-            decode(session.tick(&command).unwrap(), &mut frame).unwrap();
-            frame.state.session
-        });
-        sessions.sort();
-        assert!(sessions[0] != 0 && sessions[0] != sessions[1]);
-    }
 }
