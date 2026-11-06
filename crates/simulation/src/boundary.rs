@@ -939,8 +939,12 @@ pub struct WeatherFrame {
     pub rain: f32,
     /// `WeatherMix::flash`, 0..1.
     pub flash: f32,
+    /// `WeatherMix::snow`, 0..1.
+    pub snow: f32,
     /// `WeatherMix::wetness`, 0..1. Wet surface shaders read it.
     pub wetness: f32,
+    /// `WeatherMix::snow_cover`, 0..1. Surface shaders whiten by it.
+    pub snow_cover: f32,
     /// The player capsule is inside a live interior volume.
     pub sheltered: bool,
     /// Wind velocity without the gust, meters per second along world `x`, `z`.
@@ -972,7 +976,7 @@ pub struct WetCell {
     /// `x`, `z` relative to the render origin.
     pub center: [f32; 2],
     pub radius: f32,
-    /// The rain target times the life strength, 0..1.
+    /// The rain plus snow target times the life strength, 0..1.
     pub wet: f32,
 }
 

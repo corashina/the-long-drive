@@ -349,8 +349,7 @@ fn scene_value(
         overcast: sim.lighting.cycle.overcast,
         weather_surface: Vec4::new(
             sim.weather.wetness,
-            // Snow cover. The sim has no snow state yet.
-            0.,
+            sim.weather.snow_cover,
             sim.state.origin[0].rem_euclid(PUDDLE_PERIOD) as f32,
             sim.state.origin[2].rem_euclid(PUDDLE_PERIOD) as f32,
         ),

@@ -144,10 +144,13 @@ impl GarageRuntime {
         let player = self.stream.origin.absolute(local);
         self.weather.sheltered = bindings.sheltered(&self.physics, local);
         let stream = &mut self.stream;
+        // The ambient temperature of the last step melts the snow cover.
+        let temperature = self.lighting.cycle.output().ambient_temperature;
         self.weather.advance_cells(
             dt,
             player,
             self.net_guest,
+            temperature,
             |xz| stream.biome_at(xz),
             |xz| stream.height_at(xz),
         );
@@ -158,7 +161,8 @@ impl GarageRuntime {
             player,
             |point| stream.terrain_sample(point),
         );
-        self.physics.set_wetness(self.weather.mix().wetness);
+        let mix = self.weather.mix();
+        self.physics.set_ground(mix.wetness, mix.snow_cover);
         let (bindings, items) = (&self.weather_bindings, &self.area.items);
         // WaitForSeconds resumes after Update. Apply the cached targets before later rescans.
         self.weather.apply_wind(

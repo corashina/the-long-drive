@@ -311,7 +311,8 @@ impl GarageRuntime {
         let origin = self.stream.origin.offset;
         let mut cells = [crate::boundary::WetCell::default(); crate::weather::MAX_CELLS];
         let wet = self.weather.cells.iter().filter_map(|c| {
-            let wet = c.kind.target().rain * c.strength();
+            let t = c.kind.target();
+            let wet = (t.rain + t.snow) * c.strength();
             (wet > 0.).then(|| crate::boundary::WetCell {
                 center: [
                     (c.center[0] - origin[0]) as f32,
@@ -326,8 +327,10 @@ impl GarageRuntime {
         }
         frame.weather = crate::boundary::WeatherFrame {
             rain: mix.rain,
+            snow: mix.snow,
             flash: mix.flash,
             wetness: mix.wetness,
+            snow_cover: mix.snow_cover,
             sheltered: self.weather.sheltered,
             wind: wind.dir.map(|v| v * wind.speed),
             gust: wind.gust,

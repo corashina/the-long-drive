@@ -3,7 +3,7 @@ use super::{CellSample, StormRandom, WeatherKind};
 use std::f32::consts::{PI, TAU};
 
 /// Wind speed in meters per second of each kind, in `WeatherKind` order.
-const SPEEDS: [f32; 5] = [2., 4., 6., 12., 1.];
+const SPEEDS: [f32; 6] = [2., 4., 6., 12., 1., 5.];
 /// Largest direction change in radians per second: 9 degrees per minute.
 const TURN_RATE: f32 = 9. * PI / 180. / 60.;
 /// Seconds between the keys of the turn noise.
