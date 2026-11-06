@@ -24,7 +24,7 @@ async function fixture(t) {
   const web = join(root, 'web');
   const manifest = {content_base: 'assets/runtime/current/', file_catalog: {files: [{file: 'world/a.bc'}], packs: [{file: 'packs/start-0.gz'}]}};
   await put(web, 'assets/reference/manifest.json.gz', gzipSync(JSON.stringify(manifest)));
-  await put(web, 'assets/reference/manifest.bin.gz', 'm');
+  await put(web, 'assets/reference/manifest.bin.gz', gzipSync(randomBytes(4096)));
   await put(web, 'index.html', '<html>');
   await put(web, 'main.js', "import('./pkg/the_long_slop.js');fetch('./pkg/the_long_slop_bg.wasm');");
   for (const path of WASM) {
@@ -33,7 +33,7 @@ async function fixture(t) {
   }
   await put(web, 'pkg/the_long_slop.d.ts');
   await put(web, 'assets/runtime/current/world/a.bc', 'a');
-  await put(web, 'assets/runtime/current/packs/start-0.gz', 'p');
+  await put(web, 'assets/runtime/current/packs/start-0.gz', gzipSync(randomBytes(4096)));
   await put(web, 'assets/runtime/current/world/unused.bc', 'b');
   await put(web, 'assets/runtime/old/world/a.bc', 'c');
   await put(web, 'assets/runtime-tmp/world/a.bc', 'd');
@@ -101,7 +101,7 @@ test('routes the WASM files to R2 with Brotli and a file over the Pages size lim
   }
   assert.ok(!await exists(join(site, path)));
   const routes = JSON.parse(await readFile(join(site, '_routes.json'), 'utf8'));
-  assert.deepEqual(routes.include, ['/pkg/*', '/assets/runtime/*', '/api/*']);
+  assert.deepEqual(routes.include, ['/pkg/*', '/assets/runtime/*', '/assets/reference/manifest.bin.gz', '/api/*']);
 });
 
 test('routes a runtime package file to R2 Brotli only when it shrinks by 10% or more', async t => {
@@ -119,13 +119,30 @@ test('routes a runtime package file to R2 Brotli only when it shrinks by 10% or 
   assert.equal(JSON.parse(await readFile(join(site, 'r2.json'), 'utf8'))['/assets/runtime/current/world/a.bc'], undefined);
 });
 
+test('routes start packs and the manifest to R2 Brotli of the decoded bytes', async t => {
+  const {web, site, compressionRoot, packageBrotliRoot} = await fixture(t);
+  const packs = {'assets/runtime/current/packs/start-0.gz': 'p'.repeat(4096), 'assets/reference/manifest.bin.gz': 'm'.repeat(4096)};
+  // Stored gzip is level 0, so Brotli shrinks it by far more than 10%. The fixture files do not shrink.
+  for (const [path, text] of Object.entries(packs)) await writeFile(join(web, path), gzipSync(text, {level: 0}));
+  const {uploads, gzipFiles} = await stageSite({webRoot: web, siteRoot: site, compressionRoot, packageBrotliRoot});
+  const keys = JSON.parse(await readFile(join(site, 'r2.json'), 'utf8'));
+  for (const [path, text] of Object.entries(packs)) {
+    const upload = uploads.find(upload => upload.path === path);
+    assert.deepEqual(keys[`/${path}`], {br: upload.key});
+    assert.equal(brotliDecompressSync(await readFile(upload.source)).toString(), text);
+    assert.ok(await exists(join(site, path)), path);
+  }
+  assert.equal(gzipFiles.count, 2);
+});
+
 test('the function sends Brotli only to clients that accept it', async () => {
   const object = key => ({body: key, size: key.length, httpEtag: `"${key}"`,
     writeHttpMetadata: headers => headers.set('Content-Type', 'application/wasm')});
   const env = {
     LARGE_FILES: {get: async key => object(key)},
     ASSETS: {fetch: async url => String(url).endsWith('/r2.json')
-      ? Response.json({'/pkg/a.wasm': {raw: 'raw', br: 'brotli'}, '/pkg/b.wasm': {br: 'small'}, '/assets/runtime/p/a.bc': {br: 'bc'}})
+      ? Response.json({'/pkg/a.wasm': {raw: 'raw', br: 'brotli'}, '/pkg/b.wasm': {br: 'small'}, '/assets/runtime/p/a.bc': {br: 'bc'},
+        '/assets/reference/manifest.bin.gz': {br: 'manifest'}})
       : new Response('site')},
   };
   const get = (path, encoding) => onRequestGet({env, request: new Request(`https://site${path}`, {headers: {'Accept-Encoding': encoding}})});
@@ -146,6 +163,10 @@ test('the function sends Brotli only to clients that accept it', async () => {
   assert.equal(rawPackage.headers.get('Content-Encoding'), null);
   assert.equal(await rawPackage.text(), 'site');
   assert.equal(await (await get('/assets/runtime/p/other.bc', 'br')).text(), 'site');
+  const manifest = await get('/assets/reference/manifest.bin.gz', 'br');
+  assert.equal(manifest.headers.get('Content-Encoding'), 'br');
+  assert.equal(manifest.headers.get('Cache-Control'), 'public, max-age=0, must-revalidate');
+  assert.equal(await manifest.text(), 'manifest');
 });
 
 test('refuses a file over the Pages size limit without a content hash', async t => {
