@@ -224,7 +224,7 @@ pub fn run() -> Result<(), JsValue> {
         .init_resource::<SimFrameResource>()
         .init_resource::<presentation::world::grass_jobs::GrassJobs>()
         .init_resource::<crate::presentation::world_metrics::MeshMeasurements>()
-        .add_plugins(presentation::upload_budget::install)
+        .add_plugins(crate::presentation_logic::upload_budget::install)
         .add_systems(
             Last,
             (

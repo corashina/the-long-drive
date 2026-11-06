@@ -3,7 +3,6 @@ use super::lighting_scene::PROBE_COUNT;
 use super::surface_views::{
     MIRROR_EXTENT, MIRROR_START, PROBE_START, VIEW_COUNT, WORLD_VIEWS, mirror_view, probe_view,
 };
-use super::view_gate::{FrameFacts, ViewFacts, view_may_draw};
 use super::{
     frame_copy::FrameCopy,
     lighting_assets::LightingRenderAssets,
@@ -16,6 +15,7 @@ use super::{
     surface_views::{SourceSurfaceView, SurfaceResources},
     view_frame::{SourceSubmissionAcks, SourceViewFrame},
 };
+use crate::presentation_logic::view_gate::{FrameFacts, ViewFacts, view_may_draw};
 use crate::reference::reflections::ProbeJob;
 use bevy::camera::{RenderTarget, visibility::RenderLayers};
 use bevy::core_pipeline::core_3d::Transparent3d;

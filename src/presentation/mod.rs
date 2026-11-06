@@ -1,7 +1,6 @@
 pub mod antialiasing;
 pub mod camera;
 pub mod camera_projection;
-mod cap_motion;
 pub mod cigarettes;
 pub mod computer;
 pub mod conditions;
@@ -18,7 +17,6 @@ pub mod light_dither;
 pub mod lighting;
 pub mod materials;
 pub mod mechanisms;
-mod mirror_turns;
 pub mod mirrors;
 pub mod motion_vectors;
 pub mod outfit;
@@ -37,7 +35,6 @@ pub mod sky_traffic;
 pub mod spawned;
 pub mod temporal;
 pub mod uniform_slots;
-pub mod upload_budget;
 pub mod world;
 pub mod world_metrics;
 
@@ -93,7 +90,6 @@ pub mod surface_pass;
 pub mod surface_views;
 pub mod transparent;
 pub mod view_frame;
-pub mod view_gate;
 
 mod pipeline_ownership;
 

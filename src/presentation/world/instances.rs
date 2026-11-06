@@ -4,12 +4,12 @@ use super::{
     grass_jobs::GrassJobs,
     instance_materials::{InstanceMaterial, InstanceMaterials, RendererMaterial, ready},
     lod::{LodInstance, LodOwner, LodSchedule, LodTable},
-    node_plan::{NodePlan, anchor_local, matrix_transform},
     pipelines::{PipelineTicket, WorldPipelines},
     prototype_loader::SourceGltf,
     prototypes::SourcePrototypes,
 };
 use crate::ownership::PresentationLedger;
+use crate::presentation_logic::node_plan::{NodePlan, anchor_local, matrix_transform};
 use crate::world::stream::content_index::InstanceSelection;
 use crate::world::{RendererFact, RendererFacts};
 use crate::{

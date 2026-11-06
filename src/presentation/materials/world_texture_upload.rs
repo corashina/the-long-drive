@@ -1,5 +1,5 @@
 //! Ordered CPU batch owners and GPU acknowledgement.
-use crate::presentation::upload_budget::{UploadBudget, UploadSpend};
+use crate::presentation_logic::upload_budget::{UploadBudget, UploadSpend};
 use crate::{
     ownership::texture_batch::{BatchIdentity, BatchQueue, BatchState, SLOTS},
     presentation::{
