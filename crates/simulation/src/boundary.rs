@@ -939,6 +939,8 @@ pub struct WeatherFrame {
     pub rain: f32,
     /// `WeatherMix::flash`, 0..1.
     pub flash: f32,
+    /// `WeatherMix::wetness`, 0..1. Wet surface shaders read it.
+    pub wetness: f32,
     /// The player capsule is inside a live interior volume.
     pub sheltered: bool,
 }
