@@ -4,7 +4,7 @@ use crate::audio::interiors::WorldInteriors;
 use crate::interaction::items::ItemStore;
 use crate::reference::{ColliderId, ItemId, ReferenceManifest};
 use crate::vehicle::{PhysicsWorld, VehiclePose};
-use crate::weather::{ImportantObject, InteriorVolume};
+use crate::weather::{ImportantObject, InteriorVolume, WeatherKind};
 use rapier3d::math::{Rotation, Vector};
 use rapier3d::prelude::{Collider, ColliderHandle, QueryFilter, Ray, RigidBodyHandle};
 use std::collections::HashMap;
@@ -24,6 +24,10 @@ pub(super) struct WeatherBindings {
 
 /// Shelter blend change per second.
 const SHELTER_FADE: f32 = 2.;
+/// The wind loop is at full gain at this wind speed with gust, in meters per second.
+const WIND_FULL: f32 = 16.;
+/// Wind loop gain inside a shelter.
+const WIND_INSIDE: f32 = 0.3;
 
 impl WeatherBindings {
     /// `interiors` are the garage interior colliders of the live interior list.
@@ -183,6 +187,9 @@ impl GarageRuntime {
             physics,
             |collider| volumes.iter().any(|v| v.collider == collider),
         );
+        self.lighting
+            .cycle
+            .scroll_clouds(dt, self.weather.wind.speed);
         self.lighting.cycle.compose_weather(
             &reference.weather,
             self.weather.influence(),
@@ -243,6 +250,16 @@ impl GarageRuntime {
                 audio.stop_survival_loop(kind, 0);
             }
         }
+        let wind = &self.weather.wind;
+        let blend = 1. - (1. - WIND_INSIDE) * shelter;
+        let gain = (wind.speed * wind.gust / WIND_FULL).min(1.) * blend;
+        let row = audio
+            .reference
+            .survival
+            .iter()
+            .find(|b| b.kind == AudioKind::Wind as u32)
+            .expect("validated wind audio");
+        audio.source_loop(AudioKind::Wind, 0, row.gain[0] * gain, player);
         audio.remove_storm_loops(self.weather.storms());
         // sandstormscript.Update: source.volume = defVolume * llerp.
         let volume = audio
@@ -307,7 +324,10 @@ impl GarageRuntime {
                 .tumbleweeds
                 .spawn(r, now, &[player], |item| spawned.contains(item), cast);
         // Unity AddForce uses Force mode. Integrate one fixed step.
-        let integration_dt = physics.rapier().integration_parameters.dt;
+        // Thunderstorm gusts scale the source force.
+        let storm = self.weather.sample().weight(WeatherKind::Thunderstorm);
+        let scale = 1. + (self.weather.wind.gust - 1.) * storm;
+        let integration_dt = physics.rapier().integration_parameters.dt * scale;
         for (item, force) in self.weather.tumbleweeds.forces() {
             if let Some(handle) = body(item) {
                 self.physics

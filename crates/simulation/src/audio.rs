@@ -1597,6 +1597,7 @@ pub enum AudioKind {
     Rain = 26,
     RainInside = 27,
     Thunder = 28,
+    Wind = 29,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]

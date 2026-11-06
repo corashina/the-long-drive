@@ -34,8 +34,10 @@ const OPACITY: f32 = 0.35;
 struct RainInput {
     count: u32,
     rain: f32,
-    /// Fall offset in meters, 0..BOX.
-    fall: f32,
+    /// Drop offset in meters by fall and wind, each axis 0..BOX.
+    offset: Vec3,
+    /// Drop velocity in meters per second: fall plus wind.
+    velocity: Vec3,
     /// 0 outside, 1 sheltered.
     shelter: f32,
 }
@@ -46,6 +48,8 @@ struct RainParams {
     camera: Vec4,
     color: Vec4,
     controls: Vec4,
+    offset: Vec4,
+    axis: Vec4,
 }
 
 #[derive(Resource)]
@@ -91,7 +95,9 @@ fn snapshot(
     };
     input.rain = weather.rain;
     input.count = (display.rain_drops() as f32 * weather.rain).round() as u32;
-    input.fall = (input.fall + FALL_SPEED * dt).rem_euclid(BOX);
+    let [x, z] = weather.wind.map(|v| v * weather.gust);
+    input.velocity = Vec3::new(x, -FALL_SPEED, z);
+    input.offset = (input.offset + input.velocity * dt).rem_euclid(Vec3::splat(BOX));
     let target = if weather.sheltered { 1. } else { 0. };
     let step = dt / SHELTER_SECONDS;
     input.shelter += (target - input.shelter).clamp(-step, step);
@@ -155,7 +161,9 @@ fn prepare(
             clip_from_world: view.raster_projection * view.view_from_world,
             camera: camera.extend(BOX),
             color: Vec4::new(fog.x, fog.y, fog.z, OPACITY * input.rain),
-            controls: Vec4::new(input.fall, input.shelter, SHELTER_RADIUS, STREAK),
+            controls: Vec4::new(input.shelter, SHELTER_RADIUS, STREAK, 0.),
+            offset: input.offset.extend(0.),
+            axis: input.velocity.normalize().extend(0.),
         },
     );
     pass.uniforms.upload(&queue);

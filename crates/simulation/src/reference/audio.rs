@@ -1039,6 +1039,7 @@ impl AudioGameplayReference {
             (26, "rain"),
             (27, "rain_inside"),
             (28, "thunder"),
+            (29, "wind"),
         ];
         for (kind, role) in required {
             require(

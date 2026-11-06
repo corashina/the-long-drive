@@ -941,6 +941,10 @@ pub struct WeatherFrame {
     pub flash: f32,
     /// The player capsule is inside a live interior volume.
     pub sheltered: bool,
+    /// Wind velocity without the gust, meters per second along world `x`, `z`.
+    pub wind: [f32; 2],
+    /// Wind speed factor, 0.5 to 2.
+    pub gust: f32,
 }
 
 /// What the renderer needs to build a new handle's visual.

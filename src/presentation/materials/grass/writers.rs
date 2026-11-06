@@ -434,10 +434,10 @@ impl GrassWriters {
         self.invalidate();
         Ok(())
     }
-    pub fn update_frame(&mut self, source_camera: Vec3, origin: Vec3, time: f32) {
+    pub fn update_frame(&mut self, source_camera: Vec3, origin: Vec3, wind: Vec4) {
         self.deferred = false;
         if let Some(camera) = self.camera {
-            self.frame = Some(camera.frame(source_camera, origin, time));
+            self.frame = Some(camera.frame(source_camera, origin, wind));
         }
     }
     pub fn ready(&self) -> Result<bool, crate::reference::ReferenceError> {

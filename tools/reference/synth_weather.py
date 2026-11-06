@@ -91,6 +91,21 @@ def thunder(random, seconds, crack, delay):
     return normalize(signal, .8)[:, None]
 
 
+def wind(random, seconds):
+    """A wind loop: low roar and a soft whistle. Periodic swells give gusts."""
+    frames = int(seconds * RATE)
+    t = np.arange(frames) / frames
+    channels = []
+    for _ in range(2):
+        roar = shaped_noise(random, frames, band(40, 500, 2))
+        whistle = shaped_noise(random, frames, band(600, 1400, 4))
+        phase = random.uniform(0, 2 * np.pi, 2)
+        swell = 1 + .35 * np.sin(2 * np.pi * 3 * t + phase[0]) + .15 * np.sin(2 * np.pi * 7 * t + phase[1])
+        signal = normalize(roar, 1.) + .25 * normalize(whistle, 1.) * swell
+        channels.append(signal * swell)
+    return normalize(np.stack(channels, 1), .5)
+
+
 def write_ogg(name, signal, bit_rate):
     with tempfile.TemporaryDirectory() as temp:
         path = Path(temp) / 'clip.wav'
@@ -109,6 +124,7 @@ def main():
     write_ogg('thunder-1.ogg', thunder(random, 6, True, .05), 32000)
     write_ogg('thunder-2.ogg', thunder(random, 7, False, .2), 32000)
     write_ogg('thunder-3.ogg', thunder(random, 8, False, .5), 32000)
+    write_ogg('wind.ogg', wind(random, 12), 48000)
 
 
 if __name__ == '__main__':

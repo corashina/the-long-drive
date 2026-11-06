@@ -311,7 +311,7 @@ impl CloudPass {
                 scene.cloud_speed[index],
                 scene.source_time.x,
                 scene.sky.cloud_motion[index],
-                0.,
+                scene.cloud_wind[index],
             );
             self.uniforms.set(index, value);
         }

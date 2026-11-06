@@ -7,8 +7,12 @@ struct Rain {
     camera: vec4<f32>,
     // rgb: drop color. a: drop opacity.
     color: vec4<f32>,
-    // x: fall offset in meters. y: shelter weight 0..1. z: shelter radius. w: streak length.
+    // x: shelter weight 0..1. y: shelter radius. z: streak length.
     controls: vec4<f32>,
+    // xyz: drop offset in meters by fall and wind.
+    offset: vec4<f32>,
+    // xyz: unit streak axis along the drop velocity.
+    axis: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> rain: Rain;
 
@@ -35,14 +39,14 @@ fn vertex(@builtin(vertex_index) corner: u32, @builtin(instance_index) id: u32) 
     let seed = id * 4u;
     let start = vec3(unit(seed), unit(seed + 1u), unit(seed + 2u)) * size;
     let low = rain.camera.xyz - vec3(0.5 * size);
-    let fallen = start - vec3(0.0, rain.controls.x, 0.0) - low;
+    let fallen = start + rain.offset.xyz - low;
     let center = low + fallen - floor(fallen / size) * size;
     let offset = center - rain.camera.xyz;
     let dist = length(offset);
     // Fade at the box edge to hide the wrap. Fade near drops when sheltered.
     var fade = 1.0 - smoothstep(0.3 * size, 0.5 * size, dist);
-    let radius = rain.controls.z;
-    fade *= mix(1.0, smoothstep(radius, radius + 1.0, dist), rain.controls.y);
+    let radius = rain.controls.y;
+    fade *= mix(1.0, smoothstep(radius, radius + 1.0, dist), rain.controls.x);
     // Two triangles: corners 0 1 2 and 0 2 3 of the quad.
     let x = select(-1.0, 1.0, corner == 1u || corner == 2u || corner == 4u);
     let y = select(0.0, 1.0, corner == 2u || corner == 4u || corner == 5u);
@@ -53,12 +57,12 @@ fn vertex(@builtin(vertex_index) corner: u32, @builtin(instance_index) id: u32) 
         out.clip = vec4(0.0, 0.0, 0.0, 1.0);
         return out;
     }
-    let down = vec3(0.0, -1.0, 0.0);
+    let down = rain.axis.xyz;
     let across = cross(down, offset);
     let side = across / max(length(across), 1e-4);
     // About one pixel wide at every distance, but not thinner than 6 mm.
     let width = max(0.0015 * dist, 0.006);
-    let streak = rain.controls.w * (0.6 + 0.8 * unit(seed + 3u));
+    let streak = rain.controls.z * (0.6 + 0.8 * unit(seed + 3u));
     let world = center + side * (x * width) + down * (y * streak);
     out.clip = rain.clip_from_world * vec4(world, 1.0);
     return out;
