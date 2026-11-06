@@ -204,9 +204,10 @@ pub struct LightingShaders {
     pub motion: Handle<Shader>,
     pub taa: Handle<Shader>,
     pub rain: Handle<Shader>,
+    pub shafts: Handle<Shader>,
 }
 impl LightingShaders {
-    pub(crate) fn handles(&self) -> [&Handle<Shader>; 27] {
+    pub(crate) fn handles(&self) -> [&Handle<Shader>; 28] {
         [
             &self.lighting,
             &self.cloud,
@@ -235,6 +236,7 @@ impl LightingShaders {
             &self.motion,
             &self.taa,
             &self.rain,
+            &self.shafts,
         ]
     }
 }

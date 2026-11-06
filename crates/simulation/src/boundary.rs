@@ -947,6 +947,18 @@ pub struct WeatherFrame {
     pub wind: [f32; 2],
     /// Wind speed factor, 0.5 to 2.
     pub gust: f32,
+    /// Cells with rain, first. The rest have `wet` 0.
+    pub cells: [WetCell; crate::weather::MAX_CELLS],
+}
+
+/// One weather cell with rain, for the distant rain shafts and the sky.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct WetCell {
+    /// `x`, `z` relative to the stream origin.
+    pub center: [f32; 2],
+    pub radius: f32,
+    /// The rain target times the life strength, 0..1.
+    pub wet: f32,
 }
 
 /// What the renderer needs to build a new handle's visual.

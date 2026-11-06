@@ -250,6 +250,7 @@ impl Plugin for SourceFramePlugin {
         super::antialiasing::install(app);
         super::source_effects::install(app);
         super::precipitation::install(app);
+        super::weather_shafts::install(app);
         super::motion_vectors::install(app);
         super::gpu_timing::install(app);
         super::play_pipelines::install(app);

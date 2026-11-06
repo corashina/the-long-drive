@@ -308,6 +308,22 @@ impl GarageRuntime {
         frame.lighting.road_lamp = lighting.road_lamp_output(&reference.lighting);
         let mix = self.weather.mix();
         let wind = &self.weather.wind;
+        let origin = self.stream.origin.offset;
+        let mut cells = [crate::boundary::WetCell::default(); crate::weather::MAX_CELLS];
+        let wet = self.weather.cells.iter().filter_map(|c| {
+            let wet = c.kind.target().rain * c.strength();
+            (wet > 0.).then(|| crate::boundary::WetCell {
+                center: [
+                    (c.center[0] - origin[0]) as f32,
+                    (c.center[1] - origin[2]) as f32,
+                ],
+                radius: c.radius,
+                wet,
+            })
+        });
+        for (slot, cell) in cells.iter_mut().zip(wet) {
+            *slot = cell;
+        }
         frame.weather = crate::boundary::WeatherFrame {
             rain: mix.rain,
             flash: mix.flash,
@@ -315,6 +331,7 @@ impl GarageRuntime {
             sheltered: self.weather.sheltered,
             wind: wind.dir.map(|v| v * wind.speed),
             gust: wind.gust,
+            cells,
         };
         frame.lights.clear();
         frame.lights.extend_from_slice(lighting.light_outputs());

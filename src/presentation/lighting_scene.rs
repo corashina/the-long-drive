@@ -136,6 +136,8 @@ pub struct SceneLighting {
     pub overcast: f32,
     /// x=wetness, y=snow cover, zw=world origin x and z modulo `PUDDLE_PERIOD`.
     pub weather_surface: Vec4,
+    /// Sky darkening toward the wet cells. See `weather_shafts::sky_storm`.
+    pub storm: Vec4,
 }
 impl SceneLighting {
     pub fn for_view(
@@ -351,6 +353,13 @@ fn scene_value(
             0.,
             sim.state.origin[0].rem_euclid(PUDDLE_PERIOD) as f32,
             sim.state.origin[2].rem_euclid(PUDDLE_PERIOD) as f32,
+        ),
+        storm: super::weather_shafts::sky_storm(
+            &sim.weather.cells,
+            Vec2::new(
+                sim.state.body_pose.position[0],
+                sim.state.body_pose.position[2],
+            ),
         ),
     })
 }
