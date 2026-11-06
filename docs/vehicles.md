@@ -166,6 +166,9 @@ So the input sums do not prove the source combined-brake response.
 
 Each wheel carries its source PhysX sprung mass. The body mass splits over the wheels so their loads balance the centre of mass.
 Each wheel then rests at its `targetPosition`. An equal split sank the heavy end of a car into its wheels.
+The damper uses the source PhysX jounce speed: the suspension length change since the last step.
+A wheel that just touched down has no damping in that step.
+Damping on the chassis velocity along body up mixed forward speed into the damper. At speed, a pitch then grew by itself.
 
 Source tire stiffness and Rapier friction describe different models.
 Tire and rim differences, empty hubs, suspension settling, and wheel spin require native measurements before further adapter work.
