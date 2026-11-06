@@ -315,6 +315,16 @@ impl GarageRuntime {
             sheltered: self.weather.sheltered,
             wind: wind.dir.map(|v| v * wind.speed),
             gust: wind.gust,
+            bolt: self.weather.lightning.bolt().map(|bolt| {
+                let mut top = bolt.position;
+                top[1] += f64::from(bolt.height);
+                crate::boundary::BoltFrame {
+                    start: self.stream.origin.local(top),
+                    end: self.stream.origin.local(bolt.position),
+                    seed: bolt.seed,
+                    age: bolt.age,
+                }
+            }),
         };
         frame.lights.clear();
         frame.lights.extend_from_slice(lighting.light_outputs());

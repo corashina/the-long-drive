@@ -932,6 +932,7 @@ impl SourceFixedAssets {
                 motion: shader("shaders/source_motion.wgsl"),
                 taa: shader("shaders/source_taa.wgsl"),
                 rain: shader("shaders/weather_rain.wgsl"),
+                bolt: shader("shaders/weather_bolt.wgsl"),
             };
             self.shaders_bound = true;
         }

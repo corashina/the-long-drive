@@ -409,7 +409,7 @@ impl AudioReference {
             let s = &b.settings;
             require(
                 mixers.contains(&b.mixer)
-                    && b.one_shot == matches!(b.kind, 0 | 10..=15 | 17 | 21 | 22 | 28)
+                    && b.one_shot == matches!(b.kind, 0 | 10..=15 | 17 | 21 | 22 | 28 | 30)
                     && b.source.path_id != 0
                     && b.audio_source.path_id != 0
                     && method(&b.method)
@@ -1040,6 +1040,7 @@ impl AudioGameplayReference {
             (27, "rain_inside"),
             (28, "thunder"),
             (29, "wind"),
+            (30, "thunder_close"),
         ];
         for (kind, role) in required {
             require(

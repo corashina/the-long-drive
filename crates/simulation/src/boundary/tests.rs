@@ -201,6 +201,12 @@ fn frame_round_trips() {
             sheltered: true,
             wind: [3., -4.],
             gust: 1.5,
+            bolt: Some(BoltFrame {
+                start: [1., 700., 2.],
+                end: [1., 0., 2.],
+                seed: 7,
+                age: 0.1,
+            }),
         },
         lights: vec![LightOutput::default()],
         lamp_materials: Vec::new(),

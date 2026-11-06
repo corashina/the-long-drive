@@ -1,5 +1,5 @@
 //! Thunderstorm lightning. A new feature: the source has no lightning.
-//! A strike flashes the light. Its thunder plays after the sound travel time.
+//! A strike flashes the light and shows a bolt. Its thunder plays after the sound travel time.
 use super::StormRandom;
 
 /// Seconds between strikes at full thunderstorm weight.
@@ -12,6 +12,12 @@ const FLASH_SECONDS: f32 = 0.15;
 const SOUND_SPEED: f32 = 343.;
 /// Thunder that waits in the queue. A full queue drops the new thunder.
 const QUEUE: usize = 4;
+/// Seconds that a bolt shows.
+pub const BOLT_SECONDS: f32 = 0.2;
+/// Bolt start height above the strike point, in meters.
+const CLOUD_HEIGHT: [f32; 2] = [500., 900.];
+/// Thunder nearer than this distance in meters plays the close crack.
+pub const CLOSE_DISTANCE: f32 = 600.;
 
 /// One queued thunder. `variant` is 0 to 1 and selects the clip.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -19,6 +25,19 @@ pub struct Thunder {
     pub distance: f32,
     pub variant: f32,
     delay: f32,
+}
+
+/// The visible bolt of the last strike.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Bolt {
+    /// Absolute strike point on the ground.
+    pub position: [f64; 3],
+    /// Start height above `position`, in meters.
+    pub height: f32,
+    /// Selects the jagged shape. The position gives it, so all peers draw the same bolt.
+    pub seed: u32,
+    /// Seconds since the strike.
+    pub age: f32,
 }
 
 #[derive(Debug)]
@@ -29,6 +48,7 @@ pub struct Lightning {
     flash: f32,
     queue: [Thunder; QUEUE],
     count: usize,
+    bolt: Option<Bolt>,
 }
 
 impl Lightning {
@@ -41,6 +61,7 @@ impl Lightning {
             flash: 0.,
             queue: [Thunder::default(); QUEUE],
             count: 0,
+            bolt: None,
         }
     }
 
@@ -49,8 +70,14 @@ impl Lightning {
         self.flash
     }
 
+    /// The bolt while it shows.
+    pub fn bolt(&self) -> Option<Bolt> {
+        self.bolt
+    }
+
     /// Decays the flash and moves the thunder delays. `draw` lets this step draw a strike.
     /// `storm` is the thunderstorm weight at the player, 0 to 1.
+    /// `height_at` gives the ground height at absolute `x`, `z`.
     /// Returns the absolute strike position when a strike occurs.
     pub fn advance(
         &mut self,
@@ -58,8 +85,15 @@ impl Lightning {
         storm: f32,
         player: [f64; 3],
         draw: bool,
+        height_at: impl FnOnce([f64; 2]) -> f32,
     ) -> Option<[f64; 3]> {
         self.flash = (self.flash - dt / FLASH_SECONDS).max(0.);
+        if let Some(bolt) = &mut self.bolt {
+            bolt.age += dt;
+            if bolt.age >= BOLT_SECONDS {
+                self.bolt = None;
+            }
+        }
         for thunder in &mut self.queue[..self.count] {
             thunder.delay -= dt;
         }
@@ -79,13 +113,23 @@ impl Lightning {
         let mut position = player;
         position[0] += (angle.cos() * distance) as f64;
         position[2] += (angle.sin() * distance) as f64;
+        position[1] = height_at([position[0], position[2]]) as f64;
         self.strike(position, player);
         Some(position)
     }
 
-    /// Flashes and queues thunder at the player distance to `position`.
+    /// Flashes, shows a bolt and queues thunder at the player distance to `position`.
     pub fn strike(&mut self, position: [f64; 3], player: [f64; 3]) {
         self.flash = 1.;
+        let bits = position[0].to_bits() ^ position[2].to_bits().rotate_left(32);
+        let seed = crate::world::hash(bits) as u32;
+        let t = (seed >> 8) as f32 / 16_777_216.;
+        self.bolt = Some(Bolt {
+            position,
+            height: CLOUD_HEIGHT[0] + (CLOUD_HEIGHT[1] - CLOUD_HEIGHT[0]) * t,
+            seed,
+            age: 0.,
+        });
         let distance = position
             .iter()
             .zip(player)
@@ -113,10 +157,11 @@ impl Lightning {
         Some(thunder)
     }
 
-    /// A load starts with no flash and no thunder. The random stream keeps its state.
+    /// A load starts with no flash, no bolt and no thunder. The random stream keeps its state.
     pub fn clear(&mut self) {
         self.flash = 0.;
         self.count = 0;
+        self.bolt = None;
     }
 }
 
@@ -132,7 +177,7 @@ mod tests {
         let dt = 0.01;
         let mut seconds = 0.;
         let thunder = loop {
-            lightning.advance(dt, 0., [0.; 3], false);
+            lightning.advance(dt, 0., [0.; 3], false, |_| 0.);
             seconds += dt;
             if let Some(thunder) = lightning.pop_thunder() {
                 break thunder;
@@ -142,7 +187,8 @@ mod tests {
         assert!((seconds - 2.).abs() < 0.02);
         assert_eq!(thunder.distance, 686.);
         assert_eq!(lightning.flash(), 0.);
-        lightning.advance(dt, 0., [0.; 3], false);
+        assert_eq!(lightning.bolt(), None);
+        lightning.advance(dt, 0., [0.; 3], false, |_| 0.);
         assert_eq!(lightning.pop_thunder(), None);
     }
 }

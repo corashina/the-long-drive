@@ -13,7 +13,7 @@ mod tumbleweeds;
 mod wind;
 pub use cells::{CellSample, LOCK_RADIUS, MAX_CELLS, WeatherCell, WeatherCells};
 pub use condition::*;
-pub use lightning::{Lightning, STRIKE_DISTANCE, Thunder};
+pub use lightning::{BOLT_SECONDS, Bolt, CLOSE_DISTANCE, Lightning, STRIKE_DISTANCE, Thunder};
 pub use tumbleweeds::{ImportantObject, Tumbleweeds};
 pub use wind::Wind;
 
@@ -154,13 +154,14 @@ impl WeatherState {
     /// Advances the wind, the cells, the wetness and the lightning. Call it before `advance`.
     /// A `guest` does not age or spawn cells and does not draw strikes. The host sends them.
     /// A guest wind follows the drift direction of the host.
-    /// `biome_at` gives the biome at absolute `x`, `z`.
+    /// `biome_at` gives the biome and `height_at` the ground height at absolute `x`, `z`.
     pub fn advance_cells(
         &mut self,
         dt: f32,
         player: [f64; 3],
         guest: bool,
         biome_at: impl FnOnce([f64; 2]) -> u8,
+        height_at: impl FnOnce([f64; 2]) -> f32,
     ) {
         if !dt.is_finite() || dt <= 0. || !player.iter().all(|v| v.is_finite()) {
             return;
@@ -180,7 +181,7 @@ impl WeatherState {
             (self.wetness - DRY_RATE * dt).max(0.)
         };
         let storm = self.sample.weight(WeatherKind::Thunderstorm);
-        if let Some(position) = self.lightning.advance(dt, storm, player, !guest) {
+        if let Some(position) = self.lightning.advance(dt, storm, player, !guest, height_at) {
             self.strike = Some(position);
         }
         self.mix = WeatherMix {
@@ -659,7 +660,7 @@ mod tests {
         let start = state.wind.dir;
         for _ in 0..6000 {
             let before = state.cells.iter().next().unwrap().center;
-            state.advance_cells(0.1, [0.; 3], false, |_| 2);
+            state.advance_cells(0.1, [0.; 3], false, |_| 2, |_| 0.);
             let after = state.cells.iter().next().unwrap().center;
             let [dx, dz] = [(after[0] - before[0]) as f32, (after[1] - before[1]) as f32];
             let [wx, wz] = state.wind.dir;
