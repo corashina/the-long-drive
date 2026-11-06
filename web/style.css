@@ -174,7 +174,18 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #runtime-error {position:absolute;left:16px;right:16px;top:16px;margin:0;padding:16px;background:#4b211d;color:#fff;overflow-wrap:anywhere;}
 #loading-details {position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100% - 48px));max-height:calc(100% - 170px);overflow:auto;overscroll-behavior:contain;padding:24px 22px 20px;border-radius:6px;background:var(--asphalt-glass);color:var(--bleach);font:400 16px/1.45 var(--menu-font);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
 #loading-details::before {content:"";position:sticky;display:block;top:-24px;height:4px;margin:-24px -22px 20px;background:var(--lane);}
-#loading-details h2 {margin:0 0 12px;font-size:22px;font-weight:800;}
+#loading-details h2 {margin:0 0 12px;font-size:22px;font-weight:800;text-align:center;}
+#loading-room {margin:0 0 18px;padding:0 0 16px;border-bottom:1px solid var(--seam);text-align:center;}
+#loading-room[hidden] {display:none;}
+#loading-details #loading-room-title {margin:0;font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dust);}
+#loading-details #loading-room-code {margin:4px 0 14px;font:700 40px/1 ui-monospace,Consolas,monospace;letter-spacing:.2em;padding-left:.2em;color:var(--paint);}
+#loading-room dl {display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 14px;align-items:baseline;margin:0;text-align:left;}
+#loading-room dt {color:var(--dust);}
+#loading-room dd {margin:0;font-weight:700;}
+#loading-room-players {display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;font-weight:400;}
+#loading-room-players li {padding:1px 10px;border-radius:3px;background:var(--shoulder);border:1px solid var(--seam);}
+#loading-details #loading-room-error {margin:14px 0 0;color:var(--paint-hi);font-weight:700;}
+#loading-steps li[data-state=failed] {color:var(--paint-hi);}
 #loading-details progress {display:block;width:100%;height:10px;accent-color:var(--paint);}
 #loading-details p {margin:10px 0 0;white-space:pre-line;}
 #loading-elapsed {text-align:center;}
