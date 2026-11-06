@@ -52,6 +52,8 @@ pub struct CycleOutput {
     pub flare_brightness: f32,
     /// Active shader time. The cloud shader uses time / 20 with each layer's speed.
     pub shader_time_seconds: f64,
+    /// Weather share of the sky that shows the fog color. 0 is the clear source sky.
+    pub overcast: f32,
 }
 
 impl CycleOutput {
@@ -593,12 +595,17 @@ fn evaluate(
         flare_progress,
         flare_brightness,
         shader_time_seconds: active,
+        overcast: 0.,
     }
 }
 
 /// Cloud shader threshold at full cover. The shader subtracts it from the noise sum, so a lower
 /// value gives more cloud.
-const OVERCAST_CLOUD_THRESHOLD: f32 = 1.;
+const OVERCAST_CLOUD_THRESHOLD: f32 = 0.6;
+/// Sky share that shows the fog color at full cover.
+const OVERCAST_SKY: f32 = 0.85;
+/// Sky share that shows the fog color at full `fog`.
+const FOG_SKY: f32 = 0.95;
 /// Fog density multiplier at full `fog`, on top of 1.
 const FOG_DENSITY_GAIN: f32 = 8.;
 /// Fog density multiplier at full `rain`, on top of 1.
@@ -626,6 +633,7 @@ fn apply_mix(o: &mut CycleOutput, mix: crate::weather::WeatherMix) {
     o.fog_density *= 1. + RAIN_FOG_GAIN * rain + FOG_DENSITY_GAIN * fog * fog;
     o.fog_color = grey(o.fog_color, ambient, cover.max(fog));
     o.flare_brightness *= 1. - cover.max(fog);
+    o.overcast = (OVERCAST_SKY * cover).max(FOG_SKY * fog);
 }
 /// Lerp the RGB channels to their luminance times `shade`. Alpha stays.
 fn grey(c: [f32; 4], shade: f32, t: f32) -> [f32; 4] {
@@ -1308,5 +1316,6 @@ mod tests {
         assert!(output.fog_density > clear.fog_density * 5.);
         assert!(output.clouds[0].density < clear.clouds[0].density);
         assert!(output.directional_intensity < clear.directional_intensity);
+        assert!(output.overcast > 0.9);
     }
 }

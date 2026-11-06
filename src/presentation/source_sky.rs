@@ -17,6 +17,8 @@ struct SkyParams {
     tint_thickness: Vec4,
     ground_exposure: Vec4,
     sun: Vec4,
+    /// Weather: fog color in rgb, sky share in a.
+    overcast: Vec4,
 }
 #[derive(Resource)]
 pub struct SkyPass {
@@ -150,6 +152,7 @@ impl SkyPass {
             tint_thickness: tint,
             ground_exposure: ground,
             sun: Vec4::new(record.sky.sun_size, record.sky.sun_convergence, 0., 0.),
+            overcast: Vec4::ZERO,
         }; super::surface_views::VIEW_COUNT];
         let mut uniforms =
             super::uniform_slots::UniformSlots::new(device, "source_sky", params.len());
@@ -261,6 +264,7 @@ impl SkyPass {
         value.light_radiance = scene.sun_radiance;
         value.tint_thickness = scene.sky.tint.truncate().extend(scene.sky.parameters.y);
         value.ground_exposure = scene.sky.ground.truncate().extend(scene.sky.parameters.x);
+        value.overcast = scene.fog_color_density.truncate().extend(scene.overcast);
         self.write_view(index, position, far, clip_from_world);
     }
 }
