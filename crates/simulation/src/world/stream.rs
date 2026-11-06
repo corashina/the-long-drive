@@ -628,14 +628,68 @@ impl WorldStream {
                 })
             })
             .collect();
+        let roots: Vec<_> = self
+            .replay_roots
+            .iter()
+            .map(|root| {
+                let changes: Vec<_> = self
+                    .replay_indices
+                    .iter()
+                    .filter_map(|&index| {
+                        let (key, change) = self.changes.get_indexed(index);
+                        change.replay.as_ref().is_some_and(|p| p.id == root.id).then(|| {
+                            let active = change.instance.as_ref().and_then(|id| {
+                                self.contents
+                                    .active()
+                                    .iter()
+                                    .chain(&self.static_controls)
+                                    .find(|c| &c.content.placement.id == id)
+                            });
+                            format!(
+                                "{key:?} instance={:?} active={:?}",
+                                change.instance,
+                                active.map(|c| (c.item, c.restored, c.replay_only))
+                            )
+                        })
+                    })
+                    .collect();
+                format!(
+                    "root {:?} prototype {:?} wanted={} cable={:?} static={} changes={} first={:#?} contents: {}",
+                    root.id,
+                    root.prototype,
+                    self.wanted_structures.contains(&root.id),
+                    self.building_cables
+                        .iter()
+                        .find(|(id, _)| id == &root.id)
+                        .map(|(_, c)| c.len()),
+                    self.static_controls
+                        .iter()
+                        .any(|c| c.content.placement.id == root.id),
+                    changes.len(),
+                    &changes[..changes.len().min(4)],
+                    self.contents.replay_audit(&root.id),
+                )
+            })
+            .collect();
         format!(
-            "change_bounds={} revision {} vs {} replay_indices={} replay_roots={} pending_work={} waiting={waiting:#?}",
+            "change_bounds={} revision {} vs {} replay_indices={} replay_roots={} pending_work={} parts={:?} external_jobs={} credit_jobs={} own_jobs={} objects {} of {} staging {} of {} failure={:?} roots={roots:#?} waiting({})={:#?}",
             self.change_bounds.is_some(),
             self.change_revision,
             self.changes.revision(),
             self.replay_indices.len(),
             self.replay_roots.len(),
             self.pending_work(),
+            self.pending_parts(),
+            self.available_external_jobs(),
+            self.ledger.credit().jobs,
+            self.own_jobs(),
+            self.generated_objects(),
+            self.limits.objects,
+            self.available_staging_bytes(),
+            self.ledger.staging_limit(),
+            self.failure,
+            waiting.len(),
+            &waiting[..waiting.len().min(3)],
         )
     }
     pub fn saved_bindings_ready(&self, items: &crate::interaction::items::ItemStore) -> bool {

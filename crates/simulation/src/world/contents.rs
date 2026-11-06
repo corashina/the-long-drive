@@ -229,6 +229,72 @@ impl SourceContents {
                         .any(|b| &b.owner == id && b.replay_only)
             })
     }
+    /// The replay state of root `id`, for test failures.
+    #[cfg(test)]
+    pub fn replay_audit(&self, id: &GeneratedId) -> String {
+        let cursors: Vec<_> = self
+            .cursors
+            .iter()
+            .filter(|c| &c.parent.id == id)
+            .map(|c| {
+                format!(
+                    "replay_only={} root={} building={:?} next={} callers={} deferred_batches={} eligible={:?}",
+                    c.replay_only,
+                    c.root.is_some(),
+                    c.building,
+                    c.next,
+                    c.callers.len(),
+                    c.deferred_batches,
+                    c.initial_eligible,
+                )
+            })
+            .collect();
+        let deferred: Vec<_> = self
+            .deferred
+            .iter()
+            .filter(|b| &b.owner == id)
+            .map(|b| {
+                format!(
+                    "replay_only={} tasks={} next={} eligible={}",
+                    b.replay_only,
+                    b.tasks.len(),
+                    b.next,
+                    b.eligible
+                )
+            })
+            .collect();
+        let owned: Vec<_> = self
+            .active
+            .iter()
+            .filter(|c| &c.content.placement.id == id || &c.origin.id == id)
+            .collect();
+        let sample: Vec<_> = owned
+            .iter()
+            .take(6)
+            .map(|c| {
+                format!(
+                    "{:?} item={:?} restored={} replay_only={} origin={:?}",
+                    c.content.placement.id, c.item, c.restored, c.replay_only, c.origin.id
+                )
+            })
+            .collect();
+        format!(
+            "update={} has_replay={} replay_finished={} cursors_total={} replay_cursors={:?} cursors={cursors:?} deferred_total={} deferred={deferred:?} owned={} owned_restored={} owned_replay_only={} sample={sample:#?}",
+            self.update,
+            self.has_replay(),
+            self.replay_finished(id),
+            self.cursors.len(),
+            self.cursors
+                .iter()
+                .filter(|c| c.replay_only)
+                .map(|c| format!("{:?}", c.parent.id))
+                .collect::<Vec<_>>(),
+            self.deferred.len(),
+            owned.len(),
+            owned.iter().filter(|c| c.restored).count(),
+            owned.iter().filter(|c| c.replay_only).count(),
+        )
+    }
     pub fn replay_origin(&self, id: &GeneratedId) -> Option<&Placement> {
         self.cursors
             .iter()
