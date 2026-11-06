@@ -1,15 +1,14 @@
 // Installed FX/Glass/Stained BumpDistort, selected VS4/PS12.
 #import bevy_pbr::{forward_io::Vertex, mesh_functions, pbr_bindings}
 #import source_float_store::half4
+#import weather_glass::{GlassWater, glass_water}
 
 struct GlassViewUniform {
     clip_from_world: mat4x4<f32>,
     near_far: vec4<f32>,
     grab_texel_size: vec4<f32>,
-    // Drops on the seated car glass, see glass_drops.rs. xyz: camera. w: cabin radius.
-    cabin: vec4<f32>,
-    // x: amount, 0 is off. y: scroll up the glass in meters. z: bead share. w: run stretch.
-    drops: vec4<f32>,
+    // Rain water on the seated car glass. Only the player view sets it.
+    water: GlassWater,
 }
 @group(1) @binding(0) var<uniform> glass_view: GlassViewUniform;
 @group(1) @binding(1) var grab_texture: texture_2d<f32>;
@@ -52,10 +51,8 @@ struct GlassVertex {
     @location(1) bump_uv: vec2<f32>,
     @location(2) main_uv: vec2<f32>,
     @location(3) world: vec3<f32>,
-    // World offset from the mesh origin. It moves with the car.
-    @location(4) rel: vec3<f32>,
 #ifdef VERTEX_NORMALS
-    @location(5) normal: vec3<f32>,
+    @location(4) normal: vec3<f32>,
 #endif
 }
 @vertex
@@ -72,60 +69,14 @@ fn vertex(in: Vertex) -> GlassVertex {
     out.bump_uv = in.uv * source.uv[1].xy + source.uv[1].zw;
     out.main_uv = in.uv * source.uv[0].xy + source.uv[0].zw;
     out.world = world.xyz;
-    out.rel = world.xyz - world_from_local[3].xyz;
 #ifdef VERTEX_NORMALS
     out.normal = mesh_functions::mesh_normal_local_to_world(in.normal, in.instance_index);
 #endif
     return out;
 }
 
-// Drop cell side in meters.
-const DROP_CELL: f32 = 0.05;
-// Grab offset at the drop edge, as a share of the screen.
-const DROP_LENS: f32 = 0.012;
-
-fn pcg(n: u32) -> u32 {
-    let state = n * 747796405u + 2891336453u;
-    let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-    return (word >> 22u) ^ word;
-}
-fn unit(n: u32) -> f32 {
-    return f32(pcg(n) >> 8u) / 16777216.0;
-}
-
-// One drop at most in each cell. xy: lens offset. z: cover 0..1.
-fn drop_layer(p: vec2<f32>, layer: u32, density: f32, stretch: f32) -> vec3<f32> {
-    let g = p / DROP_CELL;
-    let cell = floor(g);
-    let n = pcg((bitcast<u32>(i32(cell.x)) * 1597334677u) ^ (bitcast<u32>(i32(cell.y)) * 3812015801u) ^ layer) * 4u;
-    if unit(n) >= density {
-        return vec3(0.0);
-    }
-    let center = vec2(0.3) + 0.4 * vec2(unit(n + 1u), unit(n + 2u));
-    let radius = mix(0.1, 0.25, unit(n + 3u));
-    let d = (g - cell - center) / vec2(radius, radius * stretch);
-    let cover = 1.0 - dot(d, d);
-    if cover <= 0.0 {
-        return vec3(0.0);
-    }
-    return vec3(d * cover, smoothstep(0.0, 0.3, cover));
-}
-
-// Drops on glass near the camera. Beads stay on the glass. Runs move up by the scroll.
-fn glass_drops(world: vec3<f32>, rel: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-    let drops = glass_view.drops;
-    if drops.x <= 0.0 || distance(world, glass_view.cabin.xyz) > glass_view.cabin.w {
-        return vec3(0.0);
-    }
-    let level = vec3(0.0, 1.0, 0.0) - normal * normal.y;
-    let size = length(level);
-    let up = select(vec3(0.0, 0.0, 1.0), level / size, size > 1e-3);
-    let side = cross(normal, up);
-    let p = vec2(dot(rel, side), dot(rel, up));
-    let beads = drop_layer(p, 1u, 0.45 * drops.x * drops.z, 1.0);
-    let runs = drop_layer(p - vec2(0.0, drops.y), 2u, 0.3 * drops.x, drops.w);
-    return min(beads + runs, vec3(1.0));
-}
+// Grab offset at a water slope of 1, as a share of the screen.
+const WATER_LENS: f32 = 0.012;
 @fragment
 fn fragment(in: GlassVertex) -> @location(0) vec4<f32> {
     // Canonical normal images already contain decoded source AG channels in RGB.
@@ -138,13 +89,13 @@ fn fragment(in: GlassVertex) -> @location(0) vec4<f32> {
 #else
     let face = normalize(cross(dpdx(in.world), dpdy(in.world)));
 #endif
-    let drop = glass_drops(in.world, in.rel, face);
+    let water = glass_water(glass_view.water, in.world, face);
     // Screen y goes down, the glass up goes up.
     let grab_uv = (in.projected_grab.xy + offset * weight) / in.projected_grab.w
-        + vec2(drop.x, -drop.y) * DROP_LENS;
+        + vec2(water.slope.x, -water.slope.y) * WATER_LENS;
     let main = sample_slot(0u, in.main_uv);
     let grabbed = textureSample(grab_texture, grab_sampler, grab_uv);
     // All RGBA channels replace the destination. The pipeline disables blending.
     let color = grabbed * main * source.color;
-    return half4(vec4(color.rgb * (1.0 - 0.15 * drop.z), color.a));
+    return half4(vec4(color.rgb * (1.0 - 0.15 * water.cover), color.a));
 }

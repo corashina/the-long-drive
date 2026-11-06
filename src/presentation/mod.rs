@@ -61,7 +61,7 @@ pub mod clouds;
 pub mod depth_resolve;
 pub mod frame_copy;
 pub mod frame_graph;
-pub mod glass_drops;
+pub mod glass_water;
 pub mod lighting_assets;
 pub mod lighting_scene;
 pub mod lightning_bolt;

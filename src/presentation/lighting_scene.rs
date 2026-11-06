@@ -166,6 +166,7 @@ impl SceneLighting {
             sun_shadow,
             lamp_shadows,
             weather_surface: self.weather_surface,
+            water: Default::default(),
         }
     }
 }
