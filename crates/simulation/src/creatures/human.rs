@@ -244,7 +244,7 @@ impl Humans {
         let body = physics.insert_body(
             RigidBodyBuilder::dynamic()
                 .pose(pose)
-                .ccd_enabled(true)
+                .ccd_enabled(b.ccd)
                 .lock_rotations()
                 .additional_mass(b.mass_kg)
                 .linear_damping(b.linear_damping)

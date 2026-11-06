@@ -232,7 +232,7 @@ pub mod tests {
         serde_json::from_value(json!({
             "source": src(1), "role": "structure", "asset": 5, "nodes": nodes,
             "controls": [], "excluded_actions": [], "deferred_materials": [], "skins": [],
-            "bodies": [{"source": src(10), "node": 0, "mass_kg": 900.0, "linear_damping": 0.0, "angular_damping": 0.05, "kinematic": false, "use_gravity": true, "constraints": 0, "pose": pose(0.0, 0.0)}],
+            "bodies": [{"source": src(10), "node": 0, "mass_kg": 900.0, "linear_damping": 0.0, "angular_damping": 0.05, "kinematic": false, "use_gravity": true, "ccd": false, "constraints": 0, "pose": pose(0.0, 0.0)}],
             "colliders": [], "prefab_pose": pose(0.0, 0.0),
             "vehicle": {
                 "source": src(11), "body": 0, "car_type": 1, "colliders": [0], "mass_kg": 820.0, "serialized_mass_kg": 900.0,

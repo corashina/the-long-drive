@@ -64,6 +64,8 @@ pub struct RemotePlayerReference {
     /// Body and feet material. Unity combines it with the minimum.
     pub friction: f32,
     pub mass_kg: f32,
+    /// Unity `collisionDetectionMode` is not Discrete. The body uses CCD.
+    pub ccd: bool,
     /// Layer 0 while standing, layer 10 while seated.
     pub standing_membership: u32,
     pub standing_filter: u32,

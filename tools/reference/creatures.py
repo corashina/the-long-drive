@@ -4,7 +4,7 @@ that rabbits sense.
 Directions and positions use the converted space. The conversion negates Unity z. Angles are in degrees.
 """
 import math
-from .source import key, source_id, vector
+from .source import continuous, key, source_id, vector
 from .gltf import convert_point, transform_point
 from .collision import geometry, step_surface, collider_tag, world_pose, quaternion_product
 from .survival import component, managed_evidence
@@ -452,7 +452,7 @@ def rig_records(source, root, records, by_node, parents, node, label):
             **collider_record(source, matrix, c, owner, pose, bool(source.read(c)['m_IsTrigger']))})
     body = {'source': source_id(live), 'mass_kg': live_data['m_Mass'], 'constraints': live_data['m_Constraints'],
             'linear_damping': live_data['m_Drag'], 'angular_damping': live_data['m_AngularDrag'],
-            'colliders': live_colliders}
+            'ccd': continuous(live_data), 'colliders': live_colliders}
     ragdoll_record = {'source': source_id(ragdoll), 'bodies': bodies, 'colliders': colliders, 'joints': joints,
                       'pickups': [pickups[b['node']] for b in bodies]}
     return body, ragdoll_record, matrix, by_reader, anim_colliders

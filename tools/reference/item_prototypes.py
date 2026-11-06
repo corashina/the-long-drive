@@ -1,5 +1,5 @@
 """Checked physical templates. All body and collider IDs are prototype-local."""
-from .source import key, source_id
+from .source import continuous, key, source_id
 from .actions import recover_pickup
 from .collision import world_pose, bake_points, quaternion_product, geometry, step_surface, collider_tag
 from .gltf import GltfExporter
@@ -126,7 +126,7 @@ def recover_item_prototypes(source, manifest, output) -> list[dict]:
             if len(masses)>1 or (not masses and item_id is not None):raise ValueError(f'Prototype body requires one massScript: {key(reader)}')
             bodies.append({'id':len(bodies)+1,'source':source_id(reader),'node':node,'dynamic':not d['m_IsKinematic'],
                 'mass_kg':source.read(masses[0])['mass'] if masses else d['m_Mass'],'linear_damping':d['m_Drag'],'angular_damping':d['m_AngularDrag'],
-                'pose':local_pose,'parent_body':None})
+                'ccd':continuous(d),'pose':local_pose,'parent_body':None})
             body_nodes[node] = bodies[-1]['id']
         def body_for(node):
             while node is not None:

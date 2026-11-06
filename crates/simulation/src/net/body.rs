@@ -76,7 +76,7 @@ impl RemoteBody {
                 .pose(pose)
                 .gravity_scale(0.)
                 .lock_rotations()
-                .ccd_enabled(true)
+                .ccd_enabled(r.ccd)
                 .additional_mass(r.mass_kg),
         );
         let standing = groups(r.standing_membership, r.standing_filter);
@@ -292,6 +292,7 @@ mod tests {
             feet_radius: 0.2,
             friction: 0.,
             mass_kg: 75.,
+            ccd: true,
             standing_membership: 1,
             standing_filter: 4_039_039_487,
             seated_membership: 1 << 10,

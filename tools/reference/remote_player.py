@@ -1,5 +1,5 @@
 """Recover the remote player body: source `mpplayerscript` on `snTempPlayerSync.playerPrefab`."""
-from .source import key, source_id, vector
+from .source import continuous, key, source_id, vector
 from .gltf import convert_point
 from .collision import geometry, world_pose
 from .survival import managed_evidence
@@ -95,7 +95,7 @@ def recover_remote_player(source, local_player, by_source, matrix):
         head_box_center=list(convert_point(vector(box['m_Center']))),
         head_box_half=[v * 0.5 for v in vector(box['m_Size'])],
         feet_center=feet_shape['center'], feet_radius=feet_shape['radius'],
-        friction=body_friction, mass_kg=mass['mass'],
+        friction=body_friction, mass_kg=mass['mass'], ccd=continuous(rigidbody),
         standing_membership=1 << STANDING_LAYER, standing_filter=matrix[STANDING_LAYER],
         seated_membership=1 << SEATED_LAYER, seated_filter=matrix[SEATED_LAYER],
         evidence=managed_evidence(source, [

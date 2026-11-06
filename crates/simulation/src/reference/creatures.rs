@@ -237,6 +237,8 @@ pub struct CreatureBody {
     pub constraints: u32,
     pub linear_damping: f32,
     pub angular_damping: f32,
+    /// Unity `collisionDetectionMode` is not Discrete. The body uses CCD.
+    pub ccd: bool,
     pub colliders: Vec<LiveCollider>,
 }
 
