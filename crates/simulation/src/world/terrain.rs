@@ -1,6 +1,8 @@
 //! Source terrain inputs from the reference, and the tile worker client.
+mod input;
 mod jobs;
 
+pub(in crate::world) use input::TileInput;
 pub(in crate::world) use jobs::{CompletedTerrain, TerrainExecution, TerrainMetadata};
 
 use super::WorldSurface;
