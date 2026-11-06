@@ -264,10 +264,16 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
     } else {
         "linear"
     };
+    // Crunch sources keep their crunch data. The game unpacks it to BC in a worker.
+    let suffix = if native_crunch(*source_format) {
+        "crn"
+    } else {
+        "bc"
+    };
     require(
         input.file
             == format!(
-                "reference/texture-{}-{}-{space}.bc",
+                "reference/texture-{}-{}-{space}.{suffix}",
                 texture.source.file, texture.source.path_id
             ),
         "Native BC source identity",
@@ -275,14 +281,20 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
     input.validate()?;
     let bytes = bc_payload(*format, *width, *height, *mip_count)?;
     // A texture with more than one mip keeps its top mip in a second file.
+    // Crunch: the first file holds the tables and levels 1+, the second the level 0 data.
     let top_bytes = match top {
         None => 0,
         Some(top) => {
             top.validate()?;
             require(
-                top.file.strip_suffix(".top.bc") == input.file.strip_suffix(".bc")
+                top.file.strip_suffix(&format!(".top.{suffix}"))
+                    == input.file.strip_suffix(&format!(".{suffix}"))
                     && top.image_size.is_none()
-                    && top.bytes as usize == bc_payload(*format, *width, *height, 1)?,
+                    && if native_crunch(*source_format) {
+                        top.bytes > 0
+                    } else {
+                        top.bytes as usize == bc_payload(*format, *width, *height, 1)?
+                    },
                 "Native BC top mip receipt",
             )?;
             top.bytes as usize
@@ -291,13 +303,23 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
     require(
         top.is_some() == (*mip_count > 1)
             && input.image_size.is_none()
-            && input.bytes as usize + top_bytes == bytes,
+            && if native_crunch(*source_format) {
+                input.bytes as usize > CRUNCH_HEADER_BYTES
+            } else {
+                input.bytes as usize + top_bytes == bytes
+            },
         "Native BC receipt bytes",
     )?;
     Ok(bytes)
 }
+/// Unity crunched DXT1 and DXT5.
+pub fn native_crunch(source_format: u32) -> bool {
+    matches!(source_format, 28 | 29)
+}
+/// Smallest crunch header with one level.
+const CRUNCH_HEADER_BYTES: usize = 74;
 /// Validate metadata and receipts before scheduling any checked input.
-/// The staging is the checked reader's copy of the raw input. The game decodes nothing.
+/// The staging is the checked reader's copy of the raw input. Only crunch input is decoded.
 pub fn primary_staging(
     texture: &super::TextureRecord,
     catalog: &FileCatalog,
@@ -308,7 +330,12 @@ pub fn primary_staging(
             require(catalog.file(&input.file)? == input, "RGBA8 catalog receipt")?;
             Ok(bytes)
         }
-        super::TextureStorage::NativeBc { input, top, .. } => {
+        super::TextureStorage::NativeBc {
+            input,
+            top,
+            source_format,
+            ..
+        } => {
             let bytes = validate_native_bc(texture)?;
             for receipt in std::iter::once(input).chain(top) {
                 require(
@@ -316,7 +343,11 @@ pub fn primary_staging(
                     "Native BC catalog receipt",
                 )?;
             }
-            Ok(bytes)
+            if !native_crunch(*source_format) {
+                return Ok(bytes);
+            }
+            // Both crunch inputs and the worker output, before it moves into the level vector.
+            Ok(bytes + input.bytes as usize + top.as_ref().map_or(0, |t| t.bytes as usize))
         }
     }
 }

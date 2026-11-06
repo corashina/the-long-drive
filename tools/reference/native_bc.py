@@ -1,4 +1,5 @@
-"""Source BC primary storage and checked private-package conversion."""
+"""Source BC primary storage and checked private-package conversion.
+Crunch sources keep their crunch data. The game unpacks it in a worker."""
 import copy
 import hashlib
 
@@ -54,14 +55,36 @@ def source_blocks(texture):
         raise ValueError('Native BC source has trailing data')
 
 
-def split_blocks(texture):
-    """The top mip and the mips 1+ of a texture. A one-level texture has no top file."""
+CRUNCH = (28, 29)
+
+
+def crunch_split(raw, mip_count):
+    """Split a Unity crunch file at its level offsets.
+    Return the level 0 data and the file start (header, tables) with the data of levels 1+."""
+    if len(raw) < 74 or raw[:2] != b'Hx':
+        raise ValueError('Invalid crunch header')
+    levels = raw[16]
+    offsets = [int.from_bytes(raw[70 + 4 * i:74 + 4 * i], 'big') for i in range(levels)]
+    offsets.append(int.from_bytes(raw[6:10], 'big'))
+    if offsets[-1] != len(raw) or levels != mip_count or any(b <= a for a, b in zip(offsets, offsets[1:])):
+        raise ValueError('Crunch level layout differs from source')
+    if levels == 1:
+        return None, raw
+    return raw[offsets[0]:offsets[1]], raw[:offsets[0]] + raw[offsets[1]:]
+
+
+def split_inputs(texture):
+    """The top mip file and the start file. A one-level texture has no top file.
+    Crunch keeps its crunch data. Other sources store BC blocks."""
+    if texture.m_TextureFormat in CRUNCH:
+        return crunch_split(texture.get_image_data(), texture.m_MipCount)
     levels = list(source_blocks(texture))
     return (levels[0], b''.join(levels[1:])) if len(levels) > 1 else (None, levels[0])
 
 
 def top_file(name):
-    return name.removesuffix('.bc') + '.top.bc'
+    stem, suffix = name.rsplit('.', 1)
+    return f'{stem}.top.{suffix}'
 
 
 def receipt(name, data):
@@ -89,10 +112,18 @@ def storage(source, reader, entry, family):
     if (entry['sampler'] != expected_sampler or entry['color_space'] != ('srgb' if data['m_ColorSpace'] == 1 else 'linear')
             or [(m['width'], m['height']) for m in entry['mips']] != expected_mips):
         raise ValueError('Primary metadata differs from source')
-    top, rest = split_blocks(source.texture_object(reader))
+    texture = source.texture_object(reader)
+    top, rest = split_inputs(texture)
     entry['encoding'] = stored_encoding(entry, family)
     identity = entry['source']
-    name = f"reference/texture-{identity['file']}-{identity['path_id']}-{entry['color_space']}.bc"
+    crunch = data['m_TextureFormat'] in CRUNCH
+    name = (f"reference/texture-{identity['file']}-{identity['path_id']}-{entry['color_space']}"
+            f".{'crn' if crunch else 'bc'}")
+    if crunch:
+        # The export checks the game unpacker against these BC blocks (crunch_evidence).
+        blocks = hashlib.sha256(b''.join(source_blocks(texture))).hexdigest()
+        source.__dict__.setdefault('crunch_evidence', {})[name] = {
+            'input': name, 'top': top and top_file(name), 'sha256': blocks}
     return {'kind': 'native_bc', 'format': 'bc1' if data['m_TextureFormat'] in (10, 28) else 'bc3',
         'source_format': data['m_TextureFormat'], 'width': data['m_Width'], 'height': data['m_Height'],
         'mip_count': data['m_MipCount'], 'image_count': data['m_ImageCount'],
@@ -108,6 +139,15 @@ def texture_inputs(entry):
     if value['kind'] == 'native_bc':
         return [value['input']['file']] + ([value['top']['file']] if value['top'] else [])
     raise ValueError('Unknown primary storage')
+
+
+def crunch_staging(value):
+    """Staging of a crunch texture: both inputs and the BC levels (Rust primary_staging). Else 0."""
+    if value['kind'] != 'native_bc' or value['source_format'] not in CRUNCH:
+        return 0
+    block = 8 if value['format'] == 'bc1' else 16
+    return (sum(mip_sizes(value['width'], value['height'], value['mip_count'], block))
+            + value['input']['bytes'] + (value['top']['bytes'] if value['top'] else 0))
 
 
 def rgba_bytes(width, height, count):
@@ -143,15 +183,18 @@ def validate_storage(entry, files):
         raise ValueError('Native BC source gate')
     identity = entry['source']
     receipt = value['input']
-    if receipt['file'] != f"reference/texture-{identity['file']}-{identity['path_id']}-{entry['color_space']}.bc":
+    crunch = value['source_format'] in CRUNCH
+    if receipt['file'] != (f"reference/texture-{identity['file']}-{identity['path_id']}-{entry['color_space']}"
+                           f".{'crn' if crunch else 'bc'}"):
         raise ValueError('Native BC source identity')
     sizes = mip_sizes(value['width'], value['height'], value['mip_count'], 8 if value['format'] == 'bc1' else 16)
     top = value['top']
     if (top is None) != (len(sizes) == 1) or top and (
-            top['file'] != top_file(receipt['file']) or top['image_size'] is not None or top['bytes'] != sizes[0]
-            or files[top['file']] != top):
+            top['file'] != top_file(receipt['file']) or top['image_size'] is not None
+            or not (top['bytes'] > 0 if crunch else top['bytes'] == sizes[0]) or files[top['file']] != top):
         raise ValueError('Native BC top mip receipt')
-    if receipt['image_size'] is not None or receipt['bytes'] != sum(sizes[1:] if top else sizes):
+    if receipt['image_size'] is not None or not (
+            receipt['bytes'] > 74 if crunch else receipt['bytes'] == sum(sizes[1:] if top else sizes)):
         raise ValueError('Native BC receipt bytes')
     if files[receipt['file']] != receipt:
         raise ValueError('Native BC catalog receipt')

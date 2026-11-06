@@ -153,6 +153,8 @@ struct SourceTexture {
     payload_bytes: usize,
     cpu_reservation: usize,
     image: Option<Handle<Image>>,
+    /// Crunch tables kept until the top mip loads.
+    crunch_tables: Option<Arc<[u8]>>,
     /// Renderer steps since the image was added without a completed upload.
     stalled: u32,
     label: String,
@@ -181,6 +183,7 @@ impl SourceTexture {
             payload_bytes,
             cpu_reservation,
             image: None,
+            crunch_tables: None,
             stalled: 0,
             label,
         })
@@ -626,10 +629,11 @@ fn assemble_textures(
         let Some(handle) = &texture.chain else {
             continue;
         };
-        let Some(SourcePrimaryImage(image)) = chains.remove(handle.id()) else {
+        let Some(SourcePrimaryImage(image, tables)) = chains.remove(handle.id()) else {
             continue;
         };
         texture.chain = None;
+        texture.crunch_tables = tables;
         if let Some(retried) = &texture.image {
             images.insert(retried.id(), image).unwrap();
             texture.upload = default();

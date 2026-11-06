@@ -58,6 +58,7 @@ pub mod sky;
 pub mod caster;
 pub(crate) mod caster_material;
 pub mod clouds;
+pub(crate) mod crunch;
 pub mod depth_resolve;
 pub mod frame_copy;
 pub mod frame_graph;

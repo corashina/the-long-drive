@@ -144,16 +144,17 @@ def build_file_catalog(manifest: dict, output: Path) -> dict:
             plans.append({'asset_file': name, 'input': plan_receipt})
             reserve = max(reserve, checked(2 * (plan['json_bytes'] + plan['buffer_bytes'])),
                           checked(2 * plan_receipt['bytes']))
-        # The game reads a primary texture input whole and decodes nothing (primary_staging).
+        # The game reads a primary texture input whole. Only crunch input is decoded (primary_staging).
         if name.endswith(('.rgba', '.bc')):
             reserve = max(reserve, receipt['bytes'])
-    from .native_bc import validate_storage
+    from .native_bc import crunch_staging, validate_storage
     tops = set()
     for material in manifest.get('rendering', {}).get('materials', []):
         for texture in material['properties']['textures']:
             validate_storage(texture, files)
             if texture['storage']['kind'] == 'native_bc' and texture['storage']['top']:
                 tops.add(texture['storage']['top']['file'])
+            reserve = max(reserve, crunch_staging(texture['storage']))
     if reserve >= MAX_STAGING:
         raise ValueError('World input overlap leaves no generation capacity')
     for asset in manifest['assets']:
