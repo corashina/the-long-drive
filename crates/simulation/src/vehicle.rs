@@ -419,9 +419,9 @@ impl PhysicsWorld {
         );
     }
 
-    /// Sets the tire grip of all wheel sets from weather wetness and snow cover, each 0..1.
-    pub fn set_ground(&mut self, wetness: f32, snow_cover: f32) {
-        self.tire_grip = wheel::ground_grip(wetness, snow_cover);
+    /// Sets the tire grip of all wheel sets from weather wetness 0..1.
+    pub fn set_wetness(&mut self, wetness: f32) {
+        self.tire_grip = wheel::wet_grip(wetness);
     }
 
     /// Started contacts of the last step.

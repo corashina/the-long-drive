@@ -134,7 +134,7 @@ pub struct SceneLighting {
     pub source_time: Vec4,
     /// Weather share of the sky that shows the fog color.
     pub overcast: f32,
-    /// x=wetness, y=snow cover, zw=world origin x and z modulo `PUDDLE_PERIOD`.
+    /// x=wetness, y=0, zw=world origin x and z modulo `PUDDLE_PERIOD`.
     pub weather_surface: Vec4,
     /// Sky darkening toward the wet cells. See `weather_shafts::sky_storm`.
     pub storm: Vec4,
@@ -349,7 +349,7 @@ fn scene_value(
         overcast: sim.lighting.cycle.overcast,
         weather_surface: Vec4::new(
             sim.weather.wetness,
-            sim.weather.snow_cover,
+            0.,
             sim.state.origin[0].rem_euclid(PUDDLE_PERIOD) as f32,
             sim.state.origin[2].rem_euclid(PUDDLE_PERIOD) as f32,
         ),

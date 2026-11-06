@@ -1,6 +1,6 @@
 const WINDOW_MS=2000,CAPACITY=4096;
 // `WeatherKind` order.
-const WEATHER=['clear','cloudy','rain','thunderstorm','fog','snow'];
+const WEATHER=['clear','cloudy','rain','thunderstorm','fog'];
 
 export class FrameTimings {
  constructor(){

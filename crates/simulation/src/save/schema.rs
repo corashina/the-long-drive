@@ -1,8 +1,8 @@
 use super::{InstanceId, SaveError, SourceKey};
 use serde::{Deserialize, Serialize};
 
-pub const SAVE_SCHEMA_VERSION: u32 = 48;
-pub const OLDEST_SAVE_SCHEMA_VERSION: u32 = 48;
+pub const SAVE_SCHEMA_VERSION: u32 = 49;
+pub const OLDEST_SAVE_SCHEMA_VERSION: u32 = 49;
 pub fn schema_supported(version: u32) -> bool {
     (OLDEST_SAVE_SCHEMA_VERSION..=SAVE_SCHEMA_VERSION).contains(&version)
 }
@@ -120,7 +120,6 @@ pub struct WeatherSnapshot {
     /// The F4 lock. The only cell is then the lock cell.
     pub locked: bool,
     pub wetness: f32,
-    pub snow_cover: f32,
     pub wind: WindSnapshot,
 }
 /// The wind. A new feature: the source has no wind. The gust starts again from its noise.
@@ -522,7 +521,7 @@ mod g04_ordered_state {
     fn older_schemas_are_rejected_before_payload_reconstruction() {
         for version in [
             6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-            31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49,
+            31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 50,
         ] {
             let payload = format!(r#"{{"schema_version":{version}}}"#);
             assert!(matches!(
@@ -534,9 +533,9 @@ mod g04_ordered_state {
 
     #[test]
     fn current_schema_passes_the_version_gate() {
-        // Schema 48 reaches payload parsing. The empty payload then fails as corrupt data.
+        // Schema 49 reaches payload parsing. The empty payload then fails as corrupt data.
         assert!(matches!(
-            SaveSnapshot::from_json(br#"{"schema_version":48}"#),
+            SaveSnapshot::from_json(br#"{"schema_version":49}"#),
             Err(SaveError::CorruptData(_))
         ));
     }
@@ -556,7 +555,6 @@ mod g04_ordered_state {
             }],
             locked: false,
             wetness: 0.8,
-            snow_cover: 0.4,
             wind: WindSnapshot {
                 dir: [0.6, -0.8],
                 speed: 7.5,

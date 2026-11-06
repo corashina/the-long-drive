@@ -18,13 +18,10 @@ const MIN_SLIP_SPEED: f32 = 1.0;
 const DEFAULT_WHEEL_MASS_KG: f32 = 20.0;
 /// Tire grip multiplier on a fully wet ground.
 const WET_GRIP: f32 = 0.85;
-/// Tire grip multiplier on a full snow cover.
-const SNOW_GRIP: f32 = 0.6;
 
-/// Tire grip multiplier for weather wetness and snow cover, each 0..1.
-pub(super) fn ground_grip(wetness: f32, snow_cover: f32) -> f32 {
-    let wet = 1.0 + (WET_GRIP - 1.0) * wetness.clamp(0.0, 1.0);
-    wet + (SNOW_GRIP - wet) * snow_cover.clamp(0.0, 1.0)
+/// Tire grip multiplier for weather wetness 0..1.
+pub(super) fn wet_grip(wetness: f32) -> f32 {
+    1.0 + (WET_GRIP - 1.0) * wetness.clamp(0.0, 1.0)
 }
 
 /// The parts mounted on one wheel slot.
@@ -370,7 +367,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn wet_and_snow_ground_reduce_grip_force() {
+    fn full_wetness_gives_wet_grip_force() {
         let curve = WheelFrictionCurve {
             extremum_slip: 0.4,
             extremum_value: 1.0,
@@ -398,7 +395,7 @@ mod tests {
             forward_stiffness: 1.0,
             sideways_stiffness: 1.0,
         };
-        let force = |wetness: f32, snow_cover: f32| {
+        let force = |wetness: f32| {
             let mut state = WheelState::new(Vector::ZERO, profile, 0.1);
             state.omega = 5.0 / 0.3;
             state.contact = Some(WheelContact {
@@ -412,15 +409,13 @@ mod tests {
                 velocity: Vector::new(1.0, 0.0, -4.0),
                 sprung_mass: 200.0,
                 gravity: 9.81,
-                grip: ground_grip(wetness, snow_cover),
+                grip: wet_grip(wetness),
             };
             solve(&mut state, &collider, frame, WheelTorques::default(), 0.02).unwrap()
         };
-        let (dry, wet, snow) = (force(0.0, 0.0), force(1.0, 0.0), force(1.0, 1.0));
+        let (dry, wet) = (force(0.0), force(1.0));
         assert!(dry.fx.abs() > 1.0 && dry.fy.abs() > 1.0);
         assert!((wet.fx / dry.fx - 0.85).abs() < 1e-4);
         assert!((wet.fy / dry.fy - 0.85).abs() < 1e-4);
-        assert!((snow.fx / dry.fx - 0.6).abs() < 1e-4);
-        assert!((snow.fy / dry.fy - 0.6).abs() < 1e-4);
     }
 }

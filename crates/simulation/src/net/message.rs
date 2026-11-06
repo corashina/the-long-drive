@@ -195,9 +195,7 @@ pub struct WeatherCellsMessage {
     pub wind_speed: f32,
     pub count: u32,
     pub wetness: f32,
-    pub snow_cover: f32,
     pub locked: u32,
-    pub padding: u32,
 }
 
 /// One host lightning strike at an absolute position.

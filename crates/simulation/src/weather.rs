@@ -91,12 +91,8 @@ pub struct WeatherState {
     pub lightning: Lightning,
     /// The cell sample at the player.
     sample: CellSample,
-    /// The biome under the player at the last step. The sample reads Rain and Snow by it.
-    biome: u8,
     /// 0 to 1. Rain raises it, dry weather lowers it. A guest keeps the host value.
     pub wetness: f32,
-    /// 0 to 1. Snow raises it, it melts above `MELT_TEMPERATURE`. A guest keeps the host value.
-    pub snow_cover: f32,
     mix: WeatherMix,
     /// The rain cover of the player. Set each step.
     pub shelter: Shelter,
@@ -125,9 +121,7 @@ impl WeatherState {
             wind: Wind::new(seed),
             lightning: Lightning::new(seed),
             sample: CellSample::default(),
-            biome: 2,
             wetness: 0.,
-            snow_cover: 0.,
             mix: WeatherMix::default(),
             shelter: Shelter::None,
             strike: None,
@@ -149,27 +143,24 @@ impl WeatherState {
     /// `Some` holds the kind at the player. `None` lets the cells change it again.
     pub fn lock(&mut self, kind: Option<WeatherKind>, player: [f64; 3]) {
         self.cells.lock(kind, [player[0], player[2]]);
-        self.sample = self.cells.sample([player[0], player[2]]).over(self.biome);
+        self.sample = self.cells.sample([player[0], player[2]]);
         self.mix = WeatherMix {
             wetness: self.wetness,
-            snow_cover: self.snow_cover,
             flash: self.lightning.flash(),
             ..self.sample.mix()
         };
     }
 
-    /// Advances the wind, the cells, the wetness, the snow cover and the lightning. Call it before `advance`.
-    /// A `guest` does not age or spawn cells, does not draw strikes and keeps the host wetness and snow cover.
+    /// Advances the wind, the cells, the wetness and the lightning. Call it before `advance`.
+    /// A `guest` does not age or spawn cells, does not draw strikes and keeps the host wetness.
     /// A guest wind keeps the host direction and speed. The host sends them.
     /// `biome_at` gives the biome and `height_at` the ground height at absolute `x`, `z`.
-    /// `temperature` is the ambient temperature in °C.
     pub fn advance_cells(
         &mut self,
         dt: f32,
         player: [f64; 3],
         guest: bool,
-        temperature: f32,
-        biome_at: impl Fn([f64; 2]) -> u8,
+        biome_at: impl FnOnce([f64; 2]) -> u8,
         height_at: impl FnOnce([f64; 2]) -> f32,
     ) {
         if !dt.is_finite() || dt <= 0. || !player.iter().all(|v| v.is_finite()) {
@@ -178,9 +169,8 @@ impl WeatherState {
         self.wind.advance(dt, &self.sample, guest);
         let xz = [player[0], player[2]];
         self.cells
-            .advance(dt, self.wind.drift(), xz, guest, &biome_at);
-        self.biome = biome_at(xz);
-        self.sample = self.cells.sample(xz).over(self.biome);
+            .advance(dt, self.wind.drift(), xz, guest, biome_at);
+        self.sample = self.cells.sample(xz);
         let mix = self.sample.mix();
         if !guest {
             self.wetness = if mix.rain > 0. {
@@ -188,12 +178,6 @@ impl WeatherState {
             } else {
                 (self.wetness - DRY_RATE * dt).max(0.)
             };
-            let melt = if temperature > MELT_TEMPERATURE {
-                MELT_RATE
-            } else {
-                0.
-            };
-            self.snow_cover = (self.snow_cover + (mix.snow * SNOW_RATE - melt) * dt).clamp(0., 1.);
         }
         let storm = self.sample.weight(WeatherKind::Thunderstorm);
         if let Some(position) = self.lightning.advance(dt, storm, player, !guest, height_at) {
@@ -201,7 +185,6 @@ impl WeatherState {
         }
         self.mix = WeatherMix {
             wetness: self.wetness,
-            snow_cover: self.snow_cover,
             flash: self.lightning.flash(),
             ..mix
         };
@@ -237,7 +220,6 @@ impl WeatherState {
             cells: self.cells.iter().copied().collect(),
             locked: self.cells.locked(),
             wetness: self.wetness,
-            snow_cover: self.snow_cover,
             wind: WindSnapshot {
                 dir: self.wind.dir,
                 speed: self.wind.speed,
@@ -257,14 +239,12 @@ impl WeatherState {
         }
         self.cells.set(saved.cells.iter().copied(), saved.locked);
         self.wetness = saved.wetness;
-        self.snow_cover = saved.snow_cover;
         self.wind.follow(saved.wind.dir, saved.wind.speed);
         self.wind.speed = saved.wind.speed;
         self.lightning.clear();
         self.sample = CellSample::default();
         self.mix = WeatherMix {
             wetness: self.wetness,
-            snow_cover: self.snow_cover,
             ..WeatherMix::default()
         };
     }
@@ -653,9 +633,7 @@ impl WeatherState {
             wind: Wind::new(seed),
             lightning: Lightning::new(seed),
             sample: CellSample::default(),
-            biome: 2,
             wetness: 0.,
-            snow_cover: 0.,
             mix: WeatherMix::default(),
             shelter: Shelter::None,
             strike: None,
@@ -681,35 +659,6 @@ mod tests {
     }
 
     #[test]
-    fn snow_cover_rises_and_melts() {
-        let mut state = state();
-        // A Rain lock over the snow biome snows.
-        state.lock(Some(WeatherKind::Rain), [0.; 3]);
-        let snow = WeatherKind::Snow.target().snow;
-        for _ in 0..60 {
-            state.advance_cells(10., [0.; 3], false, -10., |_| 1, |_| 0.);
-        }
-        assert_eq!(state.kind(), WeatherKind::Snow);
-        assert!((state.snow_cover - snow).abs() < 1e-3);
-        assert_eq!(state.mix().snow_cover, state.snow_cover);
-        // Ten minutes at 2 °C do not melt it.
-        state.lock(Some(WeatherKind::Clear), [0.; 3]);
-        for _ in 0..60 {
-            state.advance_cells(10., [0.; 3], false, 2., |_| 1, |_| 0.);
-        }
-        assert!((state.snow_cover - snow).abs() < 1e-3);
-        // Above 2 °C it melts 1 in 15 minutes.
-        for _ in 0..45 {
-            state.advance_cells(10., [0.; 3], false, 5., |_| 1, |_| 0.);
-        }
-        assert!((state.snow_cover - (snow - 0.5)).abs() < 1e-3);
-        for _ in 0..90 {
-            state.advance_cells(10., [0.; 3], false, 5., |_| 1, |_| 0.);
-        }
-        assert_eq!(state.snow_cover, 0.);
-    }
-
-    #[test]
     fn drift_follows_the_wind_direction() {
         let mut state = state();
         let cell = WeatherCell {
@@ -723,7 +672,7 @@ mod tests {
         let start = state.wind.dir;
         for _ in 0..6000 {
             let before = state.cells.iter().next().unwrap().center;
-            state.advance_cells(0.1, [0.; 3], false, 20., |_| 2, |_| 0.);
+            state.advance_cells(0.1, [0.; 3], false, |_| 2, |_| 0.);
             let after = state.cells.iter().next().unwrap().center;
             let [dx, dz] = [(after[0] - before[0]) as f32, (after[1] - before[1]) as f32];
             let [wx, wz] = state.wind.dir;

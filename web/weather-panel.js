@@ -7,7 +7,7 @@ const MAP_RANGE=8000;
 // Arrow pixels per wind m/s.
 const ARROW_SCALE=4;
 // Cell colors by kind. The kind list comes from the forecast reply. Other kinds are grey.
-const COLORS={clear:'#ffd84a',cloudy:'#c8c8c8',rain:'#3c8cff',thunderstorm:'#b44cff',fog:'#9fb7a8',snow:'#ffffff'};
+const COLORS={clear:'#ffd84a',cloudy:'#c8c8c8',rain:'#3c8cff',thunderstorm:'#b44cff',fog:'#9fb7a8'};
 
 export function createWeatherPanel(simulation,guest){
  const root=document.querySelector('#weather-panel'),select=document.querySelector('#weather-kind'),values=document.querySelector('#weather-values');
@@ -44,9 +44,8 @@ export function createWeatherPanel(simulation,guest){
   if(!reply?.ok){values.textContent=reply?.message??'No reply.';return;}
   const data=reply.data;
   if(!kinds)addKinds(data.kinds);
-  const {kind,rain,snow,snow_cover,locked,cells,wind,temperature,wetness}=data;
+  const {kind,rain,locked,cells,wind,temperature,wetness}=data;
   values.textContent='Here: '+kind+'\nRain: '+rain.toFixed(2)+'  Wet: '+wetness.toFixed(2)
-   +'\nSnow: '+snow.toFixed(2)+'  Cover: '+snow_cover.toFixed(2)
    +'\nWind: '+wind.speed.toFixed(1)+' m/s x'+wind.gust.toFixed(2)+'\nTemperature: '+temperature.toFixed(1)+' °C'
    +'\nCells: '+cells.length+'\nLocked: '+(locked?'yes':'no');
   if(document.activeElement!==select)select.value=locked?kind:'';

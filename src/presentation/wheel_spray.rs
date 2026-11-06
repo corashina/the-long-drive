@@ -42,8 +42,6 @@ struct SprayInput {
     /// Changes when the stream origin moves. Old slots are then invalid.
     epoch: u32,
     origin: [f64; 3],
-    /// Snow share of the ground: snow cover over wetness plus snow cover.
-    snow: f32,
     particles: u32,
 }
 
@@ -55,7 +53,6 @@ impl Default for SprayInput {
             dt: 0.,
             epoch: 0,
             origin: [0.; 3],
-            snow: 0.,
             particles: PARTICLES[0],
         }
     }
@@ -134,12 +131,6 @@ fn snapshot(
         input.origin = frame.state.stream_origin;
         input.epoch = input.epoch.wrapping_add(1);
     }
-    let ground = frame.weather.wetness + frame.weather.snow_cover;
-    input.snow = if ground > 0. {
-        frame.weather.snow_cover / ground
-    } else {
-        0.
-    };
     input.particles = PARTICLES[(display.rain as usize).min(PARTICLES.len() - 1)];
 }
 
@@ -227,13 +218,12 @@ fn prepare(
     }
     let camera = view.view_from_world.inverse().w_axis.truncate();
     let fog = scene.fog_color_density.truncate();
-    let color = fog.lerp((fog * 1.6).min(Vec3::ONE), input.snow);
     pass.uniforms.set(
         0,
         &SprayParams {
             clip_from_world: view.raster_projection * view.view_from_world,
             camera: camera.extend(pass.clock),
-            color: color.extend(OPACITY),
+            color: fog.extend(OPACITY),
             controls: Vec4::new(input.particles as f32, LIFE, SLOT_SECONDS, PERIOD),
             births: std::array::from_fn(|i| Vec4::from_slice(&pass.births[i * 4..i * 4 + 4])),
         },
