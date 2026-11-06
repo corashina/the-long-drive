@@ -34,7 +34,15 @@ struct Target {
 struct Job {
     target: Target,
     receipt: FileReceipt,
+    /// Crunch tables. The top file then holds the level 0 crunch data.
+    tables: Option<Arc<[u8]>>,
     handle: Option<Handle<SourceTopMip>>,
+}
+impl Job {
+    /// BC bytes of the top mip.
+    fn bytes(&self) -> usize {
+        (self.target.width as usize / 4) * (self.target.height as usize / 4) * self.target.block
+    }
 }
 struct Upload {
     target: Target,
@@ -57,7 +65,7 @@ impl TopMips {
             .lock()
             .unwrap()
             .iter()
-            .map(|j| j.receipt.bytes as usize)
+            .map(|j| j.bytes() + j.receipt.bytes as usize)
             .sum::<usize>()
             + self
                 .uploads
@@ -87,7 +95,7 @@ impl SourceMaterials {
         let half = crate::display_settings::half_textures();
         let mut queue: Vec<_> = self
             .textures
-            .iter()
+            .iter_mut()
             .filter(|t| t.persistent && !t.failed)
             .filter(|t| t.record.levels(half).is_ok_and(|l| l.skip == 0))
             .filter_map(|t| {
@@ -109,6 +117,7 @@ impl SourceMaterials {
                         block: format.block_bytes(),
                     },
                     receipt: top.clone(),
+                    tables: t.crunch_tables.take(),
                     handle: None,
                 })
             })
@@ -157,11 +166,16 @@ pub(super) fn load_top_mips(
     while jobs.len() < JOBS
         && let Some(mut job) = queue.pop_front()
     {
-        let bytes = job.receipt.bytes as usize;
+        let (input_bytes, bytes) = (job.receipt.bytes as usize, job.bytes());
+        let tables = job.tables.take();
         job.handle = Some(
             server
                 .load_builder()
-                .with_settings(move |s: &mut SourceTopMipSettings| s.bytes = bytes)
+                .with_settings(move |s: &mut SourceTopMipSettings| {
+                    s.input_bytes = input_bytes;
+                    s.bytes = bytes;
+                    s.tables = tables.clone();
+                })
                 .load(job.receipt.file.clone()),
         );
         jobs.push(job);

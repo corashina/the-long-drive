@@ -186,7 +186,10 @@ Body poses contain translation and rotation. `parent_body` identifies moving par
 Node extras contain the resolved source ID in `reference_id`.
 Bind this ID to the manifest's numeric node ID once during loading.
 Asset records include hashes for each referenced buffer and texture.
-Primary textures are source BC blocks (`.bc`) or decoded RGBA8 levels (`.rgba`). The game decodes no image.
+Primary textures are source BC blocks (`.bc`), source crunch data (`.crn`), or decoded RGBA8 levels (`.rgba`).
+A crunch texture keeps the header, tables and levels 1+ in `.crn`, and the level 0 data in `.top.crn`.
+The game unpacks crunch to BC in a worker. It decodes no other image.
+`crunch-evidence.json` holds the exporter BC hash of each crunch texture. The export checks the game unpacker against it.
 Lighting records include separate hashes for shader records, native bytes, sprites, textures, and SMIP chains.
 The runtime verifier checks these files before promotion.
 Runtime lighting shader evidence retains accepted typed JSON and native program bytes.

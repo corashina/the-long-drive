@@ -91,7 +91,11 @@ impl SourceMaterials {
         let cpu = self
             .textures
             .iter()
-            .map(|t| pending_texture_cpu(t) + texture_metadata(&t.record))
+            .map(|t| {
+                pending_texture_cpu(t)
+                    + texture_metadata(&t.record)
+                    + t.crunch_tables.as_ref().map_or(0, |c| c.len())
+            })
             .sum::<usize>()
             + self
                 .records

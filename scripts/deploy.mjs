@@ -1,7 +1,8 @@
 // Stages the built game for Cloudflare Pages and uploads it with Wrangler.
 // The WASM packages get a content hash in their path, so browsers cache them as immutable.
 // Files over the Pages size limit and the Brotli files go to R2 under their SHA-256.
-// Brotli files: the 5 WASM files, and each runtime package file, start pack and the reference manifest that shrinks by 10% or more.
+// Brotli files: the 6 WASM files, and each runtime package file, start pack and the reference manifest that shrinks by 10% or more.
+// Crunch textures (.crn) shrink by about 1%, so they get no Brotli try.
 // Start packs and the manifest are gzip at rest. Their Brotli file holds the decoded bytes, so the game skips its gzip step.
 // `functions/[[path]].js` serves them on the same site. `functions/api/` stores game events in D1.
 // Each deployment carries its own `r2.json` map, so a dashboard rollback also restores its R2 files.
@@ -181,7 +182,8 @@ export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot
     routes[`/${site}`] = {...routes[`/${site}`], br: brotli.sha256};
   }
   const items = [
-    ...manifest.file_catalog.files.map(({file}) => ({path: base + file, source: resolve(packageRoot, file), gzip: false})),
+    ...manifest.file_catalog.files.filter(({file}) => !file.endsWith('.crn'))
+      .map(({file}) => ({path: base + file, source: resolve(packageRoot, file), gzip: false})),
     ...[...manifest.file_catalog.packs, ...manifest.file_catalog.top_packs].map(({file}) => ({path: base + file, source: resolve(packageRoot, file), gzip: true})),
     {path: MANIFEST, source: resolve(webRoot, MANIFEST), gzip: true},
   ];

@@ -1,14 +1,11 @@
 //! Validate runtime manifests with the same contract as the game.
 //! `--encode` reads the exporter JSON and writes the validated manifest file to stdout.
+//! `--crunch` reads stored crunch textures and checks that the game unpacker gives the exporter's BC blocks.
+use sha2::{Digest, Sha256};
 use std::io::{self, Read, Write};
 use the_long_slop::reference::{MAX_MANIFEST_BYTES, ReferenceManifest, encode_manifest};
 
-fn validate() -> Result<(), Box<dyn std::error::Error>> {
-    let encode = match std::env::args().nth(1).as_deref() {
-        None => false,
-        Some("--encode") => true,
-        Some(other) => return Err(format!("Unknown argument: {other}").into()),
-    };
+fn validate(encode: bool) -> Result<(), Box<dyn std::error::Error>> {
     let mut content = Vec::new();
     io::stdin()
         .take(if encode {
@@ -27,8 +24,53 @@ fn validate() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Input: for each texture, the start file and the top file (each a little-endian u32 length
+/// and the bytes, length 0 for no top file), then the SHA-256 of the BC blocks of all levels.
+/// The check unpacks the files as the game does with a late top mip.
+fn check_crunch() -> Result<(), Box<dyn std::error::Error>> {
+    let mut input = Vec::new();
+    io::stdin().read_to_end(&mut input)?;
+    let mut rest = &input[..];
+    let mut take = |count: usize| -> Result<&[u8], String> {
+        let (head, tail) = rest
+            .split_at_checked(count)
+            .ok_or("Truncated crunch check input")?;
+        rest = tail;
+        Ok(head)
+    };
+    let mut index = 0;
+    loop {
+        let Ok(length) = take(4) else { break };
+        let start = take(u32::from_le_bytes(length.try_into()?) as usize)?.to_vec();
+        let length = u32::from_le_bytes(take(4)?.try_into()?) as usize;
+        let top = take(length)?.to_vec();
+        let expected = take(32)?;
+        let blocks = if top.is_empty() {
+            crunch::unpack(&start, 0)?
+        } else {
+            let tables = crunch::tables_bytes(&start)?;
+            let mut blocks = crunch::unpack(&[&start[..tables], &top].concat(), 0)?;
+            blocks.extend(crunch::unpack(&start, 1)?);
+            blocks
+        };
+        if Sha256::digest(&blocks)[..] != *expected {
+            return Err(
+                format!("Crunch texture {index}: BC blocks differ from the exporter").into(),
+            );
+        }
+        index += 1;
+    }
+    Ok(())
+}
+
 fn main() {
-    if let Err(error) = validate() {
+    let result = match std::env::args().nth(1).as_deref() {
+        None => validate(false),
+        Some("--encode") => validate(true),
+        Some("--crunch") => check_crunch(),
+        Some(other) => Err(format!("Unknown argument: {other}").into()),
+    };
+    if let Err(error) = result {
         eprintln!("Runtime manifest contract: {error}");
         std::process::exit(1);
     }

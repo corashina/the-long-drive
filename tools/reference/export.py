@@ -146,7 +146,7 @@ def validate_runtime_paths(manifest):
                 if item['sha256'] != resources[name]:
                     raise ValueError('Runtime dependency hash differs from typed resource')
                 continue
-            if not name.startswith('reference/') or len(Path(name).parts) != 2 or Path(name).suffix not in ('.gltf','.bin','.rgba','.bc'):
+            if not name.startswith('reference/') or len(Path(name).parts) != 2 or Path(name).suffix not in ('.gltf','.bin','.rgba','.bc','.crn'):
                 raise ValueError('Invalid selected runtime dependency')
     for item in runtime_resources(manifest):
         name = item['path']
@@ -209,6 +209,29 @@ def encode_runtime_manifest(content: bytes) -> bytes:
     return result.stdout
 
 
+def verify_crunch(output: Path, manifest) -> None:
+    """Check the game unpacker on every stored crunch texture: its BC blocks match the exporter's."""
+    import struct
+    evidence = json.loads((output/'crunch-evidence.json').read_bytes())
+    stored = {r['file'] for r in manifest['file_catalog']['files'] if r['file'].endswith('.crn')}
+    checked = [e for e in evidence if e['input'] in stored]
+    if stored != {e['input'] for e in checked} | {e['top'] for e in checked if e['top']}:
+        raise ValueError('Crunch evidence differs from the stored crunch files')
+    payload = bytearray()
+    for entry in checked:
+        for name in (entry['input'], entry['top']):
+            data = (output/name.removeprefix('reference/')).read_bytes() if name else b''
+            payload += struct.pack('<I', len(data)) + data
+        payload += bytes.fromhex(entry['sha256'])
+    try:
+        result = subprocess.run(contract_command('run', '--crunch'), input=bytes(payload), capture_output=True, check=False)
+    except OSError as error:
+        raise ValueError('Crunch check needs Docker and the project toolchain image') from error
+    if result.returncode:
+        raise ValueError(f"Crunch check failed: {result.stderr.decode('utf-8', errors='replace').strip()}")
+    print(f'Checked {len(checked)} crunch textures against the exporter BC blocks', flush=True)
+
+
 def verify_reference(output: Path, library) -> None:
     from .library.reader import checked
     from .gltf import check_gltf
@@ -226,6 +249,7 @@ def verify_reference(output: Path, library) -> None:
     validate_acquisition(manifest['acquisition'], manifest)
     if encode_runtime_manifest(content) != runtime_manifest_bytes(output):
         raise ValueError('Runtime manifest file differs from the exporter manifest')
+    verify_crunch(output, manifest)
     validate_runtime_paths(manifest)
     selection=json.loads((output/'library-selection.json').read_bytes())
     evidence_receipts=selection.get('evidence',[])
@@ -234,7 +258,7 @@ def verify_reference(output: Path, library) -> None:
     for record in evidence_receipts:checked(output,record)
     if json.loads((output/'conditions-evidence.json').read_bytes())['conditions']!=manifest['conditions']:
         raise ValueError('Condition evidence differs from runtime records')
-    names = {MANIFEST,RUNTIME_MANIFEST,'geometry-evidence.json','parameter-evidence.json','library-selection.json','lighting-evidence.json','material-evidence.json','plate-evidence.json','flashlights-evidence.json','storage-evidence.json','driving-evidence.json','conditions-evidence.json'}
+    names = {MANIFEST,RUNTIME_MANIFEST,'geometry-evidence.json','parameter-evidence.json','library-selection.json','lighting-evidence.json','material-evidence.json','plate-evidence.json','flashlights-evidence.json','storage-evidence.json','driving-evidence.json','conditions-evidence.json','crunch-evidence.json'}
     for asset in manifest['assets']:
         for record in [asset, *asset['dependencies']]:
             name = record.get('file', record.get('path')).removeprefix('reference/')
@@ -454,6 +478,8 @@ def _export_selected(source, output: Path, library, snapshot) -> None:
     }
     parameters['player_markers']=[{'source':{'file':'level1','path_id':pid},'fields':source.read(source.get('level1',pid))} for pid in (39823,23339)]
     (output/'parameter-evidence.json').write_text(json.dumps(parameters,indent=2,allow_nan=False),encoding='utf-8')
+    crunch=sorted(getattr(source,'crunch_evidence',{}).values(),key=lambda e:e['input'])
+    (output/'crunch-evidence.json').write_text(json.dumps(crunch,indent=2),encoding='utf-8')
     from .runtime_package import prepare_package, write_manifest
     # Package preparation also checks and catalogs texture batch descriptors.
     prepare_package(manifest, output)

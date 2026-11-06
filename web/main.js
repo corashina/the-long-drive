@@ -77,6 +77,7 @@ import {createMultiplayer} from './multiplayer.js';
 import {ROLE} from './net.js';
 import {createAnalytics,hostedSite} from './analytics.js';
 import {installGrassBridge} from './grass.js';
+import {installCrunch} from './crunch.js';
 import {configureAssetCatalog,readAsset,releaseStartPacks,startPackMeasurements,worldBootstrapMeasurements,worldInputBytes,worldInputMetadataBytes,setAssetCpuProfile} from './world-assets.js';
 setAssetCpuProfile(cpuProfile);
 // Start the simulation worker and its WASM download early.
@@ -86,6 +87,7 @@ installSimulationBridge(window,simulation);
 const grassClients=installGrassBridge(window,cpuProfile);
 window.sourceReadAsset=(base,receipt)=>readAsset(base,JSON.parse(receipt));
 window.sourceReleasePacks=releaseStartPacks;
+installCrunch(window);
 window.sourceInputBytes=worldInputBytes;
 window.sourceInputMetadataBytes=worldInputMetadataBytes;
 const canvas=document.querySelector('#game'),status=document.querySelector('#status'),runtimeError=document.querySelector('#runtime-error');
