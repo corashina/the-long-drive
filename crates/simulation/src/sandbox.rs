@@ -448,7 +448,7 @@ fn sit(
         .filter(|seat| {
             wanted.as_ref().is_none_or(|w| car_matches(name(seat), w))
                 && kind.is_none_or(|k| seat.seat.driver == matches!(k, SeatKind::Driver))
-                && seat.can_sit(&runtime.physics)
+                && runtime.area.interaction.can_sit(seat, &runtime.physics)
                 && (!seated || runtime.area.player.can_switch_to(seat))
         })
         .map(|seat| {

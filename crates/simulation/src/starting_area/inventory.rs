@@ -389,7 +389,7 @@ impl GarageRuntime {
         };
         let dead = self.needs_output().dead;
         if !self.started
-            || self.paused
+            || self.paused()
             || self.recovering
             || !self.world_supported()
             || self.sleeping()

@@ -546,6 +546,10 @@ impl InteractionState {
             return None;
         }
         let item = owner(handle, collider)?;
+        // Another player holds or sits on it.
+        if self.in_use.item(item).is_some() {
+            return None;
+        }
         Some(AimTarget {
             collider: handle,
             item,
