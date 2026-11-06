@@ -5,8 +5,7 @@
 use super::cpu_profile::{self, Stage};
 use bevy::app::{MainScheduleOrder, RunFixedMainLoop, SpawnScene};
 use bevy::camera::visibility::VisibilitySystems;
-use bevy::ecs as bevy_ecs;
-use bevy::ecs::schedule::ScheduleLabel;
+use bevy::ecs::{self as bevy_ecs, schedule::ScheduleLabel};
 use bevy::prelude::*;
 use bevy::render::renderer::{RenderGraph, RenderGraphSystems};
 use bevy::render::{Render, RenderApp, RenderSystems};

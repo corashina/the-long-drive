@@ -146,16 +146,16 @@ def validate_runtime_paths(manifest):
                 if item['sha256'] != resources[name]:
                     raise ValueError('Runtime dependency hash differs from typed resource')
                 continue
-            if not name.startswith('reference/') or len(Path(name).parts) != 2 or Path(name).suffix not in ('.gltf','.bin','.png','.bc'):
+            if not name.startswith('reference/') or len(Path(name).parts) != 2 or Path(name).suffix not in ('.gltf','.bin','.rgba','.bc'):
                 raise ValueError('Invalid selected runtime dependency')
     for item in runtime_resources(manifest):
         name = item['path']
         valid_prefix=name.startswith(('reference/lighting-','reference/texture-','reference/source-cloud.','reference/source-caster-dither-' ))
-        if not valid_prefix or len(Path(name).parts) != 2 or Path(name).suffix not in ('.gltf','.bin','.png','.smip','.txt','.json'):
+        if not valid_prefix or len(Path(name).parts) != 2 or Path(name).suffix not in ('.gltf','.bin','.rgba','.smip','.txt','.json'):
             raise ValueError('Invalid selected runtime lighting resource')
     for item in plate_resources(manifest['plates']):
         name=item['path']
-        if not name.startswith('reference/plate-') or len(Path(name).parts)!=2 or Path(name).suffix not in ('.bin','.png','.json'):
+        if not name.startswith('reference/plate-') or len(Path(name).parts)!=2 or Path(name).suffix not in ('.bin','.rgba','.json'):
             raise ValueError('Invalid selected runtime plate resource')
     sprites = manifest.get('ui', {}).get('sprites', [])
     paths = set()

@@ -122,51 +122,38 @@ fn overflow() -> ReferenceError {
     ReferenceError("Fixed Bevy reservation overflow".into())
 }
 
-pub fn png_staging(encoded: usize, width: u32) -> Result<usize, ReferenceError> {
-    encoded
-        .checked_mul(3)
-        .and_then(|n| n.checked_add(2 * 1024 * 1024))
-        .and_then(|n| n.checked_add((width as usize).checked_mul(128)?))
-        .ok_or_else(overflow)
-}
-/// Sequential chain overlap includes the retained base reader during each later read.
-pub fn png_chain_staging(
-    mips: &[super::TextureMip],
-    mip_count: u32,
-    catalog: &FileCatalog,
-) -> Result<usize, ReferenceError> {
+/// Decoded RGBA8 levels, in ascending authored mip order.
+pub fn rgba_payload(width: u32, height: u32, count: u32) -> Result<usize, ReferenceError> {
     require(
-        !mips.is_empty() && mips.len() == mip_count as usize,
-        "PNG chain mip count",
+        width > 0 && height > 0 && count > 0 && count <= 32 - width.max(height).leading_zeros(),
+        "RGBA8 extent or mip count",
     )?;
-    let mut previous: Option<(u32, u32)> = None;
-    let mut base = 0;
-    let mut staging = 0;
-    for (index, mip) in mips.iter().enumerate() {
-        let receipt = catalog.file(&mip.file)?;
-        require(
-            receipt.image_size == Some([mip.width, mip.height]),
-            "PNG chain receipt dimensions",
-        )?;
-        if let Some((width, height)) = previous {
-            require(
-                (width > 1 || height > 1)
-                    && mip.width == (width / 2).max(1)
-                    && mip.height == (height / 2).max(1),
-                "PNG chain mip progression",
-            )?;
-        }
-        let encoded = receipt.bytes as usize;
-        let input = png_staging(encoded, mip.width)?;
-        if index == 0 {
-            base = encoded;
-            staging = input;
-        } else {
-            staging = staging.max(base.checked_add(input).ok_or_else(overflow)?);
-        }
-        previous = Some((mip.width, mip.height));
-    }
-    Ok(staging)
+    (0..count).try_fold(0usize, |sum, level| {
+        ((width >> level).max(1) as usize)
+            .checked_mul((height >> level).max(1) as usize)
+            .and_then(|n| n.checked_mul(4))
+            .and_then(|n| n.checked_add(sum))
+            .ok_or_else(overflow)
+    })
+}
+pub fn validate_rgba(texture: &super::TextureRecord) -> Result<usize, ReferenceError> {
+    let super::TextureStorage::Rgba8 {
+        width,
+        height,
+        input,
+    } = &texture.storage
+    else {
+        return Err(ReferenceError("Expected RGBA8 storage".into()));
+    };
+    input.validate()?;
+    let bytes = rgba_payload(*width, *height, texture.sampler.mip_count)?;
+    require(
+        input.file.ends_with(".rgba")
+            && input.image_size.is_none()
+            && input.bytes as usize == bytes,
+        "RGBA8 receipt bytes",
+    )?;
+    Ok(bytes)
 }
 /// Original single-layer BC blocks, in ascending authored mip order.
 pub fn bc_payload(
@@ -251,8 +238,10 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
         (texture.encoding == texture.source_encoding
             && match texture.encoding {
                 TextureEncoding::Rgba => !normal,
-                // A DXT5nm normal keeps X in alpha and Y in green.
-                TextureEncoding::Ag => normal && *format == NativeBcFormat::Bc3,
+                // A DXT5nm normal keeps X in alpha and Y in green. The player shader uses R * A.
+                TextureEncoding::Ag | TextureEncoding::Rag => {
+                    normal && *format == NativeBcFormat::Bc3
+                }
                 _ => false,
             })
             && matches!(
@@ -308,17 +297,18 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
     Ok(bytes)
 }
 /// Validate metadata and receipts before scheduling any checked input.
+/// The staging is the checked reader's copy of the raw input. The game decodes nothing.
 pub fn primary_staging(
     texture: &super::TextureRecord,
     catalog: &FileCatalog,
 ) -> Result<usize, ReferenceError> {
     match &texture.storage {
-        super::TextureStorage::PngChain { mips } => {
-            png_chain_staging(mips, texture.sampler.mip_count, catalog)
+        super::TextureStorage::Rgba8 { input, .. } => {
+            let bytes = validate_rgba(texture)?;
+            require(catalog.file(&input.file)? == input, "RGBA8 catalog receipt")?;
+            Ok(bytes)
         }
-        super::TextureStorage::NativeBc {
-            width, input, top, ..
-        } => {
+        super::TextureStorage::NativeBc { input, top, .. } => {
             let bytes = validate_native_bc(texture)?;
             for receipt in std::iter::once(input).chain(top) {
                 require(
@@ -326,29 +316,18 @@ pub fn primary_staging(
                     "Native BC catalog receipt",
                 )?;
             }
-            png_staging(bytes, *width)
+            Ok(bytes)
         }
     }
 }
 
-pub fn png_cpu(pixels: usize, max_staging: usize) -> Result<usize, ReferenceError> {
+/// The final level vector, the reader input, and the upload copies.
+pub fn primary_cpu(pixels: usize, max_staging: usize) -> Result<usize, ReferenceError> {
     pixels
         .checked_mul(2)
         .and_then(|n| n.checked_add(max_staging.checked_mul(2)?))
         .ok_or_else(overflow)
 }
-pub fn png_pixels(mips: &[super::TextureMip]) -> Result<usize, ReferenceError> {
-    require(!mips.is_empty(), "fixed PNG mip count")?;
-    mips.iter().try_fold(0usize, |sum, mip| {
-        require(mip.width > 0 && mip.height > 0, "fixed PNG mip extent")?;
-        (mip.width as usize)
-            .checked_mul(mip.height as usize)
-            .and_then(|n| n.checked_mul(4))
-            .and_then(|n| n.checked_add(sum))
-            .ok_or_else(overflow)
-    })
-}
-
 macro_rules! fixed_shaders {
     ($($name:literal),* $(,)?) => {
         pub const FIXED_SHADER_PATHS: [&str; 39] = [$(concat!("shaders/", $name)),*];

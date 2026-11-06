@@ -280,26 +280,20 @@ impl PlateRecord {
             "plate named textures",
         )?;
         for t in &m.textures {
-            let super::TextureStorage::PngChain { mips } = &t.storage else {
-                return Err(ReferenceError("Plate requires PNG storage".into()));
+            let super::TextureStorage::Rgba8 { input, .. } = &t.storage else {
+                return Err(ReferenceError("Plate requires RGBA8 storage".into()));
             };
+            super::fixed_reservation::validate_rgba(t)?;
             require(
                 valid_source(&t.source)
-                    && !mips.is_empty()
-                    && mips[0].file == t.file()
                     && finite(&t.scale)
                     && finite(&t.offset)
                     && t.sampler.filter <= 2
                     && t.sampler.wrap_u <= 3
                     && t.sampler.wrap_v <= 3
                     && t.sampler.mip_bias.is_finite()
-                    && t.sampler.mip_count as usize == mips.len()
-                    && mips.iter().all(|mip| {
-                        mip.width > 0
-                            && mip.height > 0
-                            && m.resources
-                                .iter()
-                                .any(|r| r.path == mip.file && r.source == t.source)
+                    && m.resources.iter().any(|r| {
+                        r.path == input.file && r.sha256 == input.sha256 && r.source == t.source
                     }),
                 "plate texture/sampler/mips",
             )?;

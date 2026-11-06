@@ -1,7 +1,7 @@
 //! Complete fixed-startup lighting contract and runtime resource links.
 use super::postprocessing::{CameraStage, PostprocessingRecord};
 use super::render_lighting::{LightKind, LightRecord, ProbeRecord, valid_pose};
-use super::rendering::{SamplerRecord, TextureColorSpace, TextureMip, safe_path};
+use super::rendering::{SamplerRecord, TextureColorSpace, safe_path};
 use super::{FileReceipt, NodeRecord, ReferenceError, SourceId, Transform, finite, hash, require};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -52,7 +52,10 @@ pub struct LightingTexture {
     pub source: SourceId,
     pub color_space: TextureColorSpace,
     pub sampler: SamplerRecord,
-    pub mips: Vec<TextureMip>,
+    pub width: u32,
+    pub height: u32,
+    /// Decoded RGBA8 levels in ascending mip order.
+    pub file: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -191,29 +194,21 @@ impl LightingRecord {
                     && sampler.mip_bias.is_finite()
                     && sampler.aniso <= 16
                     && sampler.mip_count > 0
-                    && sampler.mip_count as usize == texture.mips.len(),
+                    && super::fixed_reservation::rgba_payload(
+                        texture.width,
+                        texture.height,
+                        sampler.mip_count,
+                    )
+                    .is_ok(),
                 "lighting texture sampler/mips",
             )?;
-            let mut previous: Option<(u32, u32)> = None;
-            for mip in &texture.mips {
-                require(
-                    safe_path(&mip.file)
-                        && mip.width > 0
-                        && mip.height > 0
-                        && dependencies.contains(mip.file.as_str())
-                        && loaded.insert(mip.file.as_str()),
-                    "lighting texture mip link",
-                )?;
-                if let Some((width, height)) = previous {
-                    require(
-                        (width > 1 || height > 1)
-                            && mip.width == (width / 2).max(1)
-                            && mip.height == (height / 2).max(1),
-                        "lighting mip extent",
-                    )?;
-                }
-                previous = Some((mip.width, mip.height));
-            }
+            require(
+                safe_path(&texture.file)
+                    && texture.file.ends_with(".rgba")
+                    && dependencies.contains(texture.file.as_str())
+                    && loaded.insert(texture.file.as_str()),
+                "lighting texture link",
+            )?;
         }
         require(
             !self.lights.is_empty() && !self.probes.is_empty(),
