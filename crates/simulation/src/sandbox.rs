@@ -58,13 +58,13 @@ enum Action {
     Storm { distance: f32 },
     /// Sets the source day cycle seconds.
     Cycle { seconds: f64 },
-    /// Holds the weather on `kind`. `null` lets the cycle change it again.
+    /// Locks the weather: one 20 km cell of `kind` at the player and no spawns. `null` removes it.
     Weather {
         kind: Option<crate::weather::WeatherKind>,
     },
-    /// Answers the weather cycle, as `weather` does. It changes nothing. For the F4 weather panel.
+    /// Answers the weather cells, as `weather` does. It changes nothing. For the F4 weather panel.
     Forecast,
-    /// Answers the player, the cycle, the cars and the items within `radius` metres.
+    /// Answers the player, the day cycle, the cars and the items within `radius` metres.
     State { radius: f32 },
     /// Answers the worker CPU profile. `window.gameCpuProfile(true)` starts it and clears it.
     Profile,
@@ -278,7 +278,9 @@ fn apply(
             Ok(("Cycle set.".into(), Value::Null))
         }
         Action::Weather { kind } => {
-            runtime.weather.cycle.lock(kind);
+            let local = runtime.area.player.body_pose(&runtime.physics).position;
+            let player = runtime.stream.origin.absolute(local);
+            runtime.weather.lock(kind, player);
             Ok(("Weather set.".into(), weather(runtime)))
         }
         Action::Forecast => Ok(("Weather.".into(), weather(runtime))),
@@ -928,14 +930,23 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
     })
 }
 
+/// `kind` has the largest weight at the player. Cell centers are absolute `x`, `z`.
 fn weather(runtime: &GarageRuntime) -> Value {
-    let cycle = &runtime.weather.cycle;
+    let weather = &runtime.weather;
     json!({
-        "kind": cycle.current,
-        "next": cycle.next,
-        "blend": cycle.blend,
-        "rain": runtime.weather.mix().rain,
-        "locked": cycle.locked,
+        "kind": weather.kind(),
+        "rain": weather.mix().rain,
+        "locked": weather.cells.locked(),
+        "cells": weather
+            .cells
+            .iter()
+            .map(|c| json!({
+                "kind": c.kind,
+                "center": c.center,
+                "radius": c.radius,
+                "strength": c.strength(),
+            }))
+            .collect::<Vec<_>>(),
     })
 }
 

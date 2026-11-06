@@ -966,13 +966,12 @@ fn validate_weather(
             "Storm state",
         )?;
     }
-    let c = &saved.cycle;
     data(
-        unit(c.blend)
-            && unit(c.wetness)
-            && c.remaining.is_finite()
-            && (0.0..=crate::weather::HOLD_SECONDS[1]).contains(&c.remaining),
-        "Weather cycle",
+        saved.cells.len() <= crate::weather::MAX_CELLS
+            && saved.cells.iter().all(|c| c.valid())
+            && (!saved.locked || saved.cells.len() == 1)
+            && unit(saved.wetness),
+        "Weather cells",
     )
 }
 fn finite(values: &[f32]) -> bool {

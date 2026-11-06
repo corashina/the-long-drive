@@ -1,8 +1,8 @@
 use super::{InstanceId, SaveError, SourceKey};
 use serde::{Deserialize, Serialize};
 
-pub const SAVE_SCHEMA_VERSION: u32 = 46;
-pub const OLDEST_SAVE_SCHEMA_VERSION: u32 = 46;
+pub const SAVE_SCHEMA_VERSION: u32 = 47;
+pub const OLDEST_SAVE_SCHEMA_VERSION: u32 = 47;
 pub fn schema_supported(version: u32) -> bool {
     (OLDEST_SAVE_SCHEMA_VERSION..=SAVE_SCHEMA_VERSION).contains(&version)
 }
@@ -115,17 +115,10 @@ pub struct WeatherSnapshot {
     /// Seconds from the last spawn to the next spawn.
     pub wait: f32,
     pub storms: Vec<StormSnapshot>,
-    pub cycle: WeatherCycleSnapshot,
-}
-/// The weather cycle. A new feature: the source saves only the sandstorm.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WeatherCycleSnapshot {
-    pub current: crate::weather::WeatherKind,
-    pub next: crate::weather::WeatherKind,
-    pub blend: f32,
-    /// Game seconds until the blend starts.
-    pub remaining: f32,
+    /// The weather cells. A new feature: the source saves only the sandstorm.
+    pub cells: Vec<crate::weather::WeatherCell>,
+    /// The F4 lock. The only cell is then the lock cell.
+    pub locked: bool,
     pub wetness: f32,
 }
 /// Source save_sandstorm: pos, euler rot y, prefabid, life, size, speed, xdir and ydir.
@@ -518,7 +511,7 @@ mod g04_ordered_state {
     fn older_schemas_are_rejected_before_payload_reconstruction() {
         for version in [
             6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-            31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 47,
+            31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48,
         ] {
             let payload = format!(r#"{{"schema_version":{version}}}"#);
             assert!(matches!(
@@ -530,27 +523,34 @@ mod g04_ordered_state {
 
     #[test]
     fn current_schema_passes_the_version_gate() {
-        // Schema 46 reaches payload parsing. The empty payload then fails as corrupt data.
+        // Schema 47 reaches payload parsing. The empty payload then fails as corrupt data.
         assert!(matches!(
-            SaveSnapshot::from_json(br#"{"schema_version":46}"#),
+            SaveSnapshot::from_json(br#"{"schema_version":47}"#),
             Err(SaveError::CorruptData(_))
         ));
     }
 
     #[test]
-    fn weather_cycle_round_trips() {
-        let cycle = WeatherCycleSnapshot {
-            current: crate::weather::WeatherKind::Thunderstorm,
-            next: crate::weather::WeatherKind::Fog,
-            blend: 0.25,
-            remaining: 0.,
+    fn weather_cells_round_trip() {
+        let weather = WeatherSnapshot {
+            since_spawn: 1.,
+            wait: 2.,
+            storms: Vec::new(),
+            cells: vec![crate::weather::WeatherCell {
+                kind: crate::weather::WeatherKind::Thunderstorm,
+                center: [1e6, -2e5],
+                radius: 1500.,
+                life: 1800.,
+                age: 300.,
+            }],
+            locked: false,
             wetness: 0.8,
         };
-        let json = serde_json::to_string(&cycle).unwrap();
-        assert!(json.contains(r#""current":"thunderstorm""#));
+        let json = serde_json::to_string(&weather).unwrap();
+        assert!(json.contains(r#""kind":"thunderstorm""#));
         assert_eq!(
-            serde_json::from_str::<WeatherCycleSnapshot>(&json).unwrap(),
-            cycle
+            serde_json::from_str::<WeatherSnapshot>(&json).unwrap(),
+            weather
         );
     }
 

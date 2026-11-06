@@ -1,4 +1,4 @@
-// F4 weather test panel. It sets the weather with the sandbox `weather` action, in every build.
+// F4 weather test panel. The sandbox `weather` action locks a kind: one large cell at the player. In every build.
 // `guest` is true for a multiplayer guest. The host owns the weather, so a guest cannot set it.
 const REFRESH_MS=1000;
 
@@ -7,8 +7,8 @@ export function createWeatherPanel(simulation,guest){
  let timer=0,waiting=false;
  const show=([reply])=>{
   if(!reply?.ok){values.textContent=reply?.message??'No reply.';return;}
-  const {kind,next,blend,locked}=reply.data;
-  values.textContent='Now: '+kind+'\nNext: '+next+'\nBlend: '+blend.toFixed(2)+'\nLocked: '+(locked?'yes':'no');
+  const {kind,rain,locked,cells}=reply.data;
+  values.textContent='Here: '+kind+'\nRain: '+rain.toFixed(2)+'\nCells: '+cells.length+'\nLocked: '+(locked?'yes':'no');
   if(document.activeElement!==select)select.value=locked?kind:'';
  };
  // Before the start, the worker has no world to ask. The worker answers in order.
