@@ -88,7 +88,7 @@ window.sourceReadAsset=(base,receipt)=>readAsset(base,JSON.parse(receipt));
 window.sourceInputBytes=worldInputBytes;
 window.sourceInputMetadataBytes=worldInputMetadataBytes;
 const canvas=document.querySelector('#game'),status=document.querySelector('#status'),runtimeError=document.querySelector('#runtime-error');
-const loading=createLoading(),thumbnail=createThumbnail(canvas);
+const loading=createLoading(joinRoom?.code??''),thumbnail=createThumbnail(canvas);
 let lastThumbnail=null;
 performance.setResourceTimingBufferSize?.(16000);
 let startupFailureDetails=null,startupDone=false,startupReady=false;
@@ -316,7 +316,7 @@ async function load(){
  const resets={graphics:[()=>slider.reset()],controls:[()=>drivingSettings.resetMouse()]};
  menu=createMenu({canvas,language,appearance,settings,resets,defaultAssists:manifest.driving.default_assists,ui:manifest.ui,bindings,saveSession,buildId:manifest.build_id,thumbnail:()=>lastThumbnail,sleeping:()=>sleeping,seated:()=>window.gameState.seated,guest:()=>multiplayer?.role===ROLE.GUEST,online:()=>Boolean(multiplayer)&&multiplayer.role!==ROLE.OFF,worldDrawDistance:()=>worldDrawDistance,slider,audio,onNewGame:()=>seed.reroll(),reloadNewGame,autoNewGame:newGameSeed!==undefined,onPause:()=>thumbnail.capture().then(blob=>{lastThumbnail=blob;}),clearInput:()=>input.clear(),queueAction:a=>{actions=a;}});
  multiplayer=createMultiplayer({document,target:window,Peer:window.peerjs.Peer,buildId:manifest.build_id,exportHash:manifestHash,simulation,saveSession,menu,outfit,storage:()=>localStorage,
-  room:joinRoom,joined:(save,error)=>joined({save,error,operation:'join'}),reloadJoin:room=>reloadWith(JOIN_KEY,JSON.stringify(room)),
+  room:joinRoom,joined:(save,error)=>joined({save,error,operation:'join'}),reloadJoin:room=>reloadWith(JOIN_KEY,JSON.stringify(room)),loading,
   audio,media:navigator.mediaDevices,voiceKeys:()=>actionIds.voicechat===undefined?[]:settings.values.inputs[actionIds.voicechat]});
  {const changed=outfit.changed;outfit.changed=()=>{changed();multiplayer.look(outfit.outfit);};}
  feedback=createFeedback(manifest.ui,manifest,settings,actionIds,language);

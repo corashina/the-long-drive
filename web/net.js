@@ -64,7 +64,7 @@ export function chatText(text){
 // Voice (source `SVoice`, host forwards). Each peer sends its microphone in a PeerJS media call. A guest calls the host.
 // The host calls each guest once per other speaker, with that speaker's stream and `metadata.slot`.
 // Events: `voice(slot,stream|null)`, `packet(bytes)`, `leave(slot)`, `looks(Map slot→{name,outfit})`, `chat({name,text})`, `status(text)`,
-// `save(bytes)`, `session(role,slot)`, `peers([{slot,name,ping}])`. `packets(batch)`: a batch of inbound packets.
+// `save(bytes)`, `download(chunks,total)` of the host world, `session(role,slot)`, `peers([{slot,name,ping}])`. `packets(batch)`: a batch of inbound packets.
 export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performance.now(),setTimer=setInterval,clearTimer=clearInterval}){
  let role=ROLE.OFF,slot=0,peer=null,timer=null,joinStarted=0,lastTick=0,me={name:'',outfit:null};
  let max=MAX_PLAYERS,password='',host=null,mic=null,micCall=null,room='';
@@ -209,12 +209,12 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
    host.pose=peer.connect(host.reliable.peer,{label:'pose',reliable:false,serialization:'raw'});
    host.pose.on('data',data=>{host.seen=now();emit('packets',bytes(data));});
    callHost();
-   if(m.chunks===0)emit('status',STATUS.save);
+   if(m.chunks===0)emit('status',STATUS.save);else emit('download',0,m.chunks);
    return;
   }
   if(m.t==='save'&&host.chunks&&host.chunks[m.i]===undefined){
    host.chunks[m.i]=bytes(m.data);host.received++;
-   emit('status',`Loading the host world... ${Math.round(100*host.received/host.chunks.length)}%`);
+   emit('download',host.received,host.chunks.length);
    if(host.received===host.chunks.length){
     const save=new Uint8Array(host.chunks.reduce((n,c)=>n+c.length,0));let at=0;
     for(const c of host.chunks){save.set(c,at);at+=c.length;}
