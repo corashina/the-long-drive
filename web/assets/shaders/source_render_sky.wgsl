@@ -10,6 +10,8 @@ struct SkyParams {
     tint_thickness: vec4<f32>,
     ground_exposure: vec4<f32>,
     sun: vec4<f32>,
+    // Weather: fog color in rgb, sky share in a. Not in the source shader.
+    overcast: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> sky: SkyParams;
 struct SkyOutput {
@@ -119,6 +121,9 @@ fn sky_vertex(position: vec3<f32>, sun_enabled: bool) -> SkyOutput {
 @vertex fn vertex_capture(@location(0) position: vec3<f32>) -> SkyOutput {
     return sky_vertex(position,false);
 }
+fn weather(color: vec3<f32>) -> vec4<f32> {
+    return vec4(mix(color, sky.overcast.rgb, sky.overcast.a), 1.0);
+}
 @fragment fn fragment_main(input: SkyOutput) -> @location(0) vec4<f32> {
     let size = exp2(log2(sky.sun.x) * 0.6499999761581421);
     let ray = input.ray * inverseSqrt(dot(input.ray,input.ray));
@@ -128,10 +133,10 @@ fn sky_vertex(position: vec3<f32>, sun_enabled: bool) -> SkyOutput {
     let denominator = max(exp2(log2(base) * (size * 10.0)),9.999999747378752e-05);
     let ground = clamp(ray.y * 50.0,0.0,1.0);
     let color = fma(vec3(ground),input.ground-input.atmosphere,input.atmosphere);
-    if ray.y < 0.0 {return vec4(fma(input.sun,vec3(numerator/denominator),color),1.0);}
-    return vec4(color,1.0);
+    if ray.y < 0.0 {return weather(fma(input.sun,vec3(numerator/denominator),color));}
+    return weather(color);
 }
 @fragment fn fragment_capture(input: SkyOutput) -> @location(0) vec4<f32> {
     let ground = clamp(input.ground_factor,0.0,1.0);
-    return vec4(fma(vec3(ground),input.ground-input.atmosphere,input.atmosphere),1.0);
+    return weather(fma(vec3(ground),input.ground-input.atmosphere,input.atmosphere));
 }

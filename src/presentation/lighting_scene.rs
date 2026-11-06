@@ -127,6 +127,8 @@ pub struct SceneLighting {
     pub probe_center: [Vec4; PROBE_COUNT],
     pub probe_extents: [Vec4; PROBE_COUNT],
     pub source_time: Vec4,
+    /// Weather share of the sky that shows the fog color.
+    pub overcast: f32,
 }
 impl SceneLighting {
     pub fn for_view(
@@ -333,5 +335,6 @@ fn scene_value(
         probe_center: centers,
         probe_extents: sizes,
         source_time: Vec4::new(time * 0.05, time, time * 2., time * 3.),
+        overcast: sim.lighting.cycle.overcast,
     })
 }
