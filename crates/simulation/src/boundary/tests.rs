@@ -194,6 +194,11 @@ fn frame_round_trips() {
                 intensity: 1.5,
             },
         },
+        weather: WeatherFrame {
+            rain: 0.75,
+            flash: 0.,
+            sheltered: true,
+        },
         lights: vec![LightOutput::default()],
         lamp_materials: Vec::new(),
         control_poses: Vec::new(),

@@ -87,6 +87,17 @@ impl WeatherBindings {
         }
     }
 
+    /// True when `point` is inside a live interior volume.
+    fn sheltered(&self, physics: &PhysicsWorld, point: [f32; 3]) -> bool {
+        let point = Vector::from_array(point);
+        let colliders = &physics.rapier().colliders;
+        self.volumes.iter().any(|v| {
+            colliders
+                .get(v.collider)
+                .is_some_and(|c| c.shape().contains_point(c.position(), point))
+        })
+    }
+
     /// The root of a body that wind moves. The player body has none.
     fn wind_root(&self, items: &ItemStore, body: RigidBodyHandle) -> Option<RigidBodyHandle> {
         (body != self.player).then(|| root(&self.items, items, body))
@@ -119,10 +130,9 @@ impl GarageRuntime {
         bindings.sync(&self.area.items, &self.physics, &self.stream);
         self.weather
             .reserve_bodies(self.physics.rapier().bodies.len());
-        let player = self
-            .stream
-            .origin
-            .absolute(self.area.player.body_pose(&self.physics).position);
+        let local = self.area.player.body_pose(&self.physics).position;
+        let player = self.stream.origin.absolute(local);
+        self.weather.sheltered = bindings.sheltered(&self.physics, local);
         // Biome color channels: red desert, blue winter, green grass.
         let channel = [0, 2, 1][reference.weather.storm.biome as usize];
         let desert_weight = self.lighting.cycle.output().biome_color[channel];

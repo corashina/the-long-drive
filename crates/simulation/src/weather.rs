@@ -78,6 +78,8 @@ pub struct WeatherState {
     pub tumbleweeds: Tumbleweeds,
     pub cycle: WeatherCycle,
     mix: WeatherMix,
+    /// The player capsule is inside a live interior volume. Set each step.
+    pub sheltered: bool,
 }
 
 impl WeatherState {
@@ -99,6 +101,7 @@ impl WeatherState {
             tumbleweeds: Tumbleweeds::new(seed),
             cycle: WeatherCycle::new(seed),
             mix: WeatherMix::default(),
+            sheltered: false,
         }
     }
     pub fn mix(&self) -> WeatherMix {
@@ -537,6 +540,7 @@ mod tests {
             tumbleweeds: Tumbleweeds::new(1),
             cycle: WeatherCycle::new(1),
             mix: WeatherMix::default(),
+            sheltered: false,
         };
         state.cycle.lock(Some(WeatherKind::Rain));
         assert!((1..=1000).all(|t| !state.spawn_due(t as f64, 1.)));

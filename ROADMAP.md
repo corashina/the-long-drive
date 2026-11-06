@@ -41,7 +41,6 @@ Test on the PC after all rows: force each kind with F4, check the look, the rain
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
 | WT2 | Sky, fog, cloud and light per weather | M | Apply the `WeatherMix` look in `compose_weather` before the sandstorm. |
-| WT3 | Rain render pass | M | One instanced GPU streak pass, preset caps, shelter fade. Bench compare. |
 | WT4 | Rain audio and shelter | S | CC0 rain loops and thunder clips. Inside loop when sheltered. |
 | WT5 | Lightning and thunder | S | Strikes in Thunderstorm, 0.15 s flash, thunder at distance / 343 s. |
 | WT6 | Wet tyre grip | S | Wheel stiffness x lerp(1, 0.85, wetness) at the use site. |

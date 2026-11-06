@@ -67,6 +67,7 @@ pub mod object_lighting;
 pub mod particles;
 pub mod plates;
 pub mod postprocessing;
+pub mod precipitation;
 pub mod probes;
 pub mod prop_draws;
 pub mod render_bundles;
