@@ -17,7 +17,14 @@ pub enum Stage {
     Input,
     TerrainInputPreparation,
     TerrainResultAllocation,
+    /// `First` to `RunFixedMainLoop`.
+    MainPreUpdate,
+    /// `Update` and `SpawnScene`.
     MainUpdate,
+    /// `PostUpdate` to the end of visibility: transforms, bounds, frusta, visibility.
+    MainVisibility,
+    /// The rest of `PostUpdate`, and `Last`.
+    MainPostUpdate,
     Extract,
     Specialize,
     Queue,
@@ -26,7 +33,7 @@ pub enum Stage {
     Submit,
     Cleanup,
 }
-const COUNT: usize = 18;
+const COUNT: usize = 21;
 const NAMES: [&str; COUNT] = [
     "Startup",
     "AssetDecode",
@@ -38,7 +45,10 @@ const NAMES: [&str; COUNT] = [
     "Input",
     "TerrainInputPreparation",
     "TerrainResultAllocation",
+    "MainPreUpdate",
     "MainUpdate",
+    "MainVisibility",
+    "MainPostUpdate",
     "Extract",
     "Specialize",
     "Queue",
