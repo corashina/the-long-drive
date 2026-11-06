@@ -947,6 +947,21 @@ pub struct WeatherFrame {
     pub wind: [f32; 2],
     /// Wind speed factor, 0.5 to 2.
     pub gust: f32,
+    /// The lightning bolt while it shows.
+    pub bolt: Option<BoltFrame>,
+}
+
+/// A lightning bolt. Points are relative to the render origin.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct BoltFrame {
+    /// The top point in the cloud.
+    pub start: [f32; 3],
+    /// The strike point on the ground.
+    pub end: [f32; 3],
+    /// Selects the jagged shape.
+    pub seed: u32,
+    /// Seconds since the strike.
+    pub age: f32,
 }
 
 /// What the renderer needs to build a new handle's visual.

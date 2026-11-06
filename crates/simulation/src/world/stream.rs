@@ -4037,6 +4037,11 @@ impl WorldStream {
         let height = self.evaluator.base_height(xz, true);
         super::biome(self.evaluator.color(xz, height), self.mode.biome_override())
     }
+    /// The base terrain height at absolute `x`, `z`. It reads only the noise: no roads, no helpers.
+    pub fn height_at(&self, xz: [f64; 2]) -> f32 {
+        self.evaluator
+            .base_height([xz[0] as f32, -xz[1] as f32], true)
+    }
     /// Terrain surface height and color at an absolute point. Source Z is the negated world Z.
     pub fn terrain_sample(&mut self, point: [f64; 3]) -> (f32, [f32; 4]) {
         self.refresh_helper_context(window(point, 1000.));

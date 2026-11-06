@@ -144,8 +144,13 @@ impl GarageRuntime {
         let player = self.stream.origin.absolute(local);
         self.weather.sheltered = bindings.sheltered(&self.physics, local);
         let stream = &mut self.stream;
-        self.weather
-            .advance_cells(dt, player, self.net_guest, |xz| stream.biome_at(xz));
+        self.weather.advance_cells(
+            dt,
+            player,
+            self.net_guest,
+            |xz| stream.biome_at(xz),
+            |xz| stream.height_at(xz),
+        );
         self.weather.advance(
             &reference.weather,
             self.simulation_seconds,
@@ -205,11 +210,17 @@ impl GarageRuntime {
             let Some(audio) = &mut self.audio else {
                 continue;
             };
+            // A close strike plays the sharp crack.
+            let kind = if thunder.distance < crate::weather::CLOSE_DISTANCE {
+                AudioKind::ThunderClose
+            } else {
+                AudioKind::Thunder
+            };
             let row = audio
                 .reference
                 .survival
                 .iter()
-                .find(|b| b.kind == AudioKind::Thunder as u32)
+                .find(|b| b.kind == kind as u32)
                 .expect("validated thunder audio");
             let last = row.clips.len() - 1;
             let clip = row.clips[((thunder.variant * row.clips.len() as f32) as usize).min(last)];
@@ -220,7 +231,7 @@ impl GarageRuntime {
             audio.survival_event(SurvivalAudioEvent {
                 session: 0,
                 emitter: 0,
-                kind: AudioKind::Thunder,
+                kind,
                 action: AudioAction::Start,
                 clip,
                 gain,

@@ -106,6 +106,22 @@ def wind(random, seconds):
     return normalize(np.stack(channels, 1), .5)
 
 
+def crack(random, seconds):
+    """A close strike: a sharp broadband rip, then a short heavy boom."""
+    frames = int(seconds * RATE)
+    t = np.arange(frames) / RATE
+    rip = shaped_noise(random, frames, band(500, 12000, 1))
+    envelope = np.zeros(frames)
+    # A few fast taps give the tearing edge of the crack.
+    for start in np.sort(random.uniform(0, .12, 5)):
+        envelope += np.exp(-np.maximum(t - start, 0) / .025) * (t >= start) * random.uniform(.5, 1.)
+    boom = shaped_noise(random, frames, band(30, 300, 2))
+    boom *= np.clip(t / .03, 0, 1) * np.exp(-t / .9)
+    signal = normalize(rip * envelope, 1.) + .7 * normalize(boom, 1.)
+    signal *= np.clip((seconds - t) / 1., 0, 1)
+    return normalize(signal, .9)[:, None]
+
+
 def write_ogg(name, signal, bit_rate):
     with tempfile.TemporaryDirectory() as temp:
         path = Path(temp) / 'clip.wav'
@@ -125,6 +141,7 @@ def main():
     write_ogg('thunder-2.ogg', thunder(random, 7, False, .2), 32000)
     write_ogg('thunder-3.ogg', thunder(random, 8, False, .5), 32000)
     write_ogg('wind.ogg', wind(random, 12), 48000)
+    write_ogg('thunder-close.ogg', crack(random, 4), 48000)
 
 
 if __name__ == '__main__':
