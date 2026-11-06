@@ -138,6 +138,8 @@ pub struct WheelState {
     pub omega: f32,
     /// Distance from the connection down to the wheel center.
     pub suspension_length: f32,
+    /// Suspension length of the last step, when the wheel had a contact.
+    pub previous_suspension_length: Option<f32>,
     pub contact: Option<WheelContact>,
 }
 
@@ -151,6 +153,7 @@ impl WheelState {
             previous_angle: 0.0,
             omega: 0.0,
             suspension_length: rest_length,
+            previous_suspension_length: None,
             contact: None,
         }
     }
@@ -248,7 +251,7 @@ impl WheelForce {
 }
 
 /// Integrates wheel spin and returns the contact force terms.
-/// The state must hold the new contact and suspension length.
+/// The state must hold the new contact and both suspension lengths.
 pub(super) fn solve(
     state: &mut WheelState,
     collider: &WheelColliderReference,
@@ -274,7 +277,11 @@ pub(super) fn solve(
     };
     // Source rest position is targetPosition of the travel below the connection.
     let rest = collider.suspension_distance * collider.target_position;
-    let compression_rate = -frame.velocity.dot(frame.up);
+    // Source PhysX jounce speed: the length change since the last step.
+    // A wheel that just touched down has no damping in this step.
+    let compression_rate = state
+        .previous_suspension_length
+        .map_or(0.0, |previous| (previous - state.suspension_length) / dt);
     let load = (frame.sprung_mass * frame.gravity
         + collider.spring * (rest - state.suspension_length)
         + collider.damper * compression_rate)
