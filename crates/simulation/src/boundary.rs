@@ -931,6 +931,17 @@ pub struct FrameLighting {
     pub road_lamp: LightOutput,
 }
 
+/// Weather of one tick for the renderer and the browser.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct WeatherFrame {
+    /// `WeatherMix::rain`, 0..1.
+    pub rain: f32,
+    /// `WeatherMix::flash`, 0..1.
+    pub flash: f32,
+    /// The player capsule is inside a live interior volume.
+    pub sheltered: bool,
+}
+
 /// What the renderer needs to build a new handle's visual.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SpawnData {
@@ -1056,6 +1067,7 @@ pub struct SimFrame {
     /// World budgets in `BUDGET_LABELS` order. Empty after the start.
     pub budgets: Vec<BudgetRow>,
     pub lighting: FrameLighting,
+    pub weather: WeatherFrame,
     /// Lights in `LightingRecord::lights` order.
     pub lights: Vec<LightOutput>,
     pub lamp_materials: Vec<LampMaterialOutput>,
@@ -1438,6 +1450,7 @@ frame_format! {
     rows node_materials,
     rows node_colors,
     value lighting,
+    value weather,
     list lights,
     list lamp_materials,
     list control_poses,

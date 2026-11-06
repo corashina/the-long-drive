@@ -306,6 +306,12 @@ impl GarageRuntime {
                 PoseRow::new(self.menu_view.pose(&self.stream.origin), PoseRow::ACTIVE);
         }
         frame.lighting.road_lamp = lighting.road_lamp_output(&reference.lighting);
+        let mix = self.weather.mix();
+        frame.weather = crate::boundary::WeatherFrame {
+            rain: mix.rain,
+            flash: mix.flash,
+            sheltered: self.weather.sheltered,
+        };
         frame.lights.clear();
         frame.lights.extend_from_slice(lighting.light_outputs());
         frame.lamp_materials.clear();

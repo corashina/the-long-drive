@@ -392,7 +392,7 @@ fn begin_frame(
     effects.audit.inputs_ready = input.frame == frame.frame;
     effects.audit.delta_seconds = input.delta_seconds;
 }
-fn encode_ao(
+pub(crate) fn encode_ao(
     view: ViewQuery<(&SourceSurfaceView, &SurfaceViewTargets)>,
     mut effects: ResMut<SourceEffects>,
     frame: Res<SourceViewFrame>,
