@@ -1,10 +1,17 @@
-// Serves the R2 files of the site. `_routes.json` sends only those paths here.
+// Serves the R2 files of the site. `_routes.json` sends `pkg/` and `assets/runtime/` here.
 // `r2.json` of the same deployment maps each path to its R2 keys, so rollbacks stay consistent.
 // `br` is the Brotli file. `raw` is set only for files over the Pages size limit. Other raw files are site files.
 // Each path has a content hash (`deploy.mjs` checks this), so browsers cache the files as immutable.
+// Each deployment has its own isolates, so one parsed `r2.json` serves all requests of an isolate.
+let keys;
 async function find(request, env) {
-  const keys = await (await env.ASSETS.fetch(new URL('/r2.json', request.url))).json();
-  return keys[new URL(request.url).pathname];
+  keys ??= env.ASSETS.fetch(new URL('/r2.json', request.url)).then(response => response.json()).catch(error => {
+    keys = undefined;
+    throw error;
+  });
+  const map = await keys;
+  const path = new URL(request.url).pathname;
+  return Object.hasOwn(map, path) ? map[path] : undefined;
 }
 
 // True when the client lists `br` without q=0. Cloudflare rewrites Accept-Encoding, so read the client value.

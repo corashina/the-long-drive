@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {mkdir, mkdtemp, readdir, readFile, rm, stat, truncate, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
-import {gzipSync} from 'node:zlib';
+import {randomBytes} from 'node:crypto';
+import {brotliDecompressSync, gzipSync} from 'node:zlib';
 import {stageSite} from '../../scripts/deploy.mjs';
 import {WASM} from '../../scripts/prepare-http-compression.mjs';
 import {onRequestGet} from '../../functions/[[path]].js';
@@ -39,7 +40,7 @@ async function fixture(t) {
   await put(web, 'assets/library/big.bin', 'e');
   await put(web, 'assets/reference/material-evidence.json', 'f');
   await put(web, 'assets/reference/library-selection.json', 'g');
-  return {web, site: join(root, 'site'), compressionRoot: join(root, 'compression')};
+  return {web, site: join(root, 'site'), compressionRoot: join(root, 'compression'), packageBrotliRoot: join(root, 'package-brotli')};
 }
 
 // The package folder in the staged main.js.
@@ -48,8 +49,8 @@ async function packageFolder(site) {
 }
 
 test('stages the app and only the catalog files of the current package', async t => {
-  const {web, site, compressionRoot} = await fixture(t);
-  await stageSite({webRoot: web, siteRoot: site, compressionRoot});
+  const {web, site, compressionRoot, packageBrotliRoot} = await fixture(t);
+  await stageSite({webRoot: web, siteRoot: site, compressionRoot, packageBrotliRoot});
   for (const path of ['index.html', 'assets/reference/manifest.bin.gz', 'assets/runtime/current/world/a.bc', 'assets/runtime/current/packs/start-0.gz']) {
     assert.ok(await exists(join(site, path)), path);
   }
@@ -62,27 +63,27 @@ test('stages the app and only the catalog files of the current package', async t
 });
 
 test('puts a content hash in the package paths', async t => {
-  const {web, site, compressionRoot} = await fixture(t);
-  await stageSite({webRoot: web, siteRoot: site, compressionRoot});
+  const {web, site, compressionRoot, packageBrotliRoot} = await fixture(t);
+  await stageSite({webRoot: web, siteRoot: site, compressionRoot, packageBrotliRoot});
   const folder = await packageFolder(site);
   assert.equal(await readFile(join(site, 'main.js'), 'utf8'), `import('./${folder}/the_long_slop.js');fetch('./${folder}/the_long_slop_bg.wasm');`);
   assert.equal((await readdir(join(site, 'pkg'))).length, WASM.length);
   assert.deepEqual((await readdir(join(site, folder))).sort(), ['the_long_slop.js', 'the_long_slop_bg.wasm']);
   await writeFile(join(web, 'pkg/the_long_slop_bg.wasm'), 'new');
-  await stageSite({webRoot: web, siteRoot: site, compressionRoot});
+  await stageSite({webRoot: web, siteRoot: site, compressionRoot, packageBrotliRoot});
   assert.notEqual(await packageFolder(site), folder);
 });
 
 test('refuses an import of a missing package file', async t => {
-  const {web, site, compressionRoot} = await fixture(t);
+  const {web, site, compressionRoot, packageBrotliRoot} = await fixture(t);
   await put(web, 'other-worker.js', "import init from './pkg/other_worker.js';");
-  await assert.rejects(stageSite({webRoot: web, siteRoot: site, compressionRoot}), /other-worker\.js imports \.\/pkg\/other_worker\.js/);
+  await assert.rejects(stageSite({webRoot: web, siteRoot: site, compressionRoot, packageBrotliRoot}), /other-worker\.js imports \.\/pkg\/other_worker\.js/);
 });
 
 test('routes the WASM files to R2 with Brotli and a file over the Pages size limit raw', async t => {
-  const {web, site, compressionRoot} = await fixture(t);
+  const {web, site, compressionRoot, packageBrotliRoot} = await fixture(t);
   await truncate(join(web, 'pkg/the_long_slop_bg.wasm'), 25 * 1024 * 1024 + 1);
-  const {uploads} = await stageSite({webRoot: web, siteRoot: site, compressionRoot});
+  const {uploads} = await stageSite({webRoot: web, siteRoot: site, compressionRoot, packageBrotliRoot});
   const path = `${await packageFolder(site)}/the_long_slop_bg.wasm`;
   assert.deepEqual(uploads[0], {path, source: join(web, 'pkg/the_long_slop_bg.wasm'), key: uploads[0].key});
   assert.equal(uploads.length, WASM.length + 1);
@@ -100,7 +101,22 @@ test('routes the WASM files to R2 with Brotli and a file over the Pages size lim
   }
   assert.ok(!await exists(join(site, path)));
   const routes = JSON.parse(await readFile(join(site, '_routes.json'), 'utf8'));
-  assert.deepEqual(routes.include, [...Object.keys(keys), '/api/*']);
+  assert.deepEqual(routes.include, ['/pkg/*', '/assets/runtime/*', '/api/*']);
+});
+
+test('routes a runtime package file to R2 Brotli only when it shrinks by 10% or more', async t => {
+  const {web, site, compressionRoot, packageBrotliRoot} = await fixture(t);
+  await writeFile(join(web, 'assets/runtime/current/world/a.bc'), 'a'.repeat(4096));
+  const options = {webRoot: web, siteRoot: site, compressionRoot, packageBrotliRoot};
+  const {uploads} = await stageSite(options);
+  const keys = JSON.parse(await readFile(join(site, 'r2.json'), 'utf8'));
+  const upload = uploads.find(({path}) => path === 'assets/runtime/current/world/a.bc');
+  assert.deepEqual(keys['/assets/runtime/current/world/a.bc'], {br: upload.key});
+  assert.equal(brotliDecompressSync(await readFile(upload.source)).toString(), 'a'.repeat(4096));
+  assert.ok(await exists(join(site, 'assets/runtime/current/world/a.bc')));
+  await writeFile(join(web, 'assets/runtime/current/world/a.bc'), randomBytes(4096));
+  await stageSite(options);
+  assert.equal(JSON.parse(await readFile(join(site, 'r2.json'), 'utf8'))['/assets/runtime/current/world/a.bc'], undefined);
 });
 
 test('the function sends Brotli only to clients that accept it', async () => {
@@ -109,7 +125,7 @@ test('the function sends Brotli only to clients that accept it', async () => {
   const env = {
     LARGE_FILES: {get: async key => object(key)},
     ASSETS: {fetch: async url => String(url).endsWith('/r2.json')
-      ? Response.json({'/pkg/a.wasm': {raw: 'raw', br: 'brotli'}, '/pkg/b.wasm': {br: 'small'}})
+      ? Response.json({'/pkg/a.wasm': {raw: 'raw', br: 'brotli'}, '/pkg/b.wasm': {br: 'small'}, '/assets/runtime/p/a.bc': {br: 'bc'}})
       : new Response('site')},
   };
   const get = (path, encoding) => onRequestGet({env, request: new Request(`https://site${path}`, {headers: {'Accept-Encoding': encoding}})});
@@ -122,11 +138,19 @@ test('the function sends Brotli only to clients that accept it', async () => {
   const site = await get('/pkg/b.wasm', 'gzip');
   assert.equal(await site.text(), 'site');
   assert.match(site.headers.get('Vary'), /Accept-Encoding/);
+  const runtime = await get('/assets/runtime/p/a.bc', 'br');
+  assert.equal(runtime.headers.get('Content-Encoding'), 'br');
+  assert.equal(runtime.headers.get('Cache-Control'), 'public, max-age=31536000, immutable');
+  assert.equal(await runtime.text(), 'bc');
+  const rawPackage = await get('/assets/runtime/p/a.bc', 'gzip');
+  assert.equal(rawPackage.headers.get('Content-Encoding'), null);
+  assert.equal(await rawPackage.text(), 'site');
+  assert.equal(await (await get('/assets/runtime/p/other.bc', 'br')).text(), 'site');
 });
 
 test('refuses a file over the Pages size limit without a content hash', async t => {
-  const {web, site, compressionRoot} = await fixture(t);
+  const {web, site, compressionRoot, packageBrotliRoot} = await fixture(t);
   await put(web, 'big.bin');
   await truncate(join(web, 'big.bin'), 25 * 1024 * 1024 + 1);
-  await assert.rejects(stageSite({webRoot: web, siteRoot: site, compressionRoot}), /big\.bin is over 25 MiB/);
+  await assert.rejects(stageSite({webRoot: web, siteRoot: site, compressionRoot, packageBrotliRoot}), /big\.bin is over 25 MiB/);
 });
