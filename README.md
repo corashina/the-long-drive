@@ -97,7 +97,13 @@ The script stages `web/` in `.cache/deploy`. It keeps the app, the reference man
 It copies each WASM package to `pkg/<hash>/` and rewrites the `./pkg/` imports to that path. Browsers cache `pkg/` and `assets/runtime/` as immutable.
 Pages accepts files up to 25 MiB. The script puts larger files, such as the main WASM, in the R2 bucket under their SHA-256. It stops if a larger file is outside these two folders.
 It also puts the Brotli files of the 5 WASM files in R2. It makes them first if a fast build skipped them.
-The function sends them with `Content-Encoding: br` when the browser accepts Brotli. Other browsers get the raw file.
+It makes a Brotli 11 file of each runtime package file in `.cache/package-brotli` and keeps the files that shrink by 10% or more.
+Cloudflare does not compress `.bc`, `.bin`, `.smip` and `.gltf` files, so these Brotli files go to R2 too.
+The first run compresses the full package and takes several minutes. Later runs reuse the files of unchanged sources.
+The function sends Brotli files with `Content-Encoding: br` when the browser accepts Brotli. Other browsers get the raw file.
+`_routes.json` sends all of `pkg/` and `assets/runtime/` to the function, because Pages accepts only 100 route rules.
+So each runtime file download is one function request. The free plan allows 100,000 function requests per day and 10 million R2 reads per month.
+The script uploads each R2 key once and records it in `.cache/r2-uploaded.json`. Delete that file after you empty the bucket.
 Each deployment has an `r2.json` map from path to R2 keys. So a rollback in the dashboard also restores its R2 files.
 Old R2 files stay. Each upload of a changed main WASM adds about 33 MiB raw plus its Brotli file to the 10 GB free storage.
 `functions/[[path]].js` serves them from the same site. [wrangler.toml](wrangler.toml) binds the bucket.
