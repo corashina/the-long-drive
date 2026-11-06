@@ -32,8 +32,6 @@ pub struct HumanVisuals {
     rig: Option<Result<Rig, ()>>,
     /// Human id to scene instance.
     instances: HashMap<u32, Instance>,
-    /// World session of `instances`.
-    session: u64,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -56,11 +54,6 @@ pub(crate) fn sync(
     let manifest = &reference.0;
     let r = &manifest.creatures.human;
     let humans = &mut *humans;
-    if frame.new_session(&mut humans.session) {
-        for (_, instance) in humans.instances.drain() {
-            commands.entity(instance.root).despawn();
-        }
-    }
     // The renderer logs a rig error once and stops the human visuals.
     let rig = humans.rig.get_or_insert_with(|| {
         Rig::rest(&manifest.nodes, r.root)

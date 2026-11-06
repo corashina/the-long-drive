@@ -5,9 +5,10 @@ import {MOUSE_BUTTONS} from './bindings.js';
 // The source keeps the voice settings with the multiplayer settings (`snl.SaveSettings`), not with `S`.
 const NAME_KEY='the-long-slop.player-name',VOICE_KEY='the-long-slop.voice-chat',CHAT_SHOW_MS=10000;
 
-// `joined(save)` takes the host world JSON. The page starts it in place. `audio`: the AudioController.
+// `room`: the room of a Join reload. `joined(save,error)` takes its host world JSON, or null and why.
+// `reloadJoin(room)` starts the page again to join `room`. `audio`: the AudioController.
 // `voiceKeys()`: the codes of the `voicechat` action. `media`: `navigator.mediaDevices`.
-export function createMultiplayer({document,target,Peer,buildId,exportHash,simulation,saveSession,menu,outfit,storage,joined,audio,voiceKeys=()=>[],media}){
+export function createMultiplayer({document,target,Peer,buildId,exportHash,simulation,saveSession,menu,outfit,storage,room:joinRoom=null,joined=()=>{},reloadJoin,audio,voiceKeys=()=>[],media}){
  const $=selector=>document.querySelector(selector);
  const name=$('#net-name'),hostPassword=$('#net-host-password'),joinPassword=$('#net-join-password'),hostHint=$('#net-host-hint'),codeRow=$('#net-code-row'),copyButton=$('#net-code-copy'),max=$('#net-max'),room=$('#net-room'),code=$('#net-code'),status=$('#net-status');
  const hostButton=$('#net-host-start'),joinButton=$('#net-join-start'),leaveButton=$('#net-leave'),players=$('#net-players');
@@ -79,14 +80,17 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
    looksJson=JSON.stringify([...looks].filter(([s,l])=>s!==net.slot&&l.outfit).map(([s,l])=>[s,l.outfit]));
   },
   chat,
-  status:say,
+  status:text=>{say(text);if(joinRoom&&net.role===ROLE.OFF){joinRoom=null;joined(null,text);}},
   peers:list=>{players.replaceChildren(...list.map(p=>{const item=document.createElement('li');item.textContent=p.ping===null?p.name:`${p.name} ${p.ping} ms`;return item;}));},
   session:(role,slot)=>{
    simulation.netSession(role,slot,packets=>net.send(packets));
    if(role===ROLE.OFF){for(const node of labelNodes.values())node.remove();labelNodes.clear();looksJson='[]';output.clear();}
    paint();
   },
-  save:joined,
+  save:bytes=>{
+   if(!joinRoom)return;
+   joinRoom=null;joined(bytes,'');paint();
+  },
  }});
  // Rust reads the peer outfits after each change, like `gameOutfit`.
  target.gameRemoteLooks=()=>{const json=looksJson;looksJson=null;return json??undefined;};
@@ -97,7 +101,7 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
   try{await net.host({maxPlayers:Number(max.value),password:hostPassword.value,name:name.value,outfit:outfit.outfit});say('Room open. Share the room code above.');}
   catch{say('Cannot reach the connection server.');}
  });
- joinButton.addEventListener('click',()=>{storeName();say('Connecting…');net.join({code:room.value.trim().toUpperCase(),name:name.value,password:joinPassword.value,outfit:outfit.outfit});});
+ joinButton.addEventListener('click',()=>{storeName();say('Connecting…');reloadJoin({code:room.value.trim().toUpperCase(),name:name.value,password:joinPassword.value});});
  for(const node of [room,joinPassword])node.addEventListener('keydown',event=>{if(event.code==='Enter'&&!joinButton.disabled)joinButton.click();});
  copyButton.addEventListener('click',()=>{document.defaultView?.navigator?.clipboard?.writeText(net.code).then(()=>{copyButton.textContent='Copied';},()=>{});});
  leaveButton.addEventListener('click',()=>{net.leave();say('Left the game.');});
@@ -114,6 +118,7 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
  target.addEventListener('pagehide',()=>net.leave());
  for(const id of ['#multiplayer','#start-multiplayer'])$(id).addEventListener('click',paint);
  paint();
+ if(joinRoom){room.value=joinRoom.code;joinPassword.value=joinRoom.password;say('Connecting…');net.join({...joinRoom,outfit:outfit.outfit});}
  return {
   get role(){return net.role;},
   // The game input pauses while the chat line is open.
