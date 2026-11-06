@@ -237,6 +237,10 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .multiplayer-body [hidden] {display:none;}
 #net-room {text-transform:uppercase;}
 #net-host-hint {color:var(--dust);}
+#net-code-row {display:flex;align-items:center;gap:12px;padding:10px 12px;border:2px solid var(--paint);border-radius:3px;}
+#net-code-row[hidden] {display:none;}
+#net-code-row span {color:var(--dust);}
+#net-code {flex:1;font:700 2em/1 ui-monospace,Consolas,monospace;letter-spacing:.15em;color:var(--paint);user-select:all;}
 .multiplayer-body fieldset > button {align-self:flex-start;margin-top:6px;}
 .multiplayer-body p {margin:4px 0;}
 .multiplayer-body ul {margin:0;padding-left:20px;}
