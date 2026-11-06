@@ -41,6 +41,5 @@ Test on the PC after all rows: force each kind with F4, check the look, the rain
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
 | WT2 | Sky, fog, cloud and light per weather | M | Apply the `WeatherMix` look in `compose_weather` before the sandstorm. |
-| WT4 | Rain audio and shelter | S | CC0 rain loops and thunder clips. Inside loop when sheltered. |
 | WT5 | Lightning and thunder | S | Strikes in Thunderstorm, 0.15 s flash, thunder at distance / 343 s. |
 | WT7 | Multiplayer weather sync | S | Host sends the cycle and strikes. Guests do not run the cycle. |
