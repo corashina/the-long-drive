@@ -101,6 +101,7 @@ impl CellSample {
             mix.cloud_cover += t.cloud_cover * w;
             mix.rain += t.rain * w;
             mix.fog += t.fog * w;
+            mix.temperature += t.temperature * w;
         }
         mix.cloud_cover = mix.cloud_cover.min(1.);
         mix.rain = mix.rain.min(1.);
