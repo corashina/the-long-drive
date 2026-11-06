@@ -20,7 +20,7 @@ impl GarageRuntime {
         let mut flags = 0;
         for (on, flag) in [
             (self.started, StateBlock::STARTED),
-            (self.paused, StateBlock::PAUSED),
+            (self.menu, StateBlock::PAUSED),
             (self.area.player.seated(), StateBlock::SEATED),
             (self.sleeping(), StateBlock::SLEEPING),
             (self.needs_output().dead, StateBlock::DEAD),
@@ -447,7 +447,8 @@ impl GarageRuntime {
         serde_json::json!({
             "supported": self.world_supported(),
             "started": self.started,
-            "paused": self.paused,
+            "menu": self.menu,
+            "paused": self.paused(),
             "recovering": self.recovering,
             "sleeping": self.sleeping(),
             "dead": self.needs_output().dead,

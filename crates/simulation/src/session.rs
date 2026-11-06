@@ -34,7 +34,7 @@ impl Session {
                 init.draw_distance,
             )?;
             runtime.started = true;
-            runtime.paused = true;
+            runtime.menu = true;
             Ok::<_, SaveError>(runtime)
         });
         let mut runtime = match saved {

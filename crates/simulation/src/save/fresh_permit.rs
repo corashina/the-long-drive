@@ -41,7 +41,7 @@ impl FreshSessionPermit {
         }
         runtime.clear_input();
         runtime.started = true;
-        runtime.paused = true;
+        runtime.menu = true;
         Ok(())
     }
 

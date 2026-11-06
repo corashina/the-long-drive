@@ -239,7 +239,7 @@ pub(crate) fn load_garage() -> (ReferenceManifest, GarageRuntime) {
     let mut run = ready(&reference);
     assert!(run.world_supported());
     run.started = true;
-    run.paused = false;
+    run.menu = false;
     (reference, run)
 }
 
@@ -303,6 +303,13 @@ pub(crate) fn look(run: &mut GarageRuntime, yaw: f32, pitch: f32) {
 /// Runs one sandbox action, such as `{"action":"seat","seat":"driver"}`.
 /// Asserts `ok` and returns the reply `data`.
 pub(crate) fn act(run: &mut GarageRuntime, reference: &ReferenceManifest, json: &str) -> Value {
+    let mut reply = try_act(run, reference, json);
+    assert_eq!(reply["ok"], true, "{json}: {}", reply["message"]);
+    reply["data"].take()
+}
+
+/// The sandbox reply to `json`, also when the action fails.
+pub(crate) fn try_act(run: &mut GarageRuntime, reference: &ReferenceManifest, json: &str) -> Value {
     let reply = SANDBOX.with_borrow_mut(|sandbox| {
         sandbox.replies.clear();
         sandbox.queued.push(format!("[{json}]"));
@@ -310,9 +317,7 @@ pub(crate) fn act(run: &mut GarageRuntime, reference: &ReferenceManifest, json: 
         assert_eq!(sandbox.replies.len(), 1, "{json}: {:?}", sandbox.replies);
         sandbox.replies.pop().unwrap()
     });
-    let mut reply: Value = serde_json::from_str(&reply).unwrap();
-    assert_eq!(reply["ok"], true, "{json}: {}", reply["message"]);
-    reply["data"].take()
+    serde_json::from_str(&reply).unwrap()
 }
 
 /// The save of `run` after a JSON round trip, as the browser stores it.
@@ -353,7 +358,7 @@ pub(crate) fn restore(
     }
     assert!(!run.restore_pending(), "restore stays pending");
     run.started = true;
-    run.paused = false;
+    run.menu = false;
 }
 
 /// A started runtime from `saved` with the restore done.
