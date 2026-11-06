@@ -134,14 +134,15 @@ export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot
   compressionRoot = resolve(projectRoot, '.cache/http-compression'), packageBrotliRoot = resolve(projectRoot, '.cache/package-brotli')} = {}) {
   const manifest = JSON.parse(gunzipSync(await readFile(resolve(webRoot, 'assets/reference/manifest.json.gz'))).toString('utf8'));
   const base = manifest.content_base;
-  if (!/^assets\/runtime\/[a-zA-Z0-9_-]+\/$/.test(base) || !Array.isArray(manifest.file_catalog?.files) || !Array.isArray(manifest.file_catalog.packs)) {
+  if (!/^assets\/runtime\/[a-zA-Z0-9_-]+\/$/.test(base) || !Array.isArray(manifest.file_catalog?.files) || !Array.isArray(manifest.file_catalog.packs)
+    || !Array.isArray(manifest.file_catalog.top_packs)) {
     throw Error('Invalid runtime package catalog.');
   }
   await rm(siteRoot, {recursive: true, force: true});
   await cp(webRoot, siteRoot, {recursive: true, filter: source => !excluded(webPath(relative(webRoot, source)))});
   const packageRoot = resolve(webRoot, base);
   // Start packs are package files too. Each one stays under the Pages file limit.
-  for (const {file} of [...manifest.file_catalog.files, ...manifest.file_catalog.packs]) {
+  for (const {file} of [...manifest.file_catalog.files, ...manifest.file_catalog.packs, ...manifest.file_catalog.top_packs]) {
     const source = resolve(packageRoot, file);
     if (typeof file !== 'string' || !source.startsWith(packageRoot + sep)) throw Error(`Invalid catalog file: ${file}`);
     const target = resolve(siteRoot, base, file);
@@ -181,7 +182,7 @@ export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot
   }
   const items = [
     ...manifest.file_catalog.files.map(({file}) => ({path: base + file, source: resolve(packageRoot, file), gzip: false})),
-    ...manifest.file_catalog.packs.map(({file}) => ({path: base + file, source: resolve(packageRoot, file), gzip: true})),
+    ...[...manifest.file_catalog.packs, ...manifest.file_catalog.top_packs].map(({file}) => ({path: base + file, source: resolve(packageRoot, file), gzip: true})),
     {path: MANIFEST, source: resolve(webRoot, MANIFEST), gzip: true},
   ];
   const gzipPaths = new Set(items.filter(({gzip}) => gzip).map(({path}) => path));

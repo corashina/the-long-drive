@@ -165,7 +165,10 @@ fields!(super::super::rendering::TextureRecord:slot,source,storage);
 impl ImmutableInputBytes for super::super::rendering::TextureStorage {
     fn heap_bytes(&self) -> usize {
         match self {
-            Self::Rgba8 { input, .. } | Self::NativeBc { input, .. } => input.heap_bytes(),
+            Self::Rgba8 { input, .. } => input.heap_bytes(),
+            Self::NativeBc { input, top, .. } => {
+                input.heap_bytes() + top.as_ref().map_or(0, |t| t.heap_bytes())
+            }
         }
     }
 }

@@ -7,6 +7,7 @@ pub mod specular;
 pub mod terrain;
 pub mod terrain_coverage;
 use crate::ownership::upload_receipt;
+mod top_mips;
 mod world_texture_upload;
 pub mod world_textures;
 use super::primary_image::{SourcePrimaryImage, SourcePrimaryImageSettings};
@@ -192,6 +193,7 @@ pub struct SourceMaterials {
     pub world_textures: world_textures::WorldTextures,
     pub world_primary: primary::PrimaryOwnership,
     pub world_deferred: primary::DeferredAllocation,
+    top_mips: top_mips::TopMips,
     pub standard_records: HashMap<AssetId<StandardMaterial>, (source::AssetId, u32)>,
     records: Vec<Arc<MaterialRecord>>,
     sort_data: HashMap<(source::AssetId, u32), super::renderer_visibility::SourceSortData>,
@@ -379,6 +381,7 @@ impl Plugin for SourceMaterialPlugin {
             MaterialPlugin::<grass::material::GrassMaterial>::default(),
             grass::writers::GrassDisplacementPlugin,
             world_texture_upload::WorldTextureUploadPlugin,
+            top_mips::TopMipPlugin,
             super::fixed_assets::FixedAssetsPlugin,
         ))
         .insert_resource(MaterialLoading(Arc::new(Mutex::new(LoadingData {
@@ -573,6 +576,7 @@ pub fn load_materials(
         world_textures: world_textures::WorldTextures::default(),
         world_primary: primary::PrimaryOwnership::default(),
         world_deferred: primary::DeferredAllocation::default(),
+        top_mips: default(),
         standard_records: HashMap::new(),
         sort_data,
         records,

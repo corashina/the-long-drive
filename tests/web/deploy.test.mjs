@@ -22,7 +22,7 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'deploy-'));
   t.after(() => rm(root, {recursive: true, force: true}));
   const web = join(root, 'web');
-  const manifest = {content_base: 'assets/runtime/current/', file_catalog: {files: [{file: 'world/a.bc'}], packs: [{file: 'packs/start-0.gz'}]}};
+  const manifest = {content_base: 'assets/runtime/current/', file_catalog: {files: [{file: 'world/a.bc'}], packs: [{file: 'packs/start-0.gz'}], top_packs: []}};
   await put(web, 'assets/reference/manifest.json.gz', gzipSync(JSON.stringify(manifest)));
   await put(web, 'assets/reference/manifest.bin.gz', gzipSync(randomBytes(4096)));
   await put(web, 'index.html', '<html>');

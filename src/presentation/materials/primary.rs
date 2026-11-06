@@ -97,7 +97,8 @@ impl SourceMaterials {
                 .records
                 .iter()
                 .map(|record| record_bytes(record))
-                .sum::<usize>();
+                .sum::<usize>()
+            + self.top_mips.bytes();
         let gpu = self
             .textures
             .iter()
@@ -381,12 +382,15 @@ impl SourceMaterials {
                     source::TextureStorage::Rgba8 { input, .. }
                     | source::TextureStorage::NativeBc { input, .. } => input.bytes as usize,
                 };
+                // Fixed textures load before the game starts. Their top mips load after.
+                let defer_top = texture.persistent;
                 texture.chain = Some(
                     server
                         .load_builder()
                         .with_settings(move |settings: &mut SourcePrimaryImageSettings| {
                             settings.record = Some(Arc::clone(&record));
                             settings.input_bytes = input_bytes;
+                            settings.defer_top = defer_top;
                         })
                         .load(texture.record.file().to_owned()),
                 );

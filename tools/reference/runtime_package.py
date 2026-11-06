@@ -148,18 +148,25 @@ def build_file_catalog(manifest: dict, output: Path) -> dict:
         if name.endswith(('.rgba', '.bc')):
             reserve = max(reserve, receipt['bytes'])
     from .native_bc import validate_storage
+    tops = set()
     for material in manifest.get('rendering', {}).get('materials', []):
         for texture in material['properties']['textures']:
             validate_storage(texture, files)
+            if texture['storage']['kind'] == 'native_bc' and texture['storage']['top']:
+                tops.add(texture['storage']['top']['file'])
     if reserve >= MAX_STAGING:
         raise ValueError('World input overlap leaves no generation capacity')
     for asset in manifest['assets']:
         asset['dependencies'] = [files[entry['file']] for entry in asset['dependencies']]
     if 'render_lighting' in manifest:
         manifest['render_lighting']['dependencies'] = [files[entry['file']] for entry in manifest['render_lighting']['dependencies']]
-    packs = build_start_packs(start_files(manifest, {p['asset_file']: p['input']['file'] for p in plans}), files, output)
+    names = start_files(manifest, {p['asset_file']: p['input']['file'] for p in plans})
+    shutil.rmtree(output / 'packs', ignore_errors=True)
+    # Top mips of start textures load after the game starts, from their own packs.
+    packs = build_packs([n for n in names if n not in tops], files, output, 'start')
+    top_packs = build_packs([n for n in names if n in tops], files, output, 'top')
     return {'files': [files[name] for name in sorted(files)], 'plans': plans,
-            'dependency_staging_reserve': reserve, 'packs': packs}
+            'dependency_staging_reserve': reserve, 'packs': packs, 'top_packs': top_packs}
 
 
 def start_files(manifest, plans):
@@ -173,10 +180,9 @@ def start_files(manifest, plans):
     return list(dict.fromkeys(names))
 
 
-def build_start_packs(names, files, output):
-    """Write gzip packs of the start files. A pack is the plain concatenation of its entries."""
+def build_packs(names, files, output, kind):
+    """Write gzip packs `packs/{kind}-N.gz` of the files. A pack is the plain concatenation of its entries."""
     root = output / 'packs'
-    shutil.rmtree(root, ignore_errors=True)
     groups, size = [], PACK_BYTES
     for name in names:
         bytes_ = files[name]['bytes']
@@ -190,7 +196,7 @@ def build_start_packs(names, files, output):
     packs = []
     for index, group in enumerate(groups):
         root.mkdir(exist_ok=True)
-        path = root / f'start-{index}.gz'
+        path = root / f'{kind}-{index}.gz'
         content = b''.join((output / name.removeprefix('reference/')).read_bytes() for name in group)
         # mtime 0 keeps the file bytes the same for the same entries.
         path.write_bytes(gzip.compress(content, compresslevel=9, mtime=0))
@@ -245,7 +251,7 @@ def _write_package(manifest, output, destination):
             target.parent.mkdir(parents=True, exist_ok=True)
             # Staging and the package share one volume. Exports never change a written file.
             target.hardlink_to(source)
-        for pack in manifest['file_catalog']['packs']:
+        for pack in manifest['file_catalog']['packs'] + manifest['file_catalog']['top_packs']:
             target = pending / pack['file']
             target.parent.mkdir(parents=True, exist_ok=True)
             target.hardlink_to(output / pack['file'])
@@ -259,7 +265,7 @@ def _write_package(manifest, output, destination):
 def verify_package(manifest, root):
     if manifest['content_base'] != f'assets/runtime/{package_id(manifest)}/':
         raise ValueError('Runtime package identity differs')
-    packs = manifest['file_catalog']['packs']
+    packs = manifest['file_catalog']['packs'] + manifest['file_catalog']['top_packs']
     expected = {receipt['file'] for receipt in manifest['file_catalog']['files']} | {pack['file'] for pack in packs}
     if {path.relative_to(root).as_posix() for path in root.rglob('*') if path.is_file()} != expected:
         raise ValueError('Runtime package file set differs')

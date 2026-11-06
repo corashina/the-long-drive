@@ -318,14 +318,16 @@ def export_material_textures(source, owner, record, output):
     if cache is None: source.material_texture_cache = cache = set()
     for entry in record['properties']['textures']:
         reader = source.get(entry['source']['file'], entry['source']['path_id'])
-        from .native_bc import source_blocks, texture_inputs
+        from .native_bc import split_blocks, texture_inputs
         paths = texture_inputs(entry)
         identity = str((output / paths[0].removeprefix('reference/')).resolve())
         if identity not in cache:
             texture = source.texture_object(reader)
-            payload = (b''.join(source_blocks(texture)) if entry['storage']['kind'] == 'native_bc'
-                       else rgba_levels(texture, entry))
+            top, payload = (split_blocks(texture) if entry['storage']['kind'] == 'native_bc'
+                            else (None, rgba_levels(texture, entry)))
             (output / paths[0].removeprefix('reference/')).write_bytes(payload)
+            if top:
+                (output / paths[1].removeprefix('reference/')).write_bytes(top)
             cache.add(identity)
         from .runtime_package import file_receipt
         from .native_bc import validate_storage

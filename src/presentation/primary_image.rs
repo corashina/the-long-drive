@@ -20,6 +20,8 @@ pub struct SourcePrimaryImageLoader;
 pub struct SourcePrimaryImageSettings {
     pub record: Option<Arc<TextureRecord>>,
     pub input_bytes: usize,
+    /// Fill the top mip from mip 1 and do not read the top file. The top mip loads after start.
+    pub defer_top: bool,
 }
 fn invalid(message: impl Into<String>) -> Error {
     Error::new(ErrorKind::InvalidData, message.into())
@@ -42,12 +44,13 @@ impl AssetLoader for SourcePrimaryImageLoader {
             return Err(invalid("Primary image path differs from admitted storage"));
         }
         let srgb = record.color_space == TextureColorSpace::Srgb;
-        let (byte_count, format, width, height, input) = match &record.storage {
+        let (byte_count, format, width, height, input, top) = match &record.storage {
             TextureStorage::NativeBc {
                 format,
                 width,
                 height,
                 input,
+                top,
                 ..
             } => {
                 let bytes = crate::reference::fixed_reservation::validate_native_bc(record)
@@ -58,7 +61,10 @@ impl AssetLoader for SourcePrimaryImageLoader {
                     (NativeBcFormat::Bc3, false) => TextureFormat::Bc3RgbaUnorm,
                     (NativeBcFormat::Bc3, true) => TextureFormat::Bc3RgbaUnormSrgb,
                 };
-                (bytes, format, *width, *height, input)
+                let top = top
+                    .as_ref()
+                    .map(|t| (t, format.block_copy_size(None).unwrap()));
+                (bytes, format, *width, *height, input, top)
             }
             TextureStorage::Rgba8 {
                 width,
@@ -72,18 +78,41 @@ impl AssetLoader for SourcePrimaryImageLoader {
                 } else {
                     TextureFormat::Rgba8Unorm
                 };
-                (bytes, format, *width, *height, input)
+                (bytes, format, *width, *height, input, None)
             }
         };
-        if settings.input_bytes != byte_count {
+        if settings.input_bytes != input.bytes as usize {
             return Err(invalid("Primary input reservation differs"));
         }
-        // Read directly into the final level vector. The checked reader retains its own input.
+        // Read directly into the final level vector, after the top mip of a split BC chain.
+        // The checked reader retains its own input.
+        let top_bytes = byte_count - input.bytes as usize;
         let mut bytes = vec![0; byte_count];
-        reader.read_exact(&mut bytes).await?;
+        reader.read_exact(&mut bytes[top_bytes..]).await?;
         let mut extra = [0];
         if reader.read(&mut extra).await? != 0 {
             return Err(invalid(format!("{}: input exceeds receipt", input.file)));
+        }
+        if let Some((top, block)) = top {
+            if settings.defer_top {
+                let (head, tail) = bytes.split_at_mut(top_bytes);
+                crate::reference::fixed_reservation::upscale_bc(
+                    block as usize,
+                    width,
+                    height,
+                    tail,
+                    head,
+                );
+            } else {
+                let data = context
+                    .read_asset_bytes(top.file.clone())
+                    .await
+                    .map_err(|e| invalid(format!("{}: {e}", top.file)))?;
+                if data.len() != top_bytes {
+                    return Err(invalid(format!("{}: BC differs from receipt", top.file)));
+                }
+                bytes[..top_bytes].copy_from_slice(&data);
+            }
         }
         let mut image = Image::new_uninit(
             Extent3d {
@@ -100,5 +129,32 @@ impl AssetLoader for SourcePrimaryImageLoader {
         image.texture_descriptor.mip_level_count = record.sampler.mip_count;
         super::source_images::apply_sampler(&mut image, &record.sampler);
         Ok(SourcePrimaryImage(image))
+    }
+}
+/// Top mip blocks of one native BC texture, loaded after start.
+#[derive(Asset, TypePath)]
+pub struct SourceTopMip(pub Vec<u8>);
+#[derive(Default, TypePath)]
+pub struct SourceTopMipLoader;
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+pub struct SourceTopMipSettings {
+    pub bytes: usize,
+}
+impl AssetLoader for SourceTopMipLoader {
+    type Asset = SourceTopMip;
+    type Settings = SourceTopMipSettings;
+    type Error = Error;
+    async fn load(
+        &self,
+        reader: &mut dyn Reader,
+        settings: &Self::Settings,
+        _: &mut LoadContext<'_>,
+    ) -> Result<Self::Asset, Error> {
+        let mut bytes = vec![0; settings.bytes];
+        reader.read_exact(&mut bytes).await?;
+        if reader.read(&mut [0]).await? != 0 {
+            return Err(invalid("Top mip exceeds receipt"));
+        }
+        Ok(SourceTopMip(bytes))
     }
 }
