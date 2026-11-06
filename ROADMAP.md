@@ -35,7 +35,7 @@ Not planned: VR, stereo 3D, mod events, Steam features.
 ### Weather
 
 Weather types are a new feature, not parity. The source has only the sandstorm. It stays as in the source and spawns only in Clear and Cloudy.
-Spec: Clear, Cloudy, Rain, Thunderstorm, Fog. Regional weather cells move over the world. The weather at the player is the sum of the cells there.
+Spec: Clear, Cloudy, Rain, Thunderstorm, Fog, Snow. Regional weather cells move over the world. The weather at the player is the sum of the cells there.
 Test on the PC after all rows: force each kind with F4, check the look, the rain cost (under 0.3 ms GPU), wet grip and MP sync.
 
 | ID | Task | Size | Remaining work |
@@ -48,7 +48,6 @@ Test on the PC after all rows: the section test pass in plan.md, with a bench co
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| WX3 | Snow | M | Snow kind in the snow biome, flakes, snow cover, snow grip. |
 | WX7 | Car cabin shelter | S | A roofed car cabin is a shelter. Rain-on-roof loop. |
 | WX8 | Spray and glass drops | M | Wheel spray on wet roads. Drops on the windshield of the seated car. |
-| WX11 | Multiplayer and save v2 | S | Wind and snow cover in the save and the cells message. |
+| WX11 | Multiplayer and save v2 | S | Wind in the save. Wind and snow cover in the cells message. |

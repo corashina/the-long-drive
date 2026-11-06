@@ -44,8 +44,9 @@ export function createWeatherPanel(simulation,guest){
   if(!reply?.ok){values.textContent=reply?.message??'No reply.';return;}
   const data=reply.data;
   if(!kinds)addKinds(data.kinds);
-  const {kind,rain,locked,cells,wind,temperature,wetness}=data;
+  const {kind,rain,snow,snow_cover,locked,cells,wind,temperature,wetness}=data;
   values.textContent='Here: '+kind+'\nRain: '+rain.toFixed(2)+'  Wet: '+wetness.toFixed(2)
+   +'\nSnow: '+snow.toFixed(2)+'  Cover: '+snow_cover.toFixed(2)
    +'\nWind: '+wind.speed.toFixed(1)+' m/s x'+wind.gust.toFixed(2)+'\nTemperature: '+temperature.toFixed(1)+' °C'
    +'\nCells: '+cells.length+'\nLocked: '+(locked?'yes':'no');
   if(document.activeElement!==select)select.value=locked?kind:'';

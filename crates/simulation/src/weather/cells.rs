@@ -31,12 +31,14 @@ const DECAY: f32 = 0.3;
 /// The radius share at full weight. The weight falls to 0 at the radius.
 const EDGE: f32 = 0.7;
 /// Spawn weights by the biome under the spawn point, in `WeatherKind` order.
-/// Rows: desert, snow, grass (`terrain::biome`).
+/// Rows: desert, snow, grass (`terrain::biome`). The snow biome has Snow in place of Rain.
 const BIOME_WEIGHTS: [[f32; KINDS]; 3] = [
-    [0.5, 0.4, 0.1, 0., 0.],
-    [0.3, 0.35, 0.15, 0., 0.2],
-    [0.35, 0.25, 0.18, 0.1, 0.12],
+    [0.5, 0.4, 0.1, 0., 0., 0.],
+    [0.25, 0.3, 0., 0., 0.15, 0.3],
+    [0.35, 0.25, 0.18, 0.1, 0.12, 0.],
 ];
+const DESERT: u8 = 0;
+const SNOW: u8 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -102,13 +104,28 @@ impl CellSample {
             let t = kind.target();
             mix.cloud_cover += t.cloud_cover * w;
             mix.rain += t.rain * w;
+            mix.snow += t.snow * w;
             mix.fog += t.fog * w;
             mix.temperature += t.temperature * w;
         }
         mix.cloud_cover = mix.cloud_cover.min(1.);
         mix.rain = mix.rain.min(1.);
+        mix.snow = mix.snow.min(1.);
         mix.fog = mix.fog.min(1.);
         mix
+    }
+
+    /// The sample over `biome`. Rain falls as Snow over the snow biome. Snow falls as Rain over the desert.
+    pub fn over(mut self, biome: u8) -> Self {
+        let (from, to) = match biome {
+            SNOW => (WeatherKind::Rain, WeatherKind::Snow),
+            DESERT => (WeatherKind::Snow, WeatherKind::Rain),
+            _ => return self,
+        };
+        let moved = std::mem::take(&mut self.weights[from as usize]);
+        let w = &mut self.weights[to as usize];
+        *w = (*w + moved).min(1.);
+        self
     }
 
     /// The kind with the largest weight. Clear also gets the share that no cell covers.
@@ -350,6 +367,24 @@ mod tests {
         let mut cells = WeatherCells::new(5);
         assert!((0..1000).all(|_| cells.pick(0) != WeatherKind::Thunderstorm));
         assert!((0..1000).any(|_| cells.pick(2) == WeatherKind::Thunderstorm));
+    }
+
+    #[test]
+    fn the_snow_biome_gives_snow_and_the_desert_never() {
+        let mut cells = WeatherCells::new(5);
+        assert!((0..1000).all(|_| !matches!(cells.pick(0), WeatherKind::Snow)));
+        assert!((0..1000).all(|_| cells.pick(1) != WeatherKind::Rain));
+        assert!((0..1000).any(|_| cells.pick(1) == WeatherKind::Snow));
+        // A Rain cell that drifts over the snow biome snows. A Snow cell over the desert rains.
+        let mut rain = CellSample::default();
+        rain.weights[WeatherKind::Rain as usize] = 1.;
+        assert_eq!(rain.over(1).dominant(), WeatherKind::Snow);
+        assert_eq!(rain.over(1).mix(), WeatherKind::Snow.target());
+        assert_eq!(rain.over(2), rain);
+        let mut snow = CellSample::default();
+        snow.weights[WeatherKind::Snow as usize] = 1.;
+        assert_eq!(snow.over(0).dominant(), WeatherKind::Rain);
+        assert_eq!(snow.over(0).mix().snow, 0.);
     }
 
     #[test]

@@ -970,7 +970,8 @@ fn validate_weather(
         saved.cells.len() <= crate::weather::MAX_CELLS
             && saved.cells.iter().all(|c| c.valid())
             && (!saved.locked || saved.cells.len() == 1)
-            && unit(saved.wetness),
+            && unit(saved.wetness)
+            && unit(saved.snow_cover),
         "Weather cells",
     )
 }

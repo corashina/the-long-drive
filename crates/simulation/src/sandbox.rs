@@ -969,6 +969,8 @@ fn weather(runtime: &GarageRuntime) -> Value {
         "kinds": crate::weather::WeatherKind::ALL,
         "player": player_xz(runtime),
         "rain": weather.mix().rain,
+        "snow": weather.mix().snow,
+        "snow_cover": weather.snow_cover,
         "wetness": weather.wetness,
         "temperature": runtime.lighting.cycle.output().ambient_temperature,
         "wind": {"dir": wind.dir, "speed": wind.speed, "gust": wind.gust},

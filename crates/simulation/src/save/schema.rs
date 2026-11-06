@@ -120,6 +120,7 @@ pub struct WeatherSnapshot {
     /// The F4 lock. The only cell is then the lock cell.
     pub locked: bool,
     pub wetness: f32,
+    pub snow_cover: f32,
 }
 /// Source save_sandstorm: pos, euler rot y, prefabid, life, size, speed, xdir and ydir.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -545,6 +546,7 @@ mod g04_ordered_state {
             }],
             locked: false,
             wetness: 0.8,
+            snow_cover: 0.4,
         };
         let json = serde_json::to_string(&weather).unwrap();
         assert!(json.contains(r#""kind":"thunderstorm""#));
