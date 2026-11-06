@@ -135,6 +135,7 @@ impl GarageRuntime {
             desert_weight,
             |point| stream.terrain_sample(point),
         );
+        self.physics.set_wetness(self.weather.mix().wetness);
         let (bindings, items) = (&self.weather_bindings, &self.area.items);
         // WaitForSeconds resumes after Update. Apply the cached targets before later rescans.
         self.weather.apply_wind(

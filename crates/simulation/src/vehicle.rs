@@ -237,6 +237,8 @@ pub struct PhysicsWorld {
     sleep_speed: f32,
     /// Milliseconds of `step_physics` since the last `take_step_ms`. Zero off the web.
     step_ms: f64,
+    /// Weather tire grip multiplier for all wheel sets.
+    tire_grip: f32,
 }
 
 impl PhysicsWorld {
@@ -259,6 +261,7 @@ impl PhysicsWorld {
             sleep_speed:
                 rapier3d::prelude::RigidBodyActivation::default_normalized_linear_threshold(),
             step_ms: 0.,
+            tire_grip: 1.0,
         };
         physics.physics.integration_parameters.dt = FIXED_DT;
         // A recycled contact keeps its fixed-collider points in world space. The origin rebase
@@ -394,6 +397,7 @@ impl PhysicsWorld {
             QueryFilter::default().predicate(&ground),
             &vehicle.torques,
             &vehicle.steer,
+            self.tire_grip,
         );
     }
 
@@ -411,7 +415,13 @@ impl PhysicsWorld {
             QueryFilter::default().predicate(&ground),
             torques,
             steer,
+            self.tire_grip,
         );
+    }
+
+    /// Sets the tire grip of all wheel sets from weather wetness 0..1.
+    pub fn set_wetness(&mut self, wetness: f32) {
+        self.tire_grip = wheel::wet_grip(wetness);
     }
 
     /// Started contacts of the last step.
