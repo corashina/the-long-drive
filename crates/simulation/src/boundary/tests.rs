@@ -207,6 +207,11 @@ fn frame_round_trips() {
                 seed: 7,
                 age: 0.1,
             }),
+            cells: [WetCell {
+                center: [1200., -300.],
+                radius: 2500.,
+                wet: 0.5,
+            }; crate::weather::MAX_CELLS],
         },
         lights: vec![LightOutput::default()],
         lamp_materials: Vec::new(),
