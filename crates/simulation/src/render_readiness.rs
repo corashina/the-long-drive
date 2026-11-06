@@ -256,48 +256,73 @@ impl RendererReadiness {
         }
     }
     pub fn graph_ready(&self, request: ReadinessRequest) -> bool {
+        self.graph_blocker(request).is_none()
+    }
+    /// The first condition that holds the graph proof, for the loading stall log.
+    pub fn graph_blocker(&self, request: ReadinessRequest) -> Option<&'static str> {
         let (Some(graph), Some(effects)) = (self.graph, self.effects) else {
-            return false;
+            return Some("no graph or effects observation");
         };
-        self.failure.is_none()
-            && self.content == Some(ContentPreparation::Prepared(request.content()))
-            && self.request == Some(request)
-            && self.loading.fresh(
-                request.capture(),
-                request.selection_revision,
-                request.probe_mask,
-            )
-            && graph.identity == request.render
-            && effects.identity == request.render
-            && graph.frame != 0
-            && graph.token != 0
-            && graph.sky
-            && graph.world_mask == 1
-            && graph.display_encoded
-            && graph.submitted_token == graph.token
-            && graph.targets_ready
-            && graph.lighting_textures != 0
-            && graph.lighting_gpu_textures == graph.lighting_textures
-            && graph.surface_ready
-            && graph.camera_ready
-            && graph.sky_ready
-            && graph.cloud_ready
-            && graph.caster_ready
-            && graph.validation.passed()
-            && graph.probes.iter().enumerate().all(|(index, probe)| {
-                probe.pipelines_ready
-                    && (request.probe_mask & (1 << index) == 0
-                        || (probe.published && probe.validation.passed()))
-            })
-            && effects.history_revision == request.history_revision
-            && effects.frame == graph.frame
-            && effects.token == graph.token
-            && effects.pipelines_ready
-            && effects.inputs_ready
-            && effects.encoded_token == graph.token
-            && effects.submitted_token == graph.token
-            && effects.committed_token == graph.token
-            && effects.validation.passed()
+        let probes = graph.probes.iter().enumerate().all(|(index, probe)| {
+            probe.pipelines_ready
+                && (request.probe_mask & (1 << index) == 0
+                    || (probe.published && probe.validation.passed()))
+        });
+        [
+            (self.failure.is_none(), "failure"),
+            (
+                self.content == Some(ContentPreparation::Prepared(request.content())),
+                "content not prepared",
+            ),
+            (self.request == Some(request), "request changed"),
+            (
+                self.loading.fresh(
+                    request.capture(),
+                    request.selection_revision,
+                    request.probe_mask,
+                ),
+                "probe captures not fresh",
+            ),
+            (graph.identity == request.render, "graph identity"),
+            (effects.identity == request.render, "effects identity"),
+            (graph.frame != 0 && graph.token != 0, "no graph frame"),
+            (graph.sky, "sky"),
+            (graph.world_mask == 1, "world mask"),
+            (graph.display_encoded, "display not encoded"),
+            (graph.submitted_token == graph.token, "graph not submitted"),
+            (graph.targets_ready, "targets"),
+            (
+                graph.lighting_textures != 0
+                    && graph.lighting_gpu_textures == graph.lighting_textures,
+                "lighting textures",
+            ),
+            (graph.surface_ready, "surface"),
+            (graph.camera_ready, "camera"),
+            (graph.sky_ready, "sky pipelines"),
+            (graph.cloud_ready, "cloud"),
+            (graph.caster_ready, "caster"),
+            (graph.validation.passed(), "graph validation"),
+            (probes, "probes"),
+            (
+                effects.history_revision == request.history_revision,
+                "effects history revision",
+            ),
+            (
+                effects.frame == graph.frame && effects.token == graph.token,
+                "effects frame",
+            ),
+            (effects.pipelines_ready, "effects pipelines"),
+            (effects.inputs_ready, "effects inputs"),
+            (
+                effects.encoded_token == graph.token
+                    && effects.submitted_token == graph.token
+                    && effects.committed_token == graph.token,
+                "effects not submitted",
+            ),
+            (effects.validation.passed(), "effects validation"),
+        ]
+        .into_iter()
+        .find_map(|(ready, name)| (!ready).then_some(name))
     }
     pub fn check(
         &mut self,
