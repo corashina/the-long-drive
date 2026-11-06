@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 import re
+import shutil
 from pathlib import Path
 from .library.reader import checked
 from .library.types import ObjectId
@@ -775,6 +776,7 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
         'settings':{'priority':128,'loop':True,'gain':1.,'pitch':1.,'min_distance':1.,'max_distance':500.,'rolloff_mode':0,
             'spatial_blend':1.,'spatial_blend_curve':flat,'rolloff_curve':flat},
         'mixer':mixer(source.resolve(computer,cd['musicGroup'])),'doppler':1.,'pan':0.,'method':method('computerscript','PlayNote')})
+    audio['survival']+=added_rows(audio,output)
     def control_reader(reader):
         if reader is None: return None
         eid = emitter(reader); node = audio['emitters'][eid-1]['node']
@@ -910,6 +912,30 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
     for identity in sorted(getattr(source, 'item_clips', set())):
         clip(source.get(*identity), 'effect')
     return audio
+
+
+ADDED_AUDIO = Path(__file__).parent / 'added_audio'
+
+
+def added_rows(audio: dict, output: Path) -> list:
+    """Weather clips that are not in the source. They play like the 2D storm_inside loop."""
+    template=next(b for b in audio['survival'] if b['role']=='storm_inside')
+    rows=[]
+    for row in json.loads((ADDED_AUDIO/'clips.json').read_text())['rows']:
+        ids=[]
+        for name in row['clips']:
+            clip_id=len(audio['clips'])+1;path_id=len([c for c in audio['clips'] if c['source']['file']=='added'])+1
+            target=f'audio-added-{path_id}.ogg';shutil.copyfile(ADDED_AUDIO/name,output/target)
+            data=(output/target).read_bytes();channels,frames=opus_frames(output/target);seconds=frames/OPUS_RATE
+            audio['clips'].append({'id':clip_id,'source':{'file':'added','path_id':path_id},'path':'reference/'+target,
+                'usages':['effect'],'channels':channels,'frequency':OPUS_RATE,'frames':frames,'duration_seconds':seconds,
+                'source_duration_seconds':seconds,'duration_delta_seconds':0.,'duration_delta_frames':0.,
+                'duration_tolerance_frames':1.,'duration_status':'added','sha256':hashlib.sha256(data).hexdigest(),'bytes':len(data)})
+            ids.append(clip_id)
+        settings=copy.deepcopy(template['settings']);settings['loop']=not row['one_shot']
+        rows.append({**copy.deepcopy(template),'role':row['role'],'kind':row['kind'],'one_shot':row['one_shot'],
+            'clips':ids,'gain':[row['gain']]*2,'pitch':[1.,1.],'settings':settings})
+    return rows
 
 
 def validate_audio_export(audio: dict, output: Path) -> None:

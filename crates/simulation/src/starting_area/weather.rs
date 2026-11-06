@@ -18,7 +18,12 @@ pub(super) struct WeatherBindings {
     garage: Vec<ColliderHandle>,
     world: WorldInteriors,
     volumes: Vec<InteriorVolume>,
+    /// Rain loop blend: 0 plays the outside loop, 1 plays the inside loop.
+    shelter: f32,
 }
+
+/// Shelter blend change per second.
+const SHELTER_FADE: f32 = 2.;
 
 impl WeatherBindings {
     /// `interiors` are the garage interior colliders of the live interior list.
@@ -41,6 +46,7 @@ impl WeatherBindings {
             world: WorldInteriors::new(garage.len()),
             volumes: Vec::with_capacity(garage.len() + 256),
             garage,
+            shelter: 0.,
         }
     }
 
@@ -85,6 +91,16 @@ impl WeatherBindings {
                 .map(|body| root(&self.items, items, body));
             self.volumes.push(InteriorVolume { collider, root });
         }
+    }
+
+    /// The player body center is in a live interior volume: the garage, a building or a car.
+    pub(super) fn sheltered(&self, physics: &PhysicsWorld, player: Vector) -> bool {
+        let colliders = &physics.rapier().colliders;
+        self.volumes.iter().any(|v| {
+            colliders
+                .get(v.collider)
+                .is_some_and(|c| c.shape().contains_point(c.position(), player))
+        })
     }
 
     /// The root of a body that wind moves. The player body has none.
@@ -172,10 +188,39 @@ impl GarageRuntime {
             .cycle
             .compose_weather(&reference.weather, self.weather.influence());
         self.advance_tumbleweeds(reference, dt);
+        let local = self.area.player.body_pose(&self.physics).position;
+        let bindings = &mut self.weather_bindings;
+        let target = if bindings.sheltered(&self.physics, Vector::from_array(local)) {
+            1.
+        } else {
+            0.
+        };
+        bindings.shelter +=
+            (target - bindings.shelter).clamp(-SHELTER_FADE * dt, SHELTER_FADE * dt);
         let Some(audio) = &mut self.audio else {
             return;
         };
         use crate::audio::AudioKind;
+        let rain = self.weather.mix().rain;
+        let shelter = bindings.shelter;
+        let position = self.stream.origin.absolute(local);
+        for (kind, blend) in [
+            (AudioKind::Rain, 1. - shelter),
+            (AudioKind::RainInside, shelter),
+        ] {
+            let gain = rain * blend;
+            if gain > 0. {
+                let row = audio
+                    .reference
+                    .survival
+                    .iter()
+                    .find(|b| b.kind == kind as u32)
+                    .expect("validated rain audio");
+                audio.source_loop(kind, 0, row.gain[0] * gain, position);
+            } else {
+                audio.stop_survival_loop(kind, 0);
+            }
+        }
         audio.remove_storm_loops(self.weather.storms());
         // sandstormscript.Update: source.volume = defVolume * llerp.
         let volume = audio

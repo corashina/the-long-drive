@@ -1593,6 +1593,10 @@ pub enum AudioKind {
     ComputerNote = 23,
     Horror = 24,
     Hum = 25,
+    /// Added weather clips. They are not in the source.
+    Rain = 26,
+    RainInside = 27,
+    Thunder = 28,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
