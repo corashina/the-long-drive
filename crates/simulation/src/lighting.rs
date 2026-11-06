@@ -233,20 +233,23 @@ impl CycleState {
         }
     }
 
-    /// Compose from retained clear values. SetBiome samples sky tint once per source second.
+    /// Compose from retained clear values. The weather mix applies first, then the sandstorm.
+    /// SetBiome samples sky tint once per source second.
     pub fn compose_weather(
         &mut self,
         weather: &crate::reference::WeatherReference,
         influence: crate::weather::StormInfluence,
+        mix: crate::weather::WeatherMix,
     ) {
-        self.output = self.clear_output.clone();
+        self.output.clone_from(&self.clear_output);
+        apply_mix(&mut self.output, mix);
         let w = influence.strength.clamp(0., 1.);
         let r = &self.reference;
         let s = &weather.storm;
         let o = &mut self.output;
         if self.elapsed_seconds >= self.sky_sample_time + f64::from(r.biome_refresh_seconds) {
             self.sky_sample_time = self.elapsed_seconds;
-            self.sampled_sky = color_lerp(self.clear_output.sky_tint, s.sky_color, w);
+            self.sampled_sky = color_lerp(o.sky_tint, s.sky_color, w);
         }
         if influence.id.is_none() || w == 0. {
             return;
@@ -593,6 +596,47 @@ fn evaluate(
     }
 }
 
+/// Cloud shader threshold at full cover. The shader subtracts it from the noise sum, so a lower
+/// value gives more cloud.
+const OVERCAST_CLOUD_THRESHOLD: f32 = 1.;
+/// Fog density multiplier at full `fog`, on top of 1.
+const FOG_DENSITY_GAIN: f32 = 8.;
+/// Fog density multiplier at full `rain`, on top of 1.
+const RAIN_FOG_GAIN: f32 = 1.5;
+/// Light added at full lightning `flash`.
+const FLASH_LIGHT: f32 = 1.5;
+
+/// Weather types are a new feature: the source has only the sandstorm. The mix changes the clear
+/// values: more and grey cloud, less light, more and grey fog, less flare.
+fn apply_mix(o: &mut CycleOutput, mix: crate::weather::WeatherMix) {
+    let cover = mix.cloud_cover.clamp(0., 1.);
+    let rain = mix.rain.clamp(0., 1.);
+    let fog = mix.fog.clamp(0., 1.);
+    let light = (1. - 0.6 * cover - 0.25 * rain - 0.3 * fog).max(0.1);
+    let ambient = 1. - 0.25 * cover - 0.25 * rain - 0.1 * fog;
+    o.directional_intensity = o.directional_intensity * light + mix.flash * FLASH_LIGHT;
+    o.ambient = o.ambient * ambient + mix.flash * FLASH_LIGHT;
+    o.sky_tint = grey(o.sky_tint, ambient, cover);
+    let cloud_shade = lerp(0.85, 0.45, rain);
+    for cloud in &mut o.clouds {
+        cloud.density = lerp(cloud.density, OVERCAST_CLOUD_THRESHOLD, cover).min(cloud.density);
+        cloud.color = grey(cloud.color, cloud_shade, cover);
+        cloud.color[3] = lerp(cloud.color[3], 1., cover);
+    }
+    o.fog_density *= 1. + RAIN_FOG_GAIN * rain + FOG_DENSITY_GAIN * fog * fog;
+    o.fog_color = grey(o.fog_color, ambient, cover.max(fog));
+    o.flare_brightness *= 1. - cover.max(fog);
+}
+/// Lerp the RGB channels to their luminance times `shade`. Alpha stays.
+fn grey(c: [f32; 4], shade: f32, t: f32) -> [f32; 4] {
+    let value = (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]) * shade;
+    [
+        lerp(c[0], value, t),
+        lerp(c[1], value, t),
+        lerp(c[2], value, t),
+        c[3],
+    ]
+}
 fn color_lerp(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
     std::array::from_fn(|i| lerp(a[i], b[i], t))
 }
@@ -1229,4 +1273,40 @@ pub fn spot_cookie_matrix(
             -local.z * projected_scale,
         ]
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::weather::WeatherMix;
+
+    #[test]
+    fn mix_changes_only_weather_output() {
+        let mut clear = CycleOutput {
+            directional_intensity: 1.,
+            ambient: 1.,
+            sky_tint: [0.3, 0.5, 0.9, 1.],
+            fog_density: 0.002,
+            fog_color: [0.5, 0.6, 0.8, 1.],
+            flare_brightness: 0.8,
+            ..Default::default()
+        };
+        clear.clouds = [CloudOutput {
+            color: [0.9, 0.9, 1., 0.5],
+            density: 1.8,
+            speed: 1.,
+        }; 2];
+        let mut output = clear.clone();
+        apply_mix(&mut output, WeatherMix::default());
+        assert_eq!(output, clear);
+        let fog = WeatherMix {
+            cloud_cover: 0.5,
+            fog: 1.,
+            ..Default::default()
+        };
+        apply_mix(&mut output, fog);
+        assert!(output.fog_density > clear.fog_density * 5.);
+        assert!(output.clouds[0].density < clear.clouds[0].density);
+        assert!(output.directional_intensity < clear.directional_intensity);
+    }
 }

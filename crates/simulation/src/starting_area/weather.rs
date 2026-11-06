@@ -185,9 +185,11 @@ impl GarageRuntime {
             physics,
             |collider| volumes.iter().any(|v| v.collider == collider),
         );
-        self.lighting
-            .cycle
-            .compose_weather(&reference.weather, self.weather.influence());
+        self.lighting.cycle.compose_weather(
+            &reference.weather,
+            self.weather.influence(),
+            self.weather.mix(),
+        );
         self.advance_tumbleweeds(reference, dt);
         let bindings = &mut self.weather_bindings;
         let target = if self.weather.sheltered { 1. } else { 0. };
