@@ -8,7 +8,7 @@ use super::message::{
 use super::objects::{NetKey, ObjectIndex};
 use crate::audio::{AudioAction, AudioKind, SurvivalAudioEvent};
 use crate::starting_area::GarageRuntime;
-use crate::weather::{MAX_CELLS, WeatherCell, WeatherCells, WeatherKind};
+use crate::weather::{MAX_CELLS, WeatherCell, WeatherKind, WeatherState, Wind};
 
 /// The wait of source `multiSyncTime` between clock sends.
 pub const TIME_SYNC: f32 = 10.;
@@ -67,9 +67,7 @@ impl WorldSync {
                 cycle_seconds: runtime.lighting.cycle.cycle_seconds(),
             };
             message::push(slot, &time, out);
-            let weather = &runtime.weather;
-            let m = weather_message(&weather.cells, weather.drift, weather.wetness);
-            message::push(slot, &m, out);
+            message::push(slot, &weather_message(&runtime.weather), out);
         }
         if let Some(audio) = &mut runtime.audio
             && (audio.broadcasts.take_changed() || joined)
@@ -91,14 +89,7 @@ impl WorldSync {
             }
         } else if let Ok((slot, m)) = WeatherCellsMessage::decode(packet) {
             if from_host(slot) {
-                if let Some(cells) = read_cells(&m) {
-                    let weather = &mut runtime.weather;
-                    weather
-                        .cells
-                        .set(cells.into_iter().flatten(), m.locked != 0);
-                    weather.drift = m.drift;
-                    weather.wetness = m.wetness;
-                }
+                apply_weather(&m, &mut runtime.weather);
             }
         } else if let Ok((slot, m)) = StrikeMessage::decode(packet) {
             if from_host(slot) && m.position.iter().all(|v| v.is_finite()) {
@@ -131,14 +122,16 @@ impl WorldSync {
     }
 }
 
-fn weather_message(cells: &WeatherCells, drift: [f32; 2], wetness: f32) -> WeatherCellsMessage {
+fn weather_message(weather: &WeatherState) -> WeatherCellsMessage {
     let mut m = WeatherCellsMessage {
-        drift,
-        wetness,
-        locked: cells.locked().into(),
+        wind_dir: weather.wind.dir,
+        wind_speed: weather.wind.speed,
+        wetness: weather.wetness,
+        snow_cover: weather.snow_cover,
+        locked: weather.cells.locked().into(),
         ..Default::default()
     };
-    for (wire, cell) in m.cells.iter_mut().zip(cells.iter()) {
+    for (wire, cell) in m.cells.iter_mut().zip(weather.cells.iter()) {
         *wire = WeatherCellWire {
             center: cell.center,
             radius: cell.radius,
@@ -151,6 +144,18 @@ fn weather_message(cells: &WeatherCells, drift: [f32; 2], wetness: f32) -> Weath
     m
 }
 
+/// Applies a host message on a guest. Drops a message with a bad kind or value.
+fn apply_weather(m: &WeatherCellsMessage, weather: &mut WeatherState) {
+    if let Some(cells) = read_cells(m) {
+        weather
+            .cells
+            .set(cells.into_iter().flatten(), m.locked != 0);
+        weather.wind.follow(m.wind_dir, m.wind_speed);
+        weather.wetness = m.wetness;
+        weather.snow_cover = m.snow_cover;
+    }
+}
+
 /// The cells of a host message. `None` for a bad kind or value.
 fn read_cells(m: &WeatherCellsMessage) -> Option<[Option<WeatherCell>; MAX_CELLS]> {
     let count = m.count as usize;
@@ -158,7 +163,8 @@ fn read_cells(m: &WeatherCellsMessage) -> Option<[Option<WeatherCell>; MAX_CELLS
         || m.locked > 1
         || (m.locked == 1 && count != 1)
         || !(0. ..=1.).contains(&m.wetness)
-        || !m.drift.iter().all(|v| v.is_finite())
+        || !(0. ..=1.).contains(&m.snow_cover)
+        || !Wind::valid(m.wind_dir, m.wind_speed)
     {
         return None;
     }
@@ -230,28 +236,64 @@ mod tests {
     use super::*;
 
     #[test]
-    fn guest_applies_the_host_cells() {
-        let mut host = WeatherCells::new(1);
+    fn guest_applies_the_host_cells_and_wind() {
+        let mut host = WeatherState::test(1);
+        host.snow_cover = 0.3;
+        host.wetness = 0.5;
         for _ in 0..10 {
-            host.advance(10., [3., 0.], [0.; 2], false, |_| 2);
+            host.advance_cells(10., [0.; 3], false, -5., |_| 2, |_| 0.);
         }
-        assert!(!host.is_empty());
+        assert!(!host.cells.is_empty());
         let mut out = Vec::new();
-        weather_message(&host, [3., 0.], 0.5).encode(0, &mut out);
+        weather_message(&host).encode(0, &mut out);
         let (slot, m) = WeatherCellsMessage::decode(&out).unwrap();
-        assert_eq!((slot, m), (0, weather_message(&host, [3., 0.], 0.5)));
+        assert_eq!((slot, m), (0, weather_message(&host)));
         let mut bad = m;
         bad.cells[0].kind = 9;
         assert_eq!(read_cells(&bad), None);
         bad = m;
         bad.cells[0].radius = f32::NAN;
         assert_eq!(read_cells(&bad), None);
-        let mut guest = WeatherCells::new(2);
-        guest.set(read_cells(&m).unwrap().into_iter().flatten(), false);
-        assert!(guest.iter().eq(host.iter()));
-        // A guest moves the cells but does not age them or spawn new ones.
-        guest.advance(10., [3., 0.], [0.; 2], true, |_| 2);
-        assert_eq!(guest.len(), host.len());
-        assert!(guest.iter().zip(host.iter()).all(|(g, h)| g.age == h.age));
+        bad = m;
+        bad.wind_speed = f32::INFINITY;
+        assert_eq!(read_cells(&bad), None);
+        bad = m;
+        bad.snow_cover = 2.;
+        assert_eq!(read_cells(&bad), None);
+        let mut guest = WeatherState::test(2);
+        apply_weather(&m, &mut guest);
+        assert!(guest.cells.iter().eq(host.cells.iter()));
+        assert_eq!(guest.wind.dir, host.wind.dir);
+        assert_eq!(
+            (guest.wetness, guest.snow_cover),
+            (host.wetness, host.snow_cover)
+        );
+        // A guest moves the cells with the host wind. It does not age them, spawn new ones or change the surface.
+        let start: Vec<_> = guest.cells.iter().map(|c| c.center).collect();
+        for _ in 0..100 {
+            guest.advance_cells(1., [0.; 3], true, 20., |_| 2, |_| 0.);
+        }
+        assert_eq!(guest.cells.len(), host.cells.len());
+        assert!(
+            guest
+                .cells
+                .iter()
+                .zip(host.cells.iter())
+                .all(|(g, h)| g.age == h.age)
+        );
+        assert_eq!(guest.wind.dir, host.wind.dir);
+        assert!((guest.wind.speed - host.wind.speed).abs() < 0.05);
+        assert_eq!(
+            (guest.wetness, guest.snow_cover),
+            (host.wetness, host.snow_cover)
+        );
+        let [dx, dz] = host.wind.dir;
+        for (cell, from) in guest.cells.iter().zip(start) {
+            let moved = [
+                (cell.center[0] - from[0]) as f32,
+                (cell.center[1] - from[1]) as f32,
+            ];
+            assert!(moved[0] * dx + moved[1] * dz > 0.);
+        }
     }
 }

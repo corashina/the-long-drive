@@ -1,7 +1,7 @@
 //! Source sandstorm and the weather cells on the fixed step. Presentation reads this state and does not advance it.
 use crate::particles::ParticleState;
 use crate::reference::WeatherReference;
-use crate::save::{StormSnapshot, WeatherSnapshot};
+use crate::save::{StormSnapshot, WeatherSnapshot, WindSnapshot};
 use crate::vehicle::PhysicsWorld;
 use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{Ball, Collider, ColliderHandle, QueryFilter, RigidBodyHandle};
@@ -83,17 +83,15 @@ pub struct WeatherState {
     body_capacity: usize,
     pub tumbleweeds: Tumbleweeds,
     pub cells: WeatherCells,
-    /// Cell drift in meters per second along world `x`, `z`. The host sets it from the wind.
-    pub drift: [f32; 2],
     pub wind: Wind,
     pub lightning: Lightning,
     /// The cell sample at the player.
     sample: CellSample,
     /// The biome under the player at the last step. The sample reads Rain and Snow by it.
     biome: u8,
-    /// 0 to 1. Rain raises it, dry weather lowers it.
+    /// 0 to 1. Rain raises it, dry weather lowers it. A guest keeps the host value.
     pub wetness: f32,
-    /// 0 to 1. Snow raises it, it melts above `MELT_TEMPERATURE`.
+    /// 0 to 1. Snow raises it, it melts above `MELT_TEMPERATURE`. A guest keeps the host value.
     pub snow_cover: f32,
     mix: WeatherMix,
     /// The player capsule is inside a live interior volume. Set each step.
@@ -109,7 +107,6 @@ impl WeatherState {
             reference.min_interval_seconds,
             reference.max_interval_seconds,
         );
-        let wind = Wind::new(seed);
         Self {
             storms: Vec::new(),
             influence: StormInfluence::default(),
@@ -121,8 +118,7 @@ impl WeatherState {
             body_capacity: 0,
             tumbleweeds: Tumbleweeds::new(seed),
             cells: WeatherCells::new(seed),
-            drift: wind.drift(),
-            wind,
+            wind: Wind::new(seed),
             lightning: Lightning::new(seed),
             sample: CellSample::default(),
             biome: 2,
@@ -159,8 +155,8 @@ impl WeatherState {
     }
 
     /// Advances the wind, the cells, the wetness, the snow cover and the lightning. Call it before `advance`.
-    /// A `guest` does not age or spawn cells and does not draw strikes. The host sends them.
-    /// A guest wind follows the drift direction of the host.
+    /// A `guest` does not age or spawn cells, does not draw strikes and keeps the host wetness and snow cover.
+    /// A guest wind keeps the host direction and speed. The host sends them.
     /// `biome_at` gives the biome and `height_at` the ground height at absolute `x`, `z`.
     /// `temperature` is the ambient temperature in °C.
     pub fn advance_cells(
@@ -175,27 +171,26 @@ impl WeatherState {
         if !dt.is_finite() || dt <= 0. || !player.iter().all(|v| v.is_finite()) {
             return;
         }
-        let heading = guest.then_some(self.drift);
-        self.wind.advance(dt, &self.sample, heading);
-        if !guest {
-            self.drift = self.wind.drift();
-        }
+        self.wind.advance(dt, &self.sample, guest);
         let xz = [player[0], player[2]];
-        self.cells.advance(dt, self.drift, xz, guest, &biome_at);
+        self.cells
+            .advance(dt, self.wind.drift(), xz, guest, &biome_at);
         self.biome = biome_at(xz);
         self.sample = self.cells.sample(xz).over(self.biome);
         let mix = self.sample.mix();
-        self.wetness = if mix.rain > 0. {
-            (self.wetness + mix.rain * WET_RATE * dt).min(1.)
-        } else {
-            (self.wetness - DRY_RATE * dt).max(0.)
-        };
-        let melt = if temperature > MELT_TEMPERATURE {
-            MELT_RATE
-        } else {
-            0.
-        };
-        self.snow_cover = (self.snow_cover + (mix.snow * SNOW_RATE - melt) * dt).clamp(0., 1.);
+        if !guest {
+            self.wetness = if mix.rain > 0. {
+                (self.wetness + mix.rain * WET_RATE * dt).min(1.)
+            } else {
+                (self.wetness - DRY_RATE * dt).max(0.)
+            };
+            let melt = if temperature > MELT_TEMPERATURE {
+                MELT_RATE
+            } else {
+                0.
+            };
+            self.snow_cover = (self.snow_cover + (mix.snow * SNOW_RATE - melt) * dt).clamp(0., 1.);
+        }
         let storm = self.sample.weight(WeatherKind::Thunderstorm);
         if let Some(position) = self.lightning.advance(dt, storm, player, !guest, height_at) {
             self.strike = Some(position);
@@ -239,6 +234,10 @@ impl WeatherState {
             locked: self.cells.locked(),
             wetness: self.wetness,
             snow_cover: self.snow_cover,
+            wind: WindSnapshot {
+                dir: self.wind.dir,
+                speed: self.wind.speed,
+            },
         }
     }
 
@@ -255,6 +254,8 @@ impl WeatherState {
         self.cells.set(saved.cells.iter().copied(), saved.locked);
         self.wetness = saved.wetness;
         self.snow_cover = saved.snow_cover;
+        self.wind.follow(saved.wind.dir, saved.wind.speed);
+        self.wind.speed = saved.wind.speed;
         self.lightning.clear();
         self.sample = CellSample::default();
         self.mix = WeatherMix {
@@ -631,24 +632,22 @@ impl StormRandom {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn state() -> WeatherState {
+impl WeatherState {
+    /// A state without a reference manifest.
+    pub(crate) fn test(seed: u64) -> Self {
         WeatherState {
             storms: Vec::new(),
             influence: StormInfluence::default(),
             last_spawn_time: 0.,
             wait: 100.,
             next_id: 0,
-            random: StormRandom(1),
+            random: StormRandom(seed),
             origin: [0.; 3],
             body_capacity: 0,
-            tumbleweeds: Tumbleweeds::new(1),
-            cells: WeatherCells::new(1),
-            drift: [0.; 2],
-            wind: Wind::new(1),
-            lightning: Lightning::new(1),
+            tumbleweeds: Tumbleweeds::new(seed),
+            cells: WeatherCells::new(seed),
+            wind: Wind::new(seed),
+            lightning: Lightning::new(seed),
             sample: CellSample::default(),
             biome: 2,
             wetness: 0.,
@@ -657,6 +656,15 @@ mod tests {
             sheltered: false,
             strike: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state() -> WeatherState {
+        WeatherState::test(1)
     }
 
     #[test]

@@ -973,6 +973,10 @@ fn validate_weather(
             && unit(saved.wetness)
             && unit(saved.snow_cover),
         "Weather cells",
+    )?;
+    data(
+        crate::weather::Wind::valid(saved.wind.dir, saved.wind.speed),
+        "Wind",
     )
 }
 fn finite(values: &[f32]) -> bool {
