@@ -4,33 +4,39 @@ export function formatBudget(used,limit,unit){
   : used.toLocaleString('en-US')+' / '+limit.toLocaleString('en-US');
 }
 
-// Weights follow the startup trace. Steps after `interface` run at the same time.
+// Weights follow the startup trace. Steps after `host` run at the same time. `join` steps show only in a Join reload.
 export const STEPS=[
  {id:'download',label:'Download game data',weight:3,boot:true},
  {id:'code',label:'Start game code',weight:1,boot:true},
  {id:'interface',label:'Load interface',weight:1,boot:true},
+ {id:'connect',label:'Connect to the host',weight:2,boot:true,join:true},
+ {id:'host',label:'Download the host world',weight:8,boot:true,join:true},
  {id:'roads',label:'Build roads',weight:15},
  {id:'assets',label:'Load garage assets',weight:35},
  {id:'world',label:'Load world area',weight:35},
  {id:'graphics',label:'Prepare graphics',weight:10},
 ];
-const MARK={waiting:'○',active:'●',done:'✓'};
+const MARK={waiting:'○',active:'●',done:'✓',failed:'✕'};
 
-export function createLoading(){
+// `room`: the room code of a Join reload, or ''. The card then shows the room, its players and the join steps.
+export function createLoading(room=''){
  const root=document.querySelector('#loading-details'),heading=document.querySelector('#loading-phase');
  const bar=document.querySelector('#loading-progress'),list=document.querySelector('#loading-steps');
  const elapsed=document.querySelector('#loading-elapsed'),resources=document.querySelector('#loading-resources');
  const budgets=document.querySelector('#loading-budgets'),rows=new Map(),budgetValues=new Map();
+ const roomNode=document.querySelector('#loading-room'),roomHost=document.querySelector('#loading-room-host');
+ const roomPlayers=document.querySelector('#loading-room-players'),roomError=document.querySelector('#loading-room-error');
+ document.querySelector('#loading-room-code').textContent=room;
  const steps=STEPS.map(step=>{
   const node=document.createElement('li'),mark=document.createElement('span'),label=document.createElement('span'),count=document.createElement('span');
   label.textContent=step.label;node.append(mark,label,count);list.append(node);
   return {...step,node,mark,count,done:0,total:0,note:'',shown:''};
  });
  const byId=new Map(steps.map(step=>[step.id,step]));
- let active=false,timer,started,lastChange,lastPaint=0,percent=0,worldOnly=false;
+ let active=false,timer,started,lastChange,lastPaint=0,percent=0,worldOnly=false,joining=false;
  const seconds=ms=>Math.floor(ms/60000)+'m '+Math.floor(ms/1000)%60+'s';
- const state=step=>step.total>0&&step.done>=step.total?'done':step.total>0||step.note?'active':'waiting';
- const visible=step=>!(worldOnly&&step.boot);
+ const state=step=>step.failed?'failed':step.total>0&&step.done>=step.total?'done':step.total>0||step.note?'active':'waiting';
+ const visible=step=>step.join?joining:!(worldOnly&&step.boot);
  function clock(){const now=performance.now();elapsed.textContent='Elapsed: '+seconds(now-started)+'\nLast change: '+seconds(now-lastChange)+' ago';}
  function measure(){
   let sum=0,weights=0;
@@ -48,11 +54,11 @@ export function createLoading(){
   }
   clock();lastPaint=performance.now();
  }
- function set(id,done,total,note=''){
+ function set(id,done,total,note='',failed=false){
   const step=byId.get(id);
   done=Math.min(done,total);
-  if(step.done===done&&step.total===total&&step.note===note)return false;
-  step.done=done;step.total=total;step.note=note;lastChange=performance.now();return true;
+  if(step.done===done&&step.total===total&&step.note===note&&step.failed===failed)return false;
+  step.done=done;step.total=total;step.note=note;step.failed=failed;lastChange=performance.now();return true;
  }
  function update(changed,force=false){
   if(!changed&&!force)return;
@@ -61,12 +67,14 @@ export function createLoading(){
  }
  function start(world=false){
   if(active)return;
+  // Only the first load of a Join reload joins. New game and Load reload the page.
+  joining=Boolean(room)&&!world;roomNode.hidden=!joining;roomError.hidden=true;
   active=true;worldOnly=world;percent=0;started=lastChange=performance.now();root.hidden=false;resources.hidden=true;
   budgetValues.clear();
   for(const node of rows.values())node.textContent='';
   for(const step of steps){
    step.node.hidden=!visible(step);step.shown='';
-   if(!step.boot||!world){step.done=0;step.total=0;step.note='';}
+   if(!step.boot||!world){step.done=0;step.total=0;step.note='';step.failed=false;}
   }
   update(true,true);timer=setInterval(paint,1000);
  }
@@ -78,6 +86,19 @@ export function createLoading(){
    if(!active)return;
    const step=byId.get(id);
    update(set(id,done,total,note),state(step)==='done');
+  },
+  /** The room players of a Join reload, `[{name,host,you}]`. */
+  players(list){
+   if(!active||!joining)return;
+   roomHost.textContent=list.find(p=>p.host)?.name??'';
+   roomPlayers.replaceChildren(...list.map(p=>{const item=document.createElement('li');item.textContent=p.you?p.name+' (you)':p.name;return item;}));
+  },
+  /** The join stopped with `message`. The game loads the garage instead. */
+  joinFailed(message){
+   if(!active||!joining)return;
+   roomError.textContent=message+' Loading the garage instead.';roomError.hidden=false;
+   const step=steps.find(s=>s.join&&state(s)!=='done');
+   if(step)update(set(step.id,step.done,step.total,step.note,true),true);
   },
   progress(roads,roadTotal,assets,assetTotal,world,worldTotal,gates,gateTotal){
    if(!active)return;

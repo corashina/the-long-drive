@@ -6,9 +6,9 @@ import {MOUSE_BUTTONS} from './bindings.js';
 const NAME_KEY='the-long-slop.player-name',VOICE_KEY='the-long-slop.voice-chat',CHAT_SHOW_MS=10000;
 
 // `room`: the room of a Join reload. `joined(save,error)` takes its host world JSON, or null and why.
-// `reloadJoin(room)` starts the page again to join `room`. `audio`: the AudioController.
+// `reloadJoin(room)` starts the page again to join `room`. `loading`: the loading card, which shows the join. `audio`: the AudioController.
 // `voiceKeys()`: the codes of the `voicechat` action. `media`: `navigator.mediaDevices`.
-export function createMultiplayer({document,target,Peer,buildId,exportHash,simulation,saveSession,menu,outfit,storage,room:joinRoom=null,joined=()=>{},reloadJoin,audio,voiceKeys=()=>[],media}){
+export function createMultiplayer({document,target,Peer,buildId,exportHash,simulation,saveSession,menu,outfit,storage,room:joinRoom=null,joined=()=>{},reloadJoin,loading,audio,voiceKeys=()=>[],media}){
  const $=selector=>document.querySelector(selector);
  const name=$('#net-name'),hostPassword=$('#net-host-password'),joinPassword=$('#net-join-password'),hostHint=$('#net-host-hint'),codeRow=$('#net-code-row'),max=$('#net-max'),room=$('#net-room'),code=$('#net-code'),status=$('#net-status');
  const hostButton=$('#net-host-start'),joinButton=$('#net-join-start'),leaveButton=$('#net-leave'),players=$('#net-players');
@@ -77,9 +77,12 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
   looks:looks=>{
    names=new Map([...looks].map(([s,l])=>[s,l.name]));
    looksJson=JSON.stringify([...looks].filter(([s,l])=>s!==net.slot&&l.outfit).map(([s,l])=>[s,l.outfit]));
+   loading.players([...looks].sort(([a],[b])=>a-b).map(([s,l])=>({name:l.name,host:s===0,you:s===net.slot})));
   },
+  download:(chunks,total)=>{loading.step('connect',1);loading.step('host',chunks,total,Math.floor(100*chunks/total)+'%');},
   chat,
-  status:text=>{say(text);if(joinRoom&&net.role===ROLE.OFF){joinRoom=null;joined(null,text);}},
+  // A failed Join shows on the loading card, and the menu shows it after the garage loads.
+  status:text=>{if(joinRoom&&net.role===ROLE.OFF){joinRoom=null;status.textContent=text;loading.joinFailed(text);joined(null,text);}else say(text);},
   peers:list=>{players.replaceChildren(...list.map(p=>{const item=document.createElement('li');item.textContent=p.ping===null?p.name:`${p.name} ${p.ping} ms`;return item;}));},
   session:(role,slot)=>{
    simulation.netSession(role,slot,packets=>net.send(packets));
@@ -116,7 +119,7 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
  target.addEventListener('pagehide',()=>net.leave());
  for(const id of ['#multiplayer','#start-multiplayer'])$(id).addEventListener('click',paint);
  paint();
- if(joinRoom){room.value=joinRoom.code;joinPassword.value=joinRoom.password;say('Connecting…');net.join({...joinRoom,outfit:outfit.outfit});}
+ if(joinRoom){room.value=joinRoom.code;joinPassword.value=joinRoom.password;loading.step('connect',0);net.join({...joinRoom,outfit:outfit.outfit});}
  return {
   get role(){return net.role;},
   // The game input pauses while the chat line is open.
