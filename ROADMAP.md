@@ -52,5 +52,4 @@ Test on the PC after all rows: the section test pass in plan.md, with a bench co
 | WX5 | Distant weather | M | Rain shafts under far cells. Sky darkens toward the nearest wet cell. |
 | WX7 | Car cabin shelter | S | A roofed car cabin is a shelter. Rain-on-roof loop. |
 | WX8 | Spray and glass drops | M | Wheel spray on wet roads. Drops on the windshield of the seated car. |
-| WX10 | F4 panel v2 | S | Cell map, wind, temperature, spawn a cell at the player. |
 | WX11 | Multiplayer and save v2 | S | Wind and snow cover in the save and the cells message. |

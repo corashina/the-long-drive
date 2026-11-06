@@ -9,9 +9,11 @@
 <p>F3: show/hide. Timing window: 2 seconds.<br>World memory shows render reserves.<br>GPU reserve is an estimate.</p>
 </aside>
 <aside id="weather-panel" aria-label="Weather test" hidden>
-<label for="weather-kind">Weather <select id="weather-kind"><option value="">Auto</option><option value="clear">Clear</option><option value="cloudy">Cloudy</option><option value="rain">Rain</option><option value="thunderstorm">Thunderstorm</option><option value="fog">Fog</option></select></label>
+<canvas id="weather-map" width="200" height="200" aria-label="Weather cells within 8 km"></canvas>
+<label for="weather-kind">Weather <select id="weather-kind"><option value="">Auto</option></select></label>
+<div><select id="weather-spawn-kind" aria-label="Cell kind"></select><button id="weather-spawn" type="button">Spawn here</button></div>
 <pre id="weather-values">Waiting for the game…</pre>
-<p>F4: show/hide. A guest cannot change it.</p>
+<p>F4: show/hide. Map: 8 km, x right, z down. A guest cannot change it.</p>
 </aside>
 <div id="death-shade" aria-hidden="true" hidden></div>
 <aside id="survival" aria-label="Player needs" hidden></aside>
