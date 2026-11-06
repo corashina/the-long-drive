@@ -2,7 +2,7 @@
 use super::{
     materials::MaterialLoading,
     readiness::RendererStateHandle,
-    renderer_visibility::{CameraVisibility, SourceSortData},
+    renderer_visibility::{SortDataChanges, SourceSortData},
     source_lighting::{DrawSourceAdd, DrawSourceBase, DrawSourceGlass},
 };
 use crate::reference::sorting::{PassSortKey, perspective_distance};
@@ -17,20 +17,19 @@ use bevy::render::{
 use bevy::{ecs as bevy_ecs, prelude::*};
 use std::ops::Range;
 
-/// Bevy mesh phases retain main IDs and use a placeholder render entity.
+/// Sort data of every main entity that has it. Bevy mesh phases retain main IDs and use a
+/// placeholder render entity. Only the changes of each frame cross to the render world.
 #[derive(Resource, Default)]
 pub struct SourceSortIndex(bevy::ecs::entity::EntityHashMap<SourceSortData>);
 pub fn extract_sort_index(
-    input: bevy::render::Extract<Res<CameraVisibility>>,
+    input: bevy::render::Extract<Res<SortDataChanges>>,
     mut index: ResMut<SourceSortIndex>,
 ) {
-    index.0.clear();
-    index.0.extend(
-        input
-            .sort_data
-            .iter()
-            .map(|(entity, data)| (*entity, *data)),
-    );
+    // A removal and a new insert in the same frame leave the new data.
+    for entity in &input.removed {
+        index.0.remove(entity);
+    }
+    index.0.extend(input.set.iter().copied());
 }
 #[derive(Clone, Copy)]
 struct OrderedPass {

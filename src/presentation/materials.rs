@@ -391,7 +391,13 @@ impl Plugin for SourceMaterialPlugin {
         }))))
         .init_resource::<RetainedColors>()
         .init_resource::<super::renderers::RendererMeshes>()
-        .init_resource::<super::renderer_visibility::CameraVisibility>()
+        .init_resource::<super::renderer_visibility::SortDataChanges>()
+        // Same point as the camera filter, so a renderer and its sort data arrive in one frame.
+        .add_systems(
+            PostUpdate,
+            super::renderer_visibility::collect_sort_data
+                .after(super::renderer_visibility::filter_camera_visibility),
+        )
         .add_systems(
             PostUpdate,
             super::renderer_visibility::filter_camera_visibility

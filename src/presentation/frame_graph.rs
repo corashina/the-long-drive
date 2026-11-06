@@ -1345,7 +1345,6 @@ struct GpuBoundary {
     shadow_scene_frame: u32,
     shadow_candidates: [usize; super::surface_views::WORLD_VIEWS],
     shadow_split_counts: [[usize; 4]; super::surface_views::WORLD_VIEWS],
-    shadow_offscreen_casters: usize,
     shadow_queue_frame: u32,
     shadow_specializations: usize,
     shadow_ready_mask: u16,
@@ -1588,7 +1587,6 @@ fn gpu_boundaries(
     if let Some(scene) = world.get_resource::<super::shadow_scene::ShadowScene>() {
         boundary.shadow_candidates = scene.candidates;
         boundary.shadow_split_counts = scene.split_counts;
-        boundary.shadow_offscreen_casters = scene.shadow_only;
     }
     boundary.shadow_scene_frame = world
         .get_resource::<super::shadow_scene::ShadowScene>()
