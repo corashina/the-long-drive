@@ -52,6 +52,8 @@ pub struct LightingUniform {
         [super::lamp_shadows::LampShadowUniform; crate::reference::lamp_shadows::LAMP_SLOTS],
     /// `SceneLighting::weather_surface`.
     pub weather_surface: Vec4,
+    /// Rain water on the seated car glass. Only the player view sets it.
+    pub water: super::glass_water::GlassWaterUniform,
 }
 
 /// Layout specialization happens only when a pipeline is prepared.
