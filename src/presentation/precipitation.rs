@@ -1,5 +1,5 @@
-//! Rain streaks and snow flakes of the world view: one instanced draw after the opaque pass.
-//! The shader hashes each instance id to a point in a box around the camera, and to rain or snow.
+//! Rain streaks of the world view: one instanced draw after the opaque pass.
+//! The shader hashes each instance id to a point in a box around the camera.
 //! The CPU does no work per drop. It writes one uniform per frame.
 use super::{
     readiness::RendererStateHandle,
@@ -21,12 +21,6 @@ use simulation::boundary::StateBlock;
 const BOX: f32 = 40.;
 /// Fall speed in meters per second.
 const FALL_SPEED: f32 = 9.;
-/// Flake fall speed in meters per second.
-const FLAKE_FALL_SPEED: f32 = 1.2;
-/// Flake opacity at full snow.
-const FLAKE_OPACITY: f32 = 0.8;
-/// Seconds after which the flutter clock wraps. A flake jumps once per period.
-const FLUTTER_PERIOD: f32 = 600.;
 /// Streak length in meters.
 const STREAK: f32 = 0.5;
 /// Drops inside this distance fade out when the player is sheltered.
@@ -39,18 +33,11 @@ const OPACITY: f32 = 0.35;
 #[derive(Resource, Clone, Copy, Default, ExtractResource)]
 struct RainInput {
     count: u32,
-    /// Rain plus snow, 0..1.
-    amount: f32,
-    /// Flake share of the drops: snow / (rain + snow).
-    snow_share: f32,
+    rain: f32,
     /// Drop offset in meters by fall and wind, each axis 0..BOX.
     offset: Vec3,
     /// Drop velocity in meters per second: fall plus wind.
     velocity: Vec3,
-    /// Flake offset in meters by fall and wind, each axis 0..BOX.
-    flake_offset: Vec3,
-    /// Flutter clock in seconds, 0..FLUTTER_PERIOD.
-    time: f32,
     /// 0 outside, 1 sheltered.
     shelter: f32,
 }
@@ -63,7 +50,6 @@ struct RainParams {
     controls: Vec4,
     offset: Vec4,
     axis: Vec4,
-    flakes: Vec4,
 }
 
 #[derive(Resource)]
@@ -107,16 +93,11 @@ fn snapshot(
     } else {
         time.delta_secs()
     };
-    let fall = weather.rain + weather.snow;
-    input.amount = fall.min(1.);
-    input.snow_share = if fall > 0. { weather.snow / fall } else { 0. };
-    input.count = (display.rain_drops() as f32 * input.amount).round() as u32;
+    input.rain = weather.rain;
+    input.count = (display.rain_drops() as f32 * weather.rain).round() as u32;
     let [x, z] = weather.wind.map(|v| v * weather.gust);
     input.velocity = Vec3::new(x, -FALL_SPEED, z);
     input.offset = (input.offset + input.velocity * dt).rem_euclid(Vec3::splat(BOX));
-    let flake_velocity = Vec3::new(x, -FLAKE_FALL_SPEED, z);
-    input.flake_offset = (input.flake_offset + flake_velocity * dt).rem_euclid(Vec3::splat(BOX));
-    input.time = (input.time + dt).rem_euclid(FLUTTER_PERIOD);
     let target = if weather.shelter == simulation::weather::Shelter::None {
         0.
     } else {
@@ -183,16 +164,10 @@ fn prepare(
         &RainParams {
             clip_from_world: view.raster_projection * view.view_from_world,
             camera: camera.extend(BOX),
-            color: Vec4::new(fog.x, fog.y, fog.z, OPACITY * input.amount),
-            controls: Vec4::new(
-                input.shelter,
-                SHELTER_RADIUS,
-                STREAK,
-                FLAKE_OPACITY * input.amount,
-            ),
+            color: Vec4::new(fog.x, fog.y, fog.z, OPACITY * input.rain),
+            controls: Vec4::new(input.shelter, SHELTER_RADIUS, STREAK, 0.),
             offset: input.offset.extend(0.),
-            axis: input.velocity.normalize().extend(input.snow_share),
-            flakes: input.flake_offset.extend(input.time),
+            axis: input.velocity.normalize().extend(0.),
         },
     );
     pass.uniforms.upload(&queue);

@@ -36,7 +36,7 @@ struct LightingUniform {
     sun_shadow: SunShadow,
     // Only the world view fills the lamp slots.
     lamp_shadows: array<LampShadow, 4>,
-    // x=wetness, y=snow cover, zw=world origin x and z modulo PUDDLE_PERIOD.
+    // x=wetness, y=0, zw=world origin x and z modulo PUDDLE_PERIOD.
     weather_surface: vec4<f32>,
 }
 @group(1) @binding(0) var<uniform> lighting: LightingUniform;
@@ -84,7 +84,6 @@ fn indirect_specular(specular: vec3<f32>,one_minus_reflectivity: f32,smoothness:
 // Puddle noise: cells per metre, and the period in metres. lighting_scene.rs has the same period.
 const PUDDLE_SCALE: f32 = 0.25;
 const PUDDLE_PERIOD: f32 = 1024.0;
-const SNOW_ALBEDO: vec3<f32> = vec3(0.9, 0.92, 0.95);
 // Hash of a noise cell. The cell wraps at PUDDLE_PERIOD * PUDDLE_SCALE = 256.
 fn puddle_hash(cell: vec2<i32>) -> f32 {
     let p = vec2<u32>(cell & vec2(255));
@@ -103,11 +102,10 @@ fn puddle_noise(position: vec3<f32>) -> f32 {
     return mix(bottom, top, u.y);
 }
 struct WeatherSurface { albedo: vec3<f32>, normal: vec3<f32>, smoothness: f32 }
-// Snow, wetness and puddles of an outdoor surface. `up` is the y of the geometric normal.
+// Wetness and puddles of an outdoor surface. `up` is the y of the geometric normal.
 fn weather_surface(albedo: vec3<f32>, normal: vec3<f32>, smoothness: f32, position: vec3<f32>, up: f32) -> WeatherSurface {
     let wetness = lighting.weather_surface.x;
-    let snow = lighting.weather_surface.y * saturate(up);
-    var out = WeatherSurface(mix(albedo, SNOW_ALBEDO, snow), normal, smoothness);
+    var out = WeatherSurface(albedo, normal, smoothness);
     if wetness <= 0.0 { return out; }
     out.albedo *= 1.0 - 0.35 * wetness;
     out.smoothness = max(smoothness, 0.8 * wetness);

@@ -35,7 +35,7 @@ Not planned: VR, stereo 3D, mod events, Steam features.
 ### Weather
 
 Weather types are a new feature, not parity. The source has only the sandstorm. It stays as in the source and spawns only in Clear and Cloudy.
-Spec: Clear, Cloudy, Rain, Thunderstorm, Fog, Snow. Regional weather cells move over the world. The weather at the player is the sum of the cells there.
+Spec: Clear, Cloudy, Rain, Thunderstorm, Fog. Regional weather cells move over the world. The weather at the player is the sum of the cells there.
 Test on the PC after all rows: force each kind with F4, check the look, the rain cost (under 0.3 ms GPU), wet grip and MP sync.
 
 | ID | Task | Size | Remaining work |
@@ -44,7 +44,7 @@ Test on the PC after all rows: force each kind with F4, check the look, the rain
 ### Weather v2
 
 Weather is a place, not a global filter. Spec and plan: `plans/weather-v2` (spec.md, plan.md) in the project files.
-Test on the PC after all rows: the section test pass in plan.md, with a bench compare of Clear, Thunderstorm and Snow on High.
+Test on the PC after all rows: the section test pass in plan.md, with a bench compare of Clear, Rain and Thunderstorm on High.
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |

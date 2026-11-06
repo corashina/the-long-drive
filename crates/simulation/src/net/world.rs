@@ -127,7 +127,6 @@ fn weather_message(weather: &WeatherState) -> WeatherCellsMessage {
         wind_dir: weather.wind.dir,
         wind_speed: weather.wind.speed,
         wetness: weather.wetness,
-        snow_cover: weather.snow_cover,
         locked: weather.cells.locked().into(),
         ..Default::default()
     };
@@ -152,7 +151,6 @@ fn apply_weather(m: &WeatherCellsMessage, weather: &mut WeatherState) {
             .set(cells.into_iter().flatten(), m.locked != 0);
         weather.wind.follow(m.wind_dir, m.wind_speed);
         weather.wetness = m.wetness;
-        weather.snow_cover = m.snow_cover;
     }
 }
 
@@ -163,7 +161,6 @@ fn read_cells(m: &WeatherCellsMessage) -> Option<[Option<WeatherCell>; MAX_CELLS
         || m.locked > 1
         || (m.locked == 1 && count != 1)
         || !(0. ..=1.).contains(&m.wetness)
-        || !(0. ..=1.).contains(&m.snow_cover)
         || !Wind::valid(m.wind_dir, m.wind_speed)
     {
         return None;
@@ -238,10 +235,9 @@ mod tests {
     #[test]
     fn guest_applies_the_host_cells_and_wind() {
         let mut host = WeatherState::test(1);
-        host.snow_cover = 0.3;
         host.wetness = 0.5;
         for _ in 0..10 {
-            host.advance_cells(10., [0.; 3], false, -5., |_| 2, |_| 0.);
+            host.advance_cells(10., [0.; 3], false, |_| 2, |_| 0.);
         }
         assert!(!host.cells.is_empty());
         let mut out = Vec::new();
@@ -257,21 +253,15 @@ mod tests {
         bad = m;
         bad.wind_speed = f32::INFINITY;
         assert_eq!(read_cells(&bad), None);
-        bad = m;
-        bad.snow_cover = 2.;
-        assert_eq!(read_cells(&bad), None);
         let mut guest = WeatherState::test(2);
         apply_weather(&m, &mut guest);
         assert!(guest.cells.iter().eq(host.cells.iter()));
         assert_eq!(guest.wind.dir, host.wind.dir);
-        assert_eq!(
-            (guest.wetness, guest.snow_cover),
-            (host.wetness, host.snow_cover)
-        );
+        assert_eq!(guest.wetness, host.wetness);
         // A guest moves the cells with the host wind. It does not age them, spawn new ones or change the surface.
         let start: Vec<_> = guest.cells.iter().map(|c| c.center).collect();
         for _ in 0..100 {
-            guest.advance_cells(1., [0.; 3], true, 20., |_| 2, |_| 0.);
+            guest.advance_cells(1., [0.; 3], true, |_| 2, |_| 0.);
         }
         assert_eq!(guest.cells.len(), host.cells.len());
         assert!(
@@ -283,10 +273,7 @@ mod tests {
         );
         assert_eq!(guest.wind.dir, host.wind.dir);
         assert!((guest.wind.speed - host.wind.speed).abs() < 0.05);
-        assert_eq!(
-            (guest.wetness, guest.snow_cover),
-            (host.wetness, host.snow_cover)
-        );
+        assert_eq!(guest.wetness, host.wetness);
         let [dx, dz] = host.wind.dir;
         for (cell, from) in guest.cells.iter().zip(start) {
             let moved = [

@@ -202,10 +202,8 @@ fn frame_round_trips() {
         },
         weather: WeatherFrame {
             rain: 0.75,
-            snow: 0.25,
             flash: 0.,
             wetness: 0.5,
-            snow_cover: 0.3,
             shelter: crate::weather::Shelter::Car,
             wind: [3., -4.],
             gust: 1.5,

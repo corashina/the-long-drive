@@ -312,8 +312,7 @@ impl GarageRuntime {
         let origin = self.stream.origin.offset;
         let mut cells = [crate::boundary::WetCell::default(); crate::weather::MAX_CELLS];
         let wet = self.weather.cells.iter().filter_map(|c| {
-            let t = c.kind.target();
-            let wet = (t.rain + t.snow) * c.strength();
+            let wet = c.kind.target().rain * c.strength();
             (wet > 0.).then(|| crate::boundary::WetCell {
                 center: [
                     (c.center[0] - origin[0]) as f32,
@@ -328,10 +327,8 @@ impl GarageRuntime {
         }
         frame.weather = crate::boundary::WeatherFrame {
             rain: mix.rain,
-            snow: mix.snow,
             flash: mix.flash,
             wetness: mix.wetness,
-            snow_cover: mix.snow_cover,
             shelter: self.weather.shelter,
             wind: wind.dir.map(|v| v * wind.speed),
             gust: wind.gust,
@@ -347,7 +344,7 @@ impl GarageRuntime {
             }),
             cells,
         };
-        self.fill_wheel_spray(mix.wetness, mix.snow_cover, frame);
+        self.fill_wheel_spray(mix.wetness, frame);
         frame.lights.clear();
         frame.lights.extend_from_slice(lighting.light_outputs());
         frame.lamp_materials.clear();
@@ -383,8 +380,8 @@ impl GarageRuntime {
                 }));
         }
     }
-    /// Wheels on the ground of fast cars near the player, when the ground is wet or snowy.
-    fn fill_wheel_spray(&self, wetness: f32, snow_cover: f32, frame: &mut SimFrame) {
+    /// Wheels on the ground of fast cars near the player, when the ground is wet.
+    fn fill_wheel_spray(&self, wetness: f32, frame: &mut SimFrame) {
         frame.wheel_spray.clear();
         let player =
             rapier3d::math::Vector::from_array(self.area.player.body_pose(&self.physics).position);
@@ -392,7 +389,7 @@ impl GarageRuntime {
         for key in self.vehicles.keys() {
             let body = &bodies[self.physics.chassis_handle(key)];
             let velocity = body.linvel();
-            let amount = weather::spray_amount(velocity.length(), wetness, snow_cover);
+            let amount = weather::spray_amount(velocity.length(), wetness);
             let far = body.translation().distance(player) > weather::SPRAY_DISTANCE;
             if amount <= 0. || far {
                 continue;
