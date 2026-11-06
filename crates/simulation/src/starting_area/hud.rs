@@ -77,8 +77,7 @@ impl GarageRuntime {
             controls.handbrake,
         ];
         hud.gear = self
-            .vehicle
-            .as_ref()
+            .loaded_vehicle()
             .map_or(0, |key| self.vehicles[key].drivetrain.gear() as i32 - 1);
         if let Some(c) = self.area.interaction.guns.crosshair() {
             hud.weapon_icon = c.sprite.map_or(0, |s| s + 1);
@@ -103,7 +102,7 @@ impl GarageRuntime {
             .unwrap_or_else(|| self.area.player.body_handle());
         hud.view_speed_kmh = self.physics.rapier().bodies[view_body].linvel().length() * 3.6;
         // A new game has no selected car until the player sits in one.
-        let car = self.vehicle.as_ref().map(|key| (key, &self.vehicles[key]));
+        let car = self.loaded_vehicle().map(|key| (key, &self.vehicles[key]));
         if let Some((key, current)) = car {
             hud.speed_kmh = self.physics.snapshot(key).speed_mps * 3.6;
             hud.contacts = self

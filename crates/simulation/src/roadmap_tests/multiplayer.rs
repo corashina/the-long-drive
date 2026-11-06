@@ -827,3 +827,32 @@ fn tp_mp_respawn_brings_the_dead_player_back() {
         "the player stands on the ground"
     );
 }
+
+/// MP2. The guest can start before its restore spawns the host car. The step, the request and
+/// the frame then do without the car, and the car comes in later.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_mp2_the_guest_starts_before_the_host_car_spawns() {
+    let (reference, mut host) = load_garage();
+    settle(&mut host, &reference);
+    // The host sat in the start car and stands again. The car stays its last car.
+    let key = host.vehicles.keys().next().cloned().expect("the start car");
+    host.vehicle = Some(key.clone());
+    let mut guest = open(&reference, &save(&host, &reference));
+    assert!(
+        !guest.vehicles.contains_key(&key),
+        "the car is not spawned yet"
+    );
+    guest.started = true;
+    guest.paused = false;
+    let mut out = SimFrame::default();
+    for _ in 0..600 {
+        frame(&mut guest, &reference);
+        guest.advance_saved_restore(&reference).unwrap();
+        guest.fill_frame(&reference, 1., &mut out);
+        if guest.vehicles.contains_key(&key) {
+            return;
+        }
+    }
+    panic!("the host car does not spawn");
+}
