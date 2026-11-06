@@ -1,5 +1,5 @@
 [package]
-name = "road-worker"
+name = "mesh-worker"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
@@ -8,6 +8,8 @@ rust-version = "1.99"
 crate-type = ["cdylib"]
 
 [dependencies]
+grass-mesh = { path = "../grass-mesh" }
 road-mesh = { path = "../road-mesh" }
+terrain = { path = "../terrain" }
 wasm-bindgen = "=0.2.129"
 wasm-heap = { path = "../wasm-heap" }

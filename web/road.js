@@ -94,5 +94,5 @@ export function createRoad(worker,profile,now=()=>performance.now()){
  return api;
 }
 export function installRoadBridge(target,profile){
- return installWorkerClients(target,'gameRoadCreate',new URL('./road-worker.js',import.meta.url),createRoad,profile);
+ return installWorkerClients(target,'gameRoadCreate',new URL('./mesh-worker.js?job=road',import.meta.url),createRoad,profile);
 }

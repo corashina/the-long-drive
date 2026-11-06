@@ -68,5 +68,5 @@ export function createGrass(worker,profile,now=()=>performance.now()){
  link.profileHandshake();return api;
 }
 export function installGrassBridge(target,profile){
- return installWorkerClients(target,'gameGrassCreate',new URL('./grass-worker.js',import.meta.url),createGrass,profile);
+ return installWorkerClients(target,'gameGrassCreate',new URL('./mesh-worker.js?job=grass',import.meta.url),createGrass,profile);
 }
