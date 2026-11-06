@@ -185,6 +185,8 @@ pub struct SourceContents {
     pub boxes: super::stream::content_boxes::BoxReleases,
     /// Human monster placements for the creature runtime. A replay places one again.
     humans: Vec<SpawnedContent>,
+    /// Scratch set of `WorldStream::capture_changes`: the items that contents own or bind.
+    pub(super) bound_items: std::collections::HashSet<ItemId>,
 }
 impl SourceContents {
     pub fn discard_replay_siblings(&mut self, wanted: &[Placement]) {
@@ -269,6 +271,7 @@ impl SourceContents {
             next: 0,
             boxes: Default::default(),
             humans: Vec::new(),
+            bound_items: Default::default(),
         }
     }
     pub fn eligibility_changed(
