@@ -1,6 +1,7 @@
 //! Source `pickupable.SyncInventory` and `snItemsync.UpdInventory`: an item that another player
 //! carries, holds or stores. A stored item hides. A carried or held item follows that player and
 //! moves smoothly to each pose (`SmoothMove`).
+use super::claim::Claims;
 use super::items::Out;
 use super::message::{InventoryMessage, ItemPoseMessage, Message};
 use super::objects::{NetKey, ObjectIndex};
@@ -102,9 +103,17 @@ impl InventorySync {
     }
 
     /// Source `UpdInventory` of another peer.
-    pub fn receive(&mut self, runtime: &mut GarageRuntime, index: &ObjectIndex, packet: &[u8]) {
+    /// `claims`: an item that this peer kept against another player stays here.
+    pub fn receive(
+        &mut self,
+        runtime: &mut GarageRuntime,
+        index: &ObjectIndex,
+        claims: &Claims,
+        packet: &[u8],
+    ) {
         if let Ok((slot, m)) = InventoryMessage::decode(packet)
             && let Some(item) = index.item(NetKey(m.key))
+            && !claims.claimed(item)
         {
             self.got(runtime, item, slot, m.flags);
         }
@@ -127,7 +136,7 @@ impl InventorySync {
             return;
         };
         if flags & (InventoryMessage::PICKED | InventoryMessage::EQUIPPED) != 0 {
-            // In the source, the other player takes it from this player's hands.
+            // The other player won the claim of an item that both took in the same moment.
             drop_local(runtime, item);
         }
         if flags == 0 {

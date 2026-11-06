@@ -100,7 +100,7 @@ impl ItemSync {
             }
         } else if let Ok((slot, m)) = ClaimMessage::decode(packet) {
             if let Some(id) = item(index, m.key) {
-                self.claims.got(id, slot, m.claim != 0);
+                self.claims.got(id, slot, m.claim != 0, self.slot);
             }
         } else if let Ok((_, m)) = RemoveMessage::decode(packet) {
             // Source `RemoveItem`: Destroy with `removeFromMemory`.

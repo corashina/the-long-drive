@@ -268,7 +268,7 @@ impl InteractionState {
                 }
             }
             if self.controls.seat(t.collider).is_some_and(|seat| {
-                seat.can_sit(physics) && (!player.seated() || player.can_switch_to(seat))
+                self.can_sit(seat, physics) && (!player.seated() || player.can_switch_to(seat))
             }) {
                 a.actions.0 |= ActionMask::ENTER;
                 a.context = FeedbackContext::Seat;

@@ -212,7 +212,7 @@ impl SimDriver {
                 if !self.ready {
                     return Err(invalid("The garage is not ready"));
                 }
-                if !capture.autosave && self.runtime.started && !self.runtime.paused {
+                if !capture.autosave && self.runtime.started && !self.runtime.menu {
                     return Err(invalid("Pause the game first"));
                 }
                 // Source guests have no save. The host world is the only world.
@@ -243,7 +243,7 @@ impl SimDriver {
                 if !self.ready {
                     return Err(invalid("The garage is not ready"));
                 }
-                if self.runtime.started && !self.runtime.paused {
+                if self.runtime.started && !self.runtime.menu {
                     return Err(invalid("Pause the game first"));
                 }
                 if self.save.prepared.is_some() {

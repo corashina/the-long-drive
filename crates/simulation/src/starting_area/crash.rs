@@ -64,7 +64,7 @@ impl GarageRuntime {
         let flags = Flags {
             driving: driver,
             player_driving: driver,
-            unpaused: !self.paused,
+            unpaused: !self.paused(),
             has_blood: vehicle.blood.is_some(),
             blood_on: vehicle.blood.as_ref().is_some_and(|b| b.on),
         };
