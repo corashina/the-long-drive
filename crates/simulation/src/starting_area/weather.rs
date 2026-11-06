@@ -195,10 +195,37 @@ impl GarageRuntime {
         let target = if self.weather.sheltered { 1. } else { 0. };
         bindings.shelter +=
             (target - bindings.shelter).clamp(-SHELTER_FADE * dt, SHELTER_FADE * dt);
+        use crate::audio::{AudioAction, AudioKind, SurvivalAudioEvent};
+        while let Some(thunder) = self.weather.lightning.pop_thunder() {
+            let Some(audio) = &mut self.audio else {
+                continue;
+            };
+            let row = audio
+                .reference
+                .survival
+                .iter()
+                .find(|b| b.kind == AudioKind::Thunder as u32)
+                .expect("validated thunder audio");
+            let last = row.clips.len() - 1;
+            let clip = row.clips[((thunder.variant * row.clips.len() as f32) as usize).min(last)];
+            // Far thunder is quieter: full gain at the nearest strike distance.
+            let near = crate::weather::STRIKE_DISTANCE[0];
+            let gain = row.gain[0] * (near / thunder.distance.max(near)).sqrt();
+            let pitch = row.pitch[0];
+            audio.survival_event(SurvivalAudioEvent {
+                session: 0,
+                emitter: 0,
+                kind: AudioKind::Thunder,
+                action: AudioAction::Start,
+                clip,
+                gain,
+                pitch,
+                position: player,
+            });
+        }
         let Some(audio) = &mut self.audio else {
             return;
         };
-        use crate::audio::AudioKind;
         let rain = self.weather.mix().rain;
         let shelter = bindings.shelter;
         for (kind, blend) in [

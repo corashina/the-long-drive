@@ -7,8 +7,10 @@ use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{Ball, Collider, ColliderHandle, QueryFilter, RigidBodyHandle};
 
 mod condition;
+mod lightning;
 mod tumbleweeds;
 pub use condition::*;
+pub use lightning::{Lightning, STRIKE_DISTANCE, Thunder};
 pub use tumbleweeds::{ImportantObject, Tumbleweeds};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,6 +79,7 @@ pub struct WeatherState {
     body_capacity: usize,
     pub tumbleweeds: Tumbleweeds,
     pub cycle: WeatherCycle,
+    pub lightning: Lightning,
     mix: WeatherMix,
     /// The player capsule is inside a live interior volume. Set each step.
     pub sheltered: bool,
@@ -100,6 +103,7 @@ impl WeatherState {
             body_capacity: 0,
             tumbleweeds: Tumbleweeds::new(seed),
             cycle: WeatherCycle::new(seed),
+            lightning: Lightning::new(seed),
             mix: WeatherMix::default(),
             sheltered: false,
         }
@@ -151,6 +155,7 @@ impl WeatherState {
         }
         self.cycle.restore(&saved.cycle);
         self.mix = self.cycle.look();
+        self.lightning.clear();
     }
 
     /// Call when bodies enter the world. Wind scans then do not grow target buffers.
@@ -268,6 +273,9 @@ impl WeatherState {
             return;
         }
         self.mix = self.cycle.advance(dt, desert_weight);
+        self.lightning
+            .advance(dt, &self.cycle, player_absolute, true);
+        self.mix.flash = self.lightning.flash();
         if self.spawn_due(now, dt) {
             self.last_spawn_time = now;
             self.wait = self.random.range(
@@ -539,6 +547,7 @@ mod tests {
             body_capacity: 0,
             tumbleweeds: Tumbleweeds::new(1),
             cycle: WeatherCycle::new(1),
+            lightning: Lightning::new(1),
             mix: WeatherMix::default(),
             sheltered: false,
         };
