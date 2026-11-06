@@ -22,6 +22,8 @@ pub struct SourcePrimaryImageSettings {
     pub input_bytes: usize,
     /// Fill the top mip from mip 1 and do not read the top file. The top mip loads after start.
     pub defer_top: bool,
+    /// Half texture quality: the image has mips 1+ only. See `TextureRecord::levels`.
+    pub half: bool,
 }
 fn invalid(message: impl Into<String>) -> Error {
     Error::new(ErrorKind::InvalidData, message.into())
@@ -84,16 +86,34 @@ impl AssetLoader for SourcePrimaryImageLoader {
         if settings.input_bytes != input.bytes as usize {
             return Err(invalid("Primary input reservation differs"));
         }
+        let levels = record
+            .levels(settings.half)
+            .map_err(|e| invalid(e.to_string()))?;
         // Read directly into the final level vector, after the top mip of a split BC chain.
+        // Half has no top mip: a split BC chain reads only its input.
         // The checked reader retains its own input.
         let top_bytes = byte_count - input.bytes as usize;
-        let mut bytes = vec![0; byte_count];
-        reader.read_exact(&mut bytes[top_bytes..]).await?;
+        let mut bytes = vec![0; levels.bytes];
+        // An RGBA8 input starts with the top mip. Half reads it in steps and drops it.
+        let mut skip = levels.skip.saturating_sub(top_bytes);
+        if skip > 0 {
+            let mut scratch = vec![0; skip.min(64 * 1024)];
+            while skip > 0 {
+                let step = skip.min(scratch.len());
+                reader.read_exact(&mut scratch[..step]).await?;
+                skip -= step;
+            }
+        }
+        reader
+            .read_exact(&mut bytes[top_bytes.saturating_sub(levels.skip)..])
+            .await?;
         let mut extra = [0];
         if reader.read(&mut extra).await? != 0 {
             return Err(invalid(format!("{}: input exceeds receipt", input.file)));
         }
-        if let Some((top, block)) = top {
+        if levels.skip == 0
+            && let Some((top, block)) = top
+        {
             if settings.defer_top {
                 let (head, tail) = bytes.split_at_mut(top_bytes);
                 crate::reference::fixed_reservation::upscale_bc(
@@ -116,8 +136,8 @@ impl AssetLoader for SourcePrimaryImageLoader {
         }
         let mut image = Image::new_uninit(
             Extent3d {
-                width,
-                height,
+                width: levels.width,
+                height: levels.height,
                 depth_or_array_layers: 1,
             },
             TextureDimension::D2,
@@ -126,8 +146,8 @@ impl AssetLoader for SourcePrimaryImageLoader {
         );
         image.data = Some(bytes);
         image.data_order = TextureDataOrder::MipMajor;
-        image.texture_descriptor.mip_level_count = record.sampler.mip_count;
-        super::source_images::apply_sampler(&mut image, &record.sampler);
+        image.texture_descriptor.mip_level_count = levels.mip_count;
+        super::source_images::apply_sampler(&mut image, &record.sampler, levels.mip_count);
         Ok(SourcePrimaryImage(image))
     }
 }

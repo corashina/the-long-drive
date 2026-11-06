@@ -165,7 +165,9 @@ impl SourceTexture {
         persistent: bool,
         label: String,
     ) -> Result<Self, source::ReferenceError> {
-        let payload_bytes = record.payload_bytes()?;
+        let payload_bytes = record
+            .levels(crate::display_settings::half_textures())?
+            .bytes;
         let cpu_reservation = source::fixed_reservation::primary_cpu(payload_bytes, input_staging)?;
         Ok(Self {
             owner: Arc::new(()),

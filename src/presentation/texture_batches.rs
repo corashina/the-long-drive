@@ -17,6 +17,8 @@ use std::{
 #[derive(Asset, TypePath, Clone)]
 pub struct SourceTextureBatch {
     pub format: crate::reference::ChunkFormat,
+    /// Mip count of the exported texture. Half texture quality uploads one fewer.
+    pub mip_count: u32,
     pub regions: Arc<[TextureBatchRegion]>,
     pub payload: Arc<Vec<u8>>,
 }
@@ -104,6 +106,7 @@ impl AssetLoader for SourceTextureBatchLoader {
         }
         Ok(SourceTextureBatch {
             format: descriptor.format,
+            mip_count: descriptor.mip_count,
             regions: descriptor.regions.into(),
             payload: Arc::new(payload),
         })

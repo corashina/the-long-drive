@@ -1247,6 +1247,21 @@ impl ReferenceManifest {
         Ok(manifest)
     }
 
+    /// Half texture quality for the renderer copy: the texture rows lose their top mip.
+    /// Primary textures apply it at load with `TextureRecord::levels`.
+    pub fn drop_top_mips(&mut self) {
+        let world = std::sync::Arc::make_mut(&mut self.world);
+        for texture in self
+            .lighting
+            .textures
+            .iter_mut()
+            .chain(&mut world.material_textures)
+            .chain(&mut world.terrain.textures)
+        {
+            texture.drop_top();
+        }
+    }
+
     pub fn validate(&self) -> Result<(), ReferenceError> {
         self.audio.playback()?.validate(self)?;
         self.validate_gameplay()

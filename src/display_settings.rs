@@ -1,6 +1,6 @@
 //! The display settings are one record from the browser settings store (`web/display-settings.js`).
 //! The browser sends the record at start and after each change with `window.gameDisplaySettings()`.
-//! Antialiasing and Grass apply at page load. Their consumers read `loaded()`.
+//! Antialiasing, Grass and Textures apply at page load. Their consumers read `loaded()`.
 #[cfg(target_arch = "wasm32")]
 use bevy::{ecs as bevy_ecs, prelude::*};
 use simulation::render_scale::SceneScale;
@@ -59,6 +59,8 @@ pub struct DisplaySettings {
     /// "Reflections": 0 high, 1 low, 2 off. Low captures a probe job every 2nd frame.
     /// Off turns every live reflection probe off.
     pub reflections: u32,
+    /// "Textures": 0 full, 1 half. Half skips the top mip, as Unity `masterTextureLimit` 1.
+    pub textures: u32,
 }
 
 /// The menu value for Auto scene resolution.
@@ -83,6 +85,9 @@ impl DisplaySettings {
                 "Shadows, Grass, Antialiasing, Reflections, Mirrors and Ambient occlusion must be 0, 1 or 2".into(),
             );
         }
+        if value.textures > 1 {
+            return Err("Textures must be 0 or 1".into());
+        }
         if !(value.mirror_distance.is_finite() && value.mirror_distance >= 0.) {
             return Err("Mirror draw distance must be a finite distance".into());
         }
@@ -103,6 +108,12 @@ pub fn loaded() -> DisplaySettings {
     *LOADED.get_or_init(|| take().expect("The browser sends display settings at start"))
 }
 
+/// Half texture quality at page load.
+#[cfg(target_arch = "wasm32")]
+pub fn half_textures() -> bool {
+    loaded().textures == 1
+}
+
 #[cfg(target_arch = "wasm32")]
 fn poll(mut settings: ResMut<DisplaySettings>) {
     if let Some(value) = take() {
@@ -121,7 +132,7 @@ mod tests {
     use super::*;
 
     /// `displayRecord` of the `web/display-settings.js` defaults.
-    const DEFAULTS: &str = r#"{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":0,"mirror_distance":150,"lamp_shadows":true,"antialiasing":1,"ambient_occlusion":0,"reflections":0}"#;
+    const DEFAULTS: &str = r#"{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":0,"mirror_distance":150,"lamp_shadows":true,"antialiasing":1,"ambient_occlusion":0,"reflections":0,"textures":0}"#;
 
     #[test]
     fn browser_record_parses_and_checks_values() {
@@ -139,6 +150,10 @@ mod tests {
             DisplaySettings::parse(&DEFAULTS.replace(r#""scene_scale":0"#, r#""scene_scale":100"#))
                 .is_ok()
         );
-        assert!(DisplaySettings::parse(&DEFAULTS.replace(r#","reflections":0"#, "")).is_err());
+        assert!(DisplaySettings::parse(&DEFAULTS.replace(r#","textures":0"#, "")).is_err());
+        assert!(
+            DisplaySettings::parse(&DEFAULTS.replace(r#""textures":0"#, r#""textures":2"#))
+                .is_err()
+        );
     }
 }

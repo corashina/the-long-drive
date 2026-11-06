@@ -200,7 +200,9 @@ impl SourceMaterials {
                     }
                 }
                 if !self.texture_indices.contains_key(texture.file()) {
-                    let bytes = texture.payload_bytes()?;
+                    let bytes = texture
+                        .levels(crate::display_settings::half_textures())?
+                        .bytes;
                     added_gpu += bytes;
                     added_cpu += 4096
                         + std::mem::size_of::<SourceTexture>()
@@ -384,6 +386,7 @@ impl SourceMaterials {
                 };
                 // Fixed textures load before the game starts. Their top mips load after.
                 let defer_top = texture.persistent;
+                let half = crate::display_settings::half_textures();
                 texture.chain = Some(
                     server
                         .load_builder()
@@ -391,6 +394,7 @@ impl SourceMaterials {
                             settings.record = Some(Arc::clone(&record));
                             settings.input_bytes = input_bytes;
                             settings.defer_top = defer_top;
+                            settings.half = half;
                         })
                         .load(texture.record.file().to_owned()),
                 );

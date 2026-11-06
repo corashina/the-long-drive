@@ -209,12 +209,17 @@ fn upload_job(job: &Upload, image: &GpuImage, queue: &RenderQueue, device: &Rend
     let batch = job.payload.as_ref().unwrap();
     let _scope = job.preparation.scope(device);
     let block = batch.format.block();
+    // Half texture quality: the array has no top mip. See `LightingTextureRecord::drop_top`.
+    let skip = batch.mip_count - image.texture.mip_level_count();
     for region in batch.regions.iter() {
+        let Some(mip_level) = region.mip.checked_sub(skip) else {
+            continue;
+        };
         // A BC copy covers whole blocks. A mip under 4 pixels uses its 4x4 physical size.
         queue.write_texture(
             TexelCopyTextureInfo {
                 texture: &image.texture,
-                mip_level: region.mip,
+                mip_level,
                 origin: Origin3d {
                     x: 0,
                     y: region.row,
