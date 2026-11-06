@@ -1599,6 +1599,8 @@ pub enum AudioKind {
     Thunder = 28,
     Wind = 29,
     ThunderClose = 30,
+    /// Rain on a car roof. The player sits in a vehicle with a roof.
+    RainCar = 31,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]

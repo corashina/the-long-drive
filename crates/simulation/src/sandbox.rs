@@ -414,7 +414,7 @@ fn sit(
     let bodies = &runtime.physics.rapier().bodies;
     let name = |seat: &ItemSeat| match &seat.owner {
         SeatOwner::Vehicle(key) => runtime.vehicles.get(key).map_or("", |v| {
-            prototype_name(&reference.world.prototypes[v.prototype])
+            WorldPrototypeReference::root_name(&reference.world.prototypes[v.prototype])
         }),
         SeatOwner::Item(_) | SeatOwner::Ufo(_) => "",
     };
@@ -531,9 +531,9 @@ fn equip(
     });
     let Some(prototype) = guns
         .clone()
-        .find(|w| prototype_name(w).eq_ignore_ascii_case(name))
+        .find(|w| WorldPrototypeReference::root_name(w).eq_ignore_ascii_case(name))
     else {
-        let mut names: Vec<_> = guns.map(prototype_name).collect();
+        let mut names: Vec<_> = guns.map(WorldPrototypeReference::root_name).collect();
         names.sort_unstable();
         names.dedup();
         return Err(format!("No gun {name}. Names: {}", names.join(", ")));
@@ -691,7 +691,7 @@ fn building(
         else {
             continue;
         };
-        let found = prototype_name(prototype);
+        let found = WorldPrototypeReference::root_name(prototype);
         if found.to_lowercase().contains(&wanted) {
             return Ok((found.to_string(), placement.pose.position));
         }
@@ -766,12 +766,12 @@ fn spawn_world(
     let prototypes = &reference.world.prototypes;
     let Some(prototype) = prototypes
         .iter()
-        .find(|p| prototype_name(p).eq_ignore_ascii_case(name))
+        .find(|p| WorldPrototypeReference::root_name(p).eq_ignore_ascii_case(name))
     else {
         let wanted = name.to_lowercase();
         let mut names: Vec<_> = prototypes
             .iter()
-            .map(prototype_name)
+            .map(WorldPrototypeReference::root_name)
             .filter(|n| n.to_lowercase().contains(&wanted))
             .collect();
         names.sort_unstable();
@@ -843,7 +843,7 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
                 .body_active(runtime.physics.chassis_handle(key));
             json!({
                 "key": format!("{key:?}"),
-                "name": prototype_name(&reference.world.prototypes[car.prototype]),
+                "name": WorldPrototypeReference::root_name(&reference.world.prototypes[car.prototype]),
                 "position": origin.absolute(position),
                 "near": near(position),
                 "gap": if active { gap(position) } else { Value::Null },
@@ -898,7 +898,7 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
                         .prototypes
                         .iter()
                         .find(|w| w.source == p.prototype)
-                        .map_or("", prototype_name),
+                        .map_or("", WorldPrototypeReference::root_name),
                     "position": p.pose.position,
                     "radius": p.bounds.max[0] - p.pose.position[0],
                     "progress": progress,
@@ -1015,7 +1015,7 @@ fn gap_json(reference: &ReferenceManifest, stream: &WorldStream, gap: SupportGap
                 .prototypes
                 .iter()
                 .find(|w| w.source == p.prototype)
-                .map_or("", prototype_name),
+                .map_or("", WorldPrototypeReference::root_name),
             "position": p.pose.position,
             "scale": p.scale,
             "progress": stream.structure_audit(p),
@@ -1027,14 +1027,6 @@ fn gap_json(reference: &ReferenceManifest, stream: &WorldStream, gap: SupportGap
 }
 
 /// The name of the prototype root node.
-fn prototype_name(prototype: &WorldPrototypeReference) -> &str {
-    prototype
-        .nodes
-        .iter()
-        .find(|n| n.parent.is_none())
-        .map_or("", |n| n.name.as_str())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

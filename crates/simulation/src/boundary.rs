@@ -941,8 +941,8 @@ pub struct WeatherFrame {
     pub flash: f32,
     /// `WeatherMix::wetness`, 0..1. Wet surface shaders read it.
     pub wetness: f32,
-    /// The player capsule is inside a live interior volume.
-    pub sheltered: bool,
+    /// The rain cover of the player.
+    pub shelter: crate::weather::Shelter,
     /// Wind velocity without the gust, meters per second along world `x`, `z`.
     pub wind: [f32; 2],
     /// Wind speed factor, 0.5 to 2.
