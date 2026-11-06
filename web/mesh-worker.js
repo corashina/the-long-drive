@@ -1,5 +1,5 @@
 // Runs one kind of mesh job in its own WASM instance. `?job=terrain`, `road` or `grass` picks it.
-// The host owns init, handshake, the job queue, the capacity check and the profile fields.
+// The host owns init, the job queue, the capacity check and the profile fields.
 import init,* as wasm from './pkg/mesh_worker.js';
 // Invalid diagnostic clocks must not fail calculation or transport.
 const now=()=>{try{return performance.now();}catch{return NaN;}};
@@ -78,18 +78,17 @@ let memory,initializationMs=null,initializationError=null,queue=Promise.resolve(
 const ready=init().then(exports=>{
  if(!run)throw Error(`Invalid mesh job: ${kind}.`);
  memory=exports.memory;if(startup!==null)initializationMs=now()-startup;
- self.postMessage({type:'initialized',wasmBytes:memory.buffer.byteLength});
+ self.postMessage({type:'initialized',initializationMs,wasmBytes:memory.buffer.byteLength});
 }).catch(error=>{initializationError=error?.message??String(error);self.postMessage({type:'fatal',error:initializationError});});
 self.addEventListener('message',({data})=>{
- const received=data.profileCpu||data.type==='handshake'?now():null;
+ const received=data.profileCpu?now():null;
  queue=queue.then(async()=>{
   await ready;if(initializationError!==null)throw Error(initializationError);
-  if(data.type==='handshake'){self.postMessage({type:'handshake',windowOrigin:data.windowOrigin,windowSent:data.windowSent,workerOrigin:performance.timeOrigin,workerReceived:received,workerSent:now(),initializationMs,wasmBytes:memory.buffer.byteLength});return;}
   const start=data.profileCpu?now():null;
   const [out,transfer,profile]=run(data);
   out.wasmBytes=memory.buffer.byteLength;
   if(out.wasmBytes>data.capacityLimit)throw Error(`${kind[0].toUpperCase()+kind.slice(1)} WASM capacity exceeds admission.`);
-  if(data.profileCpu)out.cpuProfile={workerOrigin:performance.timeOrigin,workerReceived:received,workerReadyWaitMs:start-received,...profile,resultPostStart:now()};
+  if(data.profileCpu)out.cpuProfile={workerReadyWaitMs:start-received,...profile};
   self.postMessage(out,transfer);
  }).catch(error=>self.postMessage({type:'fatal',error:error?.message??String(error)}));
 });

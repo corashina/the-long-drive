@@ -12,15 +12,12 @@ export function createTerrain(worker,profile,now=()=>performance.now()){
  // Before the worker is initialized a job waits in the worker queue.
  const ready=()=>{link.live();if(!result)throw Error('The terrain worker has no result.');return result;};
  const finish=discarded=>{if(record){link.diagnostic(()=>{record.discarded=discarded;record.totalJobMs=now()-record.mainCopyStart;});link.emit(record);record=null;}};
- link.profileHandshake();
  return {
-  profileHandshake:link.profileHandshake,
-  profileState:()=>({jobActive:job!==null&&record!==null,handshakeActive:link.handshakePending()}),
   // The input is a view of WASM memory, so copy it before transfer.
   submit(input){
    link.live();if(job!==null||result)throw Error('The terrain worker is busy.');
    next=next+1&0x7fffffff;job=next;
-   record=null;link.diagnostic(()=>{if(!link.clock())link.profileHandshake();record={kind:'terrain',id:job,inputBytes:input.byteLength,mainCopyStart:now()};});
+   record=null;link.diagnostic(()=>{record={kind:'terrain',id:job,inputBytes:input.byteLength,mainCopyStart:now()};});
    const copy=input.slice();
    link.diagnostic(()=>{if(record){record.mainInputCopyMs=now()-record.mainCopyStart;record.messageSubmitStart=now();}});
    link.post({type:'evaluate',id:job,input:copy,profileCpu:record!==null},[copy.buffer]);
