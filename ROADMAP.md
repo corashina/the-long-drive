@@ -31,3 +31,19 @@ Size: S is up to a day. M is a few days. L is about a week. XL is several weeks.
 Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). Peers connect directly through WebRTC with PeerJS. The host browser runs the world. Guests talk only to the host. The host forwards.
 
 Not planned: VR, stereo 3D, mod events, Steam features.
+
+### Weather
+
+Weather types are a new feature, not parity. The source has only the sandstorm. It stays as in the source and spawns only in Clear and Cloudy.
+Spec: Clear, Cloudy, Rain, Thunderstorm, Fog. Each kind holds 8 to 25 game minutes and blends over 90 s.
+Test on the PC after all rows: force each kind with F4, check the look, the rain cost (under 0.3 ms GPU), wet grip and MP sync.
+
+| ID | Task | Size | Remaining work |
+| --- | --- | --- | --- |
+| WT2 | Sky, fog, cloud and light per weather | M | Apply the `WeatherMix` look in `compose_weather` before the sandstorm. |
+| WT3 | Rain render pass | M | One instanced GPU streak pass, preset caps, shelter fade. Bench compare. |
+| WT4 | Rain audio and shelter | S | CC0 rain loops and thunder clips. Inside loop when sheltered. |
+| WT5 | Lightning and thunder | S | Strikes in Thunderstorm, 0.15 s flash, thunder at distance / 343 s. |
+| WT6 | Wet tyre grip | S | Wheel stiffness x lerp(1, 0.85, wetness) at the use site. |
+| WT7 | Multiplayer weather sync | S | Host sends the cycle and strikes. Guests do not run the cycle. |
+| WT8 | Weather test menu | S | F4 panel with a weather dropdown that sends the sandbox `weather` action. |

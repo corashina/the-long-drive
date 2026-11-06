@@ -966,7 +966,14 @@ fn validate_weather(
             "Storm state",
         )?;
     }
-    Ok(())
+    let c = &saved.cycle;
+    data(
+        unit(c.blend)
+            && unit(c.wetness)
+            && c.remaining.is_finite()
+            && (0.0..=crate::weather::HOLD_SECONDS[1]).contains(&c.remaining),
+        "Weather cycle",
+    )
 }
 fn finite(values: &[f32]) -> bool {
     values.iter().all(|v| v.is_finite())

@@ -174,7 +174,8 @@ impl WeatherReference {
                 && s.destroy_dist >= s.radius
                 && s.life_gain > 0.
                 && s.life_loss_on_other_biome > 0.
-                && s.wind_scan_seconds > 0.,
+                && s.wind_scan_seconds > 0.
+                && s.biome < 3,
             "storm rates",
         )?;
         require(
