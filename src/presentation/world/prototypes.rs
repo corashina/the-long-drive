@@ -139,11 +139,7 @@ impl SourcePrototypes {
                 State::Loading { .. } | State::Ready(_)
             ));
         };
-        let prototype = reference
-            .world
-            .prototypes
-            .get(source)
-            .ok_or_else(|| ReferenceError("Missing checked source prototype".into()))?;
+        let prototype = reference.world.prototype(source)?;
         let record = reference
             .assets
             .iter()
@@ -249,7 +245,7 @@ impl SourcePrototypes {
             reference
                 .world
                 .prototypes
-                .get(&e.source)
+                .find(&e.source)
                 .is_some_and(|p| p.deferred_materials.iter().any(|m| m.source == *source))
         })
     }
@@ -259,7 +255,7 @@ impl SourcePrototypes {
         asset: crate::reference::AssetId,
     ) -> bool {
         self.entries.iter().filter(|e| !e.retired).any(|e| {
-            reference.world.prototypes.get(&e.source).is_some_and(|p| {
+            reference.world.prototypes.find(&e.source).is_some_and(|p| {
                 p.asset == asset
                     || p.nodes.iter().any(|n| {
                         super::preflight::initial_material(reference, &n.source)
@@ -435,11 +431,7 @@ impl SourcePrototypes {
                     }
                     entry.state.complete_metadata(plan);
                     let plan = entry.state.plan().unwrap();
-                    let prototype = reference
-                        .world
-                        .prototypes
-                        .get(&entry.source)
-                        .ok_or_else(|| ReferenceError("Missing checked source prototype".into()))?;
+                    let prototype = reference.world.prototype(&entry.source)?;
                     entry.retired = true;
                     validate_plan(plan, prototype, reference)?;
                     let cpu = retained_plan_bytes(plan);
@@ -558,11 +550,7 @@ impl SourcePrototypes {
             if ledger.available_external_jobs() == 0 {
                 return Ok(());
             }
-            let prototype = reference
-                .world
-                .prototypes
-                .get(&entry.source)
-                .ok_or_else(|| ReferenceError("Missing checked source prototype".into()))?;
+            let prototype = reference.world.prototype(&entry.source)?;
             let record = reference
                 .assets
                 .iter()

@@ -133,8 +133,7 @@ pub struct WorldPrototypeReference {
     pub source: SourceId,
     pub role: WorldPrototypeRole,
     pub asset: AssetId,
-    #[serde(deserialize_with = "compact_vec")]
-    pub nodes: Vec<WorldPrototypeNode>,
+    pub nodes: SourceList<WorldPrototypeNode>,
     #[serde(deserialize_with = "compact_vec")]
     pub controls: Vec<u32>,
     #[serde(deserialize_with = "compact_vec")]
@@ -975,11 +974,7 @@ impl WorldReference {
             }
         }
         for row in &self.mechanisms {
-            let prototype = self
-                .prototypes
-                .iter()
-                .find(|p| p.source == row.prototype)
-                .ok_or_else(|| ReferenceError("Missing world mechanism prototype".into()))?;
+            let prototype = self.prototype(&row.prototype)?;
             let node = |n: super::NodeId| n.0 > 0 && n.0 as usize <= prototype.nodes.len();
             require(
                 (row.node as usize) < prototype.nodes.len()
@@ -1899,9 +1894,10 @@ impl WorldReference {
             &field(&p.source, "prototype push"),
         )?;
         require(
-            p.trailer.as_ref().is_none_or(|t| {
-                t.valid(p) && self.prototypes.iter().any(|g| g.source == t.grip.prototype)
-            }) && p.hitches.iter().all(|h| h.valid(p)),
+            p.trailer
+                .as_ref()
+                .is_none_or(|t| t.valid(p) && self.prototypes.find(&t.grip.prototype).is_some())
+                && p.hitches.iter().all(|h| h.valid(p)),
             &field(&p.source, "prototype trailer/hitches"),
         )?;
         require(
@@ -2116,49 +2112,111 @@ pub struct WorldRenderTarget {
     pub offset: [f32; 2],
 }
 
+/// A row with a source ID. `SourceList` finds rows by it.
+pub trait Sourced {
+    fn source(&self) -> &SourceId;
+}
+impl Sourced for WorldPrototypeReference {
+    fn source(&self) -> &SourceId {
+        &self.source
+    }
+}
+impl Sourced for WorldPrototypeNode {
+    fn source(&self) -> &SourceId {
+        &self.source
+    }
+}
+
 /// Source inputs are immutable after decoding. Retain no deserializer growth slack.
-/// World prototypes with a source lookup built at load.
-#[derive(Clone, Debug, Default)]
-pub struct WorldPrototypes {
-    list: Vec<WorldPrototypeReference>,
-    /// Prototype indices sorted by source. The first of equal sources leads.
+/// Rows with a source lookup built at load.
+#[derive(Clone, Debug)]
+pub struct SourceList<T> {
+    list: Vec<T>,
+    /// Row indices sorted by source. The first of equal sources leads.
     order: Vec<u32>,
 }
-impl WorldPrototypes {
-    pub fn new(list: Vec<WorldPrototypeReference>) -> Self {
+impl<T> Default for SourceList<T> {
+    fn default() -> Self {
+        Self {
+            list: Vec::new(),
+            order: Vec::new(),
+        }
+    }
+}
+impl<T: Sourced> SourceList<T> {
+    pub fn new(list: Vec<T>) -> Self {
         let mut order = (0..list.len() as u32).collect::<Vec<_>>();
-        order.sort_by(|&a, &b| list[a as usize].source.cmp(&list[b as usize].source));
+        order.sort_by(|&a, &b| list[a as usize].source().cmp(list[b as usize].source()));
         Self { list, order }
     }
-    /// Index of the first prototype of `source`.
+    /// Index of the first row of `source`.
     pub fn index(&self, source: &SourceId) -> Option<usize> {
         let at = self
             .order
-            .partition_point(|&i| self.list[i as usize].source < *source);
+            .partition_point(|&i| self.list[i as usize].source() < source);
         let index = *self.order.get(at)? as usize;
-        (self.list[index].source == *source).then_some(index)
+        (self.list[index].source() == source).then_some(index)
     }
-    pub fn get(&self, source: &SourceId) -> Option<&WorldPrototypeReference> {
+    /// The first row of `source`.
+    pub fn find(&self, source: &SourceId) -> Option<&T> {
         self.index(source).map(|index| &self.list[index])
     }
     /// Edits the list and rebuilds the source lookup.
-    pub fn edit<R>(&mut self, edit: impl FnOnce(&mut Vec<WorldPrototypeReference>) -> R) -> R {
+    pub fn edit<R>(&mut self, edit: impl FnOnce(&mut Vec<T>) -> R) -> R {
         let result = edit(&mut self.list);
         *self = Self::new(std::mem::take(&mut self.list));
         result
     }
 }
-impl std::ops::Deref for WorldPrototypes {
-    type Target = [WorldPrototypeReference];
+impl<T> std::ops::Deref for SourceList<T> {
+    type Target = [T];
     fn deref(&self) -> &Self::Target {
         &self.list
     }
 }
-impl<'a> IntoIterator for &'a WorldPrototypes {
-    type Item = &'a WorldPrototypeReference;
-    type IntoIter = std::slice::Iter<'a, WorldPrototypeReference>;
+impl<'a, T> IntoIterator for &'a SourceList<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
     fn into_iter(self) -> Self::IntoIter {
         self.list.iter()
+    }
+}
+impl<T: Serialize> Serialize for SourceList<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.list.serialize(serializer)
+    }
+}
+impl<'de, T: Sourced + Deserialize<'de>> Deserialize<'de> for SourceList<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        compact_vec(deserializer).map(Self::new)
+    }
+}
+pub type WorldPrototypes = SourceList<WorldPrototypeReference>;
+impl WorldReference {
+    /// The first world prototype of `source`.
+    pub fn prototype(&self, source: &SourceId) -> Result<&WorldPrototypeReference, ReferenceError> {
+        self.prototype_index(source)
+            .map(|index| &self.prototypes[index])
+    }
+    /// Index of the first world prototype of `source`.
+    pub fn prototype_index(&self, source: &SourceId) -> Result<usize, ReferenceError> {
+        self.prototypes.index(source).ok_or_else(|| {
+            ReferenceError(format!(
+                "World prototype {}:{} missing",
+                source.file, source.path_id
+            ))
+        })
+    }
+}
+impl WorldPrototypeReference {
+    /// Index of the first node of `source`.
+    pub fn node(&self, source: &SourceId) -> Result<usize, ReferenceError> {
+        self.nodes.index(source).ok_or_else(|| {
+            ReferenceError(format!(
+                "World prototype {}:{} node {}:{} missing",
+                self.source.file, self.source.path_id, source.file, source.path_id
+            ))
+        })
     }
 }
 /// The world tables (records, prototypes, receipts). The manifest file holds them as postcard.
@@ -2171,16 +2229,6 @@ impl WorldReference {
         super::require(rest.is_empty(), "world tables end")?;
         (self.records, self.prototypes, self.receipts) = tables;
         Ok(())
-    }
-}
-impl Serialize for WorldPrototypes {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.list.serialize(serializer)
-    }
-}
-impl<'de> Deserialize<'de> for WorldPrototypes {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        compact_vec(deserializer).map(Self::new)
     }
 }
 fn compact_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
@@ -2245,4 +2293,29 @@ fn validate_world_library(
             && current.source_manifest_sha256 == accepted.source_manifest_sha256,
         "world library receipt",
     )
+}
+
+#[cfg(test)]
+mod source_list_tests {
+    use super::*;
+
+    struct Row(SourceId);
+    impl Sourced for Row {
+        fn source(&self) -> &SourceId {
+            &self.0
+        }
+    }
+
+    /// Lookups match `iter().position`: the first row of a source wins.
+    #[test]
+    fn finds_first_row_of_a_source() {
+        let id = |path_id| SourceId {
+            file: "a".into(),
+            path_id,
+        };
+        let list = SourceList::new(vec![Row(id(2)), Row(id(1)), Row(id(2))]);
+        assert_eq!(list.index(&id(2)), Some(0));
+        assert_eq!(list.index(&id(1)), Some(1));
+        assert_eq!(list.index(&id(3)), None);
+    }
 }

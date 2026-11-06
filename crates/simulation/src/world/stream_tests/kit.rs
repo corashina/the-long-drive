@@ -487,8 +487,7 @@ pub(crate) fn weapon<'a>(
             reference
                 .world
                 .prototypes
-                .iter()
-                .find(|p| p.source == w.prototype.0)
+                .find(&w.prototype.0)
                 .and_then(|p| p.nodes.iter().find(|n| n.parent.is_none()))
                 .is_some_and(|n| {
                     let name = n.name.to_lowercase();

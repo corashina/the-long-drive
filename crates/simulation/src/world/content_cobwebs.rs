@@ -120,21 +120,12 @@ impl WorldStream {
             if cobwebs.webs.iter().any(|w| &w.parent == id) || cobwebs.hidden.contains_key(id) {
                 continue;
             }
-            let prototype = self
-                .reference
-                .prototypes
-                .iter()
-                .find(|p| p.source == s.placement.prototype)
-                .ok_or_else(|| ReferenceError("Cobweb prototype missing".into()))?;
+            let prototype = self.reference.prototype(&s.placement.prototype)?;
             let mut random = UnityRandom::new(ObjectKey::Generated(id.clone()).seed() as i32);
             let mut hidden = Vec::new();
             for &wash in records {
                 let w = &reference.small_items.washes[wash];
-                let node = prototype
-                    .nodes
-                    .iter()
-                    .position(|n| n.source == w.node)
-                    .ok_or_else(|| ReferenceError("Cobweb node outside its prototype".into()))?;
+                let node = prototype.node(&w.node)?;
                 let colliders: Vec<ColliderHandle> = s
                     .colliders
                     .iter()
@@ -210,16 +201,10 @@ impl WorldStream {
             else {
                 continue;
             };
-            let Some(prototype) = self
-                .reference
-                .prototypes
-                .iter()
-                .find(|p| p.source == s.placement.prototype)
-            else {
+            let Some(prototype) = self.reference.prototypes.find(&s.placement.prototype) else {
                 continue;
             };
-            let index =
-                |source: &SourceId| prototype.nodes.iter().position(|n| &n.source == source);
+            let index = |source: &SourceId| prototype.nodes.index(source);
             let hidden = self.cobwebs.hidden.entry(web.parent.clone()).or_default();
             hidden.extend(index(&w.node));
             hidden.extend(w.objects.iter().filter_map(index));

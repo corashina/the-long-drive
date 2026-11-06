@@ -103,7 +103,7 @@ impl ImmutableInputBytes for ColliderGeometry {
         }
     }
 }
-impl ImmutableInputBytes for WorldPrototypes {
+impl<T: ImmutableInputBytes> ImmutableInputBytes for SourceList<T> {
     fn heap_bytes(&self) -> usize {
         self.list.heap_bytes() + self.order.heap_bytes()
     }

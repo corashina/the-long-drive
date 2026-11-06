@@ -176,7 +176,7 @@ impl FlyerReference {
             audio.car_voice(self.voice).is_some_and(|v| v.one_shot),
             "flyer voice",
         )?;
-        let prototype = m.world.prototypes.get(&self.prefab);
+        let prototype = m.world.prototypes.find(&self.prefab);
         require(
             prototype.is_some_and(|p| p.asset == self.asset),
             "flyer prototype",

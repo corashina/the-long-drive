@@ -333,10 +333,9 @@ impl GunReference {
         let prototype = m
             .world
             .prototypes
-            .iter()
-            .find(|p| p.source == self.prototype.0)
+            .find(&self.prototype.0)
             .ok_or_else(|| error("world prototype"))?;
-        let node = |s: &SourceId| prototype.nodes.iter().any(|n| n.source == *s);
+        let node = |s: &SourceId| prototype.nodes.find(s).is_some();
         let clip = |s: &SourceId| m.audio.gameplay.clip(s).is_some();
 
         check((self.ammo.r#type as usize) < AMMO_TYPES, "ammo type")?;

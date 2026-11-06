@@ -83,11 +83,7 @@ pub(super) fn bind(
             super::stream::content_bindings::pickup_rule(pickup_record)?
         };
         let pickup_root = rules.root(&reference.world, &pickup.source)?;
-        let pickup_node = prototype
-            .nodes
-            .iter()
-            .position(|n| &n.source == pickup_root)
-            .ok_or_else(|| ReferenceError("Generated part pickup root missing".into()))?;
+        let pickup_node = prototype.node(pickup_root)?;
         let body_index = prototype
             .bodies
             .iter()
@@ -161,14 +157,7 @@ pub(super) fn bind(
                 .iter()
                 .map(|v| {
                     let source = rules.root(&reference.world, value_link(v)?)?;
-                    prototype
-                        .nodes
-                        .iter()
-                        .position(|n| &n.source == source)
-                        .map(|i| content.nodes[i])
-                        .ok_or_else(|| {
-                            ReferenceError("Generated part activation target missing".into())
-                        })
+                    prototype.node(source).map(|i| content.nodes[i])
                 })
                 .collect::<Result<Vec<_>, _>>()
         };
@@ -231,11 +220,7 @@ pub(super) fn bind(
                 continue;
             }
             let root = rules.root(&reference.world, &binding.source)?;
-            let node = prototype
-                .nodes
-                .iter()
-                .position(|n| &n.source == root)
-                .ok_or_else(|| ReferenceError("Generated part member missing".into()))?;
+            let node = prototype.node(root)?;
             if nearest_owner(content, prototype, rules, reference, node)? == Some(item) {
                 members.push((binding.item, content.nodes[node], 0.));
                 // A tank or cap in the part, such as the radiator coolant, leaves with the part.
@@ -308,11 +293,7 @@ fn attached_at_start(
             continue;
         };
         let root = rules.root(&reference.world, target)?;
-        let mut node = prototype
-            .nodes
-            .iter()
-            .position(|n| &n.source == root)
-            .ok_or_else(|| ReferenceError("Generated attach target missing".into()))?;
+        let mut node = prototype.node(root)?;
         let target = loop {
             if let Some(b) = body_of(node) {
                 break b;

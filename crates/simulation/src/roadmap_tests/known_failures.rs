@@ -961,8 +961,7 @@ fn the_wheel_meshes_stay_on_the_driving_wheels() {
         let prototype = reference
             .world
             .prototypes
-            .iter()
-            .find(|p| p.source == structure.placement.prototype)
+            .find(&structure.placement.prototype)
             .unwrap();
         let slot = run.structure_views.slots[&car_id];
         let row = out.structures.iter().find(|r| r.slot == slot).unwrap();

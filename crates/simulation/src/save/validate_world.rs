@@ -160,11 +160,7 @@ impl SaveSnapshot {
             generated(&replay.id)?;
             generated(instance)?;
             links(
-                reference
-                    .world
-                    .prototypes
-                    .iter()
-                    .any(|p| p.source == replay.prototype),
+                reference.world.prototypes.find(&replay.prototype).is_some(),
                 "Unknown replay prototype",
             )?;
             links(

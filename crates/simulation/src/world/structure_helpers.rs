@@ -41,13 +41,7 @@ impl StructureHelpers {
                     let ranges = array(record.fields, "range2")?;
                     for (i, coord) in coords.iter().enumerate() {
                         let target = value_link(coord)?;
-                        let index = prototype
-                            .nodes
-                            .iter()
-                            .position(|n| &n.source == target)
-                            .ok_or_else(|| {
-                                ReferenceError("Source terrain helper outside prototype".into())
-                            })?;
+                        let index = prototype.node(target)?;
                         let scale = prototype.nodes[index].transform.scale[0];
                         let factor = if ranges.len() < coords.len() {
                             0.

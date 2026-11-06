@@ -135,11 +135,7 @@ fn append_ramps_with<'a>(
                 90.
             };
         let root = rules.root(reference, target)?;
-        let prototype = reference
-            .prototypes
-            .iter()
-            .find(|p| &p.source == root)
-            .ok_or_else(|| ReferenceError("Missing checked source ramp prototype".into()))?;
+        let prototype = reference.prototype(root)?;
         let offset = super::placement::rotate(
             super::spawn_building::source_euler([0., angle, 0.]),
             [0., 0., -radius],

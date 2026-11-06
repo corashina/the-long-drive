@@ -304,11 +304,7 @@ impl WorldStream {
         let parent = content.content.placement.id.clone();
         let rules = &self.contents.rules;
         let reference = &*self.reference;
-        let prototype_index = reference
-            .prototypes
-            .iter()
-            .position(|p| p.source == content.content.placement.prototype)
-            .ok_or_else(|| ReferenceError("Bus door prototype missing".into()))?;
+        let prototype_index = reference.prototype_index(&content.content.placement.prototype)?;
         let prototype = &reference.prototypes[prototype_index];
         let instance = self
             .structures
@@ -317,7 +313,7 @@ impl WorldStream {
             .unwrap();
         let index = |link: &SourceId| -> Result<Option<usize>, ReferenceError> {
             let node = rules.root(reference, link)?;
-            Ok(prototype.nodes.iter().position(|n| &n.source == node))
+            Ok(prototype.nodes.index(node))
         };
         let required = |link: &SourceId| -> Result<usize, ReferenceError> {
             index(link)?.ok_or_else(|| ReferenceError("Bus door node outside its prototype".into()))

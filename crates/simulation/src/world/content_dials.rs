@@ -92,18 +92,10 @@ impl WorldStream {
         let parent = content.content.placement.id.clone();
         let rules = &self.contents.rules;
         let reference = &self.reference;
-        let prototype = reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == content.content.placement.prototype)
-            .ok_or_else(|| ReferenceError("Dial prototype missing".into()))?;
+        let prototype = reference.prototype(&content.content.placement.prototype)?;
         let node = |link: &SourceId, axis: usize, inv: bool| -> Result<DialNode, ReferenceError> {
             Ok(DialNode {
-                node: prototype
-                    .nodes
-                    .iter()
-                    .position(|n| &n.source == link)
-                    .ok_or_else(|| ReferenceError("Dial node outside its prototype".into()))?,
+                node: prototype.node(link)?,
                 pose: rules.node(reference, link)?.pose,
                 axis,
                 inv,
@@ -127,13 +119,7 @@ impl WorldStream {
             && let Some(e) = optional(s.fields, "electronics")?
         {
             let root = rules.root(reference, e)?;
-            let n = prototype
-                .nodes
-                .iter()
-                .position(|n| &n.source == root)
-                .ok_or_else(|| {
-                    ReferenceError("Compass electronics outside its prototype".into())
-                })?;
+            let n = prototype.node(root)?;
             electronics = Some(NodeElectronics {
                 node: n as u32,
                 layer: u32::from(prototype.nodes[n].layer),

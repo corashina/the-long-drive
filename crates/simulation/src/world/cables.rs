@@ -1,7 +1,5 @@
 //! Source power cable math: rope aim, pole selection and cable recipes.
-use super::source_lights::{
-    RoadPole, object_node, record, road_controller, road_prototype, transform_node,
-};
+use super::source_lights::{RoadPole, object_node, record, road_controller, road_prototype};
 use super::spawn_rules::{array, link, optional, value_link};
 use super::{AbsolutePose, NodeAppearance, Placement, RoadIndex, RoadSegment, WorldBounds};
 use crate::reference::{
@@ -245,18 +243,14 @@ fn nodes(
 ) -> Result<Vec<usize>, ReferenceError> {
     links
         .iter()
-        .map(|v| transform_node(prototype, value_link(v)?))
+        .map(|v| prototype.node(value_link(v)?))
         .collect()
 }
 fn prototype<'a>(
     world: &'a WorldReference,
     source: &SourceId,
 ) -> Result<&'a WorldPrototypeReference, ReferenceError> {
-    world
-        .prototypes
-        .iter()
-        .find(|p| &p.source == source)
-        .ok_or_else(|| ReferenceError("Missing cable prototype".into()))
+    world.prototype(source)
 }
 fn ropes_bytes(ropes: &Vec<Rope>) -> usize {
     ropes.capacity() * std::mem::size_of::<Rope>()

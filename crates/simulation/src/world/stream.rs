@@ -784,11 +784,7 @@ impl WorldStream {
         };
         let mut road_layers = [0; 3];
         for (index, source) in world.road.prototypes.iter().enumerate() {
-            let prototype = world
-                .prototypes
-                .iter()
-                .find(|prototype| &prototype.source == source)
-                .unwrap();
+            let prototype = world.prototypes.find(source).unwrap();
             let collider = prototype
                 .colliders
                 .iter()
@@ -1345,8 +1341,7 @@ impl WorldStream {
             let prototype = self
                 .reference
                 .prototypes
-                .iter()
-                .find(|p| p.source == source)
+                .find(&source)
                 .expect("validated road prototype");
             self.road_source_revisions[index] = self.road_source_revisions[index]
                 .checked_add(1)
@@ -1891,14 +1886,7 @@ impl WorldStream {
         if self.startup.is_none() {
             return Err(ReferenceError("The startup area is not ready".into()));
         }
-        let scale = self
-            .reference
-            .prototypes
-            .iter()
-            .find(|p| &p.source == prototype)
-            .ok_or_else(|| ReferenceError("Missing startup prototype".into()))?
-            .prefab_pose
-            .scale;
+        let scale = self.reference.prototype(prototype)?.prefab_pose.scale;
         let radius = self.contents.rules.radius(prototype).unwrap_or(0.);
         let ordinal = self.reference.startup.len() as u32
             + self
@@ -2935,8 +2923,7 @@ impl WorldStream {
             let prototype = self
                 .reference
                 .prototypes
-                .iter()
-                .find(|p| p.source == self.reference.road.prototypes[segment.biome as usize])
+                .find(&self.reference.road.prototypes[segment.biome as usize])
                 .unwrap();
             let node_heap = prototype
                 .nodes
@@ -4201,8 +4188,7 @@ impl WorldStream {
             let layers = self
                 .reference
                 .prototypes
-                .iter()
-                .find(|v| v.source == p.prototype)
+                .find(&p.prototype)
                 .map_or(0, |prototype| {
                     prototype
                         .nodes
@@ -4332,12 +4318,7 @@ impl WorldStream {
                 "Structure material binding is not ready".into(),
             ));
         }
-        let prototype = self
-            .reference
-            .prototypes
-            .iter()
-            .find(|prototype| &prototype.source == source)
-            .ok_or_else(|| ReferenceError("Missing structure prototype".into()))?;
+        let prototype = self.reference.prototype(source)?;
         let bytes = super::StructureRecipe::reservation(prototype);
         let owner_bytes = super::metrics::map_insert_bytes(&self.recipes) + source.file.len();
         let used = self.prototype_cpu_bytes();
@@ -4472,8 +4453,7 @@ impl WorldStream {
         let prototype = self
             .reference
             .prototypes
-            .iter()
-            .find(|p| p.source == placement.prototype)
+            .find(&placement.prototype)
             .unwrap();
         let fixed_decoration = self.fixed_decoration(placement);
         let (binding_reservation, binding_objects) =
@@ -4666,12 +4646,7 @@ impl WorldStream {
                 .iter()
                 .find(|instance| instance.placement.id == supply.key)
                 .ok_or_else(|| ReferenceError("Supply has no published structure".into()))?;
-            let prototype = self
-                .reference
-                .prototypes
-                .iter()
-                .find(|prototype| prototype.source == instance.placement.prototype)
-                .ok_or_else(|| ReferenceError("Supply has no prototype".into()))?;
+            let prototype = self.reference.prototype(&instance.placement.prototype)?;
             let tank_key = supply.key.with_child(&supply.definition.tank, 0);
             let cap_key = supply.key.with_child(&supply.definition.cap, 0);
             let tank =
@@ -5828,7 +5803,7 @@ pub(super) fn lamp_materials_of(
             }
         }
     }
-    if let Some(p) = world.prototypes.iter().find(|p| &p.source == prototype) {
+    if let Some(p) = world.prototypes.find(prototype) {
         let mut seen = std::collections::HashSet::new();
         for (index, node) in p.nodes.iter().enumerate() {
             // A repeated node source takes the variants of its first node.
