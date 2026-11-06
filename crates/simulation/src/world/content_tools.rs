@@ -47,16 +47,6 @@ pub struct Tools {
     prototypes: Option<HashMap<SourceId, usize>>,
     scan: Option<(u64, u64)>,
 }
-impl Tools {
-    pub fn heap_bytes(&self) -> usize {
-        self.bindings.capacity() * std::mem::size_of::<ToolBinding>()
-            + self
-                .bindings
-                .iter()
-                .map(|b| crate::world::contents::identity_heap(&b.parent))
-                .sum::<usize>()
-    }
-}
 
 /// Source `sprayscript.SelectRandomColor`. None keeps the authored color.
 fn random_color(t: &SprayTool, random: &mut UnityRandom) -> Option<[f32; 4]> {

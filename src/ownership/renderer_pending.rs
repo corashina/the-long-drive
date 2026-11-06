@@ -71,14 +71,12 @@ impl PipelineContinuation {
         &mut self,
         stream: &RendererWorld,
         ledger: &mut PresentationLedger,
-        cpu: usize,
-        staging: usize,
     ) -> Result<Option<PipelineOperation>, ReferenceError> {
         self.validate(stream)?;
         if self.flight.as_ref().is_some_and(|f| !f.completed()) {
             return Ok(None);
         }
-        let operation = PipelineOperation::admit(ledger, false, cpu, staging)?;
+        let operation = PipelineOperation::admit(ledger, false);
         if let Some(operation) = &operation {
             self.flight = Some(operation.physical.clone());
         }
@@ -92,50 +90,31 @@ pub struct PipelineOperation {
     pub physical: UploadReceipt,
 }
 impl PipelineOperation {
-    pub fn reserve_pair(
-        &self,
-        ledger: &mut PresentationLedger,
-        cpu: usize,
-    ) -> Result<(), ReferenceError> {
+    /// Fails if the batch already finished or stopped.
+    pub fn live(&self) -> Result<(), ReferenceError> {
         if self.physical.completed() || self.physical.stopped() {
             return Err(ReferenceError("Stale source pipeline batch".into()));
         }
-        let mut allocation = ledger.allocation();
-        allocation.prototype_cpu += cpu;
-        ledger.set_allocation(allocation)
+        Ok(())
     }
-    pub fn independent(
-        ledger: &mut PresentationLedger,
-        cpu: usize,
-        staging: usize,
-    ) -> Result<Option<Self>, ReferenceError> {
-        Self::admit(ledger, true, cpu, staging)
+    pub fn independent(ledger: &mut PresentationLedger) -> Option<Self> {
+        Self::admit(ledger, true)
     }
-    fn admit(
-        ledger: &mut PresentationLedger,
-        owns_pending: bool,
-        cpu: usize,
-        staging: usize,
-    ) -> Result<Option<Self>, ReferenceError> {
-        // Both requests run, so the report asks for all missing credit at once.
+    fn admit(ledger: &mut PresentationLedger, owns_pending: bool) -> Option<Self> {
         let job = ledger.available_external_jobs() > 0;
         let claim = !owns_pending || ledger.can_request_independent(1);
         if !(job && claim) {
-            return Ok(None);
+            return None;
         }
-        let mut allocation = ledger.allocation();
-        allocation.jobs += 1;
-        allocation.pending += usize::from(owns_pending);
-        allocation.prototype_cpu += cpu;
-        allocation.staging_bytes += staging;
-        ledger.set_allocation(allocation)?;
-        Ok(Some(Self {
+        ledger.start_jobs(1);
+        ledger.add_pending(usize::from(owns_pending));
+        Some(Self {
             owns_pending,
             physical: UploadReceipt::default(),
-        }))
+        })
     }
 }
-/// Each admitted pair reserves this payload, allocated only when a diagnostic exists.
+/// Byte cap of a pipeline diagnostic. It allocates only when a diagnostic exists.
 pub const PIPELINE_DIAGNOSTIC_BYTES: usize = 4096;
 const DIAGNOSTIC_TRUNCATED: &str = " [truncated]";
 struct PipelineDiagnosticWriter<'a> {
@@ -185,29 +164,6 @@ pub fn pipeline_diagnostic(args: std::fmt::Arguments<'_>) -> String {
     let mut output = None;
     write_pipeline_diagnostic(&mut output, args);
     output.unwrap()
-}
-pub struct PipelineBufferGrowth {
-    pub capacity: usize,
-    pub admitted: usize,
-    pub released: usize,
-}
-impl PipelineBufferGrowth {
-    pub fn new(capacity: usize, needed: usize, item: usize) -> Self {
-        if needed <= capacity {
-            Self {
-                capacity,
-                admitted: 0,
-                released: 0,
-            }
-        } else {
-            let next = capacity.saturating_mul(2).max(needed).max(4);
-            Self {
-                capacity: next,
-                admitted: next * item,
-                released: capacity * item,
-            }
-        }
-    }
 }
 pub fn pipeline_pair_ready(receipt: &UploadReceipt, spill: bool) -> bool {
     !spill && !receipt.stopped() && receipt.completed()
@@ -343,49 +299,33 @@ impl<P> PipelineBatch<P> {
     }
 }
 
+/// Jobs and pending claims of the unfinished pipeline operations.
 #[derive(Clone, Copy, Default)]
 pub struct PipelineAccounting {
     pub jobs: usize,
     pub pending: usize,
-    pub cpu: usize,
 }
 impl PipelineAccounting {
     pub fn admitted(&mut self, operation: &PipelineOperation) {
         self.jobs += 1;
         self.pending += usize::from(operation.owns_pending);
-        self.cpu += UploadReceipt::allocation_bytes();
-    }
-    pub fn pair_admitted(&mut self, cpu: usize) {
-        self.cpu += cpu;
     }
     pub fn reconcile(
         &mut self,
         ledger: &mut PresentationLedger,
         operations: impl Iterator<Item = PipelineOperation>,
-        cpu: usize,
-        staging: usize,
     ) -> Result<(), ReferenceError> {
-        let mut next = Self {
-            cpu,
-            ..Self::default()
-        };
+        let mut next = Self::default();
         for operation in operations {
             if !operation.physical.completed() {
                 next.jobs += 1;
                 next.pending += usize::from(operation.owns_pending);
             }
         }
-        let mut allocation = ledger.allocation();
-        allocation.jobs = allocation.jobs.checked_sub(self.jobs).unwrap() + next.jobs;
-        allocation.pending = allocation.pending.checked_sub(self.pending).unwrap() + next.pending;
-        allocation.staging_bytes = allocation
-            .staging_bytes
-            .checked_sub(self.jobs * staging)
-            .unwrap()
-            + next.jobs * staging;
-        allocation.prototype_cpu =
-            allocation.prototype_cpu.checked_sub(self.cpu).unwrap() + next.cpu;
-        ledger.set_allocation(allocation)?;
+        ledger.end_jobs(self.jobs)?;
+        ledger.start_jobs(next.jobs);
+        ledger.end_pending(self.pending)?;
+        ledger.add_pending(next.pending);
         *self = next;
         Ok(())
     }

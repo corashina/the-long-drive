@@ -25,7 +25,6 @@ pub(super) trait Bound {
     fn item(&self) -> Option<ItemId>;
     /// The binding's content moved to this active slot.
     fn set_slot(&mut self, _slot: usize) {}
-    fn heap_bytes(&self) -> usize;
 }
 
 /// The bindings of one kind and the session and content revision they cover.
@@ -39,10 +38,6 @@ impl<B: Bound> KindBindings<B> {
             list: Vec::new(),
             scan: None,
         }
-    }
-    fn heap_bytes(&self) -> usize {
-        self.list.capacity() * std::mem::size_of::<B>()
-            + self.list.iter().map(B::heap_bytes).sum::<usize>()
     }
 }
 
@@ -169,29 +164,6 @@ impl ContentKinds {
             followers: KindBindings::new(),
             follower_prototypes: prototypes(|p| p.followers.is_some()),
         })
-    }
-
-    pub fn heap_bytes(&self) -> usize {
-        self.dials.heap_bytes()
-            + self.levels.heap_bytes()
-            + self.radios.heap_bytes()
-            + self.radio_scripts.capacity() * std::mem::size_of::<(SourceId, Option<SourceId>)>()
-            + self.music_boxes.heap_bytes()
-            + self.electronics.heap_bytes()
-            + self.detectors.heap_bytes()
-            + self.bus_doors.heap_bytes()
-            + self.bus_door_scripts.capacity()
-                * std::mem::size_of::<(SourceId, Option<SourceId>, Vec<SourceId>)>()
-            + self.seats.heap_bytes()
-            + self.seat_prototypes.capacity() * std::mem::size_of::<PrototypeSeats>()
-            + super::content_seats::prototype_seats_heap(&self.seat_prototypes)
-            + self.sleds.heap_bytes()
-            + self.sled_prototypes.capacity() * std::mem::size_of::<usize>()
-            + self.hitches.heap_bytes()
-            + self.trailers.heap_bytes()
-            + self.trailer_prototypes.capacity() * std::mem::size_of::<usize>()
-            + self.followers.heap_bytes()
-            + self.follower_prototypes.capacity() * std::mem::size_of::<usize>()
     }
 }
 

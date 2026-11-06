@@ -1,5 +1,5 @@
 //! Exported selected scene metadata. No geometry or image decoding.
-use super::{ReferenceError, SourceId};
+use super::SourceId;
 use serde::Deserialize;
 #[derive(Deserialize)]
 pub struct PrototypePlan {
@@ -53,61 +53,11 @@ pub struct MaterialIdentity {
     pub gltf_material: u32,
 }
 impl PrototypePlan {
-    pub fn retained_bytes(&self) -> usize {
-        use std::mem::size_of;
-        size_of::<Self>()
-            + self.nodes.capacity() * size_of::<PlanNode>()
-            + self.primitives.capacity() * size_of::<PlanPrimitive>()
-            + self
-                .nodes
-                .iter()
-                .map(|node| {
-                    node.children.capacity() * 4
-                        + node
-                            .extras
-                            .as_ref()
-                            .and_then(|e| e.reference_id.as_ref())
-                            .map_or(0, |id| id.file.capacity())
-                        + node
-                            .extras
-                            .as_ref()
-                            .and_then(|e| e.source_renderer.as_ref())
-                            .map_or(0, |r| r.source.file.capacity())
-                })
-                .sum::<usize>()
-            + self
-                .primitives
-                .iter()
-                .map(|p| {
-                    p.attributes.capacity() * size_of::<String>()
-                        + p.attributes.iter().map(String::capacity).sum::<usize>()
-                        + p.source_material
-                            .as_ref()
-                            .map_or(0, |id| id.file.capacity())
-                })
-                .sum::<usize>()
-    }
     pub fn mesh_count(&self) -> usize {
         self.nodes
             .iter()
             .filter_map(|n| n.mesh)
             .map(|mesh| self.primitives.iter().filter(|p| p.mesh == mesh).count())
             .sum()
-    }
-    pub fn reservation(&self) -> Result<(usize, usize), ReferenceError> {
-        let cpu = self
-            .json_bytes
-            .checked_mul(18)
-            .and_then(|v| v.checked_add(self.buffer_bytes.checked_mul(2)?))
-            .and_then(|v| v.checked_add(self.mesh_bytes.checked_mul(2)?))
-            .and_then(|v| v.checked_add(self.scene_bytes))
-            .and_then(|v| v.checked_add(self.mesh_count().checked_mul(4096)?))
-            .ok_or_else(|| ReferenceError("Prototype reservation overflow".into()))?;
-        let gpu = self
-            .mesh_count()
-            .checked_mul(8)
-            .and_then(|bytes| self.mesh_bytes.checked_add(bytes))
-            .ok_or_else(|| ReferenceError("Prototype GPU reservation overflow".into()))?;
-        Ok((cpu, gpu))
     }
 }

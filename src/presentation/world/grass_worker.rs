@@ -2,10 +2,6 @@
 use crate::reference::ReferenceError;
 use grass_mesh::{GrassAllocation, GrassMeshData, GrassView};
 
-// scripts/build.ps1 sets the grass package linker initial memory to this value.
-pub const INITIAL_WASM_BYTES: usize = 2 * 1024 * 1024;
-pub const DOMAIN_BYTES: usize =
-    std::mem::size_of::<[grass_mesh::GrassDomain; 4]>() + 304 * 12 + 510 * 6 + 32;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GrassJobId {
     pub session: u64,
@@ -54,19 +50,6 @@ impl GrassWorker {
             .unwrap()
             .grass_initialized()
             .map_err(js_error)
-    }
-    pub fn capacity_limit(&self, bytes: usize) -> Result<(), ReferenceError> {
-        self.transport
-            .as_ref()
-            .unwrap()
-            .grass_capacity_limit(bytes as f64)
-            .map_err(js_error)?;
-        Ok(())
-    }
-    pub fn wasm_bytes(&self) -> usize {
-        self.transport
-            .as_ref()
-            .map_or(0, |t| t.grass_wasm_bytes() as usize)
     }
     pub fn install(
         &mut self,

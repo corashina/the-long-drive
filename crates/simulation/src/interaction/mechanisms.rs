@@ -153,22 +153,6 @@ impl MechanismState {
         Ok(())
     }
 
-    pub(super) fn retained_binding_bytes(&self) -> usize {
-        use super::memory::{map, mechanism, vector};
-        vector(&self.controls)
-            + self
-                .controls
-                .iter()
-                .map(|c| mechanism(&c.reference))
-                .sum::<usize>()
-            + map(&self.items)
-            + vector(&self.frames)
-            + map(&self.nodes)
-            + map(&self.bodies)
-            + map(&self.item_nodes)
-            + vector(&self.order)
-    }
-
     pub fn new(reference: &ReferenceManifest) -> Result<Self, ReferenceError> {
         let mut needed = HashSet::new();
         needed.extend(reference.items.iter().map(|i| i.node));

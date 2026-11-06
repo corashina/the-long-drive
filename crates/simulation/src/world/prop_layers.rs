@@ -91,48 +91,6 @@ impl PropLayers {
             revision: 0,
         })
     }
-    pub fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self.chunks.capacity() * std::mem::size_of::<Chunk>()
-            + self
-                .chunks
-                .iter()
-                .map(|c| {
-                    c.candidates.capacity() * std::mem::size_of::<Slot>()
-                        + c.placed.capacity() * std::mem::size_of::<super::GeneratedId>()
-                        + c.placed
-                            .iter()
-                            .map(super::contents::identity_heap)
-                            .sum::<usize>()
-                })
-                .sum::<usize>()
-            + self.placements.capacity() * std::mem::size_of::<Placement>()
-            + self.index_bytes(0)
-            + self.retiring.capacity() * std::mem::size_of::<super::GeneratedId>()
-            + self
-                .placements
-                .iter()
-                .map(super::contents::placement_heap)
-                .sum::<usize>()
-            + self
-                .retiring
-                .iter()
-                .map(super::contents::identity_heap)
-                .sum::<usize>()
-            + self
-                .layers
-                .iter()
-                .map(|l| {
-                    l.offsets.capacity() * 8 + l.held.capacity() * 4 + l.generator.retained_bytes()
-                })
-                .sum::<usize>()
-    }
-    pub fn pending_bytes(&self) -> usize {
-        self.chunks
-            .iter()
-            .map(|c| c.candidates.capacity() * std::mem::size_of::<Slot>())
-            .sum()
-    }
     pub fn selection_complete(&self) -> bool {
         self.layers.iter().all(|layer| {
             layer
@@ -171,47 +129,6 @@ impl PropLayers {
     /// True if a placement shares the layer, unit and ordinal of `id`.
     pub fn contains_root(&self, id: &super::GeneratedId) -> bool {
         self.roots.contains_key(&root_key(id))
-    }
-    /// Index bytes with room for `extra` more placements.
-    fn index_bytes(&self, extra: usize) -> usize {
-        super::metrics::map_bytes(
-            self.ids.capacity().max(self.ids.len() + extra),
-            std::mem::size_of::<super::GeneratedId>(),
-        ) + self
-            .ids
-            .iter()
-            .map(super::contents::identity_heap)
-            .sum::<usize>()
-            + super::metrics::map_bytes(
-                self.roots.capacity().max(self.roots.len() + extra),
-                std::mem::size_of::<(RootKey, u32)>(),
-            )
-    }
-    /// Reserve a complete candidate buffer before any source generation work.
-    pub fn allocation_bound(&self) -> usize {
-        self.layers[self.layer].generator.candidate_count() * std::mem::size_of::<Slot>()
-            + (self.chunks.capacity() + 1) * std::mem::size_of::<Chunk>()
-            + (self.placements.capacity() + 1) * std::mem::size_of::<Placement>()
-            + self.index_bytes(1)
-            + self
-                .chunks
-                .iter()
-                .map(|c| (c.placed.capacity() + 1) * std::mem::size_of::<super::GeneratedId>())
-                .max()
-                .unwrap_or(0)
-            + self
-                .chunks
-                .iter()
-                .map(|c| c.placed.len())
-                .max()
-                .map_or(0, |count| {
-                    if self.retiring.len() + count > self.retiring.capacity() {
-                        (self.retiring.len() + count) * std::mem::size_of::<super::GeneratedId>()
-                    } else {
-                        0
-                    }
-                })
-            + 2 * self.layers[self.layer].generator.retained_bytes()
     }
     pub fn advance(
         &mut self,

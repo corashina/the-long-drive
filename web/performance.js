@@ -75,7 +75,7 @@ export function createPerformance(readWasmBytes,readRender,watchRender,readDrawD
    if((root.hidden&&!benched)||now-lastPaint<250)return false;
    lastPaint=now;return true;
   },
-  counters(steps,wheelContacts,bodies,colliders,roads,terrain,objects,jobs,pending,cpuBytes,gpuBytes,storms,stormInfluence,stormParticles,entities,dynamicBodies,awakeBodies,ccdBodies,contactPairs){
+  counters(steps,wheelContacts,bodies,colliders,roads,terrain,objects,jobs,pending,storms,stormInfluence,stormParticles,entities,dynamicBodies,awakeBodies,ccdBodies,contactPairs){
    const sample=timings.summary(),worker=readWorker();
    bodyCounts={dynamicBodies,awakeBodies,ccdBodies,contactPairs};
    values.textContent=(sample?
@@ -89,7 +89,7 @@ export function createPerformance(readWasmBytes,readRender,watchRender,readDrawD
     '\nRoads / terrain tiles: '+roads+' / '+terrain+'\nActive generated objects: '+objects+'\nECS entities: '+entities+'\nJobs / queued work: '+jobs+' / '+pending+
     '\nStorms / strongest influence / particles: '+storms+' / '+stormInfluence.toFixed(2)+' / '+stormParticles+
     '\nWASM main / worker: '+mib(readWasmBytes())+' / '+mib(worker?.wasmBytes)+'\nJS heap: '+mib(performance.memory?.usedJSHeapSize)+
-    '\nWorld render CPU reserve: '+mib(cpuBytes)+'\nWorld render GPU reserve: '+mib(gpuBytes)+renderLines(readRender());
+    renderLines(readRender());
   },
   // The F3 values as numbers, for `tests/bench/fps.mjs`. It reads the worker tick average, as F3 does.
   // The first call starts the renderer audit, so its render counts can be stale.

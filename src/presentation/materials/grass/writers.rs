@@ -38,7 +38,8 @@ pub struct GrassWriters {
     pub writers: Vec<GrassWriterInput>,
     pending: Vec<WriterPreparation>,
     deferred: bool,
-    allocations: Vec<(Entity, usize, usize)>,
+    /// Writers that hold a renderer claim or wrote their input.
+    owners: Vec<Entity>,
 }
 struct WriterPreparation {
     entity: Entity,
@@ -413,7 +414,6 @@ impl GrassWriters {
     pub fn configure(
         &mut self,
         stream: &crate::world::RendererWorld,
-        ledger: &mut crate::ownership::PresentationLedger,
         reference: &crate::reference::WorldReference,
     ) -> Result<(), crate::reference::ReferenceError> {
         let session = stream.frame().request.session;
@@ -421,16 +421,12 @@ impl GrassWriters {
             return Ok(());
         }
         let camera = GrassCamera::from_source(reference)?;
-        let mut allocation = ledger.allocation();
-        allocation.active_gpu += 256 * 256 * 8 + 128;
-        allocation.active_cpu += std::mem::size_of::<Self>() + std::mem::size_of::<WriterPass>();
-        ledger.set_allocation(allocation)?;
         self.camera = Some(camera);
         self.session = session;
         self.admitted = true;
         self.writers.clear();
         self.pending.clear();
-        self.allocations.clear();
+        self.owners.clear();
         self.invalidate();
         Ok(())
     }
@@ -495,18 +491,7 @@ impl GrassWriters {
         if indices % 3 != 0 {
             return Err(ReferenceError("Invalid displacement triangles".into()));
         }
-        let bytes = vertices * 12 + indices * 4;
-        let cpu = bytes * 2
-            + std::mem::size_of::<WriterPreparation>()
-            + std::mem::size_of::<GrassWriterInput>()
-            + std::mem::size_of::<WriterGpu>()
-            + 128;
-        let gpu = bytes + 64;
-        let mut allocation = ledger.allocation();
-        allocation.active_cpu += cpu;
-        allocation.active_gpu += gpu;
-        allocation.pending += 1;
-        ledger.set_allocation(allocation)?;
+        ledger.add_pending(1);
         self.pending.push(WriterPreparation {
             entity,
             mesh,
@@ -518,7 +503,7 @@ impl GrassWriters {
             running: false,
             copied: false,
         });
-        self.allocations.push((entity, cpu, gpu));
+        self.owners.push(entity);
         Ok(())
     }
     pub fn prepare(
@@ -534,9 +519,7 @@ impl GrassWriters {
                     if ledger.available_external_jobs() == 0 {
                         continue;
                     }
-                    let mut a = ledger.allocation();
-                    a.jobs += 1;
-                    ledger.set_allocation(a)?;
+                    ledger.start_jobs(1);
                     job.running = true;
                 }
                 let mesh = meshes.get(&job.mesh).ok_or_else(|| {
@@ -581,17 +564,13 @@ impl GrassWriters {
                 // slot. The stream lends the slot only when renderer jobs finished its ready work.
                 job.running = false;
                 job.copied = true;
-                let mut a = ledger.allocation();
-                a.jobs -= 1;
-                ledger.set_allocation(a)?;
+                ledger.end_jobs(1)?;
             }
             if !ledger.take_publication() {
                 continue;
             }
             let job = self.pending.remove(index);
-            let mut a = ledger.allocation();
-            a.pending -= 1;
-            ledger.set_allocation(a)?;
+            ledger.end_pending(1)?;
             self.writers.push(GrassWriterInput {
                 entity: job.entity,
                 vertices: job.vertices.into(),
@@ -608,20 +587,17 @@ impl GrassWriters {
         ledger: &mut crate::ownership::PresentationLedger,
         entity: Entity,
     ) -> Result<(), crate::reference::ReferenceError> {
-        let Some(index) = self.allocations.iter().position(|a| a.0 == entity) else {
+        let Some(index) = self.owners.iter().position(|e| *e == entity) else {
             return Ok(());
         };
-        let (_, cpu, gpu) = self.allocations.swap_remove(index);
-        let mut a = ledger.allocation();
-        a.active_cpu = a.active_cpu.saturating_sub(cpu);
-        a.active_gpu = a.active_gpu.saturating_sub(gpu);
+        self.owners.swap_remove(index);
         if let Some(index) = self.pending.iter().position(|p| p.entity == entity) {
             let job = self.pending.swap_remove(index);
-            a.pending = a.pending.saturating_sub(1);
-            a.jobs = a.jobs.saturating_sub(usize::from(job.running));
+            ledger.end_pending(1)?;
+            ledger.end_jobs(usize::from(job.running))?;
         }
         self.writers.retain(|w| w.entity != entity);
         self.invalidate();
-        ledger.set_allocation(a)
+        Ok(())
     }
 }

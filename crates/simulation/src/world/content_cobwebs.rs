@@ -69,19 +69,6 @@ impl Cobwebs {
             changes: Vec::new(),
         }
     }
-    pub fn heap_bytes(&self) -> usize {
-        self.webs.capacity() * std::mem::size_of::<Cobweb>()
-            + self
-                .webs
-                .iter()
-                .map(|w| w.colliders.capacity() * std::mem::size_of::<ColliderHandle>())
-                .sum::<usize>()
-            + self
-                .hidden
-                .values()
-                .map(|n| n.capacity() * std::mem::size_of::<usize>())
-                .sum::<usize>()
-    }
     pub fn particles(&self, index: usize) -> &[crate::particles::ParticleOutput] {
         self.effects[index].particle.particles()
     }

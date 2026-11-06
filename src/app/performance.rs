@@ -29,8 +29,6 @@ pub(super) fn publish(
         perf.objects,
         perf.jobs,
         perf.pending,
-        perf.render_cpu_bytes,
-        perf.render_gpu_bytes,
         perf.storms,
         perf.storm_strength,
         perf.weather_particles,

@@ -512,32 +512,8 @@ impl PlacementIndex {
     pub fn checkpoint_count(&self) -> usize {
         self.blocks.len()
     }
-    pub fn retained_index_bytes(&self) -> usize {
-        self.checked_blocks.capacity() * std::mem::size_of::<bool>()
-            + self.blocks.capacity() * std::mem::size_of::<Block>()
-            + self.foundations.capacity() * std::mem::size_of::<FoundationPoint>()
-            + self.supplies.capacity() * std::mem::size_of::<SupplyPoint>()
-            + self
-                .blocks
-                .iter()
-                .map(|b| checkpoint_heap(&b.checkpoint))
-                .sum::<usize>()
-            + checkpoint_heap(&self.sequence.state)
-            + checkpoint_heap(&self.replay.state)
-    }
 }
 
-fn checkpoint_heap(state: &BuildingCheckpoint) -> usize {
-    state.groups.capacity() * std::mem::size_of::<BuildingGroupState>()
-        + state
-            .groups
-            .iter()
-            .map(|g| {
-                (g.available.capacity() + g.current_available.capacity())
-                    * std::mem::size_of::<i32>()
-            })
-            .sum::<usize>()
-}
 fn select(
     rule: &WorldBuildingGroup,
     state: &mut BuildingGroupState,

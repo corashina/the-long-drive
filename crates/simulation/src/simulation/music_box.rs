@@ -84,9 +84,6 @@ impl MusicBox {
         }
         speed
     }
-    pub fn heap_bytes(&self) -> usize {
-        self.notes.capacity() * std::mem::size_of::<Note>()
-    }
 }
 
 /// `PlayNote(string)`. The source reads `input[1]` twice for accidentals and octave.

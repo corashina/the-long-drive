@@ -12,8 +12,8 @@ use crate::reference::{
     ItemId, ReferenceError, SourceId, Transform, WorldPrototypeReference, WorldReference,
 };
 use crate::vehicle::{PhysicsWorld, VehiclePose, from_rapier, to_rapier};
+use crate::world::GeneratedId;
 use crate::world::spawn_rules::*;
-use crate::world::{GeneratedId, ObjectKey};
 use rapier3d::prelude::ColliderHandle;
 use rapier3d::prelude::RigidBodyHandle;
 use std::sync::Arc;
@@ -241,24 +241,6 @@ pub struct SeatBinding {
 /// Prototype seats with shared records.
 pub type PrototypeSeats = (SourceId, Vec<Arc<WorldSeatReference>>);
 
-pub fn prototype_seats_heap(seats: &[PrototypeSeats]) -> usize {
-    seats
-        .iter()
-        .map(|(source, seats)| {
-            source.file.capacity()
-                + seats.capacity() * std::mem::size_of::<Arc<WorldSeatReference>>()
-                + seats
-                    .iter()
-                    .map(|s| {
-                        std::mem::size_of::<WorldSeatReference>()
-                            + s.source.file.capacity()
-                            + s.hit_nodes.capacity() * std::mem::size_of::<u32>()
-                    })
-                    .sum::<usize>()
-        })
-        .sum()
-}
-
 /// The seats of every world prototype that has seats. The world load stops on an unreadable seat.
 /// Car seats take their driver roles from the prototype vehicle record.
 pub fn world_seats(
@@ -423,25 +405,6 @@ impl Bound for SeatBinding {
     }
     fn item(&self) -> Option<ItemId> {
         Some(self.item)
-    }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.seats.capacity() * std::mem::size_of::<(Arc<ItemSeat>, Vec<ColliderHandle>)>()
-            + self
-                .seats
-                .iter()
-                .map(|(seat, colliders)| {
-                    std::mem::size_of::<ItemSeat>()
-                        + colliders.capacity() * std::mem::size_of::<ColliderHandle>()
-                        + match &seat.owner {
-                            SeatOwner::Vehicle(ObjectKey::Generated(id))
-                            | SeatOwner::Item(ObjectKey::Generated(id)) => {
-                                crate::world::contents::identity_heap(id)
-                            }
-                            _ => 0,
-                        }
-                })
-                .sum::<usize>()
     }
 }
 

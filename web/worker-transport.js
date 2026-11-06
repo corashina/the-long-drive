@@ -1,13 +1,12 @@
-// The transport of one compute worker: replies, failure, dispose and capacity.
+// The transport of one compute worker: replies, failure and dispose.
 // Road, grass and terrain clients keep only their own job protocol.
 const MAX_U64=18446744073709551615n;
 export const u64=value=>typeof value==='string'&&/^(0|[1-9][0-9]{0,19})$/.test(value)&&BigInt(value)<=MAX_U64;
 export const metric=value=>({valid:Number.isFinite(value)&&value>=0,valueMs:Number.isFinite(value)&&value>=0?value:null,rawMs:Number.isFinite(value)?value:String(value),reason:!Number.isFinite(value)?'invalid-duration':value<0?'negative-duration':null});
 // `receive(data,received)` gets each job reply. `onFail(message)` drops the client state.
 // Workers reply `initialized` and `fatal`, and give `wasmBytes` with every other reply.
-// `capacity` is the first admitted WASM size. Rust raises it with `capacityLimit`.
-export function createWorkerLink(worker,kind,profile,now,{receive,onFail,capacity=2097152}){
- let failure=null,disposed=false,initialized=false,wasmBytes=0,capacityLimit=capacity;
+export function createWorkerLink(worker,kind,profile,now,{receive,onFail}){
+ let failure=null,disposed=false,initialized=false,wasmBytes=0;
  const diagnostic=fn=>{if(profile?.enabled){try{fn();}catch{/* Diagnostics never change transport ownership. */}}};
  const emit=record=>diagnostic(()=>profile.worker(record));
  const fail=message=>{if(disposed||failure!==null)return;failure=String(message);worker.terminate();onFail(failure);initialized=false;wasmBytes=0;emit({kind,phase:'failure',error:failure});};
@@ -16,7 +15,7 @@ export function createWorkerLink(worker,kind,profile,now,{receive,onFail,capacit
   let received;diagnostic(()=>{received=now();});
   if(!data||typeof data!=='object'){fail(`Malformed ${kind} worker message.`);return;}
   if(data.type==='fatal'){fail(data.error??`The ${kind} worker stopped.`);return;}
-  if(!Number.isSafeInteger(data.wasmBytes)||data.wasmBytes<0||data.wasmBytes>capacityLimit){fail(`${kind[0].toUpperCase()+kind.slice(1)} WASM capacity exceeds admission.`);return;}
+  if(!Number.isSafeInteger(data.wasmBytes)||data.wasmBytes<0){fail(`Malformed ${kind} worker message.`);return;}
   wasmBytes=data.wasmBytes;
   if(data.type==='initialized'){initialized=true;emit({kind,phase:'initialization',worker:{initializationMs:data.initializationMs??null,retainedWasmBytes:wasmBytes}});return;}
   receive(data,received);
@@ -29,8 +28,7 @@ export function createWorkerLink(worker,kind,profile,now,{receive,onFail,capacit
   wasmBytes:()=>wasmBytes,
   live(){if(disposed)throw Error(`The ${kind} worker is disposed.`);if(failure!==null)throw Error(failure);},
   closed:()=>disposed||failure!==null,
-  capacityLimit(bytes){if(!Number.isSafeInteger(bytes)||bytes<capacityLimit)throw Error(`Invalid ${kind} capacity admission.`);capacityLimit=bytes;},
-  post(message,transfer=[]){try{worker.postMessage({...message,capacityLimit},transfer);}catch(error){fail(error.message);throw error;}},
+  post(message,transfer=[]){try{worker.postMessage(message,transfer);}catch(error){fail(error.message);throw error;}},
   // Worker durations of one reply. Each context measures only its own clock.
   timing:(record,data,received)=>diagnostic(()=>{
    if(!record)return;

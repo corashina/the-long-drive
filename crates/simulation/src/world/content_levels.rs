@@ -154,10 +154,6 @@ impl Bound for LevelBinding {
     fn set_slot(&mut self, slot: usize) {
         self.slot = slot;
     }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.bubbles.capacity() * std::mem::size_of::<LevelBubble>()
-    }
 }
 
 pub(super) struct LevelKind;

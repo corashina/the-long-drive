@@ -22,23 +22,20 @@ use simulation::boundary::{LampAdmission, WorldCommand};
 pub struct SourcePresentationAllocation {
     /// World stream session of the last renderer step. 0: none yet, so the first frame starts one.
     session: u64,
-    pub(crate) fixed: crate::ownership::fixed::FixedAllocation,
-    pub(crate) lighting_cpu: usize,
-    instance_cache_cpu: usize,
-    lamps: (usize, usize, usize),
+    pub(crate) fixed: crate::ownership::RendererCounts,
     imported_writers: Vec<(Entity, Handle<Mesh>)>,
     writers_bound: bool,
     /// Prototype indices of retired prototypes whose materials wait for release.
     retired_materials: Vec<usize>,
     /// Primary appearance assets of the contents, reused each frame.
     primary_assets: Vec<crate::reference::AssetId>,
-    /// Renderer share of the world budgets.
+    /// Renderer counts against the renderer caps.
     pub(crate) ledger: crate::ownership::PresentationLedger,
     /// Facts of the last renderer step. The world step applies them.
     facts: crate::world::RendererFacts,
     /// Renderer view of the stream. The world step updates it.
     pub(crate) world: Option<Box<RendererWorld>>,
-    /// Admitted lamps of the last report to the world step.
+    /// Admitted lamps sent with the last renderer step.
     sent_lamps: Option<Vec<crate::world::GeneratedId>>,
 }
 impl SourcePresentationAllocation {
@@ -51,16 +48,6 @@ impl SourcePresentationAllocation {
         self.world
             .get_or_insert_with(|| Box::new(RendererWorld::new(reference.clone())))
             .apply(delta);
-    }
-    pub fn bootstrap(
-        fixed: crate::ownership::fixed::FixedAllocation,
-        ledger: crate::ownership::PresentationLedger,
-    ) -> Self {
-        Self {
-            fixed,
-            ledger,
-            ..default()
-        }
     }
 }
 /// World object roots. The drive camera is excluded, so systems can also read its Transform.
@@ -128,7 +115,7 @@ impl WorldPresentation<'_, '_> {
         self.allocation.world.as_ref().map(|world| world.origin)
     }
     /// One renderer step on the copy.
-    /// Adds the facts, the budget report and the admitted lamps of the step to `out`.
+    /// Adds the facts and the admitted lamps of the step to `out`.
     #[allow(clippy::too_many_arguments)]
     pub fn prepare_frame(
         &mut self,
@@ -161,8 +148,7 @@ impl WorldPresentation<'_, '_> {
         let allocation = &mut *self.allocation;
         allocation.world = Some(world);
         out.facts.extend(std::mem::take(&mut allocation.facts));
-        let report = allocation.ledger.report();
-        out.report = Some(out.report.take().map_or(report, |r| r.merge(report)));
+        out.renderer_step = true;
         let lamps = self.lights.road_lamps.admitted_lights();
         if lamps != allocation.sent_lamps.as_deref() {
             allocation.sent_lamps = lamps.map(<[_]>::to_vec);
@@ -190,12 +176,6 @@ impl WorldPresentation<'_, '_> {
             crate::world::stream_profile::Timer::new(crate::world::stream_profile::Stage::Cleanup);
         self.grass.set_view(view);
         let allocation = &mut *self.allocation;
-        super::preflight::configure_staging(
-            stream,
-            &mut allocation.ledger,
-            &mut allocation.facts,
-            &reference.file_catalog,
-        )?;
         let mut failure = self
             .fixed
             .poll(
@@ -215,7 +195,6 @@ impl WorldPresentation<'_, '_> {
             .err();
         if self.allocation.session != stream.frame().request.session {
             self.allocation.session = stream.frame().request.session;
-            self.allocation.lamps = (0, 0, 0);
             self.allocation.writers_bound = false;
             self.allocation.imported_writers.clear();
             self.instances.retire(
@@ -259,15 +238,6 @@ impl WorldPresentation<'_, '_> {
             .retire_stale(stream, &mut self.allocation.facts, &mut self.meshes)?;
         self.prototypes
             .retire_unused(stream, reference, &self.instances);
-        let lighting_cpu = self.lights.clone_bytes();
-        let allocation = &mut *self.allocation;
-        replace_active_cpu(
-            &mut allocation.ledger,
-            allocation.lighting_cpu,
-            lighting_cpu,
-            "Fixed lighting control accounting",
-        )?;
-        allocation.lighting_cpu = lighting_cpu;
         timer.next(crate::world::stream_profile::Stage::FixedInputs);
         let allocation = &mut *self.allocation;
         if let Err(error) = self.fixed.prepare_metadata(
@@ -303,8 +273,7 @@ impl WorldPresentation<'_, '_> {
         if let Err(error) = self.pipelines.prepare(stream, &mut self.allocation.ledger) {
             failure.get_or_insert(error);
         }
-        self.writers
-            .configure(stream, &mut self.allocation.ledger, &reference.world)?;
+        self.writers.configure(stream, &reference.world)?;
         self.writers.update_frame(
             view.position,
             Vec3::from_array(stream.origin.offset.map(|v| v as f32)),
@@ -523,7 +492,7 @@ impl WorldPresentation<'_, '_> {
             &mut self.uploads,
         )?;
         timer.next(crate::world::stream_profile::Stage::Lamps);
-        let lamps = super::lamps::source_lamp_admission(
+        super::lamps::source_lamp_admission(
             &stream.frame(),
             stream.required_lights(),
             &mut self.lights,
@@ -531,25 +500,7 @@ impl WorldPresentation<'_, '_> {
             light_outputs,
             enabled,
         )?;
-        let old = self.allocation.lamps;
-        let mut a = self.allocation.ledger.allocation();
-        a.active_cpu = a.active_cpu.saturating_sub(old.0) + lamps.0;
-        a.active_gpu = a.active_gpu.saturating_sub(old.1) + lamps.1;
-        a.objects = a.objects.saturating_sub(old.2) + lamps.2;
-        self.allocation.ledger.set_allocation(a)?;
-        self.allocation.lamps = lamps;
         timer.next(crate::world::stream_profile::Stage::InstanceSync);
-        let instance_cache_cpu = self.instances.cache_bytes();
-        let allocation = &mut *self.allocation;
-        if allocation.instance_cache_cpu != instance_cache_cpu {
-            replace_active_cpu(
-                &mut allocation.ledger,
-                allocation.instance_cache_cpu,
-                instance_cache_cpu,
-                "Generated presentation cache accounting",
-            )?;
-            allocation.instance_cache_cpu = instance_cache_cpu;
-        }
         timer.next(crate::world::stream_profile::Stage::LampSync);
         super::lamps::sync_source_lamps(
             &stream.frame(),
@@ -589,10 +540,6 @@ impl WorldPresentation<'_, '_> {
                     }
                 }
             }
-            let mut a = self.allocation.ledger.allocation();
-            a.active_cpu += self.allocation.imported_writers.capacity()
-                * std::mem::size_of::<(Entity, Handle<Mesh>)>();
-            self.allocation.ledger.set_allocation(a)?;
             self.allocation.writers_bound = true;
         }
         let allocation = &mut *self.allocation;
@@ -641,19 +588,4 @@ impl WorldPresentation<'_, '_> {
             .retire_unused(stream, reference, &self.instances);
         Ok(())
     }
-}
-/// Replaces `old` bytes of the active CPU allocation with `new` bytes.
-fn replace_active_cpu(
-    ledger: &mut crate::ownership::PresentationLedger,
-    old: usize,
-    new: usize,
-    error: &str,
-) -> Result<(), ReferenceError> {
-    let mut allocation = ledger.allocation();
-    allocation.active_cpu = allocation
-        .active_cpu
-        .checked_sub(old)
-        .and_then(|bytes| bytes.checked_add(new))
-        .ok_or_else(|| ReferenceError(error.into()))?;
-    ledger.set_allocation(allocation)
 }

@@ -51,12 +51,6 @@ impl Sled {
             pitch: None,
         }
     }
-    fn heap_bytes(&self) -> usize {
-        self.wheels.heap_bytes()
-            + self.torques.capacity() * std::mem::size_of::<WheelTorques>()
-            + self.steer.capacity() * std::mem::size_of::<f32>()
-            + self.colliders.capacity() * std::mem::size_of::<ColliderHandle>()
-    }
     /// szankoScript.Update at the fixed step. Run before the physics step.
     pub fn step(&mut self, physics: &mut PhysicsWorld, seated: bool, controls: DrivingControls) {
         let body = self.wheels.body();
@@ -256,16 +250,6 @@ impl Bound for SledBinding {
     }
     fn item(&self) -> Option<ItemId> {
         Some(self.item)
-    }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + match &self.owner {
-                ObjectKey::Generated(id) => crate::world::contents::identity_heap(id),
-                ObjectKey::Imported(_) => 0,
-            }
-            + self.seats.capacity() * std::mem::size_of::<SourceId>()
-            + self.seats.iter().map(|s| s.file.capacity()).sum::<usize>()
-            + self.sled.heap_bytes()
     }
 }
 

@@ -144,26 +144,6 @@ impl PropGenerator {
             seed,
         })
     }
-    pub fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self.points.capacity() * 8
-            + self.chances.capacity() * 4
-            + self.reference.types.capacity()
-                * std::mem::size_of::<crate::reference::WorldObjectTypeReference>()
-            + self.prototypes.capacity() * std::mem::size_of::<Option<PrototypeRule>>()
-            + self
-                .prototypes
-                .iter()
-                .flatten()
-                .map(|p| {
-                    p.source.file.capacity()
-                        + p.rock.as_ref().map_or(0, |r| {
-                            r.materials.capacity() * std::mem::size_of::<SourceId>()
-                                + r.materials.iter().map(|s| s.file.capacity()).sum::<usize>()
-                        })
-                })
-                .sum::<usize>()
-    }
     pub fn candidate_count(&self) -> usize {
         self.points.len()
     }

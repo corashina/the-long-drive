@@ -77,7 +77,7 @@ import {createMultiplayer} from './multiplayer.js';
 import {ROLE} from './net.js';
 import {createAnalytics,hostedSite} from './analytics.js';
 import {installGrassBridge} from './grass.js';
-import {configureAssetCatalog,readAsset,releaseStartPacks,startPackMeasurements,worldBootstrapMeasurements,worldInputBytes,worldInputMetadataBytes,setAssetCpuProfile} from './world-assets.js';
+import {configureAssetCatalog,readAsset,releaseStartPacks,startPackMeasurements,worldBootstrapMeasurements,worldInputBytes,setAssetCpuProfile} from './world-assets.js';
 setAssetCpuProfile(cpuProfile);
 // Start the simulation worker and its WASM download early.
 const simulation=createSimulation(new Worker(new URL('./simulation-worker.js',import.meta.url),{type:'module'}),message=>fail(message));
@@ -86,7 +86,6 @@ installSimulationBridge(window,simulation);
 const grassClients=installGrassBridge(window,cpuProfile);
 window.sourceReadAsset=(base,receipt)=>readAsset(base,JSON.parse(receipt));
 window.sourceInputBytes=worldInputBytes;
-window.sourceInputMetadataBytes=worldInputMetadataBytes;
 const canvas=document.querySelector('#game'),status=document.querySelector('#status'),runtimeError=document.querySelector('#runtime-error');
 const loading=createLoading(joinRoom?.code??''),thumbnail=createThumbnail(canvas);
 let lastThumbnail=null;

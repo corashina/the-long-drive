@@ -4,20 +4,13 @@ use super::{
     lighting_assets::{CasterDitherBytes, LightingAssets, LightingShaders},
     materials::SourceMaterials,
     reference::ReferenceVisuals,
-    world::preflight::{
-        self, SourcePlan,
-        selected::{Reservation, SelectedMetadata, retained_plan_bytes},
-    },
+    world::preflight::{self, SourcePlan, selected::SelectedMetadata},
 };
-use crate::ownership::PresentationLedger;
+use crate::ownership::{PresentationLedger, RendererCounts};
 use crate::{
-    ownership::{
-        fixed::{FixedAllocation, FixedImageOwnership},
-        upload_receipt::UploadReceipt,
-    },
+    ownership::{fixed::FixedImageOwnership, upload_receipt::UploadReceipt},
     reference::{
-        AssetId, AssetUsage, ReferenceError, ReferenceManifest,
-        fixed_reservation::FixedReservation, prototype_plan::PrototypePlan,
+        AssetId, AssetUsage, ReferenceError, ReferenceManifest, prototype_plan::PrototypePlan,
     },
     world::RendererWorld,
 };
@@ -37,7 +30,6 @@ use bevy::{
     },
 };
 use std::sync::{Arc, Mutex};
-const ROW_SCRATCH: usize = 5 * (1024 * 1024 + 16);
 /// Fixed rows that load at once. A chunk load waits several frames, mostly not on the CPU.
 const ROW_JOBS: usize = 3;
 use crate::reference::fixed_reservation::{FIXED_SHADER_PATHS as SHADERS, shader_input};
@@ -45,9 +37,6 @@ type RootState = SelectedMetadata<Handle<SourcePlan>, Handle<Gltf>>;
 struct Root {
     asset: AssetId,
     state: RootState,
-    cpu: usize,
-    gpu: usize,
-    staging: usize,
     input_done: bool,
     failed: bool,
     meshes: Vec<Handle<Mesh>>,
@@ -84,8 +73,6 @@ struct ShaderLoad {
     /// so they must finish first.
     imports: Vec<usize>,
     handle: Option<Handle<Shader>>,
-    cpu: usize,
-    staging: usize,
     done: bool,
 }
 #[derive(Resource)]
@@ -95,10 +82,9 @@ pub struct SourceFixedAssets {
     shaders: Vec<ShaderLoad>,
     uploads: Arc<Mutex<Uploads>>,
     cloud: Option<Handle<Mesh>>,
-    cloud_bound: Option<FixedReservation>,
     cloud_fence: Option<Arc<MeshUpload>>,
     cloud_done: bool,
-    cloud_retained: usize,
+    cloud_failed: bool,
     dither: Option<Handle<CasterDitherBytes>>,
     dither_receipt: UploadReceipt,
     dither_done: bool,
@@ -106,8 +92,6 @@ pub struct SourceFixedAssets {
     dither_converted: bool,
     cookies: Option<Handle<Image>>,
     cookie_receipt: UploadReceipt,
-    cookie_bytes: usize,
-    control: usize,
     admitted: bool,
     shaders_bound: bool,
     failure: Option<String>,
@@ -155,9 +139,6 @@ impl SourceFixedAssets {
             .map(|a| Root {
                 asset: a.id,
                 state: RootState::Queued,
-                cpu: 0,
-                gpu: 0,
-                staging: 0,
                 input_done: false,
                 failed: false,
                 meshes: Vec::new(),
@@ -177,12 +158,9 @@ impl SourceFixedAssets {
                 {
                     return Err(ReferenceError("Unsupported fixed lighting sampler".into()));
                 }
+                t.validate_chunk_receipts(&reference.file_catalog)?;
                 Ok(Row {
-                    ownership: FixedImageOwnership::new(
-                        t.validate_chunk_receipts(&reference.file_catalog)?,
-                        true,
-                        ROW_SCRATCH,
-                    )?,
+                    ownership: FixedImageOwnership::default(),
                     chunk: 0,
                     load: None,
                     pixels: Vec::new(),
@@ -203,53 +181,6 @@ impl SourceFixedAssets {
             meshes: Vec::with_capacity(root_slots),
             images: Vec::with_capacity(image_slots),
         }));
-        let product = |n: usize, size: usize| {
-            n.checked_mul(size)
-                .ok_or_else(|| ReferenceError("Fixed control capacity overflow".into()))
-        };
-        let source_strings =
-            reference
-                .render_lighting
-                .textures
-                .iter()
-                .try_fold(0usize, |n, t| {
-                    n.checked_add(t.source.file.len())
-                        .ok_or_else(|| ReferenceError("Fixed control strings overflow".into()))
-                })?;
-        let control = [
-            super::readiness::control_bytes(),
-            std::mem::size_of::<Self>(),
-            std::mem::size_of::<AdmittedShaders>(),
-            product(roots.capacity(), std::mem::size_of::<Root>())?,
-            product(roots.len(), RootState::ready_control_bytes())?,
-            product(rows.capacity(), std::mem::size_of::<Row>())?,
-            product(SHADERS.len(), std::mem::size_of::<ShaderLoad>())?,
-            product(root_slots, std::mem::size_of::<Arc<MeshUpload>>() + 64)?,
-            product(
-                image_slots,
-                std::mem::size_of::<(Handle<Image>, UploadReceipt)>() + 64,
-            )?,
-            product(image_slots, 4096)?,
-            product(
-                reference
-                    .render_lighting
-                    .textures
-                    .len()
-                    .checked_next_power_of_two()
-                    .ok_or_else(|| ReferenceError("Fixed map capacity overflow".into()))?,
-                4 * (std::mem::size_of::<(crate::reference::SourceId, Handle<Image>)>() + 1),
-            )?,
-            product(source_strings, 2)?,
-            product(
-                reference.render_lighting.textures.len(),
-                std::mem::size_of::<Option<Handle<Image>>>(),
-            )?,
-        ]
-        .into_iter()
-        .try_fold(0usize, |sum, n| {
-            sum.checked_add(n)
-                .ok_or_else(|| ReferenceError("Fixed control total overflow".into()))
-        })?;
         Ok(Self {
             roots,
             rows,
@@ -258,17 +189,14 @@ impl SourceFixedAssets {
                 .map(|path| ShaderLoad {
                     imports: path_imports(path),
                     handle: None,
-                    cpu: 0,
-                    staging: 0,
                     done: false,
                 })
                 .collect(),
             uploads,
             cloud: None,
-            cloud_bound: None,
             cloud_fence: None,
             cloud_done: false,
-            cloud_retained: 0,
+            cloud_failed: false,
             dither: None,
             dither_receipt: default(),
             dither_done: false,
@@ -276,8 +204,6 @@ impl SourceFixedAssets {
             dither_converted: false,
             cookies: None,
             cookie_receipt: default(),
-            cookie_bytes: 0,
-            control,
             admitted: false,
             shaders_bound: false,
             failure: None,
@@ -342,126 +268,63 @@ impl SourceFixedAssets {
             && self.cookie_receipt.completed()
             && self.shaders_bound
     }
-    fn allocation(&self) -> Result<FixedAllocation, ReferenceError> {
-        let mut a = FixedAllocation {
-            cpu: self.control,
-            ..default()
-        };
-        let mut add = |cpu: usize,
-                       gpu: usize,
-                       jobs: usize,
-                       pending: usize,
-                       staging: usize|
-         -> Result<(), ReferenceError> {
-            let checked = |a: usize, b: usize| {
-                a.checked_add(b)
-                    .ok_or_else(|| ReferenceError("Fixed ownership total overflow".into()))
-            };
-            a.cpu = checked(a.cpu, cpu)?;
-            a.gpu = checked(a.gpu, gpu)?;
-            a.jobs = checked(a.jobs, jobs)?;
-            a.pending = checked(a.pending, pending)?;
-            a.staging = checked(a.staging, staging)?;
-            Ok(())
+    fn allocation(&self) -> RendererCounts {
+        let mut a = RendererCounts::default();
+        let mut add = |jobs: usize, pending: usize| {
+            a.jobs += jobs;
+            a.pending += pending;
         };
         for r in &self.roots {
-            let (jobs, pending, staging) = if r.failed {
-                (0, 0, 0)
-            } else {
-                match r.state {
-                    RootState::PlanLoading(_) => (1, 1, r.staging),
-                    RootState::Loading { .. } => (
-                        usize::from(!r.input_done),
-                        1,
-                        if r.input_done { 0 } else { r.staging },
-                    ),
-                    _ => (0, 0, 0),
-                }
-            };
-            add(r.cpu, r.gpu, jobs, pending, staging)?;
+            if r.failed {
+                continue;
+            }
+            match r.state {
+                RootState::PlanLoading(_) => add(1, 1),
+                RootState::Loading { .. } => add(usize::from(!r.input_done), 1),
+                _ => {}
+            }
         }
         for row in &self.rows {
-            let (cpu, gpu) = row.ownership.bytes();
-            let (jobs, pending, staging) = row.ownership.io();
-            add(cpu, gpu, jobs, pending, staging)?;
+            let (jobs, pending) = row.ownership.io();
+            add(jobs, pending);
         }
         for shader in &self.shaders {
             let active = shader.handle.is_some() && !shader.done;
-            add(
-                shader.cpu,
-                0,
-                usize::from(active),
-                usize::from(active),
-                if active { shader.staging } else { 0 },
-            )?;
+            add(usize::from(active), usize::from(active));
         }
-        if let Some(bound) = self.cloud_bound {
-            let cpu = if self.cloud_done {
-                self.cloud_retained
-            } else {
-                bound.cpu
-            };
+        if self.cloud.is_some() && !self.cloud_failed {
             let reading = !self.cloud_done && self.cloud_fence.is_none();
-            add(
-                cpu,
-                bound.gpu,
-                usize::from(reading),
-                usize::from(!self.cloud_done),
-                if reading { bound.staging } else { 0 },
-            )?;
+            add(usize::from(reading), usize::from(!self.cloud_done));
         }
         if self.dither.is_some() && !self.dither_failed {
-            let cpu = if self.dither_receipt.completed() {
-                0
-            } else {
-                1536
-            };
             let converting = !self.dither_done && !self.dither_converted;
-            add(
-                cpu,
-                256,
-                usize::from(converting),
-                usize::from(!self.dither_done),
-                if converting { 512 } else { 0 },
-            )?;
+            add(usize::from(converting), usize::from(!self.dither_done));
         }
         if self.cookies.is_some() {
-            let uploaded = self.cookie_receipt.completed();
-            let copies = if uploaded { 1 } else { 2 };
-            add(
-                self.cookie_bytes
-                    .checked_mul(copies)
-                    .ok_or_else(|| ReferenceError("Cookie ownership overflow".into()))?,
-                self.cookie_bytes,
-                0,
-                usize::from(!uploaded),
-                0,
-            )?;
+            add(0, usize::from(!self.cookie_receipt.completed()));
         }
-        Ok(a)
+        a
     }
     pub(crate) fn account(
         &self,
         ledger: &mut PresentationLedger,
-        snapshot: &mut FixedAllocation,
+        snapshot: &mut RendererCounts,
     ) -> Result<(), ReferenceError> {
-        let next = self.allocation()?;
-        ledger.set_allocation(next.replace(*snapshot, ledger.allocation())?)?;
+        let next = self.allocation();
+        next.apply(*snapshot, ledger)?;
         *snapshot = next;
         Ok(())
     }
-    /// Accounts the current state plus one starting load job with `staging` bytes.
+    /// Accounts the current state plus one starting load.
     fn account_job(
         &self,
         ledger: &mut PresentationLedger,
-        snapshot: &mut FixedAllocation,
-        staging: usize,
+        snapshot: &mut RendererCounts,
     ) -> Result<(), ReferenceError> {
-        let mut next = self.allocation()?;
-        next.jobs = checked_sum(&[next.jobs, 1])?;
-        next.pending = checked_sum(&[next.pending, 1])?;
-        next.staging = checked_sum(&[next.staging, staging])?;
-        ledger.set_allocation(next.replace(*snapshot, ledger.allocation())?)?;
+        let mut next = self.allocation();
+        next.jobs += 1;
+        next.pending += 1;
+        next.apply(*snapshot, ledger)?;
         *snapshot = next;
         Ok(())
     }
@@ -469,7 +332,7 @@ impl SourceFixedAssets {
         &mut self,
         stream: &RendererWorld,
         ledger: &mut PresentationLedger,
-        snapshot: &mut FixedAllocation,
+        snapshot: &mut RendererCounts,
         reference: &ReferenceManifest,
         server: &AssetServer,
         plans: &Assets<SourcePlan>,
@@ -479,13 +342,10 @@ impl SourceFixedAssets {
             if let RootState::PlanLoading(handle) = &self.roots[index].state {
                 match preflight::poll_plan(server, plans, handle) {
                     Ok(Some(plan)) => {
-                        self.roots[index].cpu = retained_plan_bytes(&plan);
-                        self.roots[index].staging = 0;
                         self.roots[index].state.complete_metadata(plan);
                     }
                     Err(e) => {
                         self.roots[index].failed = true;
-                        self.roots[index].cpu = 0;
                         self.failure.get_or_insert(e.0);
                     }
                     _ => {}
@@ -505,19 +365,14 @@ impl SourceFixedAssets {
                 .iter()
                 .find(|a| a.id == self.roots[index].asset)
                 .unwrap();
-            let bound = Reservation::metadata(&reference.file_catalog, &asset.path)?;
-            if !crate::ownership::fixed::fixed_room(ledger, bound.cpu, 0, bound.staging, true)? {
+            if !crate::ownership::fixed::fixed_room(ledger, true, true) {
                 break;
             }
-            self.roots[index].cpu = bound.cpu;
-            self.roots[index].staging = bound.staging;
-            self.account_job(ledger, snapshot, bound.staging)?;
+            self.account_job(ledger, snapshot)?;
             self.roots[index].state = RootState::PlanLoading(preflight::load_plan(
                 server,
                 &reference.file_catalog,
                 &asset.path,
-                bound.cpu,
-                bound.staging,
             )?);
         }
         Ok(())
@@ -525,7 +380,7 @@ impl SourceFixedAssets {
     pub(crate) fn poll(
         &mut self,
         ledger: &mut PresentationLedger,
-        snapshot: &mut FixedAllocation,
+        snapshot: &mut RendererCounts,
         reference: &ReferenceManifest,
         server: &AssetServer,
         gltfs: &Assets<Gltf>,
@@ -548,9 +403,6 @@ impl SourceFixedAssets {
             if let LoadState::Failed(error) = server.load_state(asset.id()) {
                 root.failed = true;
                 root.input_done = true;
-                root.staging = 0;
-                root.cpu = retained_plan_bytes(root.state.plan().unwrap());
-                root.gpu = 0;
                 let path = &reference
                     .assets
                     .iter()
@@ -592,34 +444,6 @@ impl SourceFixedAssets {
                     root.fence = Some(fence);
                 }
                 if root.fence.as_ref().unwrap().receipt.completed() {
-                    let mut cpu = checked_sum(&[
-                        retained_plan_bytes(root.state.plan().unwrap()),
-                        root.state.plan().unwrap().scene_bytes,
-                    ])?;
-                    let mut gpu = 0;
-                    for handle in &root.fence.as_ref().unwrap().meshes {
-                        let mesh = meshes.get(handle).ok_or_else(|| {
-                            ReferenceError("Fixed MAIN_WORLD mesh missing".into())
-                        })?;
-                        cpu = checked_sum(&[
-                            cpu,
-                            crate::presentation::world_metrics::mesh_payload(mesh),
-                            4096,
-                        ])?;
-                        gpu = checked_sum(&[
-                            gpu,
-                            mesh.get_vertex_buffer_size(),
-                            mesh.get_index_buffer_bytes().map_or(0, <[u8]>::len),
-                            8,
-                        ])?;
-                    }
-                    if cpu > root.cpu || gpu > root.gpu {
-                        return Err(ReferenceError(
-                            "Fixed mesh exceeded admitted construction bound".into(),
-                        ));
-                    }
-                    root.cpu = cpu;
-                    root.gpu = gpu;
                     root.state.complete_payload();
                 }
             }
@@ -721,20 +545,9 @@ impl SourceFixedAssets {
                 if let LoadState::Failed(error) = server.load_state(handle.id()) {
                     self.failure.get_or_insert(format!("Fixed shader: {error}"));
                     shader.done = true;
-                    shader.cpu = 0;
                 } else if server.is_loaded_with_dependencies(handle.id())
-                    && let Some(asset) = shaders.get(handle)
+                    && shaders.contains(handle)
                 {
-                    let retained = shader_owned_bytes(asset)?
-                        .checked_mul(2)
-                        .and_then(|n| n.checked_add(4096))
-                        .ok_or_else(|| ReferenceError("Fixed shader retained overflow".into()))?;
-                    if retained > shader.cpu {
-                        return Err(ReferenceError(
-                            "Fixed shader exceeds construction bound".into(),
-                        ));
-                    }
-                    shader.cpu = retained;
                     shader.done = true;
                 }
             }
@@ -742,7 +555,7 @@ impl SourceFixedAssets {
         if let Some(handle) = &self.cloud {
             if let LoadState::Failed(error) = server.load_state(handle.id()) {
                 self.failure.get_or_insert(format!("Fixed cloud: {error}"));
-                self.cloud_bound = None;
+                self.cloud_failed = true;
             } else if meshes.contains(handle.id()) && self.cloud_fence.is_none() {
                 let fence = Arc::new(MeshUpload {
                     meshes: vec![handle.clone()],
@@ -757,19 +570,6 @@ impl SourceFixedAssets {
                 .is_some_and(|f| f.receipt.completed())
                 && !self.cloud_done
             {
-                let mesh = meshes.get(handle).unwrap();
-                self.cloud_retained =
-                    checked_sum(&[crate::presentation::world_metrics::mesh_payload(mesh), 8192])?;
-                if self.cloud_retained > self.cloud_bound.unwrap().cpu {
-                    return Err(ReferenceError(
-                        "Cloud retained bytes exceed reservation".into(),
-                    ));
-                }
-                self.cloud_bound.as_mut().unwrap().gpu = checked_sum(&[
-                    mesh.get_vertex_buffer_size(),
-                    mesh.get_index_buffer_bytes().map_or(0, <[u8]>::len),
-                    8,
-                ])?;
                 self.cloud_done = true;
             }
         }
@@ -824,7 +624,7 @@ impl SourceFixedAssets {
     pub(crate) fn admit_payloads(
         &mut self,
         ledger: &mut PresentationLedger,
-        snapshot: &mut FixedAllocation,
+        snapshot: &mut RendererCounts,
         reference: &ReferenceManifest,
         server: &AssetServer,
         visuals: &mut ReferenceVisuals,
@@ -844,14 +644,7 @@ impl SourceFixedAssets {
             }
             let root = &self.roots[index];
             let plan = root.state.plan().unwrap();
-            let bound = FixedReservation::mesh(plan, retained_plan_bytes(plan))?;
-            if !crate::ownership::fixed::fixed_room(
-                ledger,
-                bound.cpu.saturating_sub(root.cpu),
-                bound.gpu,
-                bound.staging,
-                true,
-            )? {
+            if !crate::ownership::fixed::fixed_room(ledger, true, true) {
                 continue;
             }
             let count = plan.primitives.len();
@@ -860,10 +653,7 @@ impl SourceFixedAssets {
                 .iter()
                 .find(|a| a.id == root.asset)
                 .unwrap();
-            self.roots[index].cpu = bound.cpu;
-            self.roots[index].gpu = bound.gpu;
-            self.roots[index].staging = bound.staging;
-            self.account_job(ledger, snapshot, bound.staging)?;
+            self.account_job(ledger, snapshot)?;
             self.roots[index].meshes.reserve_exact(count);
             let handle = server
                 .load_builder()
@@ -879,14 +669,10 @@ impl SourceFixedAssets {
             if shader.handle.is_some() || shader.imports.iter().any(|&i| !self.shaders[i].done) {
                 continue;
             }
-            let bound = shader_input(SHADERS[index])?;
-            let (cpu, staging) = (bound.cpu, bound.staging);
-            if !crate::ownership::fixed::fixed_room(ledger, cpu, 0, staging, true)? {
+            if !crate::ownership::fixed::fixed_room(ledger, true, true) {
                 break;
             }
-            self.shaders[index].cpu = cpu;
-            self.shaders[index].staging = staging;
-            self.account_job(ledger, snapshot, staging)?;
+            self.account_job(ledger, snapshot)?;
             self.shaders[index].handle = Some(server.load(SHADERS[index]));
         }
         if self.shaders.iter().all(|s| s.done) && !self.shaders_bound {
@@ -949,15 +735,7 @@ impl SourceFixedAssets {
             if !ownership.begin_row()? {
                 continue;
             }
-            let old = row.ownership.bytes();
-            let next = ownership.bytes();
-            if !crate::ownership::fixed::fixed_room(
-                ledger,
-                next.0.saturating_sub(old.0),
-                next.1.saturating_sub(old.1),
-                ROW_SCRATCH,
-                first,
-            )? {
+            if !crate::ownership::fixed::fixed_room(ledger, true, first) {
                 continue;
             }
             self.rows[index].ownership = ownership;
@@ -993,19 +771,7 @@ impl SourceFixedAssets {
             );
         }
         if self.cloud.is_none() {
-            let bound = FixedReservation::cloud(
-                &reference.render_lighting.sky.cloud_mesh,
-                &reference.file_catalog,
-            )?;
-            if crate::ownership::fixed::fixed_room(
-                ledger,
-                bound.cpu,
-                bound.gpu,
-                bound.staging,
-                true,
-            )? {
-                self.cloud_bound = Some(bound);
-                self.account(ledger, snapshot)?;
+            if crate::ownership::fixed::fixed_room(ledger, true, true) {
                 let handle = server
                     .load_builder()
                     .with_settings(super::reference::source_gltf_settings)
@@ -1018,6 +784,7 @@ impl SourceFixedAssets {
                     );
                 assets.cloud_mesh = handle.clone();
                 self.cloud = Some(handle);
+                self.account(ledger, snapshot)?;
             }
         }
         if self.dither.is_none() {
@@ -1025,33 +792,16 @@ impl SourceFixedAssets {
             if reference.file_catalog.file(path)?.bytes != 256 {
                 return Err(ReferenceError("Fixed dither receipt size".into()));
             }
-            if crate::ownership::fixed::fixed_room(ledger, 1536, 256, 512, true)? {
-                let mut next = self.allocation()?;
-                next.cpu = checked_sum(&[next.cpu, 1536])?;
-                next.gpu = checked_sum(&[next.gpu, 256])?;
-                next.jobs = checked_sum(&[next.jobs, 1])?;
-                next.pending = checked_sum(&[next.pending, 1])?;
-                next.staging = checked_sum(&[next.staging, 512])?;
-                ledger.set_allocation(next.replace(*snapshot, ledger.allocation())?)?;
-                *snapshot = next;
+            if crate::ownership::fixed::fixed_room(ledger, true, true) {
                 let handle = server.load(path.clone());
                 assets.dither_bytes = handle.clone();
                 self.dither = Some(handle);
+                self.account(ledger, snapshot)?;
             }
         }
         if self.cookies.is_none() && self.rows.iter().all(|r| r.image.is_some()) {
             let ids = super::lighting::cookie_ids(reference);
-            let layers = ids.len() - 2;
-            let bytes = (0..10)
-                .map(|m| layers * (512usize >> m).pow(2) * 4)
-                .sum::<usize>();
-            if crate::ownership::fixed::fixed_room(ledger, 2 * bytes, bytes, 0, true)? {
-                let mut next = self.allocation()?;
-                next.cpu = checked_sum(&[next.cpu, 2 * bytes])?;
-                next.gpu = checked_sum(&[next.gpu, bytes])?;
-                next.pending = checked_sum(&[next.pending, 1])?;
-                ledger.set_allocation(next.replace(*snapshot, ledger.allocation())?)?;
-                *snapshot = next;
+            if crate::ownership::fixed::fixed_room(ledger, false, true) {
                 let handle = |id| {
                     lighting
                         .textures
@@ -1072,7 +822,7 @@ impl SourceFixedAssets {
                     .images
                     .push((array.clone(), self.cookie_receipt.clone()));
                 self.cookies = Some(array);
-                self.cookie_bytes = bytes;
+                self.account(ledger, snapshot)?;
             }
         }
         self.account(ledger, snapshot)?;
@@ -1178,53 +928,4 @@ fn path_imports(path: &str) -> Vec<usize> {
                 .expect("a path import names a fixed shader")
         })
         .collect()
-}
-fn shader_owned_bytes(shader: &Shader) -> Result<usize, ReferenceError> {
-    use bevy::shader::{ShaderImport, Source};
-    let source = match &shader.source {
-        Source::Wgsl(std::borrow::Cow::Owned(s)) => s.capacity(),
-        Source::Wgsl(std::borrow::Cow::Borrowed(_)) => 0,
-        _ => return Err(ReferenceError("Fixed shader source format".into())),
-    };
-    if !shader.additional_imports.is_empty() || !shader.shader_defs.is_empty() {
-        return Err(ReferenceError(
-            "Fixed shader definitions require an ownership bound".into(),
-        ));
-    }
-    let import = |i: &ShaderImport| match i {
-        ShaderImport::AssetPath(s) | ShaderImport::Custom(s) => s.capacity(),
-    };
-    let imports = shader.imports.iter().try_fold(0usize, |sum, i| {
-        sum.checked_add(import(i))
-            .ok_or_else(|| ReferenceError("Fixed shader import ownership overflow".into()))
-    })?;
-    [
-        std::mem::size_of::<Shader>(),
-        source,
-        shader.path.capacity(),
-        import(&shader.import_path),
-        imports,
-        shader
-            .imports
-            .capacity()
-            .checked_mul(std::mem::size_of::<ShaderImport>())
-            .ok_or_else(|| ReferenceError("Fixed shader import capacity overflow".into()))?,
-        shader
-            .file_dependencies
-            .capacity()
-            .checked_mul(std::mem::size_of::<Handle<Shader>>())
-            .ok_or_else(|| ReferenceError("Fixed shader handle capacity overflow".into()))?,
-    ]
-    .into_iter()
-    .try_fold(0usize, |sum, n| {
-        sum.checked_add(n)
-            .ok_or_else(|| ReferenceError("Fixed shader retained total overflow".into()))
-    })
-}
-
-fn checked_sum(values: &[usize]) -> Result<usize, ReferenceError> {
-    values.iter().try_fold(0usize, |sum, value| {
-        sum.checked_add(*value)
-            .ok_or_else(|| ReferenceError("Fixed ownership total overflow".into()))
-    })
 }

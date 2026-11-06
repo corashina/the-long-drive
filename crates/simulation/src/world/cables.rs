@@ -252,10 +252,6 @@ fn prototype<'a>(
 ) -> Result<&'a WorldPrototypeReference, ReferenceError> {
     world.prototype(source)
 }
-fn ropes_bytes(ropes: &Vec<Rope>) -> usize {
-    ropes.capacity() * std::mem::size_of::<Rope>()
-        + ropes.iter().map(|r| r.node.file.capacity()).sum::<usize>()
-}
 impl CableRecipes {
     pub fn new(world: &WorldReference, seed: i32) -> Result<Self, ReferenceError> {
         let mut roads = Vec::with_capacity(world.road.prototypes.len());
@@ -298,29 +294,6 @@ impl CableRecipes {
             buildings,
             seed,
         })
-    }
-    /// Upper bound of `road` output poses for a road biome.
-    pub fn road_ropes(&self, biome: u8) -> usize {
-        self.roads[biome as usize].ropes.len()
-    }
-    pub fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self.roads.capacity() * std::mem::size_of::<RoadCable>()
-            + self
-                .roads
-                .iter()
-                .map(|r| {
-                    ropes_bytes(&r.ropes) + r.targets.capacity() * std::mem::size_of::<Vector>()
-                })
-                .sum::<usize>()
-            + self.buildings.capacity() * std::mem::size_of::<BuildingCable>()
-            + self
-                .buildings
-                .iter()
-                .map(|b| {
-                    b.prototype.file.capacity() + b.root.file.capacity() + ropes_bytes(&b.ropes)
-                })
-                .sum::<usize>()
     }
     pub fn building(&self, prototype: &SourceId) -> Option<&BuildingCable> {
         self.buildings.iter().find(|b| &b.prototype == prototype)
@@ -447,11 +420,6 @@ impl PoleSearch {
         )?;
         Some(self.targets[self.poles[pole as usize].start + k])
     }
-    pub fn retained_bytes(&self) -> usize {
-        self.segments.capacity() * std::mem::size_of::<u32>()
-            + self.targets.capacity() * std::mem::size_of::<[f64; 3]>()
-            + self.poles.capacity() * std::mem::size_of::<Range<usize>>()
-    }
 }
 fn range(rope0: [f64; 3]) -> WorldBounds {
     WorldBounds {
@@ -501,11 +469,5 @@ impl BuildingCableSearch {
             output,
         );
         Ok(self.placement.take().map(|p| p.id))
-    }
-    pub fn retained_bytes(&self) -> usize {
-        self.placement
-            .as_ref()
-            .map_or(0, super::contents::placement_heap)
-            + self.search.retained_bytes()
     }
 }

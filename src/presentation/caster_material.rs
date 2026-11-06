@@ -223,11 +223,6 @@ fn prepare(
         );
     }
 }
-// Each generated primitive reserves this additional caster allocation before material creation.
-pub const CPU_BYTES: usize = 4096;
-pub fn gpu_bytes() -> usize {
-    SourceUniform::min_size().get() as usize
-}
 pub fn ready(world: &World, id: AssetId<SourceMaterial>) -> bool {
     let inputs = world.resource::<Inputs>();
     let output = world.resource::<CasterMaterials>();

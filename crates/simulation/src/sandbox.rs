@@ -854,18 +854,13 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
         "supported": runtime.world_supported(),
         "pending": runtime.stream.pending_parts(),
         "required_ready": runtime.stream.required_ready(),
-        // Shared budgets with the renderer credit: [used, limit].
+        // World counts and caps: [used, limit].
         "budgets": runtime
             .stream
-            .presentation_budgets(runtime.stream.presentation_credit())
+            .budgets()
             .iter()
             .map(|b| (b.name.to_owned(), json!([b.used, b.limit])))
             .collect::<serde_json::Map<_, _>>(),
-        // Renderer asset CPU: [used, credit]. Credit above use goes back on a reclaim.
-        "renderer_asset_cpu": [
-            runtime.stream.presentation_used().prototype_cpu,
-            runtime.stream.presentation_credit().prototype_cpu,
-        ],
         // Sandbox world spawns and where each one waits.
         "world_spawns": runtime
             .stream

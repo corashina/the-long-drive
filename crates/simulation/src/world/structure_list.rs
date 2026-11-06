@@ -30,10 +30,6 @@ impl StructureList {
     pub fn get_mut(&mut self, index: usize) -> &mut StructureInstance {
         &mut self.list[index]
     }
-    /// Index bytes. List bytes are charged from the list capacity.
-    pub fn index_bytes(&self) -> usize {
-        self.index.retained_bytes()
-    }
 }
 impl std::ops::Deref for StructureList {
     type Target = Vec<StructureInstance>;

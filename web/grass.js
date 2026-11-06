@@ -47,7 +47,6 @@ export function createGrass(worker,profile,now=()=>performance.now()){
   packingEnded(){link.diagnostic(()=>{if(packingStart!==null)packingMs=now()-packingStart;packingStart=null;});},
   publicationStartedRaw(bytes){const key=entity(bytes);link.diagnostic(()=>{const r=publications.get(key);if(r)r.publicationStart=now();});},
   publicationEndedRaw(bytes,accepted){const key=entity(bytes),r=publications.get(key);publications.delete(key);link.diagnostic(()=>{if(r){const at=now();link.emit({...r,phase:'publication',accepted,publicationWaitMs:(r.publicationStart??at)-r.consumedAt,publicationMs:at-(r.publicationStart??at)});}});},
-  capacityLimit(bytes){live();link.capacityLimit(bytes);},
   install(id,input,scratch){live();if(!link.initialized()||!valid(id)||sources.has(id.entity)||!Number.isSafeInteger(scratch)||scratch<0||input.byteLength<GRASS_DATASET_HEADER)throw Error('Invalid grass installation.');const count=new DataView(input.buffer,input.byteOffset,input.byteLength).getUint32(GRASS_DATASET_HEADER-4,true);if(input.byteLength!==GRASS_DATASET_HEADER+count*GRASS_PATCH_BYTES)throw Error('Invalid grass dataset size.');const record=copyPost('install',id,input);sources.set(id.entity,{identity:{...id},state:'Installing',count,scratch,record});},
   installed(key){live();return sources.get(key)?.state==='Installed';},
   retire(key){live();const s=sources.get(key);if(!s)return true;if(job?.identity.entity===key)return false;if(s.state!=='Retiring'){s.state='Retiring';post({type:'retire',identity:s.identity});}return false;},

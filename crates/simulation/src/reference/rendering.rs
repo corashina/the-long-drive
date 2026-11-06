@@ -306,20 +306,6 @@ impl TextureRecord {
             } => super::fixed_reservation::bc_payload(*format, *width, *height, *mip_count),
         }
     }
-    pub fn retained_cpu_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self.slot.capacity()
-            + self.source.file.capacity()
-            + match &self.storage {
-                TextureStorage::PngChain { mips } => {
-                    mips.capacity() * std::mem::size_of::<TextureMip>()
-                        + mips.iter().map(|m| m.file.capacity()).sum::<usize>()
-                }
-                TextureStorage::NativeBc { input, .. } => {
-                    input.file.capacity() + input.sha256.capacity()
-                }
-            }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

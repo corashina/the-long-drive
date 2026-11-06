@@ -125,15 +125,6 @@ impl SmallItems {
             refill_prompt: 0,
         }
     }
-    pub fn heap_bytes(&self) -> usize {
-        self.sprays.capacity() * std::mem::size_of::<SprayBinding>()
-            + self.lamps.capacity() * std::mem::size_of::<LampBinding>()
-            + self.binoculars.capacity() * std::mem::size_of::<(GeneratedId, ItemId)>()
-            + self.ammo.capacity() * std::mem::size_of::<super::content_ammo::AmmoBinding>()
-            + self.explosives.capacity()
-                * std::mem::size_of::<super::content_explosives::ExplosiveBinding>()
-            + self.sounds.capacity() * std::mem::size_of::<(u32, f32, [f64; 3])>()
-    }
     /// Spray (0) and splash (1) particles.
     pub fn particles(&self, index: usize) -> &[crate::particles::ParticleOutput] {
         self.effects[index].particle.particles()

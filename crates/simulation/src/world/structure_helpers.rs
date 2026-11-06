@@ -115,15 +115,4 @@ impl StructureHelpers {
             }
         }
     }
-    pub fn retained_bytes(&self) -> usize {
-        self.0.capacity() * std::mem::size_of::<(SourceId, Vec<TerrainFoundation>)>()
-            + self
-                .0
-                .iter()
-                .map(|(source, rows)| {
-                    source.file.capacity()
-                        + rows.capacity() * std::mem::size_of::<TerrainFoundation>()
-                })
-                .sum::<usize>()
-    }
 }

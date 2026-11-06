@@ -58,13 +58,6 @@ impl WheelSet {
         self.body
     }
 
-    pub fn heap_bytes(&self) -> usize {
-        self.wheels.capacity() * std::mem::size_of::<WheelState>()
-            + self.colliders.capacity() * std::mem::size_of::<WheelColliderReference>()
-            + self.contacts.capacity() * std::mem::size_of::<Contact>()
-            + self.accumulated.capacity() * std::mem::size_of::<[f32; 2]>()
-    }
-
     pub fn wheels(&self) -> &[WheelState] {
         &self.wheels
     }

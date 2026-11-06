@@ -5,7 +5,6 @@ pub use fields::WorldFields;
 mod initial_materials;
 mod initialization;
 mod lod;
-mod memory;
 use super::{
     AssetId, AssetRecord, AssetUsage, ColliderGeometry, EngineGlobals, EnginePartReference,
     GaugePartReference, LibraryProvenance, NodeId, PrototypeBounds, RadiatorPartReference,

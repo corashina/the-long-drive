@@ -149,13 +149,8 @@ impl WorldStream {
                 b.powered = powered;
                 b.factor = b.state.factor();
                 // The bake reads the jam. Flashlights and lights refresh together.
-                self.contents.set_jam(
-                    &self.reference,
-                    &parent,
-                    &component,
-                    jam,
-                    self.available_staging_bytes(),
-                )?;
+                self.contents
+                    .set_jam(&self.reference, &parent, &component, jam)?;
                 self.refresh_lamp_outputs();
                 continue;
             }
@@ -196,15 +191,5 @@ impl Bound for ElectronicsBinding {
     }
     fn item(&self) -> Option<ItemId> {
         None
-    }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.component.file.capacity()
-            + self.lights.capacity() * std::mem::size_of::<(SourceId, f32)>()
-            + self
-                .lights
-                .iter()
-                .map(|l| l.0.file.capacity())
-                .sum::<usize>()
     }
 }

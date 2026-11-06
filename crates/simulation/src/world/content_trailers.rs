@@ -378,15 +378,6 @@ impl Bound for TrailerBinding {
     fn item(&self) -> Option<ItemId> {
         Some(self.item)
     }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.brake.as_ref().map_or(0, |s| s.file.capacity())
-            + self.wheels.heap_bytes()
-            + self.torques.capacity() * std::mem::size_of::<WheelTorques>()
-            + self.steer.capacity() * std::mem::size_of::<f32>()
-            + self.graphics.capacity() * std::mem::size_of::<WheelGraphic>()
-            + self.graphic_poses.capacity() * std::mem::size_of::<(Transform, Vector)>()
-    }
 }
 
 /// A content whose hitch targets are registered.
@@ -400,9 +391,6 @@ impl Bound for HitchOwner {
     }
     fn item(&self) -> Option<ItemId> {
         Some(self.item)
-    }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
     }
 }
 
