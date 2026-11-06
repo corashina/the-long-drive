@@ -2,7 +2,7 @@
 use super::GarageRuntime;
 use crate::boundary::{
     BudgetRow, Change, CigaretteRow, ConditionRow, CreatureBoneRow, CreatureRow, HumanRow,
-    PlaneRow, PoseRow, SimFrame, StateBlock, ValveRow,
+    PlaneRow, PoseRow, SimFrame, StateBlock, ValveRow, WheelSprayRow,
 };
 use crate::creatures::animator::Action;
 use crate::creatures::evil::EyeKind;
@@ -10,6 +10,7 @@ use crate::interaction::cigarettes::EmberPhase;
 use crate::interaction::items::ItemLocation;
 use crate::reference::{ItemId, ReferenceManifest};
 use crate::vehicle::VehiclePose;
+use crate::weather;
 use crate::world::ObjectKey;
 
 impl GarageRuntime {
@@ -346,6 +347,7 @@ impl GarageRuntime {
             }),
             cells,
         };
+        self.fill_wheel_spray(mix.wetness, mix.snow_cover, frame);
         frame.lights.clear();
         frame.lights.extend_from_slice(lighting.light_outputs());
         frame.lamp_materials.clear();
@@ -379,6 +381,35 @@ impl GarageRuntime {
                         },
                     )
                 }));
+        }
+    }
+    /// Wheels on the ground of fast cars near the player, when the ground is wet or snowy.
+    fn fill_wheel_spray(&self, wetness: f32, snow_cover: f32, frame: &mut SimFrame) {
+        frame.wheel_spray.clear();
+        let player =
+            rapier3d::math::Vector::from_array(self.area.player.body_pose(&self.physics).position);
+        let bodies = &self.physics.rapier().bodies;
+        for key in self.vehicles.keys() {
+            let body = &bodies[self.physics.chassis_handle(key)];
+            let velocity = body.linvel();
+            let amount = weather::spray_amount(velocity.length(), wetness, snow_cover);
+            let far = body.translation().distance(player) > weather::SPRAY_DISTANCE;
+            if amount <= 0. || far {
+                continue;
+            }
+            for wheel in self.physics.wheel_states(key) {
+                if frame.wheel_spray.len() == weather::MAX_SPRAY {
+                    return;
+                }
+                if let Some(contact) = wheel.contact {
+                    frame.wheel_spray.push(WheelSprayRow {
+                        position: contact.point.to_array(),
+                        amount,
+                        velocity: velocity.to_array(),
+                        radius: wheel.profile.radius,
+                    });
+                }
+            }
         }
     }
     fn fill_conditions(&mut self, reference: &ReferenceManifest, frame: &mut SimFrame) {

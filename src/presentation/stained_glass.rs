@@ -59,6 +59,10 @@ pub struct GlassViewUniform {
     pub near_far: Vec4,
     /// Source D3D11 grab texels: (1/W,-1/H,W,H).
     pub grab_texel_size: Vec4,
+    /// Rain drops on the seated car glass: xyz camera, w cabin radius. See `glass_drops`.
+    pub cabin: Vec4,
+    /// x amount (0 is off), y scroll up the glass in meters, z bead share, w run stretch.
+    pub drops: Vec4,
 }
 impl GlassViewUniform {
     pub fn new(matrix: Mat4, near: f32, far: f32, extent: UVec2) -> Result<Self, &'static str> {
@@ -81,6 +85,8 @@ impl GlassViewUniform {
                 extent.x as f32,
                 extent.y as f32,
             ),
+            cabin: Vec4::ZERO,
+            drops: Vec4::ZERO,
         })
     }
 }

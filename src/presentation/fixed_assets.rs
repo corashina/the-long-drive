@@ -934,6 +934,7 @@ impl SourceFixedAssets {
                 rain: shader("shaders/weather_rain.wgsl"),
                 bolt: shader("shaders/weather_bolt.wgsl"),
                 shafts: shader("shaders/weather_shafts.wgsl"),
+                spray: shader("shaders/weather_spray.wgsl"),
             };
             self.shaders_bound = true;
         }

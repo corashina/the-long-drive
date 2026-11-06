@@ -144,7 +144,10 @@ pub(crate) fn prepare_views(
     antialiasing: Res<super::antialiasing::Antialiasing>,
     lamps: Res<super::lamp_shadows::LampShadows>,
     objects: Res<super::object_lighting::ObjectLightingGpu>,
-    sun: Res<super::shadow_collector::SunShadow>,
+    (sun, drops): (
+        Res<super::shadow_collector::SunShadow>,
+        Res<super::glass_drops::GlassDrops>,
+    ),
 ) {
     if status.failure().is_some() {
         return;
@@ -197,9 +200,10 @@ pub(crate) fn prepare_views(
     {
         return;
     }
-    if frame.views[0].is_none() {
+    let Some(world_view) = frame.views[0] else {
         return;
-    }
+    };
+    let (cabin, drops) = drops.uniform(world_view.view_from_world.inverse().w_axis.truncate());
     let Some(atlas) = frame.atlas_size(0) else {
         status.fail("Source world atlas extent is invalid".into());
         return;
@@ -271,6 +275,12 @@ pub(crate) fn prepare_views(
             source.far,
             UVec2::new(target.colors.width, target.colors.height),
         ) {
+            // Only the player view sees drops on the seated car glass.
+            Ok(value) if source.index == 0 => GlassViewUniform {
+                cabin,
+                drops,
+                ..value
+            },
             Ok(value) => value,
             Err(error) => {
                 status.fail(error.into());

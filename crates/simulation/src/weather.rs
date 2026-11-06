@@ -10,12 +10,14 @@ mod cells;
 mod condition;
 mod lightning;
 mod shelter;
+mod spray;
 mod tumbleweeds;
 mod wind;
 pub use cells::{ADD_RADIUS, CellSample, LOCK_RADIUS, MAX_CELLS, WeatherCell, WeatherCells};
 pub use condition::*;
 pub use lightning::{BOLT_SECONDS, Bolt, CLOSE_DISTANCE, Lightning, STRIKE_DISTANCE, Thunder};
 pub use shelter::{Shelter, vehicle_roof};
+pub use spray::{MAX_SPRAY, SPRAY_DISTANCE, spray_amount};
 pub use tumbleweeds::{ImportantObject, Tumbleweeds};
 pub use wind::Wind;
 
