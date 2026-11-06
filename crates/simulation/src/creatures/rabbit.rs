@@ -136,7 +136,7 @@ pub fn insert_body(
     let b = &r.body;
     let builder = RigidBodyBuilder::dynamic()
         .pose(pose)
-        .ccd_enabled(true)
+        .ccd_enabled(b.ccd)
         .lock_rotations()
         .additional_mass(size.live_mass(r))
         .linear_damping(b.linear_damping)

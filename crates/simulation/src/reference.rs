@@ -232,6 +232,8 @@ pub struct BodyRecord {
     pub mass_kg: f32,
     pub linear_damping: f32,
     pub angular_damping: f32,
+    /// Unity `collisionDetectionMode` is not Discrete. The body uses CCD.
+    pub ccd: bool,
     pub pose: Transform,
     pub parent_body: Option<BodyId>,
 }

@@ -1,6 +1,6 @@
 """Build typed runtime records from selected scene components."""
 import math
-from .source import key, source_id, vector
+from .source import continuous, key, source_id, vector
 from .gltf import GltfExporter, convert_rotation, transform_point
 from .collision import world_pose, quaternion_product, bake_points, geometry, step_surface, collider_tag
 from .actions import recover_masks, recover_bindings, recover_pickup, recover_pushables
@@ -106,7 +106,8 @@ def build_manifest(source, roots, reports, hashes, library, car_prefab, output):
         rigidbody=source.read(reader) if reader.type.name=='Rigidbody' else None
         value={'id':len(bodies)+1,'source':source_id(reader),'node':node,'dynamic':dynamic,'mass_kg':mass,'pose':pose,
             'linear_damping':rigidbody['m_Drag'] if rigidbody is not None else 0.,
-            'angular_damping':rigidbody['m_AngularDrag'] if rigidbody is not None else 0.}
+            'angular_damping':rigidbody['m_AngularDrag'] if rigidbody is not None else 0.,
+            'ccd':continuous(rigidbody) if rigidbody is not None else False}
         bodies.append(value);body_roots[node]=value['id'];return value['id']
     body(home_root,False,0.,node_readers[home_root])
     for root in roots['items']:

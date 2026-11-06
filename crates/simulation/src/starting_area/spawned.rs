@@ -160,7 +160,7 @@ pub fn spawn_body(
     let id = area.items.allocate_item_id()?;
     let builder = if body.dynamic {
         RigidBodyBuilder::dynamic()
-            .ccd_enabled(true)
+            .ccd_enabled(body.ccd)
             .additional_mass(body.mass_kg)
             .linear_damping(body.linear_damping)
             .angular_damping(body.angular_damping)

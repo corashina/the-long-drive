@@ -52,6 +52,8 @@ pub struct GroundUfoReference {
     pub disappear_distance: f32,
     /// Rigidbody mass. The body has no gravity and frozen rotation.
     pub mass: f32,
+    /// Unity `collisionDetectionMode` is not Discrete. The body uses CCD.
+    pub ccd: bool,
     /// fedoscript start `speedlerp`.
     pub speed_lerp: f32,
     /// Colliders in root space, port coordinates.

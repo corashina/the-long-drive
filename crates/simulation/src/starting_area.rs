@@ -98,7 +98,7 @@ impl StartingArea {
                 RigidBodyBuilder::kinematic_position_based()
             } else if body.dynamic {
                 RigidBodyBuilder::dynamic()
-                    .ccd_enabled(true)
+                    .ccd_enabled(body.ccd)
                     .additional_mass(body.mass_kg)
                     .linear_damping(body.linear_damping)
                     .angular_damping(body.angular_damping)

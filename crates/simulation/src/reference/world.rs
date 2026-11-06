@@ -2070,6 +2070,8 @@ pub struct WorldPrototypeBody {
     pub angular_damping: f32,
     pub kinematic: bool,
     pub use_gravity: bool,
+    /// Unity `collisionDetectionMode` is not Discrete. The body uses CCD.
+    pub ccd: bool,
     pub constraints: u32,
     pub pose: Transform,
     /// `setcenterofmass`: `T.localPosition` in the body frame.

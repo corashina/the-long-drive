@@ -412,7 +412,7 @@ impl GroundUfos {
                 .translation(Vector::from_array(world.origin.local(position)))
                 .gravity_scale(0.)
                 .lock_rotations()
-                .ccd_enabled(true)
+                .ccd_enabled(r.ccd)
                 .additional_mass(r.mass),
         );
         let mut colliders = Vec::with_capacity(r.colliders.len());

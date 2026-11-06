@@ -74,6 +74,8 @@ pub struct FoodReference {
     pub mass_kg: f32,
     pub linear_damping: f32,
     pub angular_damping: f32,
+    /// Unity `collisionDetectionMode` is not Discrete. The body uses CCD.
+    pub ccd: bool,
     pub pickup: PickupReference,
     pub parts: Vec<Vec<NodeId>>,
     pub colliders: Vec<FoodCollider>,
