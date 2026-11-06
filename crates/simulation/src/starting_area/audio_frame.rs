@@ -22,7 +22,7 @@ impl GarageRuntime {
             hearing,
             vehicles,
             started,
-            paused,
+            menu,
             audio_motion_revision,
             ..
         } = self;
@@ -32,7 +32,7 @@ impl GarageRuntime {
         out.push(AudioCall::Begin {
             session: audio.session,
             started: *started,
-            paused: *paused,
+            paused: *menu,
             seconds: audio.game_seconds,
         });
         let needs = survival.output();
@@ -92,7 +92,7 @@ impl GarageRuntime {
                 alive,
             });
         }
-        if *started && !*paused {
+        if *started && !*menu {
             audio.update_mixers(area, stream, input.real_dt);
         }
         for (id, db) in audio.mixer_outputs() {

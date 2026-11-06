@@ -22,6 +22,7 @@ pub mod help_texts;
 pub mod hitch;
 pub mod holes;
 mod hose;
+pub mod in_use;
 mod input;
 pub use input::InteractionOutcome;
 pub mod items;
@@ -280,6 +281,8 @@ pub struct InteractionState {
     /// Hit colliders of world item seats.
     /// Knobs, item seats and UFO controls by collider.
     pub controls: controls::UseControls,
+    /// Seats and items that other players use. Net fills it.
+    pub in_use: in_use::InUse,
     pub carry: carry::CarryState,
     pub equipment: equipment::EquipmentState,
     pub equipment_input: equipment_input::EquipmentInput,
@@ -609,6 +612,7 @@ impl InteractionState {
             sounds: [None; 64],
             sound_count: 0,
             controls: Default::default(),
+            in_use: Default::default(),
             carry: carry::CarryState::new(reference)?,
             equipment: equipment::EquipmentState::new(reference),
             equipment_input: equipment_input::EquipmentInput::new(
@@ -1711,7 +1715,7 @@ impl InteractionState {
             });
         let switch_seat = use_target
             .and_then(|target| self.controls.seat(target.collider))
-            .filter(|seat| player.can_switch_to(seat) && seat.can_sit(physics));
+            .filter(|seat| player.can_switch_to(seat) && self.can_sit(seat, physics));
         if action.is_none() {
             action = light_action.map(InteractionAction::LightControl);
             if !ray_actions_blocked
@@ -1846,7 +1850,7 @@ impl InteractionState {
                 if use_input.released & keys::USE != 0
                     && !released_mechanism
                     && let Some(seat) = self.controls.seat(target.collider)
-                    && seat.can_sit(physics)
+                    && self.can_sit(seat, physics)
                     && seat_release.is_some_and(|press| {
                         press.matches(self.mechanisms.contains(target.item).then_some(target.item))
                     })

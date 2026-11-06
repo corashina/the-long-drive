@@ -541,7 +541,7 @@ impl GarageRuntime {
             seat: saved.player.seat.clone(),
         });
         candidate.clear_input();
-        candidate.paused = true;
+        candidate.menu = true;
         candidate.started = true;
         Ok(candidate)
     }
