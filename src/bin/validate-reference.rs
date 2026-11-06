@@ -45,14 +45,18 @@ fn check_crunch() -> Result<(), Box<dyn std::error::Error>> {
         let length = u32::from_le_bytes(take(4)?.try_into()?) as usize;
         let top = take(length)?.to_vec();
         let expected = take(32)?;
-        let blocks = if top.is_empty() {
-            crunch::unpack(&start, 0)?
-        } else {
+        // A malformed texture fails the check with its index, never a bare panic.
+        let blocks = std::panic::catch_unwind(|| -> Result<Vec<u8>, String> {
+            if top.is_empty() {
+                return crunch::unpack(&start, 0);
+            }
             let tables = crunch::tables_bytes(&start)?;
             let mut blocks = crunch::unpack(&[&start[..tables], &top].concat(), 0)?;
             blocks.extend(crunch::unpack(&start, 1)?);
-            blocks
-        };
+            Ok(blocks)
+        })
+        .unwrap_or_else(|_| Err("unpacker panic".into()))
+        .map_err(|e| format!("Crunch texture {index}: {e}"))?;
         if Sha256::digest(&blocks)[..] != *expected {
             return Err(
                 format!("Crunch texture {index}: BC blocks differ from the exporter").into(),

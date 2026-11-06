@@ -228,7 +228,10 @@ def verify_crunch(output: Path, manifest) -> None:
     except OSError as error:
         raise ValueError('Crunch check needs Docker and the project toolchain image') from error
     if result.returncode:
-        raise ValueError(f"Crunch check failed: {result.stderr.decode('utf-8', errors='replace').strip()}")
+        detail = result.stderr.decode('utf-8', errors='replace').strip()
+        index = re.search(r'Crunch texture (\d+):', detail)
+        name = checked[int(index[1])]['input'] if index and int(index[1]) < len(checked) else 'unknown texture'
+        raise ValueError(f'Crunch check failed on {name}: {detail}')
     print(f'Checked {len(checked)} crunch textures against the exporter BC blocks', flush=True)
 
 

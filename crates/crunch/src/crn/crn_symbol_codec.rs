@@ -2,40 +2,39 @@ use super::crn_consts::*;
 use super::crn_static_huffman_data_model::*;
 use super::crn_utils::*;
 
+/// Bit reader over one table, palette or level. Past the end it reads zero bytes, as crnd does.
 #[allow(non_camel_case_types)]
+#[derive(Default)]
 pub struct symbol_codec<'slice> {
     pub p_decode_buf: &'slice [u8],
-    pub p_decode_buf_next: &'slice [u8],
-    pub p_decode_buf_end: *const u8,
-    pub decode_buf_size: u32,
+    pub pos: usize,
     pub bit_buf: u32,
     pub bit_count: i32,
 }
 
-impl Default for symbol_codec<'_> {
-    fn default() -> Self {
-        symbol_codec {
-            p_decode_buf: &[0; 0],
-            p_decode_buf_next: &[0; 0],
-            p_decode_buf_end: core::ptr::null(),
-            decode_buf_size: 0,
-            bit_buf: 0,
-            bit_count: 0,
-        }
-    }
-}
-
 impl<'slice> symbol_codec<'slice> {
     pub fn start_decoding(&mut self, p_buf: &'slice [u8], buf_size: u32) -> bool {
-        if buf_size == 0 {
+        let Some(buf) = p_buf.get(..buf_size as usize) else {
+            return false;
+        };
+        if buf.is_empty() {
             return false;
         }
-        self.p_decode_buf = p_buf;
-        self.p_decode_buf_next = p_buf;
-        self.decode_buf_size = buf_size;
-        self.p_decode_buf_end = (&p_buf[(buf_size - 1) as usize]) as *const u8;
+        self.p_decode_buf = buf;
+        self.pos = 0;
         self.get_bits_init();
         true
+    }
+
+    /// The next byte, or 0 past the end.
+    fn next_byte(&mut self) -> u32 {
+        match self.p_decode_buf.get(self.pos) {
+            Some(&c) => {
+                self.pos += 1;
+                c as u32
+            }
+            None => 0,
+        }
     }
 
     pub fn decode_receive_static_data_model(&mut self, model: &mut StaticHuffmanDataModel) -> bool {
@@ -175,35 +174,13 @@ impl<'slice> symbol_codec<'slice> {
         let p_tables = &model.p_decode_tables;
         if self.bit_count < 24 {
             if self.bit_count < 16 {
-                let mut c0: u32 = 0;
-                let mut c1: u32 = 0;
-                let mut p = self.p_decode_buf_next;
-                if (&(p[0]) as *const u8) <= self.p_decode_buf_end {
-                    c0 = p[0] as u32;
-                    if (&(p[0]) as *const u8) < self.p_decode_buf_end {
-                        p = &p[1..]
-                    }
-                };
-                if (&(p[0]) as *const u8) <= self.p_decode_buf_end {
-                    c1 = p[0] as u32;
-                    if (&(p[0]) as *const u8) < self.p_decode_buf_end {
-                        p = &p[1..]
-                    }
-                };
-                self.p_decode_buf_next = p;
+                let c0 = self.next_byte();
+                let c1 = self.next_byte();
                 self.bit_count += 16;
                 let c: u32 = (c0 << 8) | c1;
                 self.bit_buf |= c << (32 - self.bit_count);
             } else {
-                let c: u32;
-                if (&(self.p_decode_buf_next[0]) as *const u8) <= self.p_decode_buf_end {
-                    c = self.p_decode_buf_next[0] as u32;
-                    if (&(self.p_decode_buf_next[0]) as *const u8) < self.p_decode_buf_end {
-                        self.p_decode_buf_next = &self.p_decode_buf_next[1..];
-                    }
-                } else {
-                    c = 0
-                };
+                let c = self.next_byte();
                 self.bit_count += 8;
                 self.bit_buf |= c << (32 - self.bit_count);
             }
@@ -253,13 +230,7 @@ impl<'slice> symbol_codec<'slice> {
             return Err(false);
         }
         while self.bit_count < num_bits as i32 {
-            let mut c: u32 = 0;
-            if self.p_decode_buf_next[0] as *const u8 <= self.p_decode_buf_end {
-                c = self.p_decode_buf_next[0] as u32;
-                if (self.p_decode_buf_next[0] as *const u8) < self.p_decode_buf_end {
-                    self.p_decode_buf_next = &self.p_decode_buf_next[1..];
-                }
-            }
+            let c = self.next_byte();
             self.bit_count += 8;
             if self.bit_count > BIT_BUF_SIZE as i32 {
                 return Err(false);
