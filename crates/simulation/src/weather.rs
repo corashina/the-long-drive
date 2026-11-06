@@ -10,10 +10,12 @@ mod cells;
 mod condition;
 mod lightning;
 mod tumbleweeds;
+mod wind;
 pub use cells::{CellSample, LOCK_RADIUS, MAX_CELLS, WeatherCell, WeatherCells};
 pub use condition::*;
 pub use lightning::{Lightning, STRIKE_DISTANCE, Thunder};
 pub use tumbleweeds::{ImportantObject, Tumbleweeds};
+pub use wind::Wind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StormId(pub u32);
@@ -81,8 +83,9 @@ pub struct WeatherState {
     body_capacity: usize,
     pub tumbleweeds: Tumbleweeds,
     pub cells: WeatherCells,
-    /// Cell drift in meters per second along world `x`, `z`.
+    /// Cell drift in meters per second along world `x`, `z`. The host sets it from the wind.
     pub drift: [f32; 2],
+    pub wind: Wind,
     pub lightning: Lightning,
     /// The cell sample at the player.
     sample: CellSample,
@@ -102,7 +105,7 @@ impl WeatherState {
             reference.min_interval_seconds,
             reference.max_interval_seconds,
         );
-        let angle = random.range(0., std::f32::consts::TAU);
+        let wind = Wind::new(seed);
         Self {
             storms: Vec::new(),
             influence: StormInfluence::default(),
@@ -114,7 +117,8 @@ impl WeatherState {
             body_capacity: 0,
             tumbleweeds: Tumbleweeds::new(seed),
             cells: WeatherCells::new(seed),
-            drift: [angle.cos() * DRIFT_SPEED, angle.sin() * DRIFT_SPEED],
+            drift: wind.drift(),
+            wind,
             lightning: Lightning::new(seed),
             sample: CellSample::default(),
             wetness: 0.,
@@ -147,8 +151,9 @@ impl WeatherState {
         };
     }
 
-    /// Advances the cells, the wetness and the lightning. Call it before `advance`.
+    /// Advances the wind, the cells, the wetness and the lightning. Call it before `advance`.
     /// A `guest` does not age or spawn cells and does not draw strikes. The host sends them.
+    /// A guest wind follows the drift direction of the host.
     /// `biome_at` gives the biome at absolute `x`, `z`.
     pub fn advance_cells(
         &mut self,
@@ -159,6 +164,11 @@ impl WeatherState {
     ) {
         if !dt.is_finite() || dt <= 0. || !player.iter().all(|v| v.is_finite()) {
             return;
+        }
+        let heading = guest.then_some(self.drift);
+        self.wind.advance(dt, &self.sample, heading);
+        if !guest {
+            self.drift = self.wind.drift();
         }
         self.cells
             .advance(dt, self.drift, [player[0], player[2]], guest, biome_at);
@@ -568,9 +578,6 @@ fn small_emitter(player: [f64; 3], last: [f64; 3], dt: f32, yoffset: f32) -> [f6
     })
 }
 
-/// Cell drift speed in meters per second.
-const DRIFT_SPEED: f32 = 3.;
-
 /// A separate deterministic stream. The port does not recover Unity's native random sequence.
 #[derive(Debug)]
 pub(crate) struct StormRandom(pub(crate) u64);
@@ -606,9 +613,8 @@ impl StormRandom {
 mod tests {
     use super::*;
 
-    #[test]
-    fn sandstorm_does_not_spawn_in_rain() {
-        let mut state = WeatherState {
+    fn state() -> WeatherState {
+        WeatherState {
             storms: Vec::new(),
             influence: StormInfluence::default(),
             last_spawn_time: 0.,
@@ -620,16 +626,51 @@ mod tests {
             tumbleweeds: Tumbleweeds::new(1),
             cells: WeatherCells::new(1),
             drift: [0.; 2],
+            wind: Wind::new(1),
             lightning: Lightning::new(1),
             sample: CellSample::default(),
             wetness: 0.,
             mix: WeatherMix::default(),
             sheltered: false,
             strike: None,
-        };
+        }
+    }
+
+    #[test]
+    fn sandstorm_does_not_spawn_in_rain() {
+        let mut state = state();
         state.lock(Some(WeatherKind::Rain), [0.; 3]);
         assert!((1..=1000).all(|t| !state.spawn_due(t as f64, 1.)));
         state.lock(Some(WeatherKind::Clear), [0.; 3]);
         assert!((1001..=1100).any(|t| state.spawn_due(t as f64, 1.)));
+    }
+
+    #[test]
+    fn drift_follows_the_wind_direction() {
+        let mut state = state();
+        let cell = WeatherCell {
+            kind: WeatherKind::Rain,
+            center: [1000., 0.],
+            radius: 2000.,
+            life: 1e6,
+            age: 0.,
+        };
+        state.cells.set([cell], false);
+        let start = state.wind.dir;
+        for _ in 0..6000 {
+            let before = state.cells.iter().next().unwrap().center;
+            state.advance_cells(0.1, [0.; 3], false, |_| 2);
+            let after = state.cells.iter().next().unwrap().center;
+            let [dx, dz] = [(after[0] - before[0]) as f32, (after[1] - before[1]) as f32];
+            let [wx, wz] = state.wind.dir;
+            let moved = dx.hypot(dz);
+            assert!(moved > 0.);
+            assert!((dx * wx + dz * wz) / moved > 0.999);
+        }
+        // Ten minutes turn the wind, but by less than 10 degrees per minute.
+        let [sx, sz] = start;
+        let [wx, wz] = state.wind.dir;
+        let turn = (sx * wx + sz * wz).clamp(-1., 1.).acos().to_degrees();
+        assert!(turn > 0.01 && turn < 100.);
     }
 }

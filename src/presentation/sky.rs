@@ -598,8 +598,8 @@ pub(crate) fn sync_sky(
     u.cloud_motion = Vec4::new(
         output.clouds[0].density,
         output.clouds[1].density,
-        output.clouds[0].speed * (output.shader_time_seconds / 20.) as f32,
-        output.clouds[1].speed * (output.shader_time_seconds / 20.) as f32,
+        output.clouds[0].speed * (output.shader_time_seconds / 20.) as f32 + output.cloud_wind[0],
+        output.clouds[1].speed * (output.shader_time_seconds / 20.) as f32 + output.cloud_wind[1],
     );
     u.star_color = Vec4::from_array(output.star_color);
     u.star_motion = Vec4::new(

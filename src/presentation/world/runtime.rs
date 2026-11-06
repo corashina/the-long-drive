@@ -135,7 +135,7 @@ impl WorldPresentation<'_, '_> {
         reference: &ReferenceManifest,
         grant: Option<crate::world::PresentationGrant>,
         view: GrassView,
-        time: f32,
+        grass_wind: Vec4,
         lod_view: super::lod::LodView,
         enabled: bool,
         light_outputs: &[crate::lighting::LightOutput],
@@ -153,7 +153,7 @@ impl WorldPresentation<'_, '_> {
             &world,
             reference,
             view,
-            time,
+            grass_wind,
             lod_view,
             enabled,
             light_outputs,
@@ -179,7 +179,7 @@ impl WorldPresentation<'_, '_> {
         stream: &RendererWorld,
         reference: &ReferenceManifest,
         view: GrassView,
-        time: f32,
+        grass_wind: Vec4,
         lod_view: super::lod::LodView,
         enabled: bool,
         light_outputs: &[crate::lighting::LightOutput],
@@ -308,7 +308,7 @@ impl WorldPresentation<'_, '_> {
         self.writers.update_frame(
             view.position,
             Vec3::from_array(stream.origin.offset.map(|v| v as f32)),
-            time,
+            grass_wind,
         );
         timer.next(crate::world::stream_profile::Stage::PrimaryTextures);
         if let Err(error) = self.materials.cache.prepare_world_primary(

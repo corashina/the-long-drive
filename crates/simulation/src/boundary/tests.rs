@@ -198,6 +198,8 @@ fn frame_round_trips() {
             rain: 0.75,
             flash: 0.,
             sheltered: true,
+            wind: [3., -4.],
+            gust: 1.5,
         },
         lights: vec![LightOutput::default()],
         lamp_materials: Vec::new(),

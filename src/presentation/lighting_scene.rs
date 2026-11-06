@@ -117,6 +117,8 @@ pub struct SceneLighting {
     pub ambient_sh: [Vec4; 7],
     pub sky: super::sky::SkyUniform,
     pub cloud_speed: Vec2,
+    /// `CycleOutput::cloud_wind`.
+    pub cloud_wind: Vec2,
     pub sun_rotation: Quat,
     pub sun_radiance: Vec4,
     pub direction_to_sun: Vec4,
@@ -320,6 +322,7 @@ fn scene_value(
             sim.lighting.cycle.clouds[0].speed,
             sim.lighting.cycle.clouds[1].speed,
         ),
+        cloud_wind: Vec2::from_array(sim.lighting.cycle.cloud_wind),
         ambient_sh,
         sun_rotation: rotation,
         sun_radiance: sun.color.truncate().extend(0.),

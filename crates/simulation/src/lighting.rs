@@ -54,6 +54,8 @@ pub struct CycleOutput {
     pub shader_time_seconds: f64,
     /// Weather share of the sky that shows the fog color. 0 is the clear source sky.
     pub overcast: f32,
+    /// Wind phase of each cloud layer. Add it to the source phase `speed * time / 20`.
+    pub cloud_wind: [f32; 2],
 }
 
 impl CycleOutput {
@@ -92,6 +94,7 @@ pub struct CycleState {
     next_biome_refresh: f64,
     /// Resolved source `DDS.fogModifier`.
     fog_modifier: f32,
+    cloud_wind: [f32; 2],
 }
 
 impl CycleState {
@@ -105,6 +108,7 @@ impl CycleState {
             cloud_coordinate: 0.,
             star_rotation: 0.,
             previous_cycle_extra: 0.,
+            cloud_wind: [0.; 2],
             clear_output: output.clone(),
             sampled_sky: output.sky_tint,
             output,
@@ -235,6 +239,14 @@ impl CycleState {
         }
     }
 
+    /// Wind adds `speed / 10` of each layer speed to the cloud scroll. `speed` is in meters per second.
+    pub fn scroll_clouds(&mut self, dt: f32, speed: f32) {
+        for (phase, cloud) in self.cloud_wind.iter_mut().zip(&self.clear_output.clouds) {
+            // The shader phase scales are multiples of 1/20, so a wrap at 20 does not jump.
+            *phase = (*phase + cloud.speed * speed / 10. * dt / 20.).rem_euclid(20.);
+        }
+    }
+
     /// Compose from retained clear values. The weather mix applies first, then the sandstorm.
     /// SetBiome samples sky tint once per source second.
     pub fn compose_weather(
@@ -244,6 +256,7 @@ impl CycleState {
         mix: crate::weather::WeatherMix,
     ) {
         self.output.clone_from(&self.clear_output);
+        self.output.cloud_wind = self.cloud_wind;
         apply_mix(&mut self.output, mix);
         let w = influence.strength.clamp(0., 1.);
         let r = &self.reference;
@@ -596,6 +609,7 @@ fn evaluate(
         flare_brightness,
         shader_time_seconds: active,
         overcast: 0.,
+        cloud_wind: [0.; 2],
     }
 }
 

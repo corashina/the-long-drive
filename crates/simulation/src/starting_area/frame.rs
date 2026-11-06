@@ -307,10 +307,13 @@ impl GarageRuntime {
         }
         frame.lighting.road_lamp = lighting.road_lamp_output(&reference.lighting);
         let mix = self.weather.mix();
+        let wind = &self.weather.wind;
         frame.weather = crate::boundary::WeatherFrame {
             rain: mix.rain,
             flash: mix.flash,
             sheltered: self.weather.sheltered,
+            wind: wind.dir.map(|v| v * wind.speed),
+            gust: wind.gust,
         };
         frame.lights.clear();
         frame.lights.extend_from_slice(lighting.light_outputs());

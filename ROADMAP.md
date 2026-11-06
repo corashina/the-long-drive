@@ -48,7 +48,6 @@ Test on the PC after all rows: the section test pass in plan.md, with a bench co
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| WX2 | Wind | M | Sim wind drives cell drift, grass, clouds, rain slant, tumbleweeds and a wind loop. |
 | WX3 | Snow | M | Snow kind in the snow biome, flakes, snow cover, snow grip. |
 | WX4 | Wet surfaces | M | Wetness darkens and glosses terrain, roads and props. Puddles on flat ground. |
 | WX5 | Distant weather | M | Rain shafts under far cells. Sky darkens toward the nearest wet cell. |
