@@ -312,7 +312,7 @@ impl GarageRuntime {
             rain: mix.rain,
             flash: mix.flash,
             wetness: mix.wetness,
-            sheltered: self.weather.sheltered,
+            shelter: self.weather.shelter,
             wind: wind.dir.map(|v| v * wind.speed),
             gust: wind.gust,
             bolt: self.weather.lightning.bolt().map(|bolt| {

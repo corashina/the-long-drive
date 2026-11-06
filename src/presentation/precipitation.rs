@@ -98,7 +98,11 @@ fn snapshot(
     let [x, z] = weather.wind.map(|v| v * weather.gust);
     input.velocity = Vec3::new(x, -FALL_SPEED, z);
     input.offset = (input.offset + input.velocity * dt).rem_euclid(Vec3::splat(BOX));
-    let target = if weather.sheltered { 1. } else { 0. };
+    let target = if weather.shelter == simulation::weather::Shelter::None {
+        0.
+    } else {
+        1.
+    };
     let step = dt / SHELTER_SECONDS;
     input.shelter += (target - input.shelter).clamp(-step, step);
 }

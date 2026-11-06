@@ -9,11 +9,13 @@ use rapier3d::prelude::{Ball, Collider, ColliderHandle, QueryFilter, RigidBodyHa
 mod cells;
 mod condition;
 mod lightning;
+mod shelter;
 mod tumbleweeds;
 mod wind;
 pub use cells::{CellSample, LOCK_RADIUS, MAX_CELLS, WeatherCell, WeatherCells};
 pub use condition::*;
 pub use lightning::{BOLT_SECONDS, Bolt, CLOSE_DISTANCE, Lightning, STRIKE_DISTANCE, Thunder};
+pub use shelter::{Shelter, vehicle_roof};
 pub use tumbleweeds::{ImportantObject, Tumbleweeds};
 pub use wind::Wind;
 
@@ -92,8 +94,8 @@ pub struct WeatherState {
     /// 0 to 1. Rain raises it, dry weather lowers it.
     pub wetness: f32,
     mix: WeatherMix,
-    /// The player capsule is inside a live interior volume. Set each step.
-    pub sheltered: bool,
+    /// The rain cover of the player. Set each step.
+    pub shelter: Shelter,
     /// The last strike position. The host sends it, then clears it.
     pub strike: Option<[f64; 3]>,
 }
@@ -123,7 +125,7 @@ impl WeatherState {
             sample: CellSample::default(),
             wetness: 0.,
             mix: WeatherMix::default(),
-            sheltered: false,
+            shelter: Shelter::None,
             strike: None,
         }
     }
@@ -632,7 +634,7 @@ mod tests {
             sample: CellSample::default(),
             wetness: 0.,
             mix: WeatherMix::default(),
-            sheltered: false,
+            shelter: Shelter::None,
             strike: None,
         }
     }
