@@ -327,17 +327,6 @@ impl Bound for FollowerBinding {
     fn item(&self) -> Option<ItemId> {
         None
     }
-    fn heap_bytes(&self) -> usize {
-        let p = &self.poses;
-        crate::world::contents::identity_heap(&self.parent)
-            + p.parents.capacity() * std::mem::size_of::<Option<usize>>()
-            + p.local.capacity() * std::mem::size_of::<Transform>()
-            + p.frames.capacity() * std::mem::size_of::<NodeFrame>()
-            + p.refresh.capacity() * std::mem::size_of::<usize>()
-            + p.writes.capacity() * std::mem::size_of::<(usize, std::ops::Range<usize>)>()
-            + p.spring_lengths.capacity() * std::mem::size_of::<f32>()
-            + p.wheel_positions.capacity() * std::mem::size_of::<Vector>()
-    }
 }
 
 pub(super) struct FollowerKind;

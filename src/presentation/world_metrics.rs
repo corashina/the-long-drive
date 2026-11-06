@@ -164,7 +164,6 @@ struct Snapshot {
     simulation: serde_json::Value,
     startup: serde_json::Value,
     assets: AssetGroups,
-    measurement_cache_cpu_bytes: usize,
     process_bytes: Option<usize>,
     driver_bytes: Option<usize>,
     limits: &'static str,
@@ -268,13 +267,9 @@ pub(crate) fn publish(
             "pipelines": pipelines.startup_audit(),
         }),
         assets: groups,
-        measurement_cache_cpu_bytes: crate::world::metrics::map_bytes(
-            measured.bytes.capacity(),
-            std::mem::size_of::<(AssetId<Mesh>, usize)>(),
-        ),
         process_bytes: None,
         driver_bytes: None,
-        limits: "World values are capacity charges and reservations; pending overlaps active/prototype charges. Road and grass worker WASM bytes report linear-memory capacity separately. Reserved worker capacity is a conservative admission estimate, not an allocator cap. Asset values count unique logical mesh/image storage and retained CPU payloads. They exclude ECS/physics allocator overhead, skins, uniforms, and renderer-internal targets. Imported asset payloads are a partial baseline. Logical handles do not prove GPU allocation or residency. Snapshot scratch and JSON are transient development allocations.",
+        limits: "Asset values count unique logical mesh/image storage and retained CPU payloads. They exclude ECS/physics allocator overhead, skins, uniforms, and renderer-internal targets. Imported asset payloads are a partial baseline. Logical handles do not prove GPU allocation or residency. Snapshot scratch and JSON are transient development allocations.",
     };
     if let Ok(json) = serde_json::to_string(&snapshot) {
         crate::browser::game_measurements(&json);

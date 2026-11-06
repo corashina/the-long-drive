@@ -101,23 +101,6 @@ impl ContentIndex {
         self.lamps.retain(|_, indices| !indices.is_empty());
         self.lamp_key = Some(key);
     }
-    pub fn retained_bytes(&self) -> usize {
-        crate::interaction::memory::platform_map(&self.contents)
-            + crate::interaction::memory::platform_map(&self.lamps)
-            + self
-                .contents
-                .keys()
-                .map(crate::world::contents::identity_heap)
-                .sum::<usize>()
-            + self
-                .lamps
-                .iter()
-                .map(|(id, slots)| {
-                    crate::world::contents::identity_heap(id)
-                        + slots.capacity() * std::mem::size_of::<usize>()
-                })
-                .sum::<usize>()
-    }
     pub fn slot(&self, id: &GeneratedId) -> Option<ContentSlot> {
         self.contents.get(id).copied()
     }
@@ -203,10 +186,6 @@ pub struct InstanceSelection {
     indices: Vec<usize>,
 }
 impl InstanceSelection {
-    pub fn retained_bytes(&self) -> usize {
-        self.queued.capacity() * std::mem::size_of::<bool>()
-            + self.indices.capacity() * std::mem::size_of::<usize>()
-    }
     pub fn reset(&mut self, count: usize) {
         self.queued.clear();
         self.queued.resize(count, false);

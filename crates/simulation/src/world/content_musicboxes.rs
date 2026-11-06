@@ -170,12 +170,6 @@ impl Bound for MusicBoxBinding {
     fn set_slot(&mut self, slot: usize) {
         self.slot = slot;
     }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.knobs.capacity() * std::mem::size_of::<ColliderId>()
-            + self.music.heap_bytes()
-            + self.nodes.capacity() * std::mem::size_of::<MusicBoxNode>()
-    }
 }
 
 pub(super) struct MusicBoxKind;

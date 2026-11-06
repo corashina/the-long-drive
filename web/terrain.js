@@ -8,7 +8,7 @@ export function createTerrain(worker,profile,now=()=>performance.now()){
   if(record){link.timing(record,data,received);record.outputBytes=data.vertices.byteLength+data.normals.byteLength+data.tangents.byteLength+data.uv.byteLength+data.colors.byteLength+data.triangles.byteLength;}
  };
  // Terrain admits any WASM size.
- const link=createWorkerLink(worker,'terrain',profile,now,{receive,capacity:Infinity,onFail(failure){if(record){record.error=failure;link.emit(record);}record=null;job=null;result=null;}});
+ const link=createWorkerLink(worker,'terrain',profile,now,{receive,onFail(failure){if(record){record.error=failure;link.emit(record);}record=null;job=null;result=null;}});
  // Before the worker is initialized a job waits in the worker queue.
  const ready=()=>{link.live();if(!result)throw Error('The terrain worker has no result.');return result;};
  const finish=discarded=>{if(record){link.diagnostic(()=>{record.discarded=discarded;record.totalJobMs=now()-record.mainCopyStart;});link.emit(record);record=null;}};

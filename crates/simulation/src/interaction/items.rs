@@ -214,29 +214,6 @@ impl ItemStore {
     pub fn generated_item_id(&self, id: &GeneratedId) -> Option<ItemId> {
         self.generated.get(id).copied()
     }
-    pub fn retained_binding_bytes(&self) -> usize {
-        use super::memory::{map, platform_map, set, strings, vector};
-        set(&self.dirty)
-            + vector(&self.states)
-            + platform_map(&self.indices)
-            + vector(&self.body_ids)
-            + strings(&self.names)
-            + map(&self.slot_owners)
-            + platform_map(&self.generated)
-            + set(&self.initialized_supplies)
-            + self
-                .generated
-                .keys()
-                .map(|id| {
-                    id.generator.file.capacity()
-                        + vector(&id.children)
-                        + id.children
-                            .iter()
-                            .map(|(s, _)| s.file.capacity())
-                            .sum::<usize>()
-                })
-                .sum::<usize>()
-    }
 
     pub fn new(reference: &ReferenceManifest) -> Result<Self, ReferenceError> {
         let sausage = reference

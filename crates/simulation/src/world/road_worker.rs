@@ -2,9 +2,6 @@
 use super::WorldSurface;
 use crate::reference::ReferenceError;
 
-// scripts/build.ps1 gives the road package this initial linear-memory capacity.
-pub const INITIAL_WASM_BYTES: usize = 2 * 1024 * 1024;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RoadJobId {
     pub session: u64,
@@ -37,8 +34,6 @@ pub struct RoadLayout {
     pub uv: usize,
     pub triangles: usize,
     pub groups: usize,
-    pub cache_bytes: usize,
-    pub scratch_bytes: usize,
 }
 impl RoadLayout {
     pub fn new(p: &road_mesh::RoadPrototype) -> Self {
@@ -54,30 +49,10 @@ impl RoadLayout {
                 .map(Vec::len)
                 .sum(),
             groups: p.skins.iter().map(|s| s.triangles.len()).sum(),
-            cache_bytes: p.retained_bytes(),
-            scratch_bytes: p.nodes.len() * std::mem::size_of::<road_mesh::RoadFrame>(),
         }
     }
-    pub fn surface_bytes(self) -> usize {
-        self.vertices * 12
-            + self.normals * 12
-            + self.tangents * 16
-            + self.uv * 8
-            + self.triangles * 12
-            + self.groups * std::mem::size_of::<std::ops::Range<usize>>()
-    }
-    /// Main output, worker output, transferred output, packed ranges, and both input copies.
-    pub fn job_bytes(self) -> usize {
-        self.surface_bytes() * 3
-            + self.groups * 16
-            + 48
-            + self.scratch_bytes
-            + std::mem::size_of::<road_mesh::RoadMesh>()
-            + 16
-            + 156 * 3
-    }
     #[cfg(target_arch = "wasm32")]
-    fn words(self) -> [u32; 9] {
+    fn words(self) -> [u32; 6] {
         [
             self.vertices,
             self.normals,
@@ -85,17 +60,15 @@ impl RoadLayout {
             self.uv,
             self.triangles,
             self.groups,
-            self.cache_bytes,
-            self.job_bytes(),
-            self.scratch_bytes,
         ]
-        .map(|v| u32::try_from(v).expect("admitted road allocation"))
+        .map(|v| u32::try_from(v).expect("road mesh size"))
     }
 }
 #[derive(Clone, Copy)]
 struct Installed {
     session: u64,
     revision: u64,
+    #[cfg(target_arch = "wasm32")]
     layout: RoadLayout,
 }
 
@@ -108,8 +81,6 @@ pub struct RoadWorker {
     canceled: bool,
     #[cfg(target_arch = "wasm32")]
     transport: Option<crate::host::RoadTransport>,
-    #[cfg(target_arch = "wasm32")]
-    wasm_bytes: usize,
     #[cfg(not(target_arch = "wasm32"))]
     prototypes: [Option<road_mesh::RoadPrototype>; 3],
     #[cfg(not(target_arch = "wasm32"))]
@@ -136,35 +107,13 @@ impl RoadWorker {
     pub fn installed(&self, session: u64, revision: u64, owner: usize) -> bool {
         self.installed[owner].is_some_and(|s| s.session == session && s.revision == revision)
     }
-    pub fn cache_bytes(&self) -> usize {
-        self.installed
-            .iter()
-            .flatten()
-            .map(|s| s.layout.cache_bytes)
-            .sum()
-    }
-    pub fn wasm_bytes(&self) -> usize {
+    pub fn initialize(&mut self) -> Result<bool, ReferenceError> {
         #[cfg(target_arch = "wasm32")]
         {
-            self.wasm_bytes
+            self.transport()?.road_initialized().map_err(js_error)
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            0
-        }
-    }
-    pub fn initialize(&mut self, capacity: usize) -> Result<bool, ReferenceError> {
-        #[cfg(target_arch = "wasm32")]
-        {
-            let transport = self.transport()?;
-            transport
-                .road_capacity_limit(capacity as f64)
-                .map_err(js_error)?;
-            transport.road_initialized().map_err(js_error)
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let _ = capacity;
             Ok(true)
         }
     }
@@ -193,12 +142,14 @@ impl RoadWorker {
             .map_err(js_error)?;
         #[cfg(not(target_arch = "wasm32"))]
         {
+            let _ = layout;
             self.prototypes[identity.owner as usize] =
                 Some(road_mesh::decode_prototype(input).map_err(ReferenceError)?);
         }
         self.installed[identity.owner as usize] = Some(Installed {
             session: identity.session,
             revision: identity.revision,
+            #[cfg(target_arch = "wasm32")]
             layout,
         });
         Ok(())
@@ -241,7 +192,6 @@ impl RoadWorker {
                 return Ok(RoadPoll::Idle);
             };
             let result = transport.road_poll();
-            self.wasm_bytes = transport.road_wasm_bytes() as usize;
             match result.map_err(js_error)? {
                 -1 => {
                     self.job = None;
@@ -341,7 +291,6 @@ impl RoadWorker {
             if let Some(t) = self.transport.take() {
                 t.road_dispose();
             }
-            self.wasm_bytes = 0;
         }
         #[cfg(not(target_arch = "wasm32"))]
         {

@@ -127,8 +127,7 @@ impl InstanceMaterials<'_> {
                 .ok_or_else(|| {
                     ReferenceError("Missing generated primary material identity".into())
                 })?;
-            self.cache
-                .admit_world_primary(identity, reference, ledger)?;
+            self.cache.admit_world_primary(identity, reference)?;
             Ok(self.cache.world_primary_ready(identity))
         }
     }

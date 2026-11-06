@@ -192,95 +192,12 @@ impl SpawnInitialization {
             .iter()
             .any(|(p, s, bits)| p == parent && s == source && bits & (1 << index) != 0)
     }
-
-    pub fn retained_bytes(&self) -> usize {
-        self.paintings.capacity() * std::mem::size_of::<(GeneratedId, SourceId, i32)>()
-            + self
-                .paintings
-                .iter()
-                .map(|(p, s, _)| identity_bytes(p) + s.file.capacity())
-                .sum::<usize>()
-            + self.scales.capacity() * std::mem::size_of::<(GeneratedId, SourceId, [f32; 3])>()
-            + self
-                .scales
-                .iter()
-                .map(|(p, s, _)| identity_bytes(p) + s.file.capacity())
-                .sum::<usize>()
-            + self.lamps.capacity() * std::mem::size_of::<(GeneratedId, SourceId, bool)>()
-            + self
-                .lamps
-                .iter()
-                .map(|(p, s, _)| identity_bytes(p) + s.file.capacity())
-                .sum::<usize>()
-            + self.jams.capacity() * std::mem::size_of::<(GeneratedId, SourceId, f32)>()
-            + self
-                .jams
-                .iter()
-                .map(|(p, s, _)| identity_bytes(p) + s.file.capacity())
-                .sum::<usize>()
-            + self.broken_lamps.capacity() * std::mem::size_of::<(GeneratedId, SourceId, u64)>()
-            + self
-                .broken_lamps
-                .iter()
-                .map(|(p, s, _)| identity_bytes(p) + s.file.capacity())
-                .sum::<usize>()
-            + self.conditions.capacity()
-                * std::mem::size_of::<super::spawn_conditions::ConditionState>()
-            + self
-                .conditions
-                .iter()
-                .map(super::spawn_conditions::ConditionState::retained_heap)
-                .sum::<usize>()
-            + self.initialized.capacity() * std::mem::size_of::<(GeneratedId, SourceId)>()
-            + self.selectors.capacity() * std::mem::size_of::<(GeneratedId, SourceId, usize)>()
-            + self.activations.capacity() * std::mem::size_of::<(GeneratedId, SourceId, bool)>()
-            + self.slot_parts.capacity() * std::mem::size_of::<(GeneratedId, SourceId, SourceId)>()
-            + self
-                .initialized
-                .iter()
-                .map(|(p, s)| identity_bytes(p) + s.file.capacity())
-                .sum::<usize>()
-            + self
-                .selectors
-                .iter()
-                .map(|(p, s, _)| identity_bytes(p) + s.file.capacity())
-                .sum::<usize>()
-            + self
-                .activations
-                .iter()
-                .map(|(p, s, _)| identity_bytes(p) + s.file.capacity())
-                .sum::<usize>()
-            + self
-                .slot_parts
-                .iter()
-                .map(|(p, s, t)| identity_bytes(p) + s.file.capacity() + t.file.capacity())
-                .sum::<usize>()
-            + self.door_speeds.capacity() * std::mem::size_of::<(GeneratedId, SourceId, f32)>()
-            + self
-                .door_speeds
-                .iter()
-                .map(|(p, s, _)| identity_bytes(p) + s.file.capacity())
-                .sum::<usize>()
-            + self.humans.capacity() * std::mem::size_of::<(GeneratedId, HumanRoll)>()
-            + self
-                .humans
-                .iter()
-                .map(|(p, _)| identity_bytes(p))
-                .sum::<usize>()
-    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PaintingPool {
     pub source: SourceId,
     pub available: Vec<i32>,
-}
-fn pools_bytes(pools: &Vec<PaintingPool>) -> usize {
-    pools.capacity() * std::mem::size_of::<PaintingPool>()
-        + pools
-            .iter()
-            .map(|p| p.source.file.capacity() + p.available.capacity() * std::mem::size_of::<i32>())
-            .sum::<usize>()
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -318,23 +235,16 @@ impl<T: Eq + Hash + Clone> Table<T> {
     fn find(&self, value: &T) -> Option<u32> {
         self.index.get(value).copied()
     }
-    /// The index of `value`, and its new heap bytes when `value` is new.
-    fn intern(&mut self, value: &T, bytes: impl FnOnce(&T) -> usize) -> (u32, usize) {
+    /// The index of `value`.
+    fn intern(&mut self, value: &T) -> u32 {
         if let Some(i) = self.find(value) {
-            return (i, 0);
+            return i;
         }
         let i = self.values.len() as u32;
         let value = Arc::new(value.clone());
         self.values.push(value.clone());
-        self.index.insert(value.clone(), i);
-        (
-            i,
-            2 * std::mem::size_of::<usize>() + std::mem::size_of::<T>() + bytes(&value),
-        )
-    }
-    fn capacity_bytes(&self) -> usize {
-        self.values.capacity() * std::mem::size_of::<Arc<T>>()
-            + self.index.capacity() * (std::mem::size_of::<(Arc<T>, u32)>() + 1)
+        self.index.insert(value, i);
+        i
     }
     fn capture(&self) -> Vec<T> {
         self.values.iter().map(|v| T::clone(v)).collect()
@@ -384,14 +294,12 @@ pub struct SourceSpawnState {
     records: Vec<Record>,
     /// Record indices by key hash. Lookups stay constant time on long trips.
     index: HashTable<u32>,
-    /// Heap of table values, pool states and packed inputs.
-    heap_bytes: usize,
     pub context: SpawnContext,
 }
 impl SourceSpawnState {
     fn empty(live: UnityRandom, painting_pools: Vec<PaintingPool>, context: SpawnContext) -> Self {
         let mut children = Table::new();
-        children.intern(&Vec::new(), |_| 0);
+        children.intern(&Vec::new());
         Self {
             live,
             painting_pools,
@@ -401,7 +309,6 @@ impl SourceSpawnState {
             pools: Vec::new(),
             records: Vec::new(),
             index: HashTable::new(),
-            heap_bytes: 0,
             context,
         }
     }
@@ -450,11 +357,8 @@ impl SourceSpawnState {
         let contexts: Vec<u32> = history
             .contexts
             .iter()
-            .map(|c| state.contexts.intern(c, |_| 0).0)
+            .map(|c| state.contexts.intern(c))
             .collect();
-        for pools in &history.pools {
-            state.heap_bytes += pool_state_bytes(pools);
-        }
         state.pools = history.pools.into_iter().map(Arc::new).collect();
         let source = |i: u32| sources.get(i as usize).copied().ok_or_else(invalid);
         for boundary in history.boundaries {
@@ -464,8 +368,7 @@ impl SourceSpawnState {
                 .iter()
                 .map(|&(s, n)| Ok((source(s)?, n)))
                 .collect::<Result<Vec<_>, ReferenceError>>()?;
-            let (children, bytes) = state.children.intern(&children, children_bytes);
-            state.heap_bytes += bytes;
+            let children = state.children.intern(&children);
             let key = Key {
                 layer: boundary.parent.layer,
                 generator: source(boundary.parent.generator)?,
@@ -495,9 +398,7 @@ impl SourceSpawnState {
         Ok(state)
     }
     fn intern_source(&mut self, source: &SourceId) -> u32 {
-        let (i, bytes) = self.sources.intern(source, |s| s.file.capacity());
-        self.heap_bytes += bytes;
-        i
+        self.sources.intern(source)
     }
     /// The key of a boundary, or None when one of its sources or child paths is not stored.
     fn key(
@@ -560,7 +461,6 @@ impl SourceSpawnState {
             records.len() as u32,
             |&i| FixedHasher.hash_one(records[i as usize].key),
         );
-        self.heap_bytes += record.initialization.as_ref().map_or(0, |i| i.len());
         self.records.push(record);
     }
 
@@ -576,18 +476,6 @@ impl SourceSpawnState {
             context,
         )
     }
-    /// Constant time. A push adds the heap of its boundary to the sum.
-    pub fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + pools_bytes(&self.painting_pools)
-            + self.sources.capacity_bytes()
-            + self.children.capacity_bytes()
-            + self.contexts.capacity_bytes()
-            + self.pools.capacity() * std::mem::size_of::<Arc<Vec<PaintingPool>>>()
-            + self.records.capacity() * std::mem::size_of::<Record>()
-            + self.index.capacity() * (std::mem::size_of::<u32>() + 1)
-            + self.heap_bytes
-    }
     pub fn boundary_count(&self) -> usize {
         self.records.len()
     }
@@ -601,24 +489,16 @@ impl SourceSpawnState {
         caller: &SourceId,
         ordinal: u32,
         phase: SpawnPhase,
-        staging: usize,
         initialization: &SpawnInitialization,
         call: impl FnOnce(
             &mut UnityRandom,
             SpawnContext,
             &mut Vec<PaintingPool>,
             &SpawnInitialization,
-            usize,
         ) -> Result<T, ReferenceError>,
     ) -> Result<T, ReferenceError> {
         if let Some(record) = self.find(parent, caller, ordinal, phase) {
             let pools = &self.pools[record.pools as usize];
-            let overlap = pools_bytes(pools);
-            if overlap > staging {
-                return Err(ReferenceError(
-                    "Spawn replay pool clone exceeds staging".into(),
-                ));
-            }
             let mut inputs = record
                 .initialization
                 .as_deref()
@@ -634,20 +514,7 @@ impl SourceSpawnState {
                 *self.contexts.values[record.context as usize],
                 &mut Vec::clone(pools),
                 &inputs,
-                staging - overlap,
             );
-        }
-        let extra = std::mem::size_of::<Record>()
-            + identity_bytes(parent)
-            + caller.file.len()
-            + pools_bytes(&self.painting_pools)
-            + initialization.retained_bytes();
-        // History growth is not frame staging. Here try_reserve reports a real allocation failure.
-        let overlap = extra + pools_bytes(&self.painting_pools);
-        if overlap > staging {
-            return Err(ReferenceError(
-                "Spawn boundary preparation exceeds staging".into(),
-            ));
         }
         self.records
             .try_reserve_exact(1)
@@ -659,25 +526,17 @@ impl SourceSpawnState {
             (*initialization != SpawnInitialization::default()).then(|| pack(initialization));
         let mut live = self.live;
         let mut pools = self.painting_pools.clone();
-        let value = call(
-            &mut live,
-            self.context,
-            &mut pools,
-            initialization,
-            staging - overlap,
-        )?;
+        let value = call(&mut live, self.context, &mut pools, initialization)?;
         let generator = self.intern_source(&parent.generator);
         let path: Vec<_> = parent
             .children
             .iter()
             .map(|(s, n)| (self.intern_source(s), *n))
             .collect();
-        let (children, bytes) = self.children.intern(&path, children_bytes);
-        self.heap_bytes += bytes;
+        let children = self.children.intern(&path);
         let caller = self.intern_source(caller);
-        let (context, _) = self.contexts.intern(&context, |_| 0);
+        let context = self.contexts.intern(&context);
         if self.pools.last().is_none_or(|last| **last != captured) {
-            self.heap_bytes += pool_state_bytes(&captured);
             self.pools.push(Arc::new(captured));
         }
         self.push(Record {
@@ -700,18 +559,4 @@ impl SourceSpawnState {
         self.painting_pools = pools;
         Ok(value)
     }
-}
-fn pool_state_bytes(pools: &Vec<PaintingPool>) -> usize {
-    2 * std::mem::size_of::<usize>() + std::mem::size_of::<Vec<PaintingPool>>() + pools_bytes(pools)
-}
-fn children_bytes(path: &Vec<(u32, u32)>) -> usize {
-    path.capacity() * std::mem::size_of::<(u32, u32)>()
-}
-fn identity_bytes(id: &GeneratedId) -> usize {
-    id.generator.file.capacity()
-        + id.children.capacity() * std::mem::size_of::<(SourceId, u32)>()
-        + id.children
-            .iter()
-            .map(|(s, _)| s.file.capacity())
-            .sum::<usize>()
 }

@@ -14,16 +14,6 @@ pub struct NodeAppearance {
     pub color: Option<[f32; 4]>,
     pub color_material: Option<SourceId>,
 }
-impl NodeAppearance {
-    pub fn heap_bytes(&self) -> usize {
-        self.node.file.capacity()
-            + self.material.as_ref().map_or(0, |s| s.file.capacity())
-            + self
-                .color_material
-                .as_ref()
-                .map_or(0, |s| s.file.capacity())
-    }
-}
 pub fn node_active(
     prototype: &crate::reference::WorldPrototypeReference,
     mut node: usize,

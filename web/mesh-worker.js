@@ -1,5 +1,5 @@
 // Runs one kind of mesh job in its own WASM instance. `?job=terrain`, `road` or `grass` picks it.
-// The host owns init, the job queue, the capacity check and the profile fields.
+// The host owns init, the job queue and the profile fields.
 import init,* as wasm from './pkg/mesh_worker.js';
 // Invalid diagnostic clocks must not fail calculation or transport.
 const now=()=>{try{return performance.now();}catch{return NaN;}};
@@ -87,7 +87,6 @@ self.addEventListener('message',({data})=>{
   const start=data.profileCpu?now():null;
   const [out,transfer,profile]=run(data);
   out.wasmBytes=memory.buffer.byteLength;
-  if(out.wasmBytes>data.capacityLimit)throw Error(`${kind[0].toUpperCase()+kind.slice(1)} WASM capacity exceeds admission.`);
   if(data.profileCpu)out.cpuProfile={workerReadyWaitMs:start-received,...profile};
   self.postMessage(out,transfer);
  }).catch(error=>self.postMessage({type:'fatal',error:error?.message??String(error)}));

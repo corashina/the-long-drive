@@ -370,14 +370,6 @@ impl Bound for DetectorBinding {
     fn set_slot(&mut self, slot: usize) {
         self.slot = slot;
     }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.knobs.capacity() * std::mem::size_of::<ColliderId>()
-            + (self.rules.rescale.keys.capacity() + self.rules.range_curve.keys.capacity())
-                * std::mem::size_of::<CurveKey>()
-            + self.rules.tags.capacity() * std::mem::size_of::<crate::reference::ColliderTag>()
-            + self.hits.capacity() * std::mem::size_of::<(f32, u128)>()
-    }
 }
 
 pub(super) struct DetectorKind;

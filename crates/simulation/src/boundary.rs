@@ -210,8 +210,6 @@ pub struct PerfBlock {
     pub world_ms: f64,
     /// Milliseconds of `PhysicsWorld::step_physics` in the fixed steps.
     pub rapier_ms: f64,
-    pub render_cpu_bytes: f64,
-    pub render_gpu_bytes: f64,
     pub frame_steps: u32,
     /// Wheels of the current car that touch the ground.
     pub contacts: u32,
@@ -989,7 +987,7 @@ pub enum Change {
     /// The simulation part of a world measurement, as JSON.
     Measurements(String),
     Failure(String),
-    /// Renderer credit of the world step for the renderer report of the command.
+    /// The world step answer to the renderer step of the command.
     Grant(crate::world::PresentationGrant),
     /// The answer to a browser save request.
     SaveResult {
@@ -1138,8 +1136,8 @@ pub enum SaveCommand {
 pub struct WorldCommand {
     /// Facts of the renderer steps since the last command, in order.
     pub facts: crate::world::RendererFacts,
-    /// Renderer budget use. `None`: no renderer step since the last command.
-    pub report: Option<crate::world::PresentationReport>,
+    /// A renderer step ran since the last command.
+    pub renderer_step: bool,
     /// Camera views that select required content. Empty: no complete camera view.
     pub views: Vec<crate::world::RequiredView>,
     pub lamps: LampAdmission,
@@ -1163,16 +1161,13 @@ impl WorldCommand {
     pub fn merge(&mut self, next: Self) {
         let Self {
             facts,
-            report,
+            renderer_step,
             views,
             lamps,
             failure,
         } = next;
         self.facts.extend(facts);
-        self.report = match (self.report.take(), report) {
-            (Some(report), Some(next)) => Some(report.merge(next)),
-            (report, next) => next.or(report),
-        };
+        self.renderer_step |= renderer_step;
         self.views = views;
         if lamps != LampAdmission::Same {
             self.lamps = lamps;

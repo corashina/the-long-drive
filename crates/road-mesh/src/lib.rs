@@ -232,36 +232,3 @@ pub fn half_angle(degrees: f32) -> (f32, f32) {
     }
     (sin_poly(x) as f32, cos_poly(x, false) as f32)
 }
-
-fn heap<T>(values: &Vec<T>) -> usize {
-    values.capacity() * size_of::<T>()
-}
-
-impl RoadPrototype {
-    pub fn retained_bytes(&self) -> usize {
-        heap(&self.nodes)
-            + heap(&self.controls)
-            + heap(&self.skins)
-            + self
-                .skins
-                .iter()
-                .map(RoadSkin::retained_bytes)
-                .sum::<usize>()
-    }
-}
-
-impl RoadSkin {
-    /// Heap bytes of the streams, by capacity.
-    fn retained_bytes(&self) -> usize {
-        heap(&self.bones)
-            + heap(&self.bind_poses)
-            + heap(&self.positions)
-            + heap(&self.normals)
-            + heap(&self.tangents)
-            + heap(&self.uv)
-            + heap(&self.joints)
-            + heap(&self.weights)
-            + heap(&self.triangles)
-            + self.triangles.iter().map(heap).sum::<usize>()
-    }
-}

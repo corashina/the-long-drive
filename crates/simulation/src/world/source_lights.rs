@@ -53,11 +53,6 @@ impl WorldLight {
             .sum::<f64>()
             <= (self.range as f64).powi(2)
     }
-    pub fn heap_bytes(&self) -> usize {
-        super::contents::identity_heap(&self.id)
-            + self.record.source.file.capacity()
-            + self.prototype.file.capacity()
-    }
 }
 struct RoadLightRecipe {
     reference: RoadLampReference,
@@ -333,21 +328,6 @@ impl SourceRoadLight {
     }
     pub fn influence_margin(&self) -> f64 {
         self.recipes.iter().map(|r| r.margin).fold(0., f64::max)
-    }
-    pub fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self.recipes.capacity() * std::mem::size_of::<RoadLightRecipe>()
-            + self
-                .recipes
-                .iter()
-                .map(|r| {
-                    r.reference.source.file.capacity()
-                        + r.reference.road_source.file.capacity()
-                        + r.reference.generator_source.file.capacity()
-                        + r.reference.lights.capacity() * std::mem::size_of::<LightId>()
-                        + r.light.source.file.capacity()
-                })
-                .sum::<usize>()
     }
     pub fn place(&self, reference: &WorldReference, segment: &RoadSegment) -> WorldLight {
         let recipe = &self.recipes[segment.biome as usize];

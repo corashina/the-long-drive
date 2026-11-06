@@ -17,8 +17,6 @@ extern "C" {
     pub fn game_road_create() -> Result<RoadTransport, JsValue>;
     #[wasm_bindgen(method, structural, catch, js_name = initialized)]
     pub fn road_initialized(this: &RoadTransport) -> Result<bool, JsValue>;
-    #[wasm_bindgen(method, structural, catch, js_name = capacityLimit)]
-    pub fn road_capacity_limit(this: &RoadTransport, bytes: f64) -> Result<(), JsValue>;
     #[wasm_bindgen(method, structural, catch, js_name = installRaw)]
     pub fn road_install(
         this: &RoadTransport,
@@ -30,8 +28,6 @@ extern "C" {
     pub fn road_submit(this: &RoadTransport, identity: &[u8], input: &[u8]) -> Result<(), JsValue>;
     #[wasm_bindgen(method, structural, catch, js_name = poll)]
     pub fn road_poll(this: &RoadTransport) -> Result<i32, JsValue>;
-    #[wasm_bindgen(method, structural, js_name = wasmBytes)]
-    pub fn road_wasm_bytes(this: &RoadTransport) -> f64;
     #[wasm_bindgen(method, structural, js_name = sourceOwner)]
     pub fn road_source_owner(this: &RoadTransport) -> u32;
     #[wasm_bindgen(method, structural, catch, js_name = readRaw)]

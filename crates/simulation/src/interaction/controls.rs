@@ -83,9 +83,6 @@ impl UseControls {
             .find(|seat| &seat.owner == owner && &seat.seat.source == source)
             .cloned()
     }
-    pub fn heap_bytes(&self) -> usize {
-        super::memory::map(&self.controls)
-    }
 }
 
 impl InteractionState {

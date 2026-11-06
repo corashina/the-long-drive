@@ -389,16 +389,6 @@ impl Bound for RadioBinding {
     fn set_slot(&mut self, slot: usize) {
         self.slot = slot;
     }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.script.file.capacity()
-            + self.knobs.capacity() * std::mem::size_of::<(ColliderId, Knob)>()
-            + self
-                .screens
-                .iter()
-                .map(|(n, m)| n.file.capacity() + m[0].file.capacity() + m[1].file.capacity())
-                .sum::<usize>()
-    }
 }
 
 pub(super) struct RadioKind;

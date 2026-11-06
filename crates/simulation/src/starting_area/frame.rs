@@ -197,15 +197,12 @@ impl GarageRuntime {
         self.fill_audio(reference, alpha, self.render_input, &mut frame.audio);
         frame.budgets.clear();
         if !self.started {
-            let stream = &self.stream;
-            frame.budgets.extend(
-                stream
-                    .presentation_budgets(stream.presentation_credit())
-                    .map(|b| BudgetRow {
-                        used: b.used as f64,
-                        limit: b.limit as f64,
-                    }),
-            );
+            frame
+                .budgets
+                .extend(self.stream.budgets().map(|b| BudgetRow {
+                    used: b.used as f64,
+                    limit: b.limit as f64,
+                }));
         }
         if let Some(aims) = self.home_cable(reference) {
             frame.changes.push(Change::HomeCable(aims));
@@ -385,8 +382,6 @@ impl GarageRuntime {
         let [dynamic_bodies, awake_bodies, ccd_bodies, contact_pairs] =
             self.physics.body_counters();
         crate::boundary::PerfBlock {
-            render_cpu_bytes: counters.render_cpu_bytes as f64,
-            render_gpu_bytes: counters.render_gpu_bytes as f64,
             contacts: self.loaded_vehicle().map_or(0, |key| {
                 self.physics.wheel_contacts(key).filter(|v| *v).count() as u32
             }),
@@ -510,12 +505,8 @@ impl GarageRuntime {
             "supported": self.world_supported(),
             "required_ready": self.stream.required_ready(),
             "failure": frame.failure,
-            "gpu_ledger": {
-                "prototype_gpu": self.stream.presentation_credit().prototype_gpu,
-                "active_gpu": self.stream.presentation_credit().active_gpu,
-            },
             "jobs": self.stream.startup_job_audit(),
-            "budgets": self.stream.budget_audit(),
+            "budgets": self.stream.budgets().map(|b| (b.used, b.limit)),
             "physics_bodies": self.physics.rapier().bodies.len(),
             "physics_colliders": self.physics.collider_count(),
             "active_items": self.area.items.len(),

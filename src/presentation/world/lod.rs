@@ -244,16 +244,6 @@ impl LodGroup {
         }
         (safe / view.factor(bias).abs()).max(0.0)
     }
-    pub fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self.source.file.capacity()
-            + self.levels.capacity() * std::mem::size_of::<LodLevel>()
-            + self
-                .levels
-                .iter()
-                .map(|l| l.nodes.capacity() * std::mem::size_of::<usize>())
-                .sum::<usize>()
-    }
 }
 /// Per prototype LOD groups and renderer membership. Built once per loaded prototype.
 pub struct LodTable {
@@ -409,9 +399,6 @@ impl LodSchedule {
     /// Groups evaluated by the last update.
     pub fn evaluated(&self) -> usize {
         self.evaluated
-    }
-    pub fn retained_bytes(&self) -> usize {
-        self.due.capacity() * std::mem::size_of::<Due>()
     }
     /// Starts a new instance in `slot`. It evaluates at the next update.
     pub fn spawn(&mut self, lod: &mut LodInstance, slot: usize) {

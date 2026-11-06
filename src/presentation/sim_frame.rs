@@ -77,7 +77,7 @@ pub(crate) struct SimFrameResource {
     pub measurements: Option<String>,
     /// A simulation failure that the browser did not show yet.
     pub failure: Option<String>,
-    /// Renderer credit of the last world step, for the next renderer step.
+    /// Publication lend of the last world step, for the next renderer step.
     pub grant: Option<simulation::world::PresentationGrant>,
 }
 
@@ -155,9 +155,12 @@ impl SimFrameResource {
                 }
                 Change::Measurements(json) => self.measurements = Some(json.clone()),
                 Change::Failure(failure) => self.failure = Some(failure.clone()),
-                // A grant waits until a renderer step takes it. Its credit is never dropped.
+                // A grant waits until a renderer step takes it. A publication lend is never dropped.
                 Change::Grant(grant) => {
-                    self.grant = Some(self.grant.map_or(*grant, |g| g.merge(*grant)));
+                    let publication = self.grant.is_some_and(|g| g.publication);
+                    self.grant = Some(crate::world::PresentationGrant {
+                        publication: publication || grant.publication,
+                    });
                 }
                 // The save requests read these from the frame.
                 Change::SaveResult { .. } => {}

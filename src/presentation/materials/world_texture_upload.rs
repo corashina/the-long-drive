@@ -51,7 +51,7 @@ pub(super) const COUNTER_NAMES: [&str; 10] = [
     "empty",
     "second_held",
     "wait_claim_or_job",
-    "wait_credit",
+    "wait_slots",
     "admitted",
 ];
 impl UploadQueue {

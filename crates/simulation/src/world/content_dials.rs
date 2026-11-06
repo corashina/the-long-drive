@@ -373,12 +373,6 @@ impl Bound for DialBinding {
     fn set_slot(&mut self, slot: usize) {
         self.slot = slot;
     }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.digits.capacity() * std::mem::size_of::<Digit>()
-            + self.values.capacity() * std::mem::size_of::<f32>()
-            + self.knobs.capacity() * std::mem::size_of::<ColliderId>()
-    }
 }
 
 pub(super) struct DialKind;

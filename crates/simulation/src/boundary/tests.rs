@@ -317,11 +317,12 @@ fn command_round_trips() {
     command
         .world
         .facts
-        .push(crate::world::RendererFact::ConfigureStaging {
-            reserve: 4,
-            metadata: 2,
-        });
-    command.world.report = Some(crate::world::PresentationReport::default());
+        .push(crate::world::RendererFact::BindRecipe(
+            crate::reference::SourceId {
+                file: "a".into(),
+                path_id: 1,
+            },
+        ));
     command.world.lamps = LampAdmission::Pending;
     command.save = vec![
         SaveCommand::Request {
@@ -380,13 +381,7 @@ fn command_merge_keeps_edges_and_sums_deltas() {
 }
 
 #[test]
-fn world_merge_keeps_facts_and_released_credit() {
-    let report = |used: usize, release: usize| {
-        let mut report = crate::world::PresentationReport::default();
-        report.used.jobs = used;
-        report.release.jobs = release;
-        report
-    };
+fn world_merge_keeps_facts_and_the_renderer_step() {
     let fact = |source: i64| {
         crate::world::RendererFact::HoldPrototype(SourceId {
             file: "a".into(),
@@ -394,19 +389,15 @@ fn world_merge_keeps_facts_and_released_credit() {
         })
     };
     let mut first = WorldCommand {
-        report: Some(report(3, 1)),
+        renderer_step: true,
         lamps: LampAdmission::Ready(Vec::new()),
         ..Default::default()
     };
     first.facts.push(fact(1));
-    let mut second = WorldCommand {
-        report: Some(report(2, 4)),
-        ..Default::default()
-    };
+    let mut second = WorldCommand::default();
     second.facts.push(fact(2));
     first.merge(second);
-    let report = first.report.unwrap();
-    assert_eq!((report.used.jobs, report.release.jobs), (2, 5));
+    assert!(first.renderer_step);
     assert!(first.facts.contains(&fact(1)) && first.facts.contains(&fact(2)));
     // No lamp change keeps the earlier admission.
     assert_eq!(first.lamps, LampAdmission::Ready(Vec::new()));

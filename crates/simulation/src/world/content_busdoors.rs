@@ -706,29 +706,6 @@ impl Bound for BusDoorBinding {
     fn set_slot(&mut self, slot: usize) {
         self.slot = slot;
     }
-    fn heap_bytes(&self) -> usize {
-        let ids = |v: &Vec<SourceId>| {
-            v.capacity() * std::mem::size_of::<SourceId>()
-                + v.iter().map(|s| s.file.capacity()).sum::<usize>()
-        };
-        crate::world::contents::identity_heap(&self.parent)
-            + self.buttons.capacity() * std::mem::size_of::<(ColliderId, usize, bool)>()
-            + self
-                .materials
-                .iter()
-                .map(|m| m.file.capacity())
-                .sum::<usize>()
-            + self.state.doors.capacity() * std::mem::size_of::<Door>()
-            + self
-                .state
-                .doors
-                .iter()
-                .map(|d| ids(&d.green) + ids(&d.red))
-                .sum::<usize>()
-            + self.state.leaves.capacity() * std::mem::size_of::<DoorLeaf>()
-            + self.colliders.capacity() * std::mem::size_of::<LeafCollider>()
-            + self.boxes.capacity() * std::mem::size_of::<DynamicBox>()
-    }
 }
 
 pub(super) struct BusDoorKind;

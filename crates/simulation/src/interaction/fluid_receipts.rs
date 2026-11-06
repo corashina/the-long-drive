@@ -10,12 +10,6 @@ pub(super) struct ReceiptTank {
     caps: Vec<OpeningId>,
 }
 
-impl ReceiptTank {
-    pub(super) fn retained_cap_bytes(&self) -> usize {
-        super::memory::vector(&self.caps)
-    }
-}
-
 pub(super) fn tank_nodes(reference: &ReferenceManifest) -> Vec<ReceiptTank> {
     let mut tanks: Vec<_> = reference
         .tanks
