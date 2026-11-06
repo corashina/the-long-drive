@@ -844,6 +844,20 @@ pub struct ParticleRow {
     pub uv_draw: f32,
 }
 
+/// One wheel that throws spray. Values are relative to the stream origin.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct WheelSprayRow {
+    /// The ground contact of the wheel.
+    pub position: [f32; 3],
+    /// `weather::spray_amount`, 0..1.
+    pub amount: f32,
+    /// The car velocity in meters per second.
+    pub velocity: [f32; 3],
+    /// The wheel radius in meters.
+    pub radius: f32,
+}
+
 /// One particle system and its rows in `SimFrame::particles`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
@@ -1087,6 +1101,8 @@ pub struct SimFrame {
     pub particles: Vec<ParticleRow>,
     /// Live bullet holes, oldest first.
     pub decals: Vec<DecalRow>,
+    /// Wheels that throw spray, at most `weather::MAX_SPRAY`.
+    pub wheel_spray: Vec<WheelSprayRow>,
     pub planes: Vec<PlaneRow>,
     pub creatures: Vec<CreatureRow>,
     pub creature_bones: Vec<CreatureBoneRow>,
@@ -1472,6 +1488,7 @@ frame_format! {
     rows particle_groups,
     rows particles,
     rows decals,
+    rows wheel_spray,
     rows planes,
     rows creatures,
     rows creature_bones,

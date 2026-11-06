@@ -48,4 +48,3 @@ Test on the PC after all rows: the section test pass in plan.md, with a bench co
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| WX8 | Spray and glass drops | M | Wheel spray on wet roads. Drops on the windshield of the seated car. |

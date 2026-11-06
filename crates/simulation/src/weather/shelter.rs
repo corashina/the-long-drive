@@ -9,17 +9,18 @@ pub enum Shelter {
     None,
     /// The player is inside a live interior volume.
     Building,
-    /// The player sits in a vehicle with a roof.
+    /// The player sits in a vehicle with a roof, out of a building.
     Car,
 }
 
 impl Shelter {
-    /// A roof seat gives `Car`. Else `inside` tells if the player is in a live interior volume.
+    /// `inside` tells if the player is in a live interior volume. The seat vehicle volume does not count.
+    /// A building gives `Building`, also in a car. Else a roof seat gives `Car`.
     pub fn new(roof: bool, inside: impl FnOnce() -> bool) -> Self {
-        if roof {
-            Self::Car
-        } else if inside() {
+        if inside() {
             Self::Building
+        } else if roof {
+            Self::Car
         } else {
             Self::None
         }
@@ -43,5 +44,6 @@ mod tests {
         assert_eq!(shelter("Bike01Full", true), Shelter::None);
         assert_eq!(shelter("Car08cFull", false), Shelter::None);
         assert_eq!(Shelter::new(false, || true), Shelter::Building);
+        assert_eq!(Shelter::new(true, || true), Shelter::Building);
     }
 }

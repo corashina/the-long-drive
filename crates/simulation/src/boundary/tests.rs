@@ -111,6 +111,12 @@ fn frame_round_trips() {
             kind: 3,
             scale: 0.25,
         }],
+        wheel_spray: vec![WheelSprayRow {
+            position: [1., 0., 2.],
+            amount: 0.5,
+            velocity: [10., 0., 3.],
+            radius: 0.35,
+        }],
         planes: vec![PlaneRow {
             id: 3,
             prefab: 1,

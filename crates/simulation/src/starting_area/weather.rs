@@ -148,7 +148,7 @@ impl GarageRuntime {
             .reserve_bodies(self.physics.rapier().bodies.len());
         let local = self.area.player.body_pose(&self.physics).position;
         let player = self.stream.origin.absolute(local);
-        // A roofless vehicle seat (bike, cabrio) is open. Its own interior volume gives no cover.
+        // A roofless vehicle seat (bike, cabrio) is open.
         let roof = self
             .area
             .player
@@ -162,6 +162,7 @@ impl GarageRuntime {
                         .is_some(),
                 )
             });
+        // The seat vehicle volume is the cabin, not a building.
         let open = self
             .area
             .player

@@ -252,6 +252,8 @@ impl Plugin for SourceFramePlugin {
         super::precipitation::install(app);
         super::lightning_bolt::install(app);
         super::weather_shafts::install(app);
+        super::wheel_spray::install(app);
+        super::glass_drops::install(app);
         super::motion_vectors::install(app);
         super::gpu_timing::install(app);
         super::play_pipelines::install(app);
