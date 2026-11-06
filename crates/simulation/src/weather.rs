@@ -11,7 +11,7 @@ mod condition;
 mod lightning;
 mod tumbleweeds;
 mod wind;
-pub use cells::{CellSample, LOCK_RADIUS, MAX_CELLS, WeatherCell, WeatherCells};
+pub use cells::{ADD_RADIUS, CellSample, LOCK_RADIUS, MAX_CELLS, WeatherCell, WeatherCells};
 pub use condition::*;
 pub use lightning::{BOLT_SECONDS, Bolt, CLOSE_DISTANCE, Lightning, STRIKE_DISTANCE, Thunder};
 pub use tumbleweeds::{ImportantObject, Tumbleweeds};

@@ -64,6 +64,13 @@ enum Action {
     },
     /// Answers the weather cells, as `weather` does. It changes nothing. For the F4 weather panel.
     Forecast,
+    /// Adds a full-strength cell of `kind` at the player. It removes the lock. Host only.
+    /// `radius` is in meters, default `ADD_RADIUS`. With 8 cells, it replaces the weakest.
+    #[serde(rename = "spawn_cell")]
+    SpawnCell {
+        kind: crate::weather::WeatherKind,
+        radius: Option<f32>,
+    },
     /// Answers the player, the day cycle, the cars and the items within `radius` metres.
     State { radius: f32 },
     /// Answers the worker CPU profile. `window.gameCpuProfile(true)` starts it and clears it.
@@ -284,6 +291,21 @@ fn apply(
             Ok(("Weather set.".into(), weather(runtime)))
         }
         Action::Forecast => Ok(("Weather.".into(), weather(runtime))),
+        Action::SpawnCell { kind, radius } => {
+            if runtime.net_guest {
+                return Err("The host owns the weather.".into());
+            }
+            let radius = radius.unwrap_or(crate::weather::ADD_RADIUS);
+            if !(radius > 0. && radius <= crate::weather::LOCK_RADIUS) {
+                return Err(format!(
+                    "Radius must be above 0 and at most {}.",
+                    crate::weather::LOCK_RADIUS
+                ));
+            }
+            let player = player_xz(runtime);
+            runtime.weather.cells.add(kind, player, radius);
+            Ok(("Cell spawned.".into(), weather(runtime)))
+        }
         Action::State { radius } => Ok(("State.".into(), state(runtime, reference, radius))),
         Action::Profile => profile(),
     }
@@ -930,12 +952,26 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
     })
 }
 
-/// `kind` has the largest weight at the player. Cell centers are absolute `x`, `z`.
+/// The player absolute `x`, `z`.
+fn player_xz(runtime: &GarageRuntime) -> [f64; 2] {
+    let local = runtime.area.player.body_pose(&runtime.physics).position;
+    let player = runtime.stream.origin.absolute(local);
+    [player[0], player[2]]
+}
+
+/// `kind` has the largest weight at the player. `kinds` lists every kind. Cell centers and
+/// `player` are absolute `x`, `z`. `wind.dir` is a unit vector along `x`, `z`. `temperature` is in degrees C.
 fn weather(runtime: &GarageRuntime) -> Value {
     let weather = &runtime.weather;
+    let wind = &weather.wind;
     json!({
         "kind": weather.kind(),
+        "kinds": crate::weather::WeatherKind::ALL,
+        "player": player_xz(runtime),
         "rain": weather.mix().rain,
+        "wetness": weather.wetness,
+        "temperature": runtime.lighting.cycle.output().ambient_temperature,
+        "wind": {"dir": wind.dir, "speed": wind.speed, "gust": wind.gust},
         "locked": weather.cells.locked(),
         "cells": weather
             .cells

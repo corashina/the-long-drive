@@ -21,6 +21,8 @@ const RADIUS: [f32; 2] = [1500., 5000.];
 const STORM_RADIUS: [f32; 2] = [1000., 2500.];
 /// Game seconds of one cell life.
 const LIFE: [f32; 2] = [1200., 3600.];
+/// The default radius of an F4 cell.
+pub const ADD_RADIUS: f32 = 3000.;
 /// The radius of the lock cell.
 pub const LOCK_RADIUS: f32 = 20_000.;
 /// The life share of the growth and of the decay.
@@ -278,6 +280,31 @@ impl WeatherCells {
         }
     }
 
+    /// Adds a cell at full strength, for F4. It removes the lock. With no free slot, it replaces the weakest cell.
+    pub fn add(&mut self, kind: WeatherKind, center: [f64; 2], radius: f32) {
+        if self.locked {
+            self.lock(None, center);
+        }
+        let index = self
+            .cells
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or_else(|| {
+                let strength = |i: usize| self.cells[i].map_or(0., |c| c.strength());
+                (0..MAX_CELLS)
+                    .min_by(|&a, &b| strength(a).total_cmp(&strength(b)))
+                    .expect("MAX_CELLS is not 0")
+            });
+        // The full strength starts at the end of the growth.
+        self.cells[index] = Some(WeatherCell {
+            kind,
+            center,
+            radius,
+            life: LIFE[1],
+            age: LIFE[1] * GROW,
+        });
+    }
+
     /// Replaces the cells, for a load or a host message. Cells after `MAX_CELLS` are dropped.
     pub fn set(&mut self, cells: impl IntoIterator<Item = WeatherCell>, locked: bool) {
         self.cells = [None; MAX_CELLS];
@@ -339,5 +366,25 @@ mod tests {
         assert_eq!(cells.len(), 1);
         cells.lock(None, player);
         assert!(cells.is_empty() && !cells.locked());
+    }
+
+    #[test]
+    fn add_replaces_the_weakest_cell_when_full() {
+        let mut cells = WeatherCells::new(1);
+        for i in 0..MAX_CELLS {
+            cells.add(WeatherKind::Rain, [i as f64 * 100., 0.], ADD_RADIUS);
+        }
+        let mut list: Vec<_> = cells.iter().copied().collect();
+        list[3].age = list[3].life;
+        cells.set(list, false);
+        cells.add(WeatherKind::Fog, [0.; 2], ADD_RADIUS);
+        assert_eq!(cells.len(), MAX_CELLS);
+        let fog: Vec<_> = cells
+            .iter()
+            .filter(|c| c.kind == WeatherKind::Fog)
+            .collect();
+        assert_eq!(fog.len(), 1);
+        assert_eq!(fog[0].strength(), 1.);
+        assert!(cells.iter().all(|c| c.strength() == 1.));
     }
 }

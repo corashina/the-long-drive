@@ -35,8 +35,12 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #performance-values {margin:0;font:inherit;white-space:pre-wrap;}
 #performance p {margin:8px 0 0;color:#bbb;font:11px/1.4 Arial,sans-serif;}
 /* F4 weather test panel, like the F3 overlay. The select takes clicks while the pointer is free. */
-#weather-panel {position:absolute;z-index:5;left:12px;top:12px;width:200px;padding:10px 12px;background:#000d;color:#fff;font:12px/1.45 monospace;font-variant-numeric:tabular-nums;}
+#weather-panel {position:absolute;z-index:5;left:12px;top:12px;width:224px;padding:10px 12px;background:#000d;color:#fff;font:12px/1.45 monospace;font-variant-numeric:tabular-nums;}
 #weather-panel select {margin-left:6px;font:inherit;}
+#weather-panel div {margin:6px 0 0;}
+#weather-panel div select {margin:0 6px 0 0;}
+#weather-panel button {font:inherit;}
+#weather-map {display:block;width:200px;height:200px;margin:0 0 8px;}
 #weather-values {margin:8px 0 0;font:inherit;white-space:pre-wrap;}
 #weather-panel p {margin:8px 0 0;color:#bbb;font:11px/1.4 Arial,sans-serif;}
 /* Pause menu: one column of buttons over the dimmed world. */
