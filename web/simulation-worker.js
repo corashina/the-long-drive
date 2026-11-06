@@ -8,8 +8,9 @@ self.gameCpuInputConsumed=()=>{inputConsumed=true;};
 self.gameCpuClearInput=()=>{clearInput=true;};
 // A step that holds for 2 s writes why. Copy the line from the console.
 self.gameHoldReport=report=>console.warn('[hold] '+report);
-installTerrainBridge(self,createTerrain(new Worker(new URL('./mesh-worker.js?job=terrain',import.meta.url),{type:'module'}),null));
-installRoadBridge(self,null);
+const terrain=createTerrain(new Worker(new URL('./mesh-worker.js?job=terrain',import.meta.url),{type:'module'}),null);
+installTerrainBridge(self,terrain);
+const roads=installRoadBridge(self,null);
 const ready=init().then(exports=>{memory=exports.memory;});
 self.addEventListener('message',async({data})=>{
  try{
@@ -30,7 +31,7 @@ self.addEventListener('message',async({data})=>{
   const started=performance.now(),frame=tick(data.command),tickMs=performance.now()-started;
   const net=netOn?net_send():null,transfer=[frame.buffer];
   if(net)transfer.push(net.buffer);
-  self.postMessage({frame,tickMs,wasmBytes:memory.buffer.byteLength,inputConsumed,clearInput,net},transfer);
+  self.postMessage({frame,tickMs,wasmBytes:memory.buffer.byteLength+terrain.wasmBytes()+roads.wasmBytes(),inputConsumed,clearInput,net},transfer);
   inputConsumed=clearInput=false;
  }catch(error){self.postMessage({error:error?.message??String(error)});}
 });

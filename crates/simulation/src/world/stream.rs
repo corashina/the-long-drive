@@ -4550,34 +4550,6 @@ impl WorldStream {
             failure: self.failure.as_deref(),
         }
     }
-    /// Bounded live counts. Does not walk spawn history, asset payloads, or change records.
-    pub fn performance_counters(&self) -> super::metrics::WorldPerformance {
-        let mut counters = super::metrics::WorldPerformance {
-            objects: self
-                .contents
-                .active()
-                .iter()
-                .chain(&self.static_controls)
-                .map(|c| c.bindings.len() + usize::from(c.item.is_some()))
-                .sum::<usize>()
-                + self.structures.len()
-                + self.supplies.len() * 2
-                + self.lights.len(),
-            jobs: self.own_jobs(),
-            pending: self.pending_work(),
-            ..Default::default()
-        };
-        for surface in &self.surfaces {
-            match surface.key.layer {
-                WorldLayer::Road => counters.roads += 1,
-                WorldLayer::Terrain | WorldLayer::DistantTerrain | WorldLayer::DistantTerrain2 => {
-                    counters.terrain += 1;
-                }
-                _ => {}
-            }
-        }
-        counters
-    }
     /// Counts and their caps in `BUDGET_LABELS` order.
     pub fn budgets(&self) -> [super::metrics::ResourceBudget; 7] {
         let m = self.metrics();

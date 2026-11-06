@@ -13,7 +13,6 @@ const ROAD_STATES=['start-menu','settings','game-mode','saves','multiplayer'];
 function operationError(error){
  const message=error?.message??String(error);
  if(message==='No saved game.')return 'No saved game is available.';
- const fit=message.match(/Draw distance [\d.]+ m does not fit\. Largest: [\d.]+ m/);if(fit)return fit[0]+'.';
  if(message.startsWith('Incompatible save:'))return 'This save uses a different schema or source export.';
  return message;
 }

@@ -123,17 +123,15 @@ extern "C" {
         update_ms: f64,
         render_ms: f64,
     ) -> bool;
+    /// One F3 row: a world count against its cap.
+    #[wasm_bindgen(js_namespace = window, js_name = gamePerformanceBudget)]
+    pub fn game_performance_budget(index: u32, name: &str, used: f64, limit: f64, unit: &str);
     #[wasm_bindgen(js_namespace = window, js_name = gamePerformanceCounters)]
     pub fn game_performance_counters(
         steps: u32,
         wheel_contacts: u32,
         bodies: u32,
         colliders: u32,
-        roads: u32,
-        terrain: u32,
-        objects: u32,
-        jobs: u32,
-        pending: u32,
         storms: u32,
         storm_influence: f32,
         storm_particles: u32,

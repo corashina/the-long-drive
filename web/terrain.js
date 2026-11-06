@@ -13,6 +13,7 @@ export function createTerrain(worker,profile,now=()=>performance.now()){
  const ready=()=>{link.live();if(!result)throw Error('The terrain worker has no result.');return result;};
  const finish=discarded=>{if(record){link.diagnostic(()=>{record.discarded=discarded;record.totalJobMs=now()-record.mainCopyStart;});link.emit(record);record=null;}};
  return {
+  wasmBytes:link.wasmBytes,
   // The input is a view of WASM memory, so copy it before transfer.
   submit(input){
    link.live();if(job!==null||result)throw Error('The terrain worker is busy.');

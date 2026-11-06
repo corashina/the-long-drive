@@ -58,9 +58,10 @@ function renderLines(audit){
 
 // `readWorker` gives the simulation worker tick average since its last read and its WASM bytes.
 // `watchRender` tells the renderer to fill its audit. Frames skip that work while nothing reads it.
-export function createPerformance(readWasmBytes,readRender,watchRender,readDrawDistance,readWorker=()=>null){
+// `readWasmBytes` gives the total WASM memory of the page and its workers. `wasmLimit` is its limit.
+export function createPerformance(readWasmBytes,wasmLimit,readRender,watchRender,readDrawDistance,readWorker=()=>null){
  const root=document.querySelector('#performance'),values=document.querySelector('#performance-values');
- const timings=new FrameTimings();let bodyCounts=null,lastPaint=-Infinity,stopped=false,benched=false;
+ const timings=new FrameTimings(),budgets=[];let bodyCounts=null,lastPaint=-Infinity,stopped=false,benched=false;
  const ms=value=>value.toFixed(1),mib=bytes=>Number.isFinite(bytes)?(bytes/1048576).toFixed(1)+' MiB':'unavailable';
  function reset(){timings.reset();lastPaint=-Infinity;values.textContent='Waiting for game frames…';}
  const key=event=>{
@@ -75,7 +76,9 @@ export function createPerformance(readWasmBytes,readRender,watchRender,readDrawD
    if((root.hidden&&!benched)||now-lastPaint<250)return false;
    lastPaint=now;return true;
   },
-  counters(steps,wheelContacts,bodies,colliders,roads,terrain,objects,jobs,pending,storms,stormInfluence,stormParticles,entities,dynamicBodies,awakeBodies,ccdBodies,contactPairs){
+  // One world count against its cap. Rust sends the rows before `counters`.
+  budget(index,name,used,limit,unit){budgets[index]='\n'+name+': '+used+' / '+limit+' '+unit;},
+  counters(steps,wheelContacts,bodies,colliders,storms,stormInfluence,stormParticles,entities,dynamicBodies,awakeBodies,ccdBodies,contactPairs){
    const sample=timings.summary(),worker=readWorker();
    bodyCounts={dynamicBodies,awakeBodies,ccdBodies,contactPairs};
    values.textContent=(sample?
@@ -86,9 +89,9 @@ export function createPerformance(readWasmBytes,readRender,watchRender,readDrawD
     '\nWorker tick avg: '+(Number.isFinite(worker?.tickMs)?ms(worker.tickMs)+' ms':'--')+
     '\nDraw distance: '+readDrawDistance()+' m\nPhysics steps/frame: '+steps+'\nWheel contacts: '+wheelContacts+'\nBodies / colliders: '+bodies+' / '+colliders+
     '\nBodies dynamic / awake / CCD: '+dynamicBodies+' / '+awakeBodies+' / '+ccdBodies+'\nContact pairs: '+contactPairs+
-    '\nRoads / terrain tiles: '+roads+' / '+terrain+'\nActive generated objects: '+objects+'\nECS entities: '+entities+'\nJobs / queued work: '+jobs+' / '+pending+
+    budgets.join('')+'\nECS entities: '+entities+
     '\nStorms / strongest influence / particles: '+storms+' / '+stormInfluence.toFixed(2)+' / '+stormParticles+
-    '\nWASM main / worker: '+mib(readWasmBytes())+' / '+mib(worker?.wasmBytes)+'\nJS heap: '+mib(performance.memory?.usedJSHeapSize)+
+    '\nWASM memory: '+mib(readWasmBytes())+' of '+mib(wasmLimit)+'\nJS heap: '+mib(performance.memory?.usedJSHeapSize)+
     renderLines(readRender());
   },
   // The F3 values as numbers, for `tests/bench/fps.mjs`. It reads the worker tick average, as F3 does.
