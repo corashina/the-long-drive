@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub(super) const WET_RATE: f32 = 1. / 60.;
 /// Wetness per second without rain.
 pub(super) const DRY_RATE: f32 = 1. / 300.;
+/// Temperature offset in °C at full wetness.
+pub const WET_TEMPERATURE: f32 = -2.;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -35,7 +37,8 @@ impl WeatherKind {
     }
 }
 
-/// The weather that presentation, audio and physics read. All values are 0 to 1.
+/// The weather that presentation, audio and physics read. All values are 0 to 1, but
+/// `temperature` is an offset in °C.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WeatherMix {
     pub cloud_cover: f32,
@@ -43,23 +46,25 @@ pub struct WeatherMix {
     pub fog: f32,
     pub wetness: f32,
     pub flash: f32,
+    pub temperature: f32,
 }
 
-const fn target(cloud_cover: f32, rain: f32, fog: f32) -> WeatherMix {
+const fn target(cloud_cover: f32, rain: f32, fog: f32, temperature: f32) -> WeatherMix {
     WeatherMix {
         cloud_cover,
         rain,
         fog,
         wetness: 0.,
         flash: 0.,
+        temperature,
     }
 }
 
-/// One row per kind, in `WeatherKind` order.
+/// One row per kind, in `WeatherKind` order. The last column is the temperature offset in °C.
 const TARGETS: [WeatherMix; 5] = [
-    target(0., 0., 0.),
-    target(0.7, 0., 0.1),
-    target(0.9, 0.7, 0.3),
-    target(1., 1., 0.4),
-    target(0.5, 0., 1.),
+    target(0., 0., 0., 0.),
+    target(0.7, 0., 0.1, -2.),
+    target(0.9, 0.7, 0.3, -5.),
+    target(1., 1., 0.4, -6.),
+    target(0.5, 0., 1., -2.),
 ];

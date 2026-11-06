@@ -614,7 +614,7 @@ const RAIN_FOG_GAIN: f32 = 1.5;
 const FLASH_LIGHT: f32 = 1.5;
 
 /// Weather types are a new feature: the source has only the sandstorm. The mix changes the clear
-/// values: more and grey cloud, less light, more and grey fog, less flare.
+/// values: more and grey cloud, less light, more and grey fog, less flare, lower temperature.
 fn apply_mix(o: &mut CycleOutput, mix: crate::weather::WeatherMix) {
     let cover = mix.cloud_cover.clamp(0., 1.);
     let rain = mix.rain.clamp(0., 1.);
@@ -634,6 +634,8 @@ fn apply_mix(o: &mut CycleOutput, mix: crate::weather::WeatherMix) {
     o.fog_color = grey(o.fog_color, ambient, cover.max(fog));
     o.flare_brightness *= 1. - cover.max(fog);
     o.overcast = (OVERCAST_SKY * cover).max(FOG_SKY * fog);
+    o.ambient_temperature +=
+        mix.temperature + crate::weather::WET_TEMPERATURE * mix.wetness.clamp(0., 1.);
 }
 /// Lerp the RGB channels to their luminance times `shade`. Alpha stays.
 fn grey(c: [f32; 4], shade: f32, t: f32) -> [f32; 4] {
@@ -1317,5 +1319,15 @@ mod tests {
         assert!(output.clouds[0].density < clear.clouds[0].density);
         assert!(output.directional_intensity < clear.directional_intensity);
         assert!(output.overcast > 0.9);
+    }
+
+    #[test]
+    fn full_rain_lowers_temperature_by_5() {
+        let mut output = CycleOutput {
+            ambient_temperature: 20.,
+            ..Default::default()
+        };
+        apply_mix(&mut output, crate::weather::WeatherKind::Rain.target());
+        assert_eq!(output.ambient_temperature, 15.);
     }
 }
