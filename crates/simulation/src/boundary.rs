@@ -949,6 +949,8 @@ pub struct WeatherFrame {
     pub gust: f32,
     /// The lightning bolt while it shows.
     pub bolt: Option<BoltFrame>,
+    /// Cells with rain, first. The rest have `wet` 0.
+    pub cells: [WetCell; crate::weather::MAX_CELLS],
 }
 
 /// A lightning bolt. Points are relative to the render origin.
@@ -962,6 +964,16 @@ pub struct BoltFrame {
     pub seed: u32,
     /// Seconds since the strike.
     pub age: f32,
+}
+
+/// One weather cell with rain, for the distant rain shafts and the sky.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct WetCell {
+    /// `x`, `z` relative to the render origin.
+    pub center: [f32; 2],
+    pub radius: f32,
+    /// The rain target times the life strength, 0..1.
+    pub wet: f32,
 }
 
 /// What the renderer needs to build a new handle's visual.
