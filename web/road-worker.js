@@ -7,13 +7,12 @@ const startupStart=profileStartup?now():null;
 let initializationMs=null,memory,initializationError=null,queue=Promise.resolve();
 const sources=new Array(3).fill(null);
 // Handle rejection immediately, even if no job has been submitted.
-const ready=init().then(exports=>{memory=exports.memory;if(profileStartup)initializationMs=now()-startupStart;self.postMessage({type:'initialized',wasmBytes:memory.buffer.byteLength});}).catch(error=>{initializationError=error?.message??String(error);self.postMessage({type:'fatal',error:initializationError});});
+const ready=init().then(exports=>{memory=exports.memory;if(profileStartup)initializationMs=now()-startupStart;self.postMessage({type:'initialized',initializationMs,wasmBytes:memory.buffer.byteLength});}).catch(error=>{initializationError=error?.message??String(error);self.postMessage({type:'fatal',error:initializationError});});
 self.addEventListener('message',({data})=>{
- const received=data.profileCpu||data.type==='handshake'?now():null;
+ const received=data.profileCpu?now():null;
  queue=queue.then(async()=>{
   await ready;
   if(initializationError!==null)throw Error(initializationError);
-  if(data.type==='handshake'){self.postMessage({type:'handshake',windowOrigin:data.windowOrigin,windowSent:data.windowSent,workerOrigin:performance.timeOrigin,workerReceived:received,workerSent:now(),initializationMs,wasmBytes:memory.buffer.byteLength});return;}
   const start=data.profileCpu?now():null;
   const checkCapacity=()=>{if(memory.buffer.byteLength>data.capacityLimit)throw Error('Road WASM capacity exceeds admission.');};
   if(data.type==='install'){
@@ -21,7 +20,7 @@ self.addEventListener('message',({data})=>{
    install(owner,data.input);sources[owner]={session:data.identity.session,revision:data.identity.revision};
    checkCapacity();
    const out={type:'installed',identity:data.identity,wasmBytes:memory.buffer.byteLength};
-   if(data.profileCpu)try{out.cpuProfile={workerOrigin:performance.timeOrigin,workerReceived:received,workerReadyWaitMs:start-received,installWithInputCopyMs:now()-start,resultPostStart:now()};}catch{}
+   if(data.profileCpu)try{out.cpuProfile={workerReadyWaitMs:start-received,installWithInputCopyMs:now()-start};}catch{}
    self.postMessage(out);return;
   }
   if(data.type!=='evaluate')throw Error('Invalid road worker operation.');
@@ -32,10 +31,10 @@ self.addEventListener('message',({data})=>{
   let out;
   try{
    out={type:'result',identity:data.identity,origin:surface.origin(),vertices:surface.vertices(),normals:surface.normals(),tangents:surface.tangents(),uv:surface.uv(),triangles:surface.triangles(),submeshes:surface.submeshes(),wasmBytes:memory.buffer.byteLength};
-   if(data.profileCpu)try{const decodeMs=surface.decode_ms(),computeMs=surface.compute_ms();out.cpuProfile={workerOrigin:performance.timeOrigin,workerReceived:received,workerReadyWaitMs:start-received,inputCopyMs:calculated-start-decodeMs-computeMs,inputCopyBasis:'WASM binding copy and call overhead, excluding decode and calculation spans.',decodeMs,computeMs,extractionMs:now()-calculated,initializationMs,wasmBytes:out.wasmBytes,resultPostStart:now()};}catch{}
+   if(data.profileCpu)try{const decodeMs=surface.decode_ms(),computeMs=surface.compute_ms();out.cpuProfile={workerReadyWaitMs:start-received,inputCopyMs:calculated-start-decodeMs-computeMs,inputCopyBasis:'WASM binding copy and call overhead, excluding decode and calculation spans.',decodeMs,computeMs,extractionMs:now()-calculated,initializationMs,wasmBytes:out.wasmBytes};}catch{}
   }finally{surface.free();}
   checkCapacity();
-  if(data.profileCpu&&out.cpuProfile)try{out.cpuProfile.extractionMs=now()-calculated;out.cpuProfile.resultPostStart=now();}catch{}
+  if(data.profileCpu&&out.cpuProfile)try{out.cpuProfile.extractionMs=now()-calculated;}catch{}
   self.postMessage(out,[out.origin.buffer,out.vertices.buffer,out.normals.buffer,out.tangents.buffer,out.uv.buffer,out.triangles.buffer,out.submeshes.buffer]);
  }).catch(error=>self.postMessage({type:'fatal',error:error?.message??String(error)}));
 });
