@@ -1,0 +1,13 @@
+{
+  "provenance": {
+    "origin": "synth",
+    "license": "CC0-1.0",
+    "generator": "python -m tools.reference.synth_weather",
+    "method": "numpy periodic filtered noise and decaying taps, seed 20261106, ffmpeg libopus 48 kHz"
+  },
+  "rows": [
+    {"role": "rain", "kind": 26, "one_shot": false, "gain": 0.6, "clips": ["rain-outside.ogg"]},
+    {"role": "rain_inside", "kind": 27, "one_shot": false, "gain": 0.5, "clips": ["rain-inside.ogg"]},
+    {"role": "thunder", "kind": 28, "one_shot": true, "gain": 1.0, "clips": ["thunder-1.ogg", "thunder-2.ogg", "thunder-3.ogg"]}
+  ]
+}
