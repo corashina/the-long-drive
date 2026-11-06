@@ -110,7 +110,7 @@ window.addEventListener('pagehide',()=>analytics.end());
 let adapterName='';
 let wasmMemory,renderAudit,watchRenderAudit,renderAuditWatched=false,initialReadyMs=null,peakFrameMs=0,lastFrameTime=null,measureRequested=false;
 const performancePanel=createPerformance(()=>wasmMemory?.buffer.byteLength,()=>renderAudit&&JSON.parse(renderAudit()),on=>{renderAuditWatched=on;watchRenderAudit?.(on);},()=>worldDrawDistance,()=>simulation.stats());
-window.gamePerformanceFrame=(physicsMs,worldMs,updateMs,renderMs)=>performancePanel.frame(performance.now(),physicsMs,worldMs,updateMs,renderMs);
+window.gamePerformanceFrame=performancePanel.frame;
 window.gamePerformanceCounters=performancePanel.counters;
 window.gamePerformance=since=>performancePanel.snapshot(since);
 // The failure message after a startup or runtime failure, else null. `gameFailure` reports a failure.
