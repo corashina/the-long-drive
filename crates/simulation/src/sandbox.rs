@@ -58,6 +58,10 @@ enum Action {
     Storm { distance: f32 },
     /// Sets the source day cycle seconds.
     Cycle { seconds: f64 },
+    /// Holds the weather on `kind`. `null` lets the cycle change it again.
+    Weather {
+        kind: Option<crate::weather::WeatherKind>,
+    },
     /// Answers the player, the cycle, the cars and the items within `radius` metres.
     State { radius: f32 },
     /// Answers the worker CPU profile. `window.gameCpuProfile(true)` starts it and clears it.
@@ -270,6 +274,10 @@ fn apply(
             }
             runtime.lighting.cycle.set_cycle_seconds(seconds);
             Ok(("Cycle set.".into(), Value::Null))
+        }
+        Action::Weather { kind } => {
+            runtime.weather.cycle.lock(kind);
+            Ok(("Weather set.".into(), weather(runtime)))
         }
         Action::State { radius } => Ok(("State.".into(), state(runtime, reference, radius))),
         Action::Profile => profile(),
@@ -913,6 +921,18 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
             }))
             .collect::<Vec<_>>(),
         "storm_influence": runtime.weather.influence().strength,
+        "weather": weather(runtime),
+    })
+}
+
+fn weather(runtime: &GarageRuntime) -> Value {
+    let cycle = &runtime.weather.cycle;
+    json!({
+        "kind": cycle.current,
+        "next": cycle.next,
+        "blend": cycle.blend,
+        "rain": runtime.weather.mix().rain,
+        "locked": cycle.locked,
     })
 }
 

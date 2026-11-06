@@ -1,4 +1,4 @@
-//! Source sandstorm simulation on the fixed step. Presentation reads this state and does not advance it.
+//! Source sandstorm and the weather cycle on the fixed step. Presentation reads this state and does not advance it.
 use crate::particles::ParticleState;
 use crate::reference::WeatherReference;
 use crate::save::{StormSnapshot, WeatherSnapshot};
@@ -6,7 +6,9 @@ use crate::vehicle::PhysicsWorld;
 use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{Ball, Collider, ColliderHandle, QueryFilter, RigidBodyHandle};
 
+mod condition;
 mod tumbleweeds;
+pub use condition::*;
 pub use tumbleweeds::{ImportantObject, Tumbleweeds};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,6 +76,8 @@ pub struct WeatherState {
     origin: [f64; 3],
     body_capacity: usize,
     pub tumbleweeds: Tumbleweeds,
+    pub cycle: WeatherCycle,
+    mix: WeatherMix,
 }
 
 impl WeatherState {
@@ -93,7 +97,12 @@ impl WeatherState {
             origin: [0.; 3],
             body_capacity: 0,
             tumbleweeds: Tumbleweeds::new(seed),
+            cycle: WeatherCycle::new(seed),
+            mix: WeatherMix::default(),
         }
+    }
+    pub fn mix(&self) -> WeatherMix {
+        self.mix
     }
     pub fn storms(&self) -> &[Storm] {
         &self.storms
@@ -123,6 +132,7 @@ impl WeatherState {
                     direction: storm.direction,
                 })
                 .collect(),
+            cycle: self.cycle.snapshot(),
         }
     }
 
@@ -136,6 +146,8 @@ impl WeatherState {
         for storm in &saved.storms {
             self.push_storm(reference, storm);
         }
+        self.cycle.restore(&saved.cycle);
+        self.mix = self.cycle.look();
     }
 
     /// Call when bodies enter the world. Wind scans then do not grow target buffers.
@@ -235,12 +247,14 @@ impl WeatherState {
 
     /// `now` is normal simulation time, with the sleep time scale and no extra cycle time.
     /// `terrain` gives the terrain height and color at an absolute position.
+    /// `desert_weight` is how much of the player biome is the sandstorm biome, 0 to 1.
     pub fn advance(
         &mut self,
         reference: &WeatherReference,
         now: f64,
         dt: f32,
         player_absolute: [f64; 3],
+        desert_weight: f32,
         mut terrain: impl FnMut([f64; 3]) -> (f32, [f32; 4]),
     ) {
         if !now.is_finite()
@@ -250,7 +264,8 @@ impl WeatherState {
         {
             return;
         }
-        if now >= self.next_spawn_time() {
+        self.mix = self.cycle.advance(dt, desert_weight);
+        if self.spawn_due(now, dt) {
             self.last_spawn_time = now;
             self.wait = self.random.range(
                 reference.min_interval_seconds,
@@ -310,6 +325,14 @@ impl WeatherState {
             }
         }
         self.storms.retain(|storm| storm.life > 0.);
+    }
+
+    /// Source spawn timer. Rain, thunderstorm and fog hold it: lastTime moves with `now`.
+    fn spawn_due(&mut self, now: f64, dt: f32) -> bool {
+        if self.cycle.kind().holds_sandstorm() {
+            self.last_spawn_time += dt as f64;
+        }
+        now >= self.next_spawn_time()
     }
 
     /// Source dust after `advance`. `night` is the SetColorLerp weight: 0 day, 1 night.
@@ -493,5 +516,31 @@ impl StormRandom {
             vertical * radius,
             horizontal * angle.sin() * radius,
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sandstorm_does_not_spawn_in_rain() {
+        let mut state = WeatherState {
+            storms: Vec::new(),
+            influence: StormInfluence::default(),
+            last_spawn_time: 0.,
+            wait: 100.,
+            next_id: 0,
+            random: StormRandom(1),
+            origin: [0.; 3],
+            body_capacity: 0,
+            tumbleweeds: Tumbleweeds::new(1),
+            cycle: WeatherCycle::new(1),
+            mix: WeatherMix::default(),
+        };
+        state.cycle.lock(Some(WeatherKind::Rain));
+        assert!((1..=1000).all(|t| !state.spawn_due(t as f64, 1.)));
+        state.cycle.lock(Some(WeatherKind::Clear));
+        assert!((1001..=1100).any(|t| state.spawn_due(t as f64, 1.)));
     }
 }

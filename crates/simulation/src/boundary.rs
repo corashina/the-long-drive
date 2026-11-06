@@ -225,6 +225,11 @@ pub struct PerfBlock {
     pub storms: u32,
     pub storm_strength: f32,
     pub weather_particles: u32,
+    /// `WeatherKind` values of the cycle.
+    pub weather_kind: u32,
+    pub weather_next: u32,
+    pub weather_blend: f32,
+    pub weather_rain: f32,
     pub dynamic_bodies: u32,
     /// Bodies that are not asleep.
     pub awake_bodies: u32,
