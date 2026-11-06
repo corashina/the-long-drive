@@ -107,13 +107,15 @@ pub fn lighting_asset_readiness(
         if assets.textures[index].image.is_some() {
             continue;
         }
-        if let Some(handle) = materials.texture(&assets.record.textures[index].mips[0].file) {
+        let texture = &assets.record.textures[index];
+        if let Some(handle) = materials.texture(&texture.file) {
+            added += crate::reference::fixed_reservation::rgba_payload(
+                texture.width,
+                texture.height,
+                texture.sampler.mip_count,
+            )
+            .unwrap_or(0);
             assets.textures[index].image = Some(handle);
-            added += assets.record.textures[index]
-                .mips
-                .iter()
-                .map(|m| m.width as usize * m.height as usize * 4)
-                .sum::<usize>();
         }
     }
     assets.texture_bytes += added;
