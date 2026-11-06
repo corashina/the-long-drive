@@ -1507,22 +1507,11 @@ fn gun(
     record: &GunReference,
     clips: &[(SourceId, u32, f32)],
 ) -> Result<Gun, ReferenceError> {
-    let prototype = r
-        .world
-        .prototypes
-        .iter()
-        .find(|p| p.source == record.prototype.0)
-        .ok_or_else(|| ReferenceError("Missing gun world prototype".into()))?;
-    let index = |s: &SourceId| {
-        prototype
-            .nodes
-            .iter()
-            .position(|n| n.source == *s)
-            .ok_or_else(|| ReferenceError("Missing gun node".into()))
-    };
-    let root = |s: &SourceId| Ok::<_, ReferenceError>(prototype.root_relative(index(s)?).0);
+    let prototype = r.world.prototype(&record.prototype.0)?;
+    let root =
+        |s: &SourceId| Ok::<_, ReferenceError>(prototype.root_relative(prototype.node(s)?).0);
     let part = |s: &SourceId| {
-        let i = index(s)?;
+        let i = prototype.node(s)?;
         Ok::<_, ReferenceError>(Part {
             node: i as u32,
             rest: prototype.nodes[i].transform,
@@ -1588,7 +1577,7 @@ fn gun(
             };
             let nodes = chambers
                 .iter()
-                .map(|b| Ok(index(b)? as u32))
+                .map(|b| Ok(prototype.node(b)? as u32))
                 .collect::<Result<_, ReferenceError>>()?;
             let turn = turn_clip
                 .as_ref()
@@ -1600,12 +1589,14 @@ fn gun(
             None,
             bullets
                 .iter()
-                .map(|b| Ok(index(b)? as u32))
+                .map(|b| Ok(prototype.node(b)? as u32))
                 .collect::<Result<_, ReferenceError>>()?,
             None,
             None,
         ),
-        GunKind::Magazine { mag, .. } => (None, Vec::new(), Some(index(mag)? as u32), None),
+        GunKind::Magazine { mag, .. } => {
+            (None, Vec::new(), Some(prototype.node(mag)? as u32), None)
+        }
         GunKind::None => (None, Vec::new(), None, None),
     };
     let hand = record
@@ -1670,7 +1661,7 @@ fn gun(
         flash: record
             .flash
             .as_ref()
-            .map(|f| Ok::<_, ReferenceError>(index(&f.node)? as u32))
+            .map(|f| Ok::<_, ReferenceError>(prototype.node(&f.node)? as u32))
             .transpose()?,
         hand,
         crosshair: record

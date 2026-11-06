@@ -509,13 +509,11 @@ fn equip(
     reference: &ReferenceManifest,
     name: &str,
 ) -> Result<(String, Value), String> {
-    let guns = reference.guns.weapons.iter().filter_map(|g| {
-        reference
-            .world
-            .prototypes
-            .iter()
-            .find(|w| w.source == g.prototype.0)
-    });
+    let guns = reference
+        .guns
+        .weapons
+        .iter()
+        .filter_map(|g| reference.world.prototypes.find(&g.prototype.0));
     let Some(prototype) = guns
         .clone()
         .find(|w| prototype_name(w).eq_ignore_ascii_case(name))
@@ -599,7 +597,7 @@ fn hand(
                 .iter()
                 .find(|i| i.name.eq_ignore_ascii_case(name))
                 .and_then(|i| i.prototype.as_ref())
-                .and_then(|p| reference.world.prototypes.iter().find(|w| &w.source == p))
+                .and_then(|p| reference.world.prototypes.find(p))
                 .ok_or(error)?;
             match loaded_world_item(runtime, &prototype.source, |_| true) {
                 Some(item) => item,
@@ -670,12 +668,7 @@ fn building(
     let mut sequence = crate::world::BuildingSequence::new(&reference.world, seed);
     let mut names = Vec::new();
     for placement in std::iter::from_fn(|| sequence.next()).take(BUILDING_SEARCH) {
-        let Some(prototype) = reference
-            .world
-            .prototypes
-            .iter()
-            .find(|p| p.source == placement.prototype)
-        else {
+        let Some(prototype) = reference.world.prototypes.find(&placement.prototype) else {
             continue;
         };
         let found = prototype_name(prototype);
@@ -883,8 +876,7 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
                     "name": reference
                         .world
                         .prototypes
-                        .iter()
-                        .find(|w| w.source == p.prototype)
+                        .find(&p.prototype)
                         .map_or("", prototype_name),
                     "position": p.pose.position,
                     "radius": p.bounds.max[0] - p.pose.position[0],
@@ -979,8 +971,7 @@ fn gap_json(reference: &ReferenceManifest, stream: &WorldStream, gap: SupportGap
             "structure": reference
                 .world
                 .prototypes
-                .iter()
-                .find(|w| w.source == p.prototype)
+                .find(&p.prototype)
                 .map_or("", prototype_name),
             "position": p.pose.position,
             "scale": p.scale,

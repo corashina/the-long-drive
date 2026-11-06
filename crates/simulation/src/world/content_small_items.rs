@@ -139,16 +139,6 @@ impl SmallItems {
         self.effects[index].particle.particles()
     }
 }
-pub(super) fn node_index(
-    prototype: &WorldPrototypeReference,
-    source: &SourceId,
-) -> Result<usize, ReferenceError> {
-    prototype
-        .nodes
-        .iter()
-        .position(|n| &n.source == source)
-        .ok_or_else(|| ReferenceError("Small item node outside its prototype".into()))
-}
 pub(super) fn relative(from: crate::world::AbsolutePose, to: crate::world::AbsolutePose) -> Pose {
     let r = Rotation::from_array(from.rotation).inverse();
     let d = Vector::from_array(std::array::from_fn(|i| {
@@ -279,11 +269,7 @@ impl WorldStream {
         slot: usize,
     ) -> Result<&WorldPrototypeReference, ReferenceError> {
         let placement = &self.contents.active()[slot].content.placement;
-        self.reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == placement.prototype)
-            .ok_or_else(|| ReferenceError("Small item prototype missing".into()))
+        self.reference.prototype(&placement.prototype)
     }
     /// `CamR` relative to the item pose, which is the pickup node pose.
     fn binocular_camera(
@@ -297,7 +283,7 @@ impl WorldStream {
         let pickup = rules
             .component(&self.reference, &placement.prototype, "pickupable")?
             .ok_or_else(|| ReferenceError("Binoculars have no pickup".into()))?;
-        let root = node_index(prototype, rules.root(&self.reference, pickup.source)?)?;
+        let root = prototype.node(rules.root(&self.reference, pickup.source)?)?;
         let place = |index| {
             crate::world::placement::place_pose(
                 placement.pose,
@@ -305,7 +291,7 @@ impl WorldStream {
                 crate::world::placement::node_pose(prototype, index),
             )
         };
-        let camera = node_index(prototype, &reference.small_items.binoculars.camera)?;
+        let camera = prototype.node(&reference.small_items.binoculars.camera)?;
         Ok(relative(place(root), place(camera)))
     }
     fn saved(&self, parent: &GeneratedId) -> Option<&crate::world::ObjectSnapshot> {
@@ -327,7 +313,7 @@ impl WorldStream {
         let pickup = rules
             .component(&self.reference, &placement.prototype, "pickupable")?
             .ok_or_else(|| ReferenceError("Spray bottle has no pickup".into()))?;
-        let root = node_index(prototype, rules.root(&self.reference, pickup.source)?)?;
+        let root = prototype.node(rules.root(&self.reference, pickup.source)?)?;
         let place = |index| {
             crate::world::placement::place_pose(
                 placement.pose,
@@ -335,7 +321,7 @@ impl WorldStream {
                 crate::world::placement::node_pose(prototype, index),
             )
         };
-        let node = node_index(prototype, &r.trigger)?;
+        let node = prototype.node(&r.trigger)?;
         let ammo = Ammo::new(&r.ammo);
         let initial = content.content.ammo.unwrap_or(ammo.count);
         let ammo = ammo
@@ -350,7 +336,7 @@ impl WorldStream {
             slot,
             item,
             pose: prototype.nodes[node].transform,
-            hole: relative(place(root), place(node_index(prototype, &r.hole)?)),
+            hole: relative(place(root), place(prototype.node(&r.hole)?)),
             trigger: SprayTrigger::default(),
             ammo: saved.unwrap_or(ammo),
             initial,
@@ -377,7 +363,7 @@ impl WorldStream {
                 "Genie lamp wash property outside the clean table".into(),
             ));
         }
-        let node = node_index(prototype, rules.root(&self.reference, &r.wash_trigger)?)?;
+        let node = prototype.node(rules.root(&self.reference, &r.wash_trigger)?)?;
         // GetComponentInParent: colliders on the trigger node and below it.
         let below = |mut i: usize| loop {
             if i == node {

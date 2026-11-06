@@ -88,11 +88,7 @@ impl PropGenerator {
                 prototypes.push(None);
                 continue;
             };
-            let prototype = world
-                .prototypes
-                .iter()
-                .find(|p| p.source == *source)
-                .ok_or_else(|| ReferenceError("Missing source prop prototype".into()))?;
+            let prototype = world.prototype(source)?;
             let owner = field_link(&records[source].fields, "m_GameObject")?;
             let object = records[owner];
             let component = object

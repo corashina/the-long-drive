@@ -680,11 +680,7 @@ impl Inputs {
             .types
             .iter()
             .map(|kind| {
-                let prototype = reference
-                    .prototypes
-                    .iter()
-                    .find(|p| p.source == kind.prototype)
-                    .unwrap();
+                let prototype = reference.prototypes.find(&kind.prototype).unwrap();
                 copy_prototype(prototype, kind.type_id, &records)
             })
             .collect();
@@ -882,11 +878,7 @@ fn copy_prototype(
             let ranges = array(&component.fields["range2"]);
             for (i, coord) in coords.iter().enumerate() {
                 let source = link(coord);
-                let index = prototype
-                    .nodes
-                    .iter()
-                    .position(|n| &n.source == source)
-                    .unwrap();
+                let index = prototype.nodes.index(source).unwrap();
                 let scale = prototype.nodes[index].transform.scale[0];
                 let factor = if ranges.len() < coords.len() {
                     0.0

@@ -89,12 +89,7 @@ pub fn prototype_seats(
     }
     let node_of = |object: &SourceId| -> Result<u32, ReferenceError> {
         let transform = rules.root(reference, object)?;
-        prototype
-            .nodes
-            .iter()
-            .position(|n| &n.source == transform)
-            .map(|i| i as u32)
-            .ok_or_else(|| ReferenceError("node outside its prototype".into()))
+        prototype.node(transform).map(|i| i as u32)
     };
     let mut seats = Vec::new();
     let mut secondary = Vec::new();
@@ -314,12 +309,7 @@ impl WorldStream {
             .and_then(|i| i.body)
             .ok_or_else(|| ReferenceError("Seat item has no body".into()))?;
         let placement = &self.contents.active()[slot].content.placement;
-        let prototype = self
-            .reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == placement.prototype)
-            .ok_or_else(|| ReferenceError("Seat prototype missing".into()))?;
+        let prototype = self.reference.prototype(&placement.prototype)?;
         let instance = self
             .structures
             .iter()

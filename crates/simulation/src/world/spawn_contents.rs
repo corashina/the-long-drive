@@ -305,14 +305,7 @@ impl<'a> SpawnEvaluation<'a> {
                     .rules
                     .component(self.reference, actual, "newAiScript")?
                     .is_some();
-                if human
-                    || spawns
-                        && self
-                            .reference
-                            .prototypes
-                            .iter()
-                            .any(|p| p.source == child.prototype)
-                {
+                if human || spawns && self.reference.prototypes.find(&child.prototype).is_some() {
                     self.push(SpawnedContent {
                         inputs: super::spawn_state::SpawnInitialization::default(),
                         placement: child.clone(),

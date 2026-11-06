@@ -86,9 +86,8 @@ impl WorldStream {
                 let root = rules.root(reference, component)?;
                 let layer = reference
                     .prototypes
-                    .iter()
-                    .find(|p| p.source == content.placement.prototype)
-                    .and_then(|p| p.nodes.iter().find(|n| &n.source == root))
+                    .find(&content.placement.prototype)
+                    .and_then(|p| p.nodes.find(root))
                     .map_or(0, |n| u32::from(n.layer));
                 let mut state = Electronics::from_fields(f)?;
                 if let Some(jam) = content.inputs.jam(parent, component) {

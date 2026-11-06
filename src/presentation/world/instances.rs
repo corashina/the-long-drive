@@ -508,10 +508,7 @@ impl SourceInstances {
             if prototypes.requested(source) {
                 continue;
             }
-            let prototype =
-                reference.world.prototypes.get(source).ok_or_else(|| {
-                    ReferenceError("Missing generated structure prototype".into())
-                })?;
+            let prototype = reference.world.prototype(source)?;
             prototypes.request(stream, ledger, &prototype.source)?;
         }
         Ok(())
@@ -573,7 +570,7 @@ impl SourceInstances {
             let child = reference
                 .world
                 .prototypes
-                .get(&placement.prototype)
+                .find(&placement.prototype)
                 .is_some_and(|p| {
                     p.deferred_materials
                         .iter()
@@ -581,11 +578,7 @@ impl SourceInstances {
                 });
             ledger.can_request_independent(1 + usize::from(child))
         }) {
-            let prototype_index = reference
-                .world
-                .prototypes
-                .index(&placement.prototype)
-                .ok_or_else(|| ReferenceError("Missing generated structure prototype".into()))?;
+            let prototype_index = reference.world.prototype_index(&placement.prototype)?;
             let prototype = &reference.world.prototypes[prototype_index];
             stage = "plan";
             let admitted = prototypes

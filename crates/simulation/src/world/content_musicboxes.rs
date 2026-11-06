@@ -48,11 +48,7 @@ impl WorldStream {
         let parent = content.content.placement.id.clone();
         let rules = &self.contents.rules;
         let reference = &self.reference;
-        let prototype = reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == content.content.placement.prototype)
-            .ok_or_else(|| ReferenceError("Music box prototype missing".into()))?;
+        let prototype = reference.prototype(&content.content.placement.prototype)?;
         let f = rules.get(reference, script)?.fields;
         let mut program = Vec::new();
         for line in array(f, "defprogram")? {
@@ -74,11 +70,7 @@ impl WorldStream {
             let axis = fields(value(r, "axis")?)?;
             let axis = Vec3::new(-number(axis, "x")?, -number(axis, "y")?, number(axis, "z")?);
             nodes.push(MusicBoxNode {
-                node: prototype
-                    .nodes
-                    .iter()
-                    .position(|n| &n.source == t)
-                    .ok_or_else(|| ReferenceError("Music box part outside its prototype".into()))?,
+                node: prototype.node(t)?,
                 pose: rules.node(reference, t)?.pose,
                 axis: axis.try_normalize().unwrap_or(Vec3::ZERO),
                 speed: number(r, "speed")?,

@@ -639,9 +639,8 @@ impl ConditionRecord {
             )
         };
         for p in &self.prototype_tools {
-            let prototype = r.world.prototypes.iter().find(|w| w.source == p.prototype);
-            let inside =
-                |n: &SourceId| prototype.is_some_and(|w| w.nodes.iter().any(|x| &x.source == n));
+            let prototype = r.world.prototypes.find(&p.prototype);
+            let inside = |n: &SourceId| prototype.is_some_and(|w| w.nodes.find(n).is_some());
             let source = match &p.kind {
                 PrototypeTool::Brush { tool, .. } => &tool.source,
                 PrototypeTool::Spray { tool, .. } => &tool.source,

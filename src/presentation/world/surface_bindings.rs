@@ -51,12 +51,7 @@ impl SourceWorldVisuals {
             {
                 continue;
             }
-            let prototype = reference
-                .world
-                .prototypes
-                .iter()
-                .find(|p| p.source == *source)
-                .ok_or_else(|| ReferenceError("Missing road prototype".into()))?;
+            let prototype = reference.world.prototype(source)?;
             let plan = prototypes
                 .plan(stream.frame().request.session, source)
                 .unwrap();

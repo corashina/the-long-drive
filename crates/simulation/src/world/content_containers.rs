@@ -41,11 +41,7 @@ pub(super) fn bind(
         let tank_source = link(cap.fields, "Tank")?;
         let tank = rules.get(world, tank_source)?;
         let tank_root = rules.root(world, tank_source)?;
-        let tank_index = prototype
-            .nodes
-            .iter()
-            .position(|n| &n.source == tank_root)
-            .ok_or_else(|| ReferenceError("Generated cap tank lies outside its instance".into()))?;
+        let tank_index = prototype.node(tank_root)?;
         let tank_pose = super::placement::node_pose(prototype, tank_index);
         let cap_pose = super::placement::node_pose(prototype, index);
         let definition = SupplyDefinition {
@@ -132,13 +128,8 @@ pub(super) fn bind(
         let visual_node = |source: &SourceId| -> Result<crate::reference::NodeId, ReferenceError> {
             let root = rules.root(world, source)?;
             prototype
-                .nodes
-                .iter()
-                .position(|n| &n.source == root)
+                .node(root)
                 .map(|i| crate::reference::NodeId(i as u32))
-                .ok_or_else(|| {
-                    ReferenceError("Generated cap visual is outside its prototype".into())
-                })
         };
         let visual_nodes = |name| {
             array(cap.fields, name)?

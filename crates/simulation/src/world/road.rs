@@ -575,16 +575,7 @@ fn empty_bounds() -> WorldBounds {
 pub fn bounds_radius(reference: &WorldReference) -> Result<f64, ReferenceError> {
     let mut radius = 0.0_f64;
     for identity in &reference.road.prototypes {
-        let prototype = reference
-            .prototypes
-            .iter()
-            .find(|p| &p.source == identity)
-            .ok_or_else(|| {
-                ReferenceError(format!(
-                    "Missing road prototype {}:{}",
-                    identity.file, identity.path_id
-                ))
-            })?;
+        let prototype = reference.prototype(identity)?;
         for skin in &prototype.skins {
             for (bone, bind) in skin.bones.iter().zip(&skin.bind_poses) {
                 for vertex in &skin.positions {

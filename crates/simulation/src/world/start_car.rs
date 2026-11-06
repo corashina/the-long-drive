@@ -54,10 +54,8 @@ impl StartCar {
             .iter()
             .find(|s| s.start_car && s.group == self.0)
             .and_then(|s| s.prototype.as_ref());
-        world
-            .prototypes
-            .iter()
-            .find(|p| Some(&p.source) == prototype)
+        prototype
+            .and_then(|p| world.prototypes.find(p))
             .and_then(|p| p.vehicle.as_ref())
             .and_then(|v| usize::try_from(v.car_type).ok())
             .and_then(|t| reference.acquisition.rules.car_type_to_item_index.get(t))

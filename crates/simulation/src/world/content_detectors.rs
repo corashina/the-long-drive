@@ -94,18 +94,7 @@ impl WorldStream {
         let parent = content.content.placement.id.clone();
         let rules = &self.contents.rules;
         let reference = &self.reference;
-        let prototype = reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == content.content.placement.prototype)
-            .ok_or_else(|| ReferenceError("Metal detector prototype missing".into()))?;
-        let index = |link: &SourceId| -> Result<usize, ReferenceError> {
-            prototype
-                .nodes
-                .iter()
-                .position(|n| &n.source == link)
-                .ok_or_else(|| ReferenceError("Metal detector node outside its prototype".into()))
-        };
+        let prototype = reference.prototype(&content.content.placement.prototype)?;
         let f = rules.get(reference, script)?.fields;
         // Source queries ignore triggers. The scan excludes sensors.
         if integer(f, "detectorTriggerInteraction")? != 1 {
@@ -151,7 +140,8 @@ impl WorldStream {
             ],
             lerp_speed: number(f, "valueLerpSpeed")?,
         };
-        let (transform, _) = prototype.root_relative(index(link(f, "detectorTransform")?)?);
+        let (transform, _) =
+            prototype.root_relative(prototype.node(link(f, "detectorTransform")?)?);
         // meterscript row of meterType drives one mutatoscript.
         let kind = text(f, "meterType")?;
         let meter = rules.get(reference, link(f, "meter")?)?.fields;
@@ -182,7 +172,7 @@ impl WorldStream {
         let node = link(n, "mutato")?;
         let multiplier = number(n, "lerpSpeedMultiplier")?;
         let needle = DetectorNeedle {
-            node: index(node)?,
+            node: prototype.node(node)?,
             pose: rules.node(reference, node)?.pose,
             axis,
             inv: flag(n, "inv")?,
@@ -235,7 +225,7 @@ impl WorldStream {
         let hits = Vec::with_capacity(detector_rules.hits.max(16));
         let electronics = optional(f, "electronics")?
             .map(|e| -> Result<_, ReferenceError> {
-                let node = index(rules.root(reference, e)?)?;
+                let node = prototype.node(rules.root(reference, e)?)?;
                 Ok(NodeElectronics {
                     node: node as u32,
                     layer: u32::from(prototype.nodes[node].layer),

@@ -109,15 +109,10 @@ impl WorldStream {
             let prototype = self
                 .reference
                 .prototypes
-                .iter()
-                .find(|p| p.source == instance.placement.prototype)
+                .find(&instance.placement.prototype)
                 .unwrap();
             let root = self.contents.rules.root(&self.reference, &source)?;
-            let root_index = prototype
-                .nodes
-                .iter()
-                .position(|n| &n.source == root)
-                .ok_or_else(|| ReferenceError("Generated lamp controller root missing".into()))?;
+            let root_index = prototype.node(root)?;
             let baseline = ObjectSnapshot {
                 conditions: Vec::new(),
                 pose: instance.placement.pose,
@@ -177,8 +172,7 @@ impl WorldStream {
             let prototype = self
                 .reference
                 .prototypes
-                .iter()
-                .find(|p| p.source == instance.placement.prototype)
+                .find(&instance.placement.prototype)
                 .unwrap();
             let control = interaction.allocate_generated_light()?;
             for (source, handle) in &instance.colliders {
@@ -249,8 +243,7 @@ impl WorldStream {
             let prototype = self
                 .reference
                 .prototypes
-                .iter()
-                .find(|p| p.source == instance.placement.prototype)
+                .find(&instance.placement.prototype)
                 .unwrap();
             let appearance = self.contents.appearance(&binding.parent);
             for (source, handle) in &instance.colliders {

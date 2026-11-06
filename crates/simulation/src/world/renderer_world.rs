@@ -442,8 +442,7 @@ pub(super) fn hold_cost(
             crate::world::road::road_prototype_bytes(
                 reference
                     .prototypes
-                    .iter()
-                    .find(|p| &p.source == source)
+                    .find(source)
                     .expect("validated road prototype"),
             )
         });

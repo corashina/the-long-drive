@@ -369,8 +369,7 @@ impl WorldStream {
             let prototype = reference
                 .world
                 .prototypes
-                .iter()
-                .find(|p| p.source == instance.placement.prototype)
+                .find(&instance.placement.prototype)
                 .unwrap();
             let mut content =
                 crate::world::contents::ContentInstance::for_structure(instance.placement.clone());
@@ -541,8 +540,7 @@ impl WorldStream {
             let prototype = self
                 .reference
                 .prototypes
-                .iter()
-                .find(|p| p.source == placement.prototype)
+                .find(&placement.prototype)
                 .unwrap();
             let hose = reference
                 .item_prototypes
@@ -972,8 +970,7 @@ impl WorldStream {
                 let prototype = reference
                     .world
                     .prototypes
-                    .iter()
-                    .find(|p| p.source == instance.placement.prototype)
+                    .find(&instance.placement.prototype)
                     .unwrap();
                 for (source, handle) in &instance.colliders {
                     let collider = prototype
@@ -1383,11 +1380,7 @@ fn bind_pickup(
         .position(|b| prototype.nodes[b.node as usize].source == *root)
         .ok_or_else(|| ReferenceError("Generated pickup has no source body".into()))?;
     let body = instance.bodies[body_index];
-    let pickup_node = prototype
-        .nodes
-        .iter()
-        .position(|n| &n.source == root)
-        .ok_or_else(|| ReferenceError("Generated pickup transform missing".into()))?;
+    let pickup_node = prototype.node(root)?;
     let placement = &content.content.placement;
     let pickup_pose = crate::world::placement::place_pose(
         placement.pose,
@@ -1459,10 +1452,7 @@ fn bind_pickup(
         interaction.register_generated_pickup(id, rule.clone(), layers, container);
         // pickupable `RightHandPos` and `LeftHandPos` are Transforms under the pickupable.
         let grip = |source: &Option<crate::reference::SourceId>| {
-            let index = prototype
-                .nodes
-                .iter()
-                .position(|n| Some(&n.source) == source.as_ref())?;
+            let index = prototype.nodes.index(source.as_ref()?)?;
             Some(to_rapier(crate::world::node_frame(
                 prototype,
                 pickup_node,

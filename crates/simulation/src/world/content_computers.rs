@@ -258,10 +258,7 @@ impl WorldStream {
     ) -> Result<Vec<ColliderId>, ReferenceError> {
         let prototype = self
             .reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == reference.computer.display.prototype)
-            .ok_or_else(|| ReferenceError("Display prototype missing".into()))?;
+            .prototype(&reference.computer.display.prototype)?;
         let switch = &reference.computer.display.switch.node;
         let mut knobs = Vec::new();
         for (source, handle) in self

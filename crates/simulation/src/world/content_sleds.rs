@@ -146,12 +146,7 @@ impl WorldStream {
             .and_then(|i| i.body)
             .ok_or_else(|| ReferenceError("Sled item has no body".into()))?;
         let placement = &self.contents.active()[slot].content.placement;
-        let prototype = self
-            .reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == placement.prototype)
-            .ok_or_else(|| ReferenceError("Sled prototype missing".into()))?;
+        let prototype = self.reference.prototype(&placement.prototype)?;
         let reference = prototype
             .sled
             .as_ref()
