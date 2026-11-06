@@ -4,7 +4,7 @@ use crate::audio::interiors::WorldInteriors;
 use crate::interaction::items::ItemStore;
 use crate::reference::{ColliderId, ItemId, ReferenceManifest};
 use crate::vehicle::{PhysicsWorld, VehiclePose};
-use crate::weather::{ImportantObject, InteriorVolume};
+use crate::weather::{ImportantObject, InteriorVolume, Shelter};
 use rapier3d::math::{Rotation, Vector};
 use rapier3d::prelude::{Collider, ColliderHandle, QueryFilter, Ray, RigidBodyHandle};
 use std::collections::HashMap;
@@ -18,8 +18,8 @@ pub(super) struct WeatherBindings {
     garage: Vec<ColliderHandle>,
     world: WorldInteriors,
     volumes: Vec<InteriorVolume>,
-    /// Rain loop blend: 0 plays the outside loop, 1 plays the inside loop.
-    shelter: f32,
+    /// Rain loop blends by `Shelter` index: outside, building roof and car roof.
+    shelter: [f32; 3],
 }
 
 /// Shelter blend change per second.
@@ -46,7 +46,7 @@ impl WeatherBindings {
             world: WorldInteriors::new(garage.len()),
             volumes: Vec::with_capacity(garage.len() + 256),
             garage,
-            shelter: 0.,
+            shelter: [1., 0., 0.],
         }
     }
 
@@ -93,14 +93,20 @@ impl WeatherBindings {
         }
     }
 
-    /// True when `point` is inside a live interior volume.
-    fn sheltered(&self, physics: &PhysicsWorld, point: [f32; 3]) -> bool {
+    /// True when `point` is inside a live interior volume. Volumes of the `open` body do not count.
+    fn inside(
+        &self,
+        physics: &PhysicsWorld,
+        point: [f32; 3],
+        open: Option<RigidBodyHandle>,
+    ) -> bool {
         let point = Vector::from_array(point);
         let colliders = &physics.rapier().colliders;
         self.volumes.iter().any(|v| {
-            colliders
-                .get(v.collider)
-                .is_some_and(|c| c.shape().contains_point(c.position(), point))
+            (open.is_none() || v.root != open)
+                && colliders
+                    .get(v.collider)
+                    .is_some_and(|c| c.shape().contains_point(c.position(), point))
         })
     }
 
@@ -138,7 +144,26 @@ impl GarageRuntime {
             .reserve_bodies(self.physics.rapier().bodies.len());
         let local = self.area.player.body_pose(&self.physics).position;
         let player = self.stream.origin.absolute(local);
-        self.weather.sheltered = bindings.sheltered(&self.physics, local);
+        // A roofless vehicle seat (bike, cabrio) is open. Its own interior volume gives no cover.
+        let roof = self
+            .area
+            .player
+            .seat_vehicle()
+            .and_then(|key| self.vehicles.get(key))
+            .is_some_and(|v| {
+                crate::weather::vehicle_roof(
+                    reference.world.prototypes[v.prototype].root_name(),
+                    crate::car::world_vehicle(reference, v.prototype)
+                        .balance
+                        .is_some(),
+                )
+            });
+        let open = self
+            .area
+            .player
+            .seat_vehicle()
+            .and(self.area.player.seat_body());
+        self.weather.shelter = Shelter::new(roof, || bindings.inside(&self.physics, local, open));
         let stream = &mut self.stream;
         self.weather
             .advance_cells(dt, player, self.net_guest, |xz| stream.biome_at(xz));
@@ -190,9 +215,15 @@ impl GarageRuntime {
         );
         self.advance_tumbleweeds(reference, dt);
         let bindings = &mut self.weather_bindings;
-        let target = if self.weather.sheltered { 1. } else { 0. };
-        bindings.shelter +=
-            (target - bindings.shelter).clamp(-SHELTER_FADE * dt, SHELTER_FADE * dt);
+        let step = SHELTER_FADE * dt;
+        for (i, blend) in bindings.shelter.iter_mut().enumerate() {
+            let target = if i == self.weather.shelter as usize {
+                1.
+            } else {
+                0.
+            };
+            *blend += (target - *blend).clamp(-step, step);
+        }
         use crate::audio::{AudioAction, AudioKind, SurvivalAudioEvent};
         while let Some(thunder) = self.weather.lightning.pop_thunder() {
             let Some(audio) = &mut self.audio else {
@@ -226,10 +257,10 @@ impl GarageRuntime {
         };
         let rain = self.weather.mix().rain;
         let shelter = bindings.shelter;
-        for (kind, blend) in [
-            (AudioKind::Rain, 1. - shelter),
-            (AudioKind::RainInside, shelter),
-        ] {
+        for (kind, blend) in [AudioKind::Rain, AudioKind::RainInside, AudioKind::RainCar]
+            .into_iter()
+            .zip(shelter)
+        {
             let gain = rain * blend;
             if gain > 0. {
                 let row = audio

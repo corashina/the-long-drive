@@ -310,7 +310,7 @@ impl GarageRuntime {
         frame.weather = crate::boundary::WeatherFrame {
             rain: mix.rain,
             flash: mix.flash,
-            sheltered: self.weather.sheltered,
+            shelter: self.weather.shelter,
         };
         frame.lights.clear();
         frame.lights.extend_from_slice(lighting.light_outputs());

@@ -939,8 +939,8 @@ pub struct WeatherFrame {
     pub rain: f32,
     /// `WeatherMix::flash`, 0..1.
     pub flash: f32,
-    /// The player capsule is inside a live interior volume.
-    pub sheltered: bool,
+    /// The rain cover of the player.
+    pub shelter: crate::weather::Shelter,
 }
 
 /// What the renderer needs to build a new handle's visual.

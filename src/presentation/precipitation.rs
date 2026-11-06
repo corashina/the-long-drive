@@ -92,7 +92,11 @@ fn snapshot(
     input.rain = weather.rain;
     input.count = (display.rain_drops() as f32 * weather.rain).round() as u32;
     input.fall = (input.fall + FALL_SPEED * dt).rem_euclid(BOX);
-    let target = if weather.sheltered { 1. } else { 0. };
+    let target = if weather.shelter == simulation::weather::Shelter::None {
+        0.
+    } else {
+        1.
+    };
     let step = dt / SHELTER_SECONDS;
     input.shelter += (target - input.shelter).clamp(-step, step);
 }

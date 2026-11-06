@@ -50,11 +50,17 @@ def normalize(signal, peak):
     return signal * (peak / np.max(np.abs(signal)))
 
 
-def rain(random, seconds, inside):
+def rain(random, seconds, place):
+    """`place` is outside, inside (a building roof) or car (a thin metal car roof)."""
     frames = int(seconds * RATE)
     channels = []
     for _ in range(2):
-        if inside:
+        if place == 'car':
+            # Rain on a car roof: a close drum of metal pings over a low wash.
+            wash = shaped_noise(random, frames, band(120, 2500))
+            taps = drops(random, frames, int(seconds * 250), (900, 2600), .006, True)
+            signal = wash + .8 * normalize(taps, np.std(wash) * 7)
+        elif place == 'inside':
             # Rain on a roof: muffled wash and dull taps.
             wash = shaped_noise(random, frames, band(60, 900))
             taps = drops(random, frames, int(seconds * 90), (180, 700), .012, True)
@@ -104,11 +110,13 @@ def write_ogg(name, signal, bit_rate):
 def main():
     random = np.random.default_rng(20261106)
     OUTPUT.mkdir(exist_ok=True)
-    write_ogg('rain-outside.ogg', rain(random, 8, False), 64000)
-    write_ogg('rain-inside.ogg', rain(random, 8, True), 48000)
+    write_ogg('rain-outside.ogg', rain(random, 8, 'outside'), 64000)
+    write_ogg('rain-inside.ogg', rain(random, 8, 'inside'), 48000)
     write_ogg('thunder-1.ogg', thunder(random, 6, True, .05), 32000)
     write_ogg('thunder-2.ogg', thunder(random, 7, False, .2), 32000)
     write_ogg('thunder-3.ogg', thunder(random, 8, False, .5), 32000)
+    # Last, so the random stream of the clips above does not change.
+    write_ogg('rain-car.ogg', rain(random, 8, 'car'), 48000)
 
 
 if __name__ == '__main__':

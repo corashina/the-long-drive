@@ -197,7 +197,7 @@ fn frame_round_trips() {
         weather: WeatherFrame {
             rain: 0.75,
             flash: 0.,
-            sheltered: true,
+            shelter: crate::weather::Shelter::Car,
         },
         lights: vec![LightOutput::default()],
         lamp_materials: Vec::new(),
