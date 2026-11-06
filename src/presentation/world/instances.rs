@@ -558,11 +558,7 @@ impl SourceInstances {
                 .pending_structures()
                 .iter()
                 .filter(|p| selectable(p) && !self.instances.iter().any(|i| i.placement.id == p.id))
-                .min_by(|a, b| {
-                    stream
-                        .focus_distance_squared(a.pose.position)
-                        .total_cmp(&stream.focus_distance_squared(b.pose.position))
-                })
+                .min_by(|a, b| stream.load_order(a, b))
                 .cloned();
         }
         self.prepare_calls += 1;
