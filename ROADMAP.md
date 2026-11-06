@@ -48,6 +48,5 @@ Test on the PC after all rows: the section test pass in plan.md, with a bench co
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| WX7 | Car cabin shelter | S | A roofed car cabin is a shelter. Rain-on-roof loop. |
 | WX8 | Spray and glass drops | M | Wheel spray on wet roads. Drops on the windshield of the seated car. |
 | WX11 | Multiplayer and save v2 | S | Wind in the save. Wind and snow cover in the cells message. |
