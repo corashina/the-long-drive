@@ -31,6 +31,56 @@ impl GarageRuntime {
     pub fn restore_pending(&self) -> bool {
         self.pending_restore.as_ref().is_some_and(|p| !p.ready)
     }
+    /// Why the saved restore or the world support waits, for test failures.
+    #[cfg(test)]
+    pub fn restore_blocker(&self) -> String {
+        let mut out = String::new();
+        if let Some(p) = &self.pending_restore {
+            let owners: Vec<_> = p
+                .items
+                .iter()
+                .map(|item| {
+                    let ItemLocationSave::GeneratedAttachment { attachment } = &item.location
+                    else {
+                        return String::from("not an attachment");
+                    };
+                    format!(
+                        "{:?} owner_ready={:?} link_required={} at {:?}",
+                        attachment.owner,
+                        attachment
+                            .owner
+                            .as_ref()
+                            .map(|key| self.stream.save_owner_ready(key, &self.area.items)),
+                        self.stream.save_link_required(item.pose.position),
+                        item.pose.position,
+                    )
+                })
+                .collect();
+            out += &format!(
+                "pending ready={} items={} carry={} inventory={} seat={} bindings_ready={} required_ready={} items: {owners:#?}\n",
+                p.ready,
+                p.items.len(),
+                p.carry.is_some(),
+                p.inventory.is_some(),
+                p.seat.is_some(),
+                self.stream.saved_bindings_ready(&self.area.items),
+                self.stream.required_ready(),
+            );
+        }
+        out += &format!(
+            "aligned={} generation_ready={} ranges grounded={:?} waits={:?} vehicles={:?}",
+            self.startup_aligned,
+            self.stream.initial_generation_ready(),
+            self.stream
+                .collision_ranges()
+                .map(|b| self.stream.grounded(b)),
+            self.stream
+                .collision_ranges()
+                .map(|b| self.persistent_world.waits_for(b)),
+            self.vehicles.keys().collect::<Vec<_>>(),
+        );
+        out
+    }
     pub fn has_deferred_save_links(&self) -> bool {
         self.pending_restore.is_some()
     }

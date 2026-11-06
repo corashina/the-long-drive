@@ -30,7 +30,11 @@ fn tp_k5_s1_a_stored_save_starts_the_session_and_its_restore_finishes() {
     // The restore the session frames run.
     let mut loaded = load(&reference, &saved);
     seconds(&mut loaded, &reference, 1.);
-    assert!(loaded.world_supported(), "the loaded world is ready");
+    assert!(
+        loaded.world_supported(),
+        "the loaded world is ready: {}",
+        loaded.restore_blocker()
+    );
     // After a death, the pause menu Load opens the same stored save.
     run.survival
         .damage_instant(&reference.survival, reference.survival.maximum.hp);

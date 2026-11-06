@@ -357,7 +357,11 @@ pub(crate) fn restore(
             break;
         }
     }
-    assert!(!run.restore_pending(), "restore stays pending");
+    assert!(
+        !run.restore_pending(),
+        "restore stays pending: {}",
+        run.restore_blocker()
+    );
     run.started = true;
     run.paused = false;
 }
