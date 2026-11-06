@@ -1,4 +1,4 @@
-use super::{TerrainPoll, TerrainWorker};
+use super::{TerrainPoll, TerrainWorker, TileInput};
 use crate::reference::ReferenceError;
 use crate::world::{SurfaceKey, TerrainTile, WorldRequest, WorldSurface};
 
@@ -27,8 +27,7 @@ pub(in crate::world) struct TerrainMetadata {
     pub key: SurfaceKey,
     pub tile: TerrainTile,
     pub pending_bytes: usize,
-    /// Hash of the encoded job input. Equal inputs build equal tiles.
-    pub input: u64,
+    pub input: TileInput,
 }
 
 pub(in crate::world) struct CompletedTerrain {
@@ -45,9 +44,17 @@ impl TerrainExecution {
         self.pending.is_some()
     }
 
-    /// Hash of the running job input.
-    pub(in crate::world) fn input(&self) -> Option<u64> {
-        self.pending.as_ref().map(|pending| pending.metadata.input)
+    /// Key and input of the running job.
+    pub(in crate::world) fn input(&self) -> Option<(SurfaceKey, TileInput)> {
+        self.pending
+            .as_ref()
+            .map(|pending| (pending.metadata.key, pending.metadata.input))
+    }
+
+    pub(in crate::world) fn set_input(&mut self, input: TileInput) {
+        if let Some(pending) = &mut self.pending {
+            pending.metadata.input = input;
+        }
     }
 
     pub(in crate::world) fn pending_bytes(&self) -> usize {

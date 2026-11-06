@@ -1,6 +1,6 @@
 //! Bounded source generation. Publication uses absolute geometry and the current physics origin.
 use super::road_worker::{RoadJobId, RoadLayout, RoadPoll, RoadWorker};
-use super::terrain::{CompletedTerrain, TerrainExecution, TerrainMetadata};
+use super::terrain::{CompletedTerrain, TerrainExecution, TerrainMetadata, TileInput};
 use super::{
     AbsolutePose, Placement, PlacementIndex, RoadIndex, RoadSegment, RoadSequence, StartupTerrain,
     TerrainContext, TerrainEvaluator, TerrainFoundation, TerrainJob, TerrainRoadPoint, TerrainTile,
@@ -166,8 +166,8 @@ struct PreparedSurface {
     renderer_reserved: bool,
     /// The request at creation. It names the surface to the renderer and never changes.
     request: WorldRequest,
-    /// Terrain job input hash. None for a road.
-    input: Option<u64>,
+    /// Terrain job input. None for a road.
+    input: Option<TileInput>,
     /// The inputs of the reserved surface changed. The renderer discards it.
     stale: bool,
     published: PublishedSurface,
@@ -296,8 +296,11 @@ pub struct WorldStream {
     structure_focus: [[f64; 3]; 2],
     planned_road_focus: [[f64; 3]; 2],
     terrain_context_dirty: bool,
-    /// The terrain context changed. Running and ready terrain wait for a check of their input.
-    terrain_check: bool,
+    /// Bumps when the terrain context changes. Running and ready terrain at an older
+    /// revision wait for a check of their input.
+    terrain_revision: u64,
+    /// Reused by `terrain_input` and `check_terrain_input`.
+    terrain_scratch: TerrainScratch,
     selection_changes: u64,
     road_candidates: Vec<u32>,
     next_road: usize,
@@ -923,7 +926,8 @@ impl WorldStream {
             structure_focus: [[f64::INFINITY; 3]; 2],
             planned_road_focus: [[f64::INFINITY; 3]; 2],
             terrain_context_dirty: false,
-            terrain_check: false,
+            terrain_revision: 0,
+            terrain_scratch: TerrainScratch::default(),
             selection_changes: 0,
             road_candidates: Vec::new(),
             next_road: 0,
@@ -1222,7 +1226,8 @@ impl WorldStream {
                 "renderer_reserved": w.renderer_reserved,
                 "current": self.surface_current(w),
                 "stale": w.stale,
-                "terrain_check": self.terrain_check,
+                "input_revision": w.input.map(|input| input.revision),
+                "terrain_revision": self.terrain_revision,
             })
         });
         let (want, waits) = self.ledger.last_wait();
@@ -1696,9 +1701,7 @@ impl WorldStream {
         {
             return;
         }
-        if self.terrain_check
-            && let Err(error) = self.check_terrain_input()
-        {
+        if let Err(error) = self.check_terrain_input() {
             self.failure = Some(error.0);
             return;
         }
@@ -2771,7 +2774,7 @@ impl WorldStream {
         }
         if self.terrain_context_dirty {
             self.ground.terrain_changed();
-            self.terrain_check = true;
+            self.terrain_revision += 1;
         }
         self.terrain_context_dirty = false;
         self.selection_changes = self.changes.revision();
@@ -3381,7 +3384,7 @@ impl WorldStream {
             #[cfg(target_arch = "wasm32")]
             let _profile =
                 crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::TerrainInputPreparation);
-            let mut input = Vec::new();
+            let mut input = Vec::with_capacity(self.terrain_scratch.encoded.capacity());
             if let Err(error) = self.terrain_input(key, &mut input) {
                 self.failure = Some(error.0);
                 return;
@@ -3392,7 +3395,7 @@ impl WorldStream {
                     request: self.request,
                     key,
                     tile,
-                    input: input_hash(&input),
+                    input: TileInput::new(self.terrain_revision, &input),
                 },
                 input,
             );
@@ -3407,53 +3410,83 @@ impl WorldStream {
         key: SurfaceKey,
         input: &mut Vec<u8>,
     ) -> Result<(), ReferenceError> {
+        let mut scratch = std::mem::take(&mut self.terrain_scratch);
+        let result = self.encode_terrain_input(key, &mut scratch, input);
+        self.terrain_scratch = scratch;
+        result
+    }
+    fn encode_terrain_input(
+        &mut self,
+        key: SurfaceKey,
+        scratch: &mut TerrainScratch,
+        input: &mut Vec<u8>,
+    ) -> Result<(), ReferenceError> {
         let tier = layer_tier(key.layer);
         let tile = self.tiles[tier];
-        let mut foundations = Vec::new();
-        let mut holes = Vec::new();
-        let mut generated = Vec::new();
-        let mut roads = Vec::new();
+        let TerrainScratch {
+            foundations,
+            holes,
+            generated,
+            roads,
+            ..
+        } = scratch;
+        foundations.clear();
+        holes.clear();
         if tier == 0 {
-            self.tile_foundations(key.unit, &mut holes, &mut foundations, &mut generated)?;
+            self.tile_foundations(key.unit, holes, foundations, generated)?;
         }
-        tile_roads(&self.road_points, key.unit, tile, &mut roads);
-        input.clear();
+        tile_roads(&self.road_points, key.unit, tile, roads);
         TerrainJob {
             settings: self.evaluator.settings(),
             unit: key.unit,
             tile,
             biome_override: self.mode.biome_override(),
-            roads: &roads,
-            foundations: &foundations,
-            holes: &holes,
+            roads,
+            foundations,
+            holes,
         }
         .encode(input);
         Ok(())
     }
+    /// True if the input of tile `key` is still `input` at the current terrain revision.
+    /// Encodes only when the revision changed since the last check.
+    fn terrain_input_current(
+        &mut self,
+        key: SurfaceKey,
+        input: &mut TileInput,
+    ) -> Result<bool, ReferenceError> {
+        let mut encoded = std::mem::take(&mut self.terrain_scratch.encoded);
+        let result = input.current(self.terrain_revision, &mut encoded, |out| {
+            self.terrain_input(key, out)
+        });
+        self.terrain_scratch.encoded = encoded;
+        result
+    }
     /// Drops running and ready terrain whose input changed since its job started.
     fn check_terrain_input(&mut self) -> Result<(), ReferenceError> {
-        let mut input = Vec::new();
-        if let Some(key) = self.terrain_execution.key() {
-            self.terrain_input(key, &mut input)?;
-            if self.terrain_execution.input() != Some(input_hash(&input)) {
+        let _timer = super::stream_profile::Timer::new(super::stream_profile::Stage::TerrainCheck);
+        if let Some((key, mut input)) = self.terrain_execution.input() {
+            if self.terrain_input_current(key, &mut input)? {
+                self.terrain_execution.set_input(input);
+            } else {
                 self.terrain_execution.reconcile(self.request, false);
             }
         }
-        if let Some((key, hash)) = self
+        if let Some((key, mut input)) = self
             .ready
             .as_ref()
-            .and_then(|work| work.input.map(|hash| (work.published.key, hash)))
+            .and_then(|work| work.input.map(|input| (work.published.key, input)))
         {
-            self.terrain_input(key, &mut input)?;
-            if hash != input_hash(&input) {
-                if self.ready.as_ref().unwrap().renderer_reserved {
-                    self.ready.as_mut().unwrap().stale = true;
-                } else {
-                    self.discard_unreserved_surface();
-                }
+            let current = self.terrain_input_current(key, &mut input)?;
+            let work = self.ready.as_mut().unwrap();
+            if current {
+                work.input = Some(input);
+            } else if work.renderer_reserved {
+                work.stale = true;
+            } else {
+                self.discard_unreserved_surface();
             }
         }
-        self.terrain_check = false;
         Ok(())
     }
     /// Startup holes and terrain foundations of near tile `unit`, in tile job order.
@@ -3738,7 +3771,9 @@ impl WorldStream {
                 self.plan_revision == self.request.revision
                     && self.next_road == self.road_candidates.len()
             }
-            None => !self.terrain_check,
+            None => work
+                .input
+                .is_some_and(|input| input.revision == self.terrain_revision),
         };
         admitted && work.renderer_ready && settled && self.surface_current(work)
     }
@@ -3786,8 +3821,10 @@ impl WorldStream {
         self.publication_available = false;
         let mut work = self.ready.take().unwrap();
         let road = work.published.road.is_some();
-        let _publication = road.then(|| {
-            super::stream_profile::Timer::new(super::stream_profile::Stage::RoadPublication)
+        let _publication = super::stream_profile::Timer::new(if road {
+            super::stream_profile::Stage::RoadPublication
+        } else {
+            super::stream_profile::Stage::TerrainPublication
         });
         if road {
             self.road_worker.publication_started();
@@ -5494,11 +5531,14 @@ struct HelperKey {
     startup: Option<usize>,
 }
 
-fn input_hash(input: &[u8]) -> u64 {
-    use std::hash::Hasher;
-    let mut hasher = std::hash::DefaultHasher::new();
-    hasher.write(input);
-    hasher.finish()
+/// Reused buffers of the terrain job input.
+#[derive(Default)]
+struct TerrainScratch {
+    foundations: Vec<TerrainFoundation>,
+    holes: Vec<[[f32; 3]; 4]>,
+    generated: Vec<super::FoundationPoint>,
+    roads: Vec<TerrainRoadPoint>,
+    encoded: Vec<u8>,
 }
 fn same_request(a: WorldRequest, b: WorldRequest) -> bool {
     a.session == b.session && a.revision == b.revision

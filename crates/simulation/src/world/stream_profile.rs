@@ -55,8 +55,11 @@ pub enum Stage {
     SelectUnbound,
     SelectInstances,
     SelectLights,
+    /// Sub-stages of `StreamGeometry` and `Publication`.
+    TerrainCheck,
+    TerrainPublication,
 }
-const STAGES: usize = 46;
+const STAGES: usize = 48;
 const NAMES: [&str; STAGES] = [
     "Cleanup",
     "FixedInputs",
@@ -104,6 +107,8 @@ const NAMES: [&str; STAGES] = [
     "SelectUnbound",
     "SelectInstances",
     "SelectLights",
+    "TerrainCheck",
+    "TerrainPublication",
 ];
 #[derive(Clone, Copy, Default, serde::Serialize)]
 struct Measurement {
