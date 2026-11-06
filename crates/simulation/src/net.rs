@@ -108,7 +108,9 @@ impl Net {
     /// Marks `runtime` for the role before each step, also the first after a load. Source
     /// `isServerOrNoMulti`. A guest spawns no rabbits or weeds. Guest spawn serials start at
     /// `slot << 24`, so a host spawn never takes the serial of a guest spawn. A new guest steps off
-    /// the host spot once its world stands and the save restore is complete.
+    /// the host spot once its world stands. `world_supported` waits for the save restore, so the
+    /// saved seat is back first. Attachments to far owners can stay deferred for the whole session,
+    /// so they do not hold the step.
     pub fn prepare(&mut self, runtime: &mut GarageRuntime) {
         runtime.net_guest = self.role == NetRole::Guest;
         if runtime.net_guest {
@@ -117,12 +119,7 @@ impl Net {
                 .spawned
                 .reserve_serials(u32::from(self.slot) << 24);
         }
-        if self.step_aside
-            && runtime.started
-            && runtime.startup_aligned
-            && !runtime.has_deferred_save_links()
-            && runtime.world_supported()
-        {
+        if self.step_aside && runtime.started && runtime.world_supported() {
             self.step_aside = false;
             runtime.step_aside(f32::from(self.slot) / MAX_PLAYERS as f32);
         }
