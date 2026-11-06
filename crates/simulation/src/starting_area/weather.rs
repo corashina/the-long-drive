@@ -149,6 +149,7 @@ impl GarageRuntime {
             dt,
             player,
             desert_weight,
+            self.net_guest,
             |point| stream.terrain_sample(point),
         );
         self.physics.set_wetness(self.weather.mix().wetness);

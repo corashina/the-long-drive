@@ -62,6 +62,10 @@ pub const VELOCITY: u8 = 19;
 pub const REMOVE: u8 = 48;
 /// Port only. The source sends an AI as a save item (`itemPosUpd`). Port rabbits are not items.
 pub const CREATURE: u8 = 64;
+/// Port only. The source has no weather cycle.
+pub const WEATHER: u8 = 65;
+/// Port only. The source has no lightning.
+pub const STRIKE: u8 = 66;
 pub const HEADER: usize = 2;
 /// Outbox length prefix bit. With it, `web/net.js` sends the packet on the reliable connection.
 pub const RELIABLE: u16 = 0x8000;
@@ -167,6 +171,25 @@ pub struct BodyMessage {
 pub struct TimeMessage {
     /// `CycleState::cycle_seconds`.
     pub cycle_seconds: f64,
+}
+
+/// The host weather cycle. Kinds are `WeatherKind` values.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct WeatherMessage {
+    pub current: u32,
+    pub next: u32,
+    pub blend: f32,
+    pub wetness: f32,
+    pub remaining: f32,
+    pub locked: u32,
+}
+
+/// One host lightning strike at an absolute position.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct StrikeMessage {
+    pub position: [f64; 3],
 }
 
 /// Source `SSound`: a fart, shit or burp at a world position.
@@ -544,6 +567,13 @@ impl Message for RadioMessage {
 }
 impl Message for TimeMessage {
     const TYPE: u8 = TIME;
+}
+impl Message for WeatherMessage {
+    const TYPE: u8 = WEATHER;
+}
+impl Message for StrikeMessage {
+    const TYPE: u8 = STRIKE;
+    const RELIABLE: bool = true;
 }
 impl Message for SoundMessage {
     const TYPE: u8 = SOUND;
