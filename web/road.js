@@ -49,8 +49,7 @@ export function createRoad(worker,profile,now=()=>performance.now()){
   link.diagnostic(()=>{if(record)record.messageSubmitMs=metric(now()-record.messageSubmitStart);});
  };
  const api={
-  profileHandshake:link.profileHandshake,
-  profileState:()=>({jobActive:Boolean(job?.profiled||sources.some(s=>s?.profiled)),handshakeActive:link.handshakePending(),publicationActive:publishedRecord!==null}),
+  profileState:()=>({jobActive:Boolean(job?.profiled||sources.some(s=>s?.profiled)),publicationActive:publishedRecord!==null}),
   wasmBytes:link.wasmBytes,
   initialized(){link.live();return link.initialized();},
   capacityLimit(bytes){link.live();link.capacityLimit(bytes);},
@@ -68,7 +67,7 @@ export function createRoad(worker,profile,now=()=>performance.now()){
    const view=new DataView(input.buffer,input.byteOffset,input.byteLength),owner=view.getUint32(0,true),revision=view.getBigUint64(4,true).toString(),source=sources[owner];
    if(!source||source.identity.session!==identity.session||source.identity.revision!==revision)throw Error('Road source is not installed.');
    const id={...identity},origin=[view.getFloat64(12,true),view.getFloat64(20,true),view.getFloat64(28,true)];
-   let record=null;link.diagnostic(()=>{if(!link.clock())link.profileHandshake();record={kind:'road',phase:'job',identity:id,inputBytes:input.byteLength,inputPackingMs:packingMs,retainedSourceBytes:sources.reduce((sum,s)=>sum+(s?.layout[6]??0),0),reservedJobBytes:source.layout[7],workerScratchBytes:source.layout[8],reservedInstallCopyBytes:sources.reduce((sum,s)=>sum+(s?.pending?s.installBytes*3:0),0)};});packingMs=null;
+   let record=null;link.diagnostic(()=>{record={kind:'road',phase:'job',identity:id,inputBytes:input.byteLength,inputPackingMs:packingMs,retainedSourceBytes:sources.reduce((sum,s)=>sum+(s?.layout[6]??0),0),reservedJobBytes:source.layout[7],workerScratchBytes:source.layout[8],reservedInstallCopyBytes:sources.reduce((sum,s)=>sum+(s?.pending?s.installBytes*3:0),0)};});packingMs=null;
    job={identity:id,source:owner,layout:source.layout,origin,record,canceled:false,profiled:Boolean(record)};state='Busy';lastSequence=BigInt(id.sequence);
    copyPost({type:'evaluate',identity:id,source:{owner,revision}},input,record);
   },
@@ -90,9 +89,8 @@ export function createRoad(worker,profile,now=()=>performance.now()){
  api.installRaw=(bytes,input,layout)=>api.install({...fromBytes(bytes),layout:Array.from(layout)},input);
  api.submitRaw=(bytes,input)=>api.submit(fromBytes(bytes),input);
  api.readRaw=(origin,vertices,normals,tangents,uv,triangles,submeshes)=>api.read({origin,vertices,normals,tangents,uv,triangles,submeshes});
- link.profileHandshake();
  return api;
 }
 export function installRoadBridge(target,profile){
- return installWorkerClients(target,'gameRoadCreate',new URL('./road-worker.js',import.meta.url),createRoad,profile);
+ return installWorkerClients(target,'gameRoadCreate',new URL('./mesh-worker.js?job=road',import.meta.url),createRoad,profile);
 }

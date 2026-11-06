@@ -1,6 +1,5 @@
-//! Web Worker entry for source terrain tile jobs. It owns its own WASM memory.
+//! Source terrain tile jobs.
 use wasm_bindgen::prelude::*;
-use wasm_heap as _;
 
 /// Each getter moves one attribute out once, as a flat array.
 #[wasm_bindgen]
@@ -29,7 +28,7 @@ impl TerrainSurface {
 }
 
 #[wasm_bindgen]
-pub fn evaluate(input: &[u8]) -> Result<TerrainSurface, JsError> {
+pub fn terrain_evaluate(input: &[u8]) -> Result<TerrainSurface, JsError> {
     terrain::evaluate(input)
         .map(TerrainSurface)
         .map_err(|error| JsError::new(&error))

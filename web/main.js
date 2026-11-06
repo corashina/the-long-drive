@@ -57,7 +57,7 @@ window.addEventListener('blur',startupBlurred);
 function stopStartupEnvironment(){startupVisibilityChanged();document.removeEventListener('visibilitychange',startupVisibilityChanged);window.removeEventListener('blur',startupBlurred);}
 cpuProfile.enable(startupCpuProfile);
 let rustCpuProfile,rustCpuAudit,profileStep=0,startupRenderTrace=startupCpuProfile?observeRenderMainThread():null;
-window.gameCpuProfile=enabled=>{cpuProfile.enable(enabled);profileStep=0;rustCpuProfile?.(enabled);simulation.profile(enabled);if(enabled)grassClients.profileHandshake();};
+window.gameCpuProfile=enabled=>{cpuProfile.enable(enabled);profileStep=0;rustCpuProfile?.(enabled);simulation.profile(enabled);};
 window.gameCpuProfileSnapshot=()=>cpuProfile.snapshot();
 // Main thread Rust stages, in the format of the worker `profile` sandbox reply.
 window.gameMainCpuAudit=()=>rustCpuAudit?JSON.parse(rustCpuAudit()):null;

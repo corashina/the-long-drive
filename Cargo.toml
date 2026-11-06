@@ -8,7 +8,7 @@ rust-version = "1.99"
 crate-type = ["cdylib", "rlib"]
 
 [workspace]
-members = ["crates/simulation", "crates/simulation-worker", "crates/terrain", "crates/terrain-worker", "crates/road-mesh", "crates/road-worker", "crates/grass-mesh", "crates/grass-worker", "crates/wasm-heap"]
+members = ["crates/simulation", "crates/simulation-worker", "crates/terrain", "crates/road-mesh", "crates/grass-mesh", "crates/mesh-worker", "crates/wasm-heap"]
 
 [dependencies]
 simulation = { path = "crates/simulation" }
