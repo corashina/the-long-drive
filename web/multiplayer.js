@@ -105,7 +105,7 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
  target.gameRemoteVoice=(slot,x,y,z,alive)=>output.place(slot,x,y,z,alive);
  hostButton.addEventListener('click',async()=>{
   storeName();say('Opening a room…');
-  try{await net.host({maxPlayers:Number(max.value),password:hostPassword.value,name:name.value,outfit:outfit.outfit});say('Room open. Share the room code above.');}
+  try{await net.host({maxPlayers:Number(max.value),password:hostPassword.value,name:name.value,outfit:outfit.outfit});say('');}
   catch{say('Cannot reach the connection server.');}
  });
  joinButton.addEventListener('click',()=>{storeName();say('Connecting…');reloadJoin({code:room.value.trim().toUpperCase(),name:name.value,password:joinPassword.value});});
