@@ -35,7 +35,7 @@ export function createSaveBridge(host=window){
   try{operation.resolve(payload?JSON.parse(payload):undefined);}catch(error){operation.reject(error);}
  };
  return {
-  capture:(autosave=false)=>request('Capture',{date:new Date().toISOString(),autosave}),
+  capture:(autosave=false,guest=false)=>request('Capture',{date:new Date().toISOString(),autosave,guest}),
   prepareNewGame:(signal,drawDistance)=>request('PrepareNewGame',{draw_distance:drawDistance},undefined,signal),
   commit(token,onDispatch){return request('Commit',token,onDispatch).finally(()=>committing.delete(token));},
   discard(token){

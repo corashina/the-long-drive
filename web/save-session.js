@@ -64,8 +64,8 @@ export function createSaveSession({storage,runtime,drawDistance,reload,onStatus=
    await write;
   });},
   load,
-  // Multiplayer host: the world for a joining guest, as JSON. Nothing is stored.
-  async share(){const {save}=await runtime.capture(true);return JSON.stringify(save);},
+  // Multiplayer host: the world for a joining guest, as JSON. Its player starts in the garage. Nothing is stored.
+  async share(){const {save}=await runtime.capture(true,true);return JSON.stringify(save);},
   remove(name){return run('remove',async()=>{await storage.remove(name);});},
   async loadLast(buildId){
    const name=lastSave(await storage.list(),buildId);

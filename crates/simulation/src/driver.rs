@@ -200,7 +200,7 @@ impl SimDriver {
             self.clear_input();
         }
         if actions & SimCommand::RESPAWN != 0 && self.net.role() != crate::net::NetRole::Off {
-            self.runtime.respawn(reference);
+            self.net.respawn(reference, &mut self.runtime);
             self.clear_input();
         }
         if actions & SimCommand::START != 0 && self.ready && !self.runtime.needs_output().menu_due {

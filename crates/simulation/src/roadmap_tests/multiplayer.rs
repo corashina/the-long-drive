@@ -12,37 +12,66 @@ fn body_position(run: &GarageRuntime) -> Vector {
     Vector::from_array(run.area.player.body_pose(&run.physics).position)
 }
 
-/// MP2. The host shares its save (`saveSession.share`), and the guest starts from it. The guest
-/// save stands where the host stood, and a seated host puts the guest in the same seat. Net then
-/// steps a walking guest aside (`GarageRuntime::step_aside`).
+/// The absolute body position of `run`. A loaded origin is at the player.
+fn absolute_body(run: &GarageRuntime) -> Vector {
+    let p = run.stream.origin.absolute(body_position(run).to_array());
+    Vector::new(p[0] as f32, p[1] as f32, p[2] as f32)
+}
+
+/// The player capsule of `run` overlaps no solid collider and stands clear of every car.
+fn stands_free(run: &GarageRuntime) -> bool {
+    use rapier3d::parry::bounding_volume::BoundingVolume;
+    use rapier3d::prelude::QueryFilter;
+    let own = run.area.player.body_handle();
+    let rapier = run.physics.rapier();
+    let solid = |_, c: &rapier3d::prelude::Collider| c.is_enabled() && c.parent() != Some(own);
+    let pose = crate::vehicle::to_rapier(run.area.player.body_pose(&run.physics));
+    let shape = run.area.player.sweep_shape();
+    let bounds = rapier3d::parry::shape::Shape::compute_aabb(shape, &pose);
+    let in_car = run.vehicles.keys().any(|key| {
+        rapier.bodies[run.physics.chassis_handle(key)]
+            .colliders()
+            .iter()
+            .any(|c| rapier.colliders[*c].compute_aabb().intersects(&bounds))
+    });
+    !in_car
+        && run
+            .physics
+            .queries(QueryFilter::default().exclude_sensors().predicate(&solid))
+            .intersect_shape(pose, shape)
+            .next()
+            .is_none()
+}
+
+/// MP2. The host shares its save (`saveSession.share`) with its player in the garage. The host
+/// sits in its car, but the guest starts on foot near the garage start spot and clips nothing.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_mp2_the_guest_starts_where_the_host_stood_and_in_its_seat() {
-    let (reference, mut run) = load_garage();
-    settle(&mut run, &reference);
-    let mut guest = save_load(&run, &reference);
-    frame(&mut guest, &reference);
-    // The loaded origin is at the player, so compare absolute positions.
-    let absolute = |run: &GarageRuntime| {
-        let p = run.stream.origin.absolute(body_position(run).to_array());
-        Vector::new(p[0] as f32, p[1] as f32, p[2] as f32)
-    };
-    let (host_at, guest_at) = (absolute(&run), absolute(&guest));
-    assert!(
-        (guest_at - host_at).length() < 0.1,
-        "the guest stands where the host stood: host {host_at:?}, guest {guest_at:?}"
+fn tp_mp2_a_joining_guest_starts_in_the_garage() {
+    let (reference, mut host) = load_garage();
+    settle(&mut host, &reference);
+    act(
+        &mut host,
+        &reference,
+        r#"{"action":"seat","seat":"driver"}"#,
     );
-    act(&mut run, &reference, r#"{"action":"seat","seat":"driver"}"#);
-    seconds(&mut run, &reference, 0.5);
-    let seat = run.area.player.seat_vehicle().cloned();
-    assert!(seat.is_some());
-    let guest = save_load(&run, &reference);
-    assert!(guest.area.player.seated(), "the guest sits");
-    assert_eq!(
-        guest.area.player.seat_vehicle().cloned(),
-        seat,
-        "in the host seat"
-    );
+    seconds(&mut host, &reference, 0.5);
+    assert!(host.area.player.seated(), "the host sits");
+    let mut shared = save(&host, &reference);
+    crate::starting_area::garage_start(&reference, &mut shared.player);
+    let mut guest = load(&reference, &shared);
+    let mut net = Net::default();
+    net.set_session(NetRole::Guest, 1);
+    let mut out = SimFrame::default();
+    for _ in 0..120 {
+        frame(&mut guest, &reference);
+        net.fill(&reference, &mut guest, FIXED_DT, 1., &mut out);
+    }
+    assert!(!guest.area.player.seated(), "the guest stands");
+    let spawn = Vector::from_array(reference.area.player_spawn.translation);
+    let gap = (absolute_body(&guest) - spawn).length();
+    assert!(gap < 7., "the guest is near the garage start spot: {gap} m");
+    assert!(stands_free(&guest), "the guest clips nothing");
 }
 
 /// MP3. Source `snTempPlayerSync` and `SPlayerAnim`. The host sends its pose, duck value and body
@@ -851,31 +880,37 @@ fn tp_mp_m04c_host_rabbits_appear_on_the_guest() {
     assert_eq!(spawned, 0, "the guest spawns no rabbits of its own");
 }
 
-/// A dead player respawns beside the body with new-game needs and stands on foot.
+/// A dead player without other players respawns near the garage start spot with new-game
+/// needs, on foot, and clips nothing.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_mp_respawn_brings_the_dead_player_back() {
+fn tp_mp_respawn_without_other_players_goes_to_the_garage() {
     let (reference, mut run) = load_garage();
     settle(&mut run, &reference);
+    let mut net = Net::default();
+    net.set_session(NetRole::Host, 0);
     run.survival
         .damage_instant(&reference.survival, reference.survival.maximum.hp);
     seconds(&mut run, &reference, 1.);
     assert!(run.needs_output().dead);
     assert!(run.area.ragdoll.active(), "the body falls");
-    let died_at = body_position(&run);
-    run.respawn(&reference);
+    net.respawn(&reference, &mut run);
     assert!(!run.needs_output().dead, "the player lives");
     assert!(!run.area.ragdoll.active());
-    assert!(
-        (body_position(&run) - died_at).length() < 5.,
-        "beside the body"
-    );
-    seconds(&mut run, &reference, 1.);
+    let mut out = SimFrame::default();
+    for _ in 0..60 {
+        frame(&mut run, &reference);
+        net.fill(&reference, &mut run, FIXED_DT, 1., &mut out);
+    }
     assert!(!run.needs_output().dead, "the player stays alive");
+    let spawn = Vector::from_array(reference.area.player_spawn.translation);
+    let gap = (absolute_body(&run) - spawn).length();
+    assert!(gap < 7., "near the garage start spot: {gap} m");
     assert!(
         run.area.player.grounded(),
         "the player stands on the ground"
     );
+    assert!(stands_free(&run), "the player clips nothing");
 }
 
 /// MP2. The guest can start before its restore spawns the host car. The step, the request and
@@ -905,59 +940,4 @@ fn tp_mp2_the_guest_starts_before_the_host_car_spawns() {
         }
     }
     panic!("the host car does not spawn");
-}
-
-/// MP2. The host got out of its car and stands beside it. The guest steps aside only after the
-/// car spawns, and never onto a spot in the car: the ground under the new spot is fixed.
-#[test]
-#[ignore = "requires the installed source export"]
-fn tp_mp2_the_guest_does_not_step_into_the_host_car() {
-    use rapier3d::prelude::{QueryFilter, Ray};
-    let (reference, mut host) = load_garage();
-    settle(&mut host, &reference);
-    let key = host.vehicles.keys().next().cloned().expect("the start car");
-    host.vehicle = Some(key.clone());
-    // The host stands 1.2 m from the car centre, so the first guest spot (slot 1) is in the car.
-    let car = Vector::from_array(host.physics.snapshot(&key).pose.position);
-    let angle = std::f32::consts::TAU / crate::net::MAX_PLAYERS as f32;
-    let toward = Vector::new(angle.cos(), 0., angle.sin());
-    let mut pose = host.area.player.body_pose(&host.physics);
-    let at = car - toward * 1.2;
-    pose.position = [at.x, pose.position[1], at.z];
-    host.area.player.recover(pose, &mut host.physics);
-    host.physics.refresh_queries();
-    let mut guest = open(&reference, &save(&host, &reference));
-    guest.started = true;
-    guest.menu = false;
-    let mut net = Net::default();
-    net.set_session(NetRole::Guest, 1);
-    let start = body_position(&guest);
-    let mut out = SimFrame::default();
-    for _ in 0..600 {
-        frame(&mut guest, &reference);
-        guest.advance_saved_restore(&reference).unwrap();
-        net.fill(&reference, &mut guest, FIXED_DT, 1., &mut out);
-        if (body_position(&guest) - start).length() > 1. {
-            break;
-        }
-    }
-    assert!(guest.vehicles.contains_key(&key), "the host car spawned");
-    let at = body_position(&guest);
-    assert!((at - start).length() > 1., "the guest stepped aside");
-    let own = guest.area.player.body_handle();
-    let rapier = guest.physics.rapier();
-    let solid = |_, c: &rapier3d::prelude::Collider| {
-        c.is_enabled() && !c.is_sensor() && c.parent() != Some(own)
-    };
-    let (hit, _) = guest
-        .physics
-        .queries(QueryFilter::default().predicate(&solid))
-        .cast_ray(&Ray::new(at + Vector::Y * 3., -Vector::Y), 6., true)
-        .expect("ground under the guest");
-    assert!(
-        rapier.colliders[hit]
-            .parent()
-            .is_none_or(|body| rapier.bodies[body].is_fixed()),
-        "nothing but fixed ground over the guest spot"
-    );
 }
