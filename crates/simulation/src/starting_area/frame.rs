@@ -382,8 +382,6 @@ impl GarageRuntime {
 impl GarageRuntime {
     fn perf_block(&self) -> crate::boundary::PerfBlock {
         let counters = self.stream.performance_counters();
-        let [dynamic_bodies, awake_bodies, ccd_bodies, contact_pairs] =
-            self.physics.body_counters();
         crate::boundary::PerfBlock {
             render_cpu_bytes: counters.render_cpu_bytes as f64,
             render_gpu_bytes: counters.render_gpu_bytes as f64,
@@ -400,10 +398,6 @@ impl GarageRuntime {
             storms: self.weather.storms().len() as u32,
             storm_strength: self.weather.influence().strength,
             weather_particles: self.weather.particle_count() as u32,
-            dynamic_bodies,
-            awake_bodies,
-            ccd_bodies,
-            contact_pairs,
             ..Default::default()
         }
     }

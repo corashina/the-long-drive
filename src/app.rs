@@ -37,6 +37,8 @@ pub(crate) struct Drive {
     /// Sequence of the last command with menu actions. Older frames have a stale pause flag.
     action_seq: u64,
     world_ms: f64,
+    /// F3 or the bench painted. The next command asks for the body counters.
+    body_counters: bool,
     /// Camera position of the last rendered frame. The simulation assigns radio voices by it.
     pub listener: Option<[f32; 3]>,
     pub(crate) ready: bool,
@@ -146,6 +148,7 @@ pub fn run() -> Result<(), JsValue> {
             seq: 0,
             action_seq: 0,
             world_ms: 0.,
+            body_counters: false,
             listener: None,
             ready: false,
             look: MouseLook::default(),
@@ -584,6 +587,7 @@ fn read_input(
         player_settings,
         old_heat_haze: display.old_heat_haze,
         measure: game_measure_requested(),
+        body_counters: std::mem::take(&mut drive.body_counters),
         world: std::mem::take(&mut drive.world),
         save: requests.take_commands(),
         listener: drive.listener,

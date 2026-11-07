@@ -227,6 +227,7 @@ pub struct PerfBlock {
     pub storms: u32,
     pub storm_strength: f32,
     pub weather_particles: u32,
+    /// The body counters fill only when a command asks for them. Others keep the last values.
     pub dynamic_bodies: u32,
     /// Bodies that are not asleep.
     pub awake_bodies: u32,
@@ -1116,6 +1117,8 @@ pub struct SimCommand {
     pub old_heat_haze: bool,
     /// The browser asks for a world measurement.
     pub measure: bool,
+    /// F3 or the bench reads the body counters of `PerfBlock`.
+    pub body_counters: bool,
     pub world: WorldCommand,
     /// Save requests, in order.
     pub save: Vec<SaveCommand>,
@@ -1210,6 +1213,7 @@ impl SimCommand {
             player_settings,
             old_heat_haze,
             measure,
+            body_counters,
             world,
             save,
             listener,
@@ -1230,6 +1234,7 @@ impl SimCommand {
         self.player_settings = player_settings.or(self.player_settings);
         self.old_heat_haze = old_heat_haze;
         self.measure |= measure;
+        self.body_counters |= body_counters;
         self.world.merge(world);
         self.save.extend(save);
         self.listener = listener.or(self.listener);

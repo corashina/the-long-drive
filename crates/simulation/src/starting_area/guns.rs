@@ -159,8 +159,7 @@ impl GarageRuntime {
                 .get(spawn.collider)
                 .and_then(|c| c.parent());
             let smooth = body.is_some_and(|b| {
-                area.bodies.values().any(|h| *h == b)
-                    || area.items.iter().any(|i| i.body == Some(b))
+                area.bodies.values().any(|h| *h == b) || !area.items.on_body(b).is_empty()
             });
             interaction.decals.spawn(spawn, &self.physics, smooth);
         }

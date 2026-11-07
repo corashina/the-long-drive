@@ -233,14 +233,7 @@ impl GarageRuntime {
         ((c.user_data & 0xffff_ffff) as u32)
             .checked_sub(1)
             .map(ItemId)
-            .or_else(|| {
-                let body = c.parent()?;
-                self.area
-                    .items
-                    .iter()
-                    .find(|s| s.body == Some(body))
-                    .map(|s| s.id)
-            })
+            .or_else(|| self.area.items.on_body(c.parent()?).first().copied())
     }
     /// The content item that owns an attached item.
     fn content_root(&self, item: ItemId) -> ItemId {

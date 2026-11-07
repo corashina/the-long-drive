@@ -83,45 +83,11 @@ pub struct ItemStore {
     /// The inverse of `generated`, so a step finds the key of a dirty item without a scan.
     generated_keys: BevyHashMap<ItemId, GeneratedId>,
     membership_revision: u64,
+    /// Items of each body, in `states` order. Membership changes keep it current.
+    by_body: BevyHashMap<RigidBodyHandle, Vec<ItemId>>,
     initialized_supplies: HashSet<ItemId>,
     next_generated: u32,
     origin: WorldOrigin,
-}
-
-/// Physical membership changes less often than item poses.
-#[derive(Default)]
-pub struct ItemBodyIndex {
-    revision: Option<u64>,
-    by_body: BevyHashMap<RigidBodyHandle, Vec<ItemId>>,
-    #[cfg(test)]
-    visits: usize,
-}
-
-impl ItemBodyIndex {
-    pub fn refresh(&mut self, items: &ItemStore) -> bool {
-        if self.revision == Some(items.membership_revision()) {
-            return false;
-        }
-        for ids in self.by_body.values_mut() {
-            ids.clear();
-        }
-        for item in items.iter() {
-            #[cfg(test)]
-            {
-                self.visits += 1;
-            }
-            if let Some(body) = item.body {
-                self.by_body.entry(body).or_default().push(item.id);
-            }
-        }
-        self.by_body.retain(|_, ids| !ids.is_empty());
-        self.revision = Some(items.membership_revision());
-        true
-    }
-
-    pub fn items(&self, body: RigidBodyHandle) -> &[ItemId] {
-        self.by_body.get(&body).map_or(&[], Vec::as_slice)
-    }
 }
 
 impl ItemStore {
@@ -238,6 +204,8 @@ impl ItemStore {
             + map(&self.slot_owners)
             + platform_map(&self.generated)
             + platform_map(&self.generated_keys)
+            + platform_map(&self.by_body)
+            + self.by_body.values().map(vector).sum::<usize>()
             + set(&self.initialized_supplies)
             // `generated_keys` shares the key allocations of `generated`.
             + self
@@ -327,6 +295,7 @@ impl ItemStore {
             generated: BevyHashMap::new(),
             generated_keys: BevyHashMap::new(),
             membership_revision: 0,
+            by_body: BevyHashMap::new(),
             initialized_supplies: HashSet::new(),
             next_generated: reference
                 .items
@@ -733,6 +702,7 @@ impl ItemStore {
             buried: false,
         });
         self.membership_revision += 1;
+        self.by_body.entry(body).or_default().push(id);
         Ok(())
     }
 
@@ -770,6 +740,7 @@ impl ItemStore {
             buried: false,
         });
         self.membership_revision += 1;
+        self.by_body.entry(body).or_default().push(id);
         self.dirty.insert(id);
         Ok(())
     }
@@ -931,11 +902,64 @@ impl ItemStore {
         self.membership_revision += 1;
         self.dirty.remove(&id);
         self.indices.remove(&id);
+        debug_assert!(
+            self.states[index].body.is_none(),
+            "removed item has no body"
+        );
         self.states.swap_remove(index);
         self.names.swap_remove(index);
         self.body_ids.swap_remove(index);
         if index < self.states.len() {
-            self.indices.insert(self.states[index].id, index);
+            let moved = &self.states[index];
+            let (id, body) = (moved.id, moved.body);
+            self.indices.insert(id, index);
+            // The moved item takes a new place in `states` order.
+            if let Some(body) = body {
+                self.leave_body(id, body);
+                self.join_body(id, body);
+            }
+        }
+    }
+    /// Adds `id` to the items of `body` at its `states` place.
+    fn join_body(&mut self, id: ItemId, body: RigidBodyHandle) {
+        let indices = &self.indices;
+        let ids = self.by_body.entry(body).or_default();
+        let at = ids.partition_point(|other| indices[other] < indices[&id]);
+        ids.insert(at, id);
+    }
+    fn leave_body(&mut self, id: ItemId, body: RigidBodyHandle) {
+        let ids = self.by_body.get_mut(&body).expect("indexed body");
+        ids.remove(
+            ids.iter()
+                .position(|other| *other == id)
+                .expect("indexed item"),
+        );
+        if ids.is_empty() {
+            self.by_body.remove(&body);
+        }
+    }
+    fn move_body(
+        &mut self,
+        id: ItemId,
+        from: Option<RigidBodyHandle>,
+        to: Option<RigidBodyHandle>,
+    ) {
+        if let Some(body) = from {
+            self.leave_body(id, body);
+        }
+        if let Some(body) = to {
+            self.join_body(id, body);
+        }
+    }
+    /// Items on `body`, in `states` order.
+    pub fn on_body(&self, body: RigidBodyHandle) -> &[ItemId] {
+        self.by_body.get(&body).map_or(&[], Vec::as_slice)
+    }
+    /// Edits each item on `body`, in `states` order.
+    pub fn on_body_mut(&mut self, body: RigidBodyHandle, mut edit: impl FnMut(&mut ItemState)) {
+        for id in self.by_body.get(&body).into_iter().flatten() {
+            self.dirty.insert(*id);
+            edit(&mut self.states[self.indices[id]]);
         }
     }
 
@@ -972,9 +996,11 @@ impl ItemStore {
         body: Option<RigidBodyHandle>,
     ) -> Option<&mut ItemState> {
         let index = *self.indices.get(&id)?;
-        if self.states[index].body != body {
+        let old = self.states[index].body;
+        if old != body {
             self.states[index].body = body;
             self.membership_revision += 1;
+            self.move_body(id, old, body);
         }
         self.dirty.insert(id);
         self.states.get_mut(index)
@@ -1024,10 +1050,12 @@ impl ItemStore {
     }
 
     pub fn bind_body(&mut self, id: BodyId, handle: RigidBodyHandle) {
-        for (state, body) in self.states.iter_mut().zip(&self.body_ids) {
-            if *body == id && state.body != Some(handle) {
-                state.body = Some(handle);
+        for index in 0..self.states.len() {
+            let old = self.states[index].body;
+            if self.body_ids[index] == id && old != Some(handle) {
+                self.states[index].body = Some(handle);
                 self.membership_revision += 1;
+                self.move_body(self.states[index].id, old, Some(handle));
             }
         }
     }
@@ -1129,9 +1157,8 @@ mod generated_key_tests {
         .into()
     }
 
-    #[test]
-    fn item_keys_follow_generated_bindings() {
-        let mut items = ItemStore {
+    fn empty() -> ItemStore {
+        ItemStore {
             dirty: HashSet::new(),
             states: Vec::new(),
             indices: BevyHashMap::new(),
@@ -1141,10 +1168,55 @@ mod generated_key_tests {
             generated: BevyHashMap::new(),
             generated_keys: BevyHashMap::new(),
             membership_revision: 0,
+            by_body: BevyHashMap::new(),
             initialized_supplies: HashSet::new(),
             next_generated: 10,
             origin: WorldOrigin::default(),
+        }
+    }
+
+    #[test]
+    fn body_items_keep_state_order() {
+        let mut items = empty();
+        let (a, b) = (
+            RigidBodyHandle::from_raw_parts(1, 0),
+            RigidBodyHandle::from_raw_parts(2, 0),
+        );
+        let pose = VehiclePose {
+            position: [0.; 3],
+            rotation: [0., 0., 0., 1.],
         };
+        for (id, body) in [(1, a), (2, b), (3, a), (4, b)] {
+            items
+                .insert_spawned(ItemId(id), "item", pose, body, None)
+                .unwrap();
+        }
+        let check = |items: &ItemStore| {
+            for body in [a, b] {
+                let scan: Vec<_> = items
+                    .iter()
+                    .filter(|i| i.body == Some(body))
+                    .map(|i| i.id)
+                    .collect();
+                assert_eq!(items.on_body(body), scan.as_slice());
+            }
+        };
+        check(&items);
+        items.set_body(ItemId(2), Some(a));
+        check(&items);
+        items.set_body(ItemId(1), None);
+        assert!(items.remove_spawned(ItemId(1)));
+        // Item 4 takes the place of item 1.
+        assert_eq!(items.on_body(b), [ItemId(4)]);
+        assert_eq!(items.on_body(a), [ItemId(2), ItemId(3)]);
+        check(&items);
+        items.set_body(ItemId(4), None);
+        assert!(items.on_body(b).is_empty() && !items.by_body.contains_key(&b));
+    }
+
+    #[test]
+    fn item_keys_follow_generated_bindings() {
+        let mut items = empty();
         let (a, b) = (key(1), key(2));
         items.bind_generated(a.clone(), ItemId(10));
         items.bind_generated(b.clone(), ItemId(11));

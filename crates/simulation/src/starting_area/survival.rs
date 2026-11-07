@@ -651,13 +651,7 @@ impl GarageRuntime {
         let Some(body) = self.area.items.get(item).and_then(|s| s.body) else {
             return;
         };
-        let on_body: Vec<ItemId> = self
-            .area
-            .items
-            .iter()
-            .filter(|s| s.body == Some(body))
-            .map(|s| s.id)
-            .collect();
+        let on_body = self.area.items.on_body(body).to_vec();
         let body_id = self.area.items.body_id(item).unwrap();
         self.physics.remove_body(body);
         self.physics.refresh_queries();

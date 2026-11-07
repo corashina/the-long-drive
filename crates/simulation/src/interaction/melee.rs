@@ -450,8 +450,7 @@ impl MeleeState {
             let tag = collider_tag(collider.user_data);
             let parent = collider.parent();
             let owned = (collider.user_data & 0xffff_ffff) as u32;
-            let body_item =
-                parent.and_then(|b| items.iter().find(|i| i.body == Some(b)).map(|i| i.id));
+            let body_item = parent.and_then(|b| items.on_body(b).first().copied());
             let mut item = owned.checked_sub(1).map(ItemId).or(body_item);
             if let Some(body) = parent
                 && item.is_none_or(|id| !buried.recently_unburied(id))

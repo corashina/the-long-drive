@@ -64,6 +64,10 @@ pub struct SimDriver {
     delta_seconds: f64,
     /// The browser asked for a world measurement.
     measure: bool,
+    /// A command asked for the body counters.
+    body_counters_asked: bool,
+    /// `PhysicsWorld::body_counters` at the last ask.
+    body_counters: [u32; 4],
     /// A failure that the next frame reports. The driver stops the storage startup after it.
     failure: Option<String>,
     failed: bool,
@@ -116,6 +120,8 @@ impl SimDriver {
             loading_seen: false,
             delta_seconds: 0.,
             measure: false,
+            body_counters_asked: false,
+            body_counters: [0; 4],
             failure: None,
             failed: false,
             save: crate::save_requests::SaveState::new(source),
@@ -188,6 +194,7 @@ impl SimDriver {
         self.ready = command.ready && self.loading_seen;
         self.accepted_seq = command.seq;
         self.measure |= command.measure;
+        self.body_counters_asked |= command.body_counters;
         self.world.accept(command.world);
         if command.hold {
             clear_profile_input();
@@ -439,6 +446,16 @@ impl SimDriver {
         frame.state.perf.rapier_ms = self.rapier_ms;
         frame.state.perf.frame_steps = self.frame_steps;
         frame.state.perf.world_ms = self.world_ms;
+        if std::mem::take(&mut self.body_counters_asked) {
+            self.body_counters = self.runtime.physics.body_counters();
+        }
+        let perf = &mut frame.state.perf;
+        [
+            perf.dynamic_bodies,
+            perf.awake_bodies,
+            perf.ccd_bodies,
+            perf.contact_pairs,
+        ] = self.body_counters;
         if let Some(grant) = self.grant.take() {
             frame.changes.push(Change::Grant(grant));
         }

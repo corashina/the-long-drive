@@ -49,7 +49,7 @@ pub fn grip_hand(local: &Transform, grip: &Transform, hand: Option<&Transform>) 
 /// The root body of `body`: the body of its root item, else `body` itself.
 /// Source `transform.root`. Car parts share the root of their car.
 fn root_body(items: &ItemStore, body: RigidBodyHandle) -> RigidBodyHandle {
-    let Some(mut id) = items.iter().find(|i| i.body == Some(body)).map(|i| i.id) else {
+    let Some(mut id) = items.on_body(body).first().copied() else {
         return body;
     };
     while let Some(parent) = items.parent(id) {
