@@ -6,9 +6,14 @@ rust-version = "1.99"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[[bin]]
+name = "validate-reference"
+test = false
 
 [workspace]
-members = ["crates/crunch", "crates/crunch-worker", "crates/simulation", "crates/simulation-worker", "crates/terrain", "crates/terrain-worker", "crates/road-mesh", "crates/road-worker", "crates/grass-mesh", "crates/grass-worker", "crates/wasm-heap"]
+members = ["crates/crunch", "crates/crunch-worker", "crates/simulation", "crates/simulation-worker", "crates/terrain", "crates/road-mesh", "crates/grass-mesh", "crates/mesh-worker", "crates/wasm-heap"]
 
 [dependencies]
 simulation = { path = "crates/simulation" }
@@ -56,6 +61,10 @@ bevy = { version = "=0.19.1", default-features = false, features = [
     "std", "bevy_asset", "bevy_mesh", "bevy_camera",
 ] }
 naga = { version = "=29.0.4", features = ["wgsl-in"] }
+
+# Backtraces keep file and line. Full debug info made `target/debug` 7.9 GB (R5-1).
+[profile.dev]
+debug = "line-tables-only"
 
 [profile.release]
 opt-level = 3

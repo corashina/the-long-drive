@@ -1,5 +1,5 @@
 //! Camera-dependent Grass work uses the world publication and allocation gates.
-use super::grass_worker::{DOMAIN_BYTES, GrassJobId, GrassPoll, GrassWorker, INITIAL_WASM_BYTES};
+use super::grass_worker::{GrassJobId, GrassPoll, GrassWorker};
 use super::pipelines::{PipelineTicket, WorldPipelines};
 use crate::ownership::PresentationLedger;
 use crate::{
@@ -8,7 +8,7 @@ use crate::{
         grass::material::{BLADE_ATTRIBUTE, GrassMaterial},
     },
     reference::ReferenceError,
-    world::{PresentationAllocation, RendererWorld},
+    world::RendererWorld,
 };
 use bevy::platform::collections::HashMap;
 use bevy::{
@@ -22,8 +22,6 @@ use std::sync::Arc;
 struct Geometry {
     mesh: Handle<Mesh>,
     material: Handle<GrassMaterial>,
-    cpu: usize,
-    gpu: usize,
     _ticket: PipelineTicket,
 }
 enum Pending {
@@ -42,32 +40,13 @@ enum Pending {
         ticket: Option<PipelineTicket>,
     },
 }
-/// Worker copy of the instance's patch dataset, with its charged bytes.
+/// Worker copy of the instance patch dataset.
 #[derive(Clone, Copy)]
 enum Dataset {
     None,
-    /// Sent to the worker. `copies` stay staged until the worker reports it installed.
-    Installing {
-        cache: usize,
-        copies: usize,
-    },
-    Cached {
-        cache: usize,
-    },
-}
-impl Dataset {
-    fn cache(self) -> usize {
-        match self {
-            Dataset::None => 0,
-            Dataset::Installing { cache, .. } | Dataset::Cached { cache } => cache,
-        }
-    }
-    fn copies(self) -> usize {
-        match self {
-            Dataset::Installing { copies, .. } => copies,
-            _ => 0,
-        }
-    }
+    /// Sent to the worker. The install job runs until the worker reports it installed.
+    Installing,
+    Cached,
 }
 struct Instance {
     continuation: Option<crate::ownership::renderer_pending::PipelineContinuation>,
@@ -85,9 +64,6 @@ struct Instance {
     accepted_view: Option<GrassView>,
     accepted: Option<Geometry>,
     pending: Option<Pending>,
-    pending_cpu: usize,
-    pending_gpu: usize,
-    metadata: usize,
     dataset: Dataset,
     ready: bool,
 }
@@ -101,45 +77,13 @@ pub struct GrassJobs {
     /// Per parent, whether a job is pending, and the stale instance that may start next.
     groups: HashMap<Entity, (bool, Option<(u64, usize)>)>,
     worker: GrassWorker,
-    actor_cpu: usize,
+    /// The worker started.
+    started: bool,
     revision: u64,
 }
 /// Whether the instance needs a new expansion for this view.
 fn stale(accepted: Option<GrassView>, view: &GrassView) -> bool {
     !accepted.is_some_and(|accepted| accepted.covers(view))
-}
-fn allocation(
-    ledger: &mut PresentationLedger,
-    cpu: usize,
-    gpu: usize,
-    jobs: i32,
-    pending: i32,
-) -> Result<(), ReferenceError> {
-    let mut next = ledger.allocation();
-    next.active_cpu += cpu;
-    next.active_gpu += gpu;
-    next.jobs = next
-        .jobs
-        .checked_add_signed(jobs as isize)
-        .expect("Grass job ownership");
-    next.pending = next
-        .pending
-        .checked_add_signed(pending as isize)
-        .expect("Grass pending ownership");
-    ledger.set_allocation(next)
-}
-fn pending_allocation(
-    ledger: &mut PresentationLedger,
-    cpu: usize,
-    gpu: usize,
-    jobs: usize,
-) -> Result<(), ReferenceError> {
-    let mut next = ledger.allocation();
-    next.active_cpu += cpu;
-    next.active_gpu += gpu;
-    next.jobs += jobs;
-    next.staging_bytes += cpu;
-    ledger.set_allocation(next)
 }
 impl GrassJobs {
     pub(crate) fn startup_audit(&self) -> serde_json::Value {
@@ -169,7 +113,7 @@ impl GrassJobs {
         &mut self,
         ledger: &mut PresentationLedger,
     ) -> Result<(), ReferenceError> {
-        if self.instances.is_empty() && self.actor_cpu > 0 {
+        if self.instances.is_empty() && self.started {
             self.release_worker(ledger)?;
         }
         Ok(())
@@ -238,18 +182,8 @@ impl GrassJobs {
         if self.instances.len() >= 8192 {
             return Err(ReferenceError("Grass instance count cap".into()));
         }
-        // The index and group maps hold at most one entry per instance at half load.
-        let metadata = std::mem::size_of::<Instance>()
-            + 2 * (std::mem::size_of::<(Entity, usize)>()
-                + std::mem::size_of::<(Entity, (bool, Option<(u64, usize)>))>()
-                + 2);
-        let continuation = if group_idle && ledger.can_request_independent(1) {
-            allocation(ledger, metadata, 0, 0, 0)?;
-            Some(ledger.claim_grass(stream.frame().request, entity.to_bits()))
-        } else {
-            allocation(ledger, metadata, 0, 0, 0)?;
-            None
-        };
+        let continuation = (group_idle && ledger.can_request_independent(1))
+            .then(|| ledger.claim_grass(stream.frame().request, entity.to_bits()));
         let queued = continuation.is_some();
         self.index.insert(entity, self.instances.len());
         self.instances.push(Instance {
@@ -268,65 +202,23 @@ impl GrassJobs {
             accepted_view: None,
             accepted: None,
             pending: queued.then_some(Pending::Queued),
-            pending_cpu: 0,
-            pending_gpu: 0,
-            metadata,
             dataset: Dataset::None,
             ready: false,
         });
         Ok(())
     }
-    fn reserve_capacity(
-        worker: &GrassWorker,
-        actor: &mut usize,
-        ledger: &mut PresentationLedger,
-        staging: usize,
-        extra: usize,
-    ) -> Result<(), ReferenceError> {
-        let mut next = ledger.allocation();
-        let logical = next
-            .grass_worker_cache_bytes
-            .checked_add(staging)
-            .and_then(|v| v.checked_add(extra))
-            .ok_or_else(|| ReferenceError("Grass capacity overflow".into()))?;
-        // Estimate allocator growth separately from logical buffers. Retain the admitted high-water charge.
-        let capacity = logical
-            .checked_mul(2)
-            .and_then(|v| v.checked_add(INITIAL_WASM_BYTES))
-            .and_then(usize::checked_next_power_of_two)
-            .ok_or_else(|| ReferenceError("Grass capacity overflow".into()))?
-            .max(next.grass_worker_reserved_bytes);
-        let delta = capacity - next.grass_worker_reserved_bytes;
-        next.active_cpu += delta;
-        next.grass_worker_reserved_bytes = capacity;
-        ledger.set_allocation(next)?;
-        *actor += delta;
-        worker.capacity_limit(capacity)
-    }
     fn release_worker(&mut self, ledger: &mut PresentationLedger) -> Result<(), ReferenceError> {
         self.worker.dispose();
-        let mut next = ledger.allocation();
-        next.active_cpu -= self.actor_cpu;
-        self.actor_cpu = 0;
+        self.started = false;
         for i in &mut self.instances {
-            next.active_cpu -= i.dataset.cache() + i.dataset.copies();
-            next.staging_bytes -= i.dataset.copies();
-            next.jobs -= usize::from(matches!(i.dataset, Dataset::Installing { .. }));
+            ledger.end_jobs(usize::from(matches!(i.dataset, Dataset::Installing)))?;
             i.dataset = Dataset::None;
             if matches!(i.pending, Some(Pending::Worker { .. })) {
-                next.active_cpu -= i.pending_cpu;
-                next.staging_bytes -= i.pending_cpu;
-                next.active_gpu -= i.pending_gpu;
-                next.jobs -= 1;
-                i.pending_cpu = 0;
-                i.pending_gpu = 0;
+                ledger.end_jobs(1)?;
                 i.pending = Some(Pending::Queued);
             }
         }
-        next.grass_worker_reserved_bytes = 0;
-        next.grass_worker_wasm_bytes = 0;
-        next.grass_worker_cache_bytes = 0;
-        ledger.set_allocation(next)
+        Ok(())
     }
     pub fn prepare(
         &mut self,
@@ -338,7 +230,7 @@ impl GrassJobs {
         materials: &mut Assets<GrassMaterial>,
         pipelines: &mut WorldPipelines,
         fixed: &crate::presentation::fixed_assets::SourceFixedAssets,
-        uploads: &mut crate::presentation::upload_budget::UploadBudget,
+        uploads: &mut crate::presentation_logic::upload_budget::UploadBudget,
     ) -> Result<(), ReferenceError> {
         let result = self.prepare_inner(
             stream,
@@ -366,27 +258,15 @@ impl GrassJobs {
         materials: &mut Assets<GrassMaterial>,
         pipelines: &mut WorldPipelines,
         fixed: &crate::presentation::fixed_assets::SourceFixedAssets,
-        uploads: &mut crate::presentation::upload_budget::UploadBudget,
+        uploads: &mut crate::presentation_logic::upload_budget::UploadBudget,
     ) -> Result<(), ReferenceError> {
         if !self.instances.is_empty() {
-            if self.actor_cpu == 0 {
-                let mut next = ledger.allocation();
-                next.active_cpu += INITIAL_WASM_BYTES + DOMAIN_BYTES;
-                next.grass_worker_reserved_bytes = INITIAL_WASM_BYTES;
-                next.grass_worker_cache_bytes = DOMAIN_BYTES;
-                ledger.set_allocation(next)?;
-                self.actor_cpu = INITIAL_WASM_BYTES + DOMAIN_BYTES;
-            }
+            self.started = true;
             if !self.worker.initialize()? {
                 return Ok(());
             }
         }
         let poll = self.worker.poll()?;
-        let mut next = ledger.allocation();
-        if next.grass_worker_wasm_bytes != self.worker.wasm_bytes() {
-            next.grass_worker_wasm_bytes = self.worker.wasm_bytes();
-            ledger.set_allocation(next)?;
-        }
         let candidate = if self.worker.busy() {
             None
         } else {
@@ -401,18 +281,6 @@ impl GrassJobs {
                 .min_by_key(|(index, i)| (i.last_started, *index))
                 .map(|(index, _)| index)
         };
-        let worker_staging: usize = self
-            .instances
-            .iter()
-            .map(|i| {
-                i.dataset.copies()
-                    + if matches!(i.pending, Some(Pending::Worker { .. })) {
-                        i.pending_cpu
-                    } else {
-                        0
-                    }
-            })
-            .sum();
         // One stale instance per parent starts a job, the least recently started first,
         // and only while no job of that parent is pending.
         let view = self.view;
@@ -444,15 +312,11 @@ impl GrassJobs {
                     Some(ledger.claim_grass(stream.frame().request, instance.entity.to_bits()));
                 instance.pending = Some(Pending::Queued);
             }
-            if let Dataset::Installing { cache, copies } = instance.dataset
+            if matches!(instance.dataset, Dataset::Installing)
                 && self.worker.installed(instance.entity.to_bits())?
             {
-                let mut next = ledger.allocation();
-                next.active_cpu -= copies;
-                next.staging_bytes -= copies;
-                next.jobs -= 1;
-                ledger.set_allocation(next)?;
-                instance.dataset = Dataset::Cached { cache };
+                ledger.end_jobs(1)?;
+                instance.dataset = Dataset::Cached;
             }
             if writers_ready
                 && candidate == Some(index)
@@ -462,31 +326,8 @@ impl GrassJobs {
                 if matches!(instance.dataset, Dataset::None) {
                     let encoded = grass_mesh::dataset_encoded_len(&instance.patches)
                         .map_err(ReferenceError)?;
-                    // Decoded Vec, Arc conversion overlap, encoded main/JS/WASM copies, and metadata.
-                    let cache = instance
-                        .patches
-                        .len()
-                        .checked_mul(std::mem::size_of::<GrassPatch>())
-                        .and_then(|v| v.checked_add(256))
-                        .ok_or_else(|| ReferenceError("Grass cache overflow".into()))?;
-                    let copies = encoded
-                        .checked_mul(3)
-                        .and_then(|v| v.checked_add(cache))
-                        .ok_or_else(|| ReferenceError("Grass install overflow".into()))?;
-                    Self::reserve_capacity(
-                        &self.worker,
-                        &mut self.actor_cpu,
-                        ledger,
-                        worker_staging,
-                        cache + copies,
-                    )?;
-                    let mut next = ledger.allocation();
-                    next.active_cpu += cache + copies;
-                    next.staging_bytes += copies;
-                    next.jobs += 1;
-                    next.grass_worker_cache_bytes += cache;
-                    ledger.set_allocation(next)?;
-                    instance.dataset = Dataset::Installing { cache, copies };
+                    ledger.start_jobs(1);
+                    instance.dataset = Dataset::Installing;
                     self.revision = self
                         .revision
                         .checked_add(1)
@@ -514,19 +355,7 @@ impl GrassJobs {
                     instance.last_started = self.revision;
                     let scratch = GrassExpansion::planning_bytes(instance.patches.len())
                         .map_err(ReferenceError)?;
-                    // Include captured view copies and transport control storage through physical release.
-                    let cpu = scratch
-                        .checked_add(1024)
-                        .ok_or_else(|| ReferenceError("Grass plan overflow".into()))?;
-                    Self::reserve_capacity(
-                        &self.worker,
-                        &mut self.actor_cpu,
-                        ledger,
-                        worker_staging,
-                        cpu,
-                    )?;
-                    pending_allocation(ledger, cpu, 0, 1)?;
-                    instance.pending_cpu = cpu;
+                    ledger.start_jobs(1);
                     let id = GrassJobId {
                         session: instance.session,
                         revision: self.revision,
@@ -552,13 +381,7 @@ impl GrassJobs {
             {
                 if *canceled {
                     if !self.worker.owns(*id) {
-                        let mut next = ledger.allocation();
-                        next.active_cpu -= instance.pending_cpu;
-                        next.staging_bytes -= instance.pending_cpu;
-                        next.jobs -= 1;
-                        ledger.set_allocation(next)?;
-                        instance.pending_cpu = 0;
-                        instance.pending_gpu = 0;
+                        ledger.end_jobs(1)?;
                         instance.pending = Some(Pending::Queued);
                     }
                 } else if let GrassPoll::Planned(owner, plan) = poll
@@ -568,46 +391,12 @@ impl GrassJobs {
                     if plan.scratch_bytes != *scratch {
                         return Err(ReferenceError("Grass scratch plan mismatch".into()));
                     }
-                    let cpu = plan
-                        .output_bytes
-                        .checked_mul(2)
-                        .ok_or_else(|| ReferenceError("Grass output overflow".into()))?;
-                    // Output that does not fit the credit keeps its plan. The worker
-                    // reports the plan again, so the next frame asks for the credit again.
-                    let output = PresentationAllocation {
-                        active_cpu: cpu,
-                        active_gpu: plan.gpu_bytes,
-                        staging_bytes: cpu,
-                        ..Default::default()
-                    };
-                    if !ledger.request(output) {
-                        continue;
-                    }
-                    if Self::reserve_capacity(
-                        &self.worker,
-                        &mut self.actor_cpu,
-                        ledger,
-                        worker_staging,
-                        cpu,
-                    )
-                    .is_err()
-                        || pending_allocation(ledger, cpu, plan.gpu_bytes, 0).is_err()
-                    {
-                        self.worker.discard();
-                        *canceled = true;
-                    } else {
-                        instance.pending_cpu += cpu;
-                        instance.pending_gpu += plan.gpu_bytes;
-                        self.worker.approve(*id, plan.output_bytes)?;
-                        *approved = true;
-                    }
+                    self.worker.approve(*id, plan.output_bytes)?;
+                    *approved = true;
                 }
             }
             let completed = matches!((&instance.pending,poll),(Some(Pending::Worker{id,canceled:false,..}),GrassPoll::Ready(owner)) if *id==owner);
             if completed {
-                pending_allocation(ledger, 4096, 8, 0)?;
-                instance.pending_cpu += 4096;
-                instance.pending_gpu += 8;
                 let Some(Pending::Worker { id, view, .. }) = instance.pending.as_ref() else {
                     unreachable!()
                 };
@@ -615,26 +404,17 @@ impl GrassJobs {
                 let output = self.worker.consume(id)?;
                 // The view or the distance can leave no blades. An empty mesh never uploads, so
                 // the instance draws nothing and is ready at once.
+                ledger.end_jobs(1)?;
                 if output.indices.is_empty() {
-                    let mut next = ledger.allocation();
-                    next.active_cpu -= instance.pending_cpu;
-                    next.active_gpu -= instance.pending_gpu;
-                    next.staging_bytes -= instance.pending_cpu;
-                    next.jobs -= 1;
                     if let Some(old) = instance.accepted.take() {
                         meshes.remove(old.mesh.id());
                         materials.remove(old.material.id());
-                        next.active_cpu = next.active_cpu.saturating_sub(old.cpu);
-                        next.active_gpu = next.active_gpu.saturating_sub(old.gpu);
                     }
-                    ledger.set_allocation(next)?;
                     commands
                         .entity(instance.entity)
                         .remove::<(Mesh3d, MeshMaterial3d<GrassMaterial>)>();
                     self.worker.publication_started(instance.entity.to_bits());
                     instance.pending = None;
-                    instance.pending_cpu = 0;
-                    instance.pending_gpu = 0;
                     instance.accepted_view = Some(view);
                     instance.ready = true;
                     ledger.release_claim(instance.continuation.as_mut().unwrap())?;
@@ -644,18 +424,6 @@ impl GrassJobs {
                         .publication_ended(instance.entity.to_bits(), true);
                     continue;
                 }
-                // consume physically releases the worker plan, worker output and transferred arrays.
-                let retained = output.retained_bytes();
-                let released = instance
-                    .pending_cpu
-                    .checked_sub(retained + 4096)
-                    .ok_or_else(|| ReferenceError("Grass result reservation mismatch".into()))?;
-                let mut next = ledger.allocation();
-                next.active_cpu -= released;
-                next.staging_bytes -= released;
-                next.jobs -= 1;
-                ledger.set_allocation(next)?;
-                instance.pending_cpu -= released;
                 let mut mesh = Mesh::new(
                     PrimitiveTopology::TriangleList,
                     RenderAssetUsages::RENDER_WORLD,
@@ -733,10 +501,6 @@ impl GrassJobs {
                         if old.material != material {
                             materials.remove(old.material.id());
                         }
-                        let mut next = ledger.allocation();
-                        next.active_cpu = next.active_cpu.saturating_sub(old.cpu);
-                        next.active_gpu = next.active_gpu.saturating_sub(old.gpu);
-                        ledger.set_allocation(next)?;
                     }
                     self.worker.publication_started(instance.entity.to_bits());
                     commands.entity(instance.entity).insert((
@@ -748,15 +512,8 @@ impl GrassJobs {
                     instance.accepted = Some(Geometry {
                         mesh,
                         material,
-                        cpu: instance.pending_cpu,
-                        gpu: instance.pending_gpu,
                         _ticket: ticket.unwrap(),
                     });
-                    let mut next = ledger.allocation();
-                    next.staging_bytes = next.staging_bytes.saturating_sub(instance.pending_cpu);
-                    ledger.set_allocation(next)?;
-                    instance.pending_cpu = 0;
-                    instance.pending_gpu = 0;
                     instance.ready = true;
                     ledger.release_claim(instance.continuation.as_mut().unwrap())?;
                     instance.continuation = None;
@@ -810,7 +567,6 @@ impl GrassJobs {
             if !self.worker.retiring(entity_bits)? {
                 return Ok(false);
             }
-            self.worker.remove(entity_bits);
         }
         let physical = self.instances[index]
             .continuation
@@ -826,14 +582,7 @@ impl GrassJobs {
         }
         self.worker
             .publication_ended(instance.entity.to_bits(), false);
-        let mut cpu = instance.metadata
-            + instance.pending_cpu
-            + instance.dataset.cache()
-            + instance.dataset.copies();
-        let mut gpu = instance.pending_gpu;
         if let Some(old) = instance.accepted {
-            cpu += old.cpu;
-            gpu += old.gpu;
             meshes.remove(old.mesh.id());
             materials.remove(old.material.id());
         }
@@ -841,19 +590,10 @@ impl GrassJobs {
             meshes.remove(mesh.id());
             materials.remove(material.id());
         }
-        let mut next = ledger.allocation();
-        next.active_cpu = next.active_cpu.saturating_sub(cpu);
-        next.staging_bytes = next
-            .staging_bytes
-            .saturating_sub(instance.pending_cpu + instance.dataset.copies());
-        next.grass_worker_cache_bytes -= instance.dataset.cache();
-        next.jobs -= usize::from(matches!(instance.dataset, Dataset::Installing { .. }));
-        next.active_gpu = next.active_gpu.saturating_sub(gpu);
-        next.jobs = next.jobs.saturating_sub(usize::from(matches!(
-            instance.pending,
-            Some(Pending::Worker { .. })
-        )));
-        ledger.set_allocation(next)?;
+        ledger.end_jobs(
+            usize::from(matches!(instance.dataset, Dataset::Installing))
+                + usize::from(matches!(instance.pending, Some(Pending::Worker { .. }))),
+        )?;
         if let Some(claim) = instance.continuation.as_mut() {
             ledger.release_claim(claim)?;
         }

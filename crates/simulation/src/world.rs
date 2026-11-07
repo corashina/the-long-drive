@@ -15,7 +15,7 @@ mod cables;
 pub use cables::aim;
 mod lamps;
 mod source_lights;
-pub use source_lights::{ItemLight, WorldLight, required_world_lights};
+pub use source_lights::{BodyLight, WorldLight, required_world_lights};
 mod id_index;
 mod list_delta;
 pub use id_index::IdIndex;
@@ -57,9 +57,8 @@ pub use stream::renderer_world::{
     RendererFrame, RendererStructure, RendererSupply, RendererSurface, RendererWorld, WorldDelta,
 };
 pub use stream::{
-    PresentationAllocation, PresentationGrant, PresentationReport, PublishedSupply,
-    PublishedSurface, Reclaim, SupportKey, SurfaceKey, WorldFrame, WorldRequest, WorldStream,
-    ahead_point, collision_window,
+    PresentationGrant, PublishedSupply, PublishedSurface, SupportKey, SurfaceKey, WorldFrame,
+    WorldRequest, WorldStream, ahead_point, collision_window,
 };
 pub use stream_limits::StreamLimits;
 mod random_starts;

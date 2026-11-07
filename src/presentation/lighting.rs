@@ -115,39 +115,6 @@ pub struct SourceLighting {
     pub cookie_handles: Option<[Handle<Image>; 3]>,
     pub status: Arc<Mutex<RenderingState>>,
 }
-impl SourceLighting {
-    pub(crate) fn clone_bytes(&self) -> usize {
-        use std::mem::size_of;
-        self.sky.materials.capacity() * size_of::<Handle<super::sky::SkyMaterial>>()
-            + self.materials.capacity() * size_of::<AuthoredMaterial>()
-            + self.warmups.capacity() * size_of::<Entity>()
-            + self.lamp_materials.capacity() * size_of::<BoundLampMaterial>()
-            + self
-                .lamp_materials
-                .iter()
-                .map(|m| {
-                    m.receivers.capacity() * size_of::<Entity>()
-                        + m.choices.capacity() * size_of::<super::materials::LampMaterialChoice>()
-                })
-                .sum::<usize>()
-            + self.control_poses.capacity() * size_of::<(usize, Entity)>()
-            + self.visibility.capacity() * size_of::<(usize, Entity)>()
-            + self.lights.capacity() * size_of::<BoundLight>()
-            + self
-                .lights
-                .iter()
-                .filter_map(|l| l.world.as_ref())
-                .map(|l| l.record.source.file.capacity())
-                .sum::<usize>()
-            + self.textures.capacity() * size_of::<(u32, String, Handle<Image>)>()
-            + self
-                .textures
-                .iter()
-                .map(|(_, path, _)| path.capacity())
-                .sum::<usize>()
-            + self.road_lamps.clone_bytes()
-    }
-}
 #[derive(Resource)]
 pub struct LightingGpu {
     pub uniform: UniformBuffer<LightingUniform>,

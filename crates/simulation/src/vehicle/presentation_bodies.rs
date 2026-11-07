@@ -113,21 +113,6 @@ impl PresentationBodies {
         self.handles.clear();
         self.queued.clear();
     }
-
-    fn retained_bytes(&self) -> usize {
-        let table = if self.queued.capacity() == 0 {
-            0
-        } else {
-            self.queued.capacity().next_power_of_two()
-                * (std::mem::size_of::<RigidBodyHandle>() + 1)
-                + 16
-        };
-        self.handles.capacity() * std::mem::size_of::<RigidBodyHandle>()
-            + table
-            + self.steps.capacity() * (std::mem::size_of::<(RigidBodyHandle, (Pose, Pose))>() + 1)
-            + self.followers.capacity() * (std::mem::size_of::<RigidBodyHandle>() + 1)
-            + self.moved.retained_bytes()
-    }
 }
 
 fn slot(handle: RigidBodyHandle) -> usize {
@@ -190,10 +175,6 @@ impl super::PhysicsWorld {
     /// Clear after presentation sync. Query refreshes use separate queues.
     pub fn clear_presentation_bodies(&mut self) {
         self.presentation_bodies.clear();
-    }
-
-    pub fn presentation_retained_bytes(&self) -> usize {
-        self.presentation_bodies.retained_bytes()
     }
 }
 

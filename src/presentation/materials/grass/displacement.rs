@@ -15,6 +15,31 @@ pub struct GrassFrameUniform {
     pub clip_from_world: Mat4,
     /// Source camera position of this frame. The color pass measures blade distance and facing from it.
     pub camera: Vec4,
+    /// xy: the bend rotation from the sim wind.
+    pub wind: Vec4,
+}
+/// Grass wind from the sim wind. At 2 m/s the waves keep the source speed.
+#[derive(Default)]
+pub struct GrassWind {
+    last: Option<f64>,
+    /// Wind time on top of the source shader time, in seconds.
+    extra: f32,
+}
+impl GrassWind {
+    /// `time` is the source shader time. `wind` is the sim wind in m/s along world `x`, `z`.
+    /// Returns the bend rotation in `xy` and the wind time in `z`.
+    pub fn advance(&mut self, time: f64, wind: [f32; 2]) -> Vec4 {
+        let dt = self
+            .last
+            .map_or(0., |last| (time - last).clamp(0., 1.) as f32);
+        self.last = Some(time);
+        let speed = wind[0].hypot(wind[1]);
+        // The source speed and turbulence scale by `1 + speed / 6`, divided by its value at 2 m/s.
+        self.extra += dt * ((6. + speed) / 8. - 1.);
+        // Source x, z is world x, -z. The base bend is 45 degrees from the rotation.
+        let angle = (-wind[1]).atan2(wind[0]) - std::f32::consts::FRAC_PI_4;
+        Vec4::new(angle.cos(), angle.sin(), time as f32 + self.extra, 0.)
+    }
 }
 #[derive(Resource, Default)]
 pub struct GrassGpu(pub std::collections::HashMap<u64, GrassGpuData>);
@@ -40,11 +65,11 @@ impl GrassCamera {
         let input = &reference.grass_displacement;
         let camera = reference
             .records
-            .get(&input.camera)
+            .find(&input.camera)
             .ok_or_else(|| ReferenceError("Missing Grass camera record".into()))?;
         let target = reference
             .records
-            .get(&input.target)
+            .find(&input.target)
             .ok_or_else(|| ReferenceError("Missing Grass target record".into()))?;
         let number = |record: &crate::reference::WorldSourceRecord, name: &str| match record
             .fields
@@ -75,7 +100,8 @@ impl GrassCamera {
         })
     }
     /// Source Update follows the accepted camera. OnPreCull snaps with a truncating remainder.
-    pub fn frame(self, source_camera: Vec3, runtime_origin: Vec3, time: f32) -> GrassFrameUniform {
+    /// `wind` comes from `GrassWind::advance`.
+    pub fn frame(self, source_camera: Vec3, runtime_origin: Vec3, wind: Vec4) -> GrassFrameUniform {
         let mut position = source_camera + Vec3::Y * self.height;
         let step_x = 2. * self.size / self.width as f32;
         let step_z = 2. * self.size / self.pixels_high as f32;
@@ -103,12 +129,13 @@ impl GrassCamera {
             self.far,
         );
         GrassFrameUniform {
-            origin_time: runtime_origin.extend(time),
+            origin_time: runtime_origin.extend(wind.z),
             area,
             clip_from_world: Mat4::from_scale(Vec3::new(1., -1., 1.))
                 * projection
                 * world_from_view.inverse(),
             camera: source_camera.extend(1.),
+            wind,
         }
     }
 }

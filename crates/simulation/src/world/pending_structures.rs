@@ -60,10 +60,6 @@ impl PendingStructures {
         self.list.try_reserve_exact(count)?;
         self.index.try_reserve(self.list.capacity())
     }
-    /// Index bytes. List bytes are charged from the list capacity.
-    pub fn index_bytes(&self) -> usize {
-        self.index.retained_bytes()
-    }
 }
 impl std::ops::Deref for PendingStructures {
     type Target = Vec<Placement>;

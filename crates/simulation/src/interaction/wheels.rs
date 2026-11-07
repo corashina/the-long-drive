@@ -165,46 +165,6 @@ impl WheelAssemblies {
         let slot = self.slots.iter().find(|slot| slot.id == id)?;
         Some(self.vehicles[slot.vehicle].owner)
     }
-    pub fn retained_binding_bytes(&self) -> usize {
-        use super::memory::{map, set, strings, vector};
-        vector(&self.rules)
-            + self
-                .rules
-                .iter()
-                .map(|r| {
-                    r.source.file.capacity()
-                        + strings(&r.main_types)
-                        + strings(&r.part_types)
-                        + vector(&r.colliders)
-                        + strings(&r.tire_main_types)
-                        + strings(&r.tire_types)
-                })
-                .sum::<usize>()
-            + vector(&self.parts)
-            + self
-                .parts
-                .iter()
-                .map(|p| vector(&p.collider_ids) + vector(&p.colliders))
-                .sum::<usize>()
-            + map(&self.indices)
-            + vector(&self.slots)
-            + self
-                .slots
-                .iter()
-                .map(|s| set(&s.compatible) + strings(&s.rim_main_types) + strings(&s.rim_types))
-                .sum::<usize>()
-            + set(&self.tire_fits)
-            + vector(&self.generated_tanks)
-            + vector(&self.vehicles)
-            + self
-                .vehicles
-                .iter()
-                .map(|v| vector(&v.tanks))
-                .sum::<usize>()
-            + vector(&self.general_mass)
-            + map(&self.covers)
-            + vector(&self.installed)
-    }
 
     pub fn new(reference: &ReferenceManifest) -> Result<Self, ReferenceError> {
         let mut parts = Vec::with_capacity(reference.wheel_parts.len());

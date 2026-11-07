@@ -20,8 +20,13 @@ main {position:relative;width:100vw;height:100dvh;overflow:hidden;}
 #menu.covered {background-color:#14110e;transition:none;}
 #menu-art,#menu-frame {background-size:100% 100%;pointer-events:none;}
 #menu-art {z-index:0;}#menu-frame {z-index:1;}
-#status,#capture-error {position:absolute;left:24px;right:24px;top:24px;font-size:clamp(16px,2vw,30px);color:#fff;text-shadow:2px 2px 2px #000;overflow-wrap:anywhere;}
-#capture-error {top:74px;max-width:900px;}
+#capture-error {position:absolute;left:24px;right:24px;top:24px;max-width:900px;font-size:clamp(16px,2vw,30px);color:#fff;text-shadow:2px 2px 2px #000;overflow-wrap:anywhere;}
+/* A status text shows as a toast at the top center, over the menu and the game. */
+#toast {position:fixed;z-index:6;left:50%;top:max(16px,env(safe-area-inset-top));width:max-content;max-width:min(560px,calc(100% - 32px));margin:0;padding:10px 18px 10px 15px;border:1px solid var(--seam);border-left:3px solid var(--paint);border-radius:4px;background:var(--asphalt-glass);box-shadow:0 8px 24px #0008;color:var(--bleach);font:600 17px/1.3 var(--menu-font);text-align:center;overflow-wrap:anywhere;pointer-events:none;opacity:0;visibility:hidden;transform:translate(-50%,-12px);transition:opacity .25s,transform .25s,visibility 0s .25s;}
+#toast.shown {opacity:1;visibility:visible;transform:translate(-50%,0);transition:opacity .25s,transform .25s;}
+@media (prefers-reduced-motion:reduce) {#toast,#toast.shown {transition:none;}}
+/* These screens show the status in their own panel, or need the top of the screen. */
+main:has(#settings-screen:not([hidden]),#game-mode-screen:not([hidden]),#multiplayer-screen:not([hidden]),#appearance-screen:not([hidden])) #toast {display:none;}
 button {font:inherit;position:absolute;padding:0;border:0;color:#fff;cursor:pointer;background-color:transparent;text-shadow:2px 2px 2px #000;touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
 /* English buttons and headings use Title Case. language.js sets the page language. Save names and key names keep their case. */
 :root:lang(en) :is(button:not(.save-tile,.key-cell),.menu-panel > h2,#appearance-title,.menu-screen h3,.menu-screen legend,.menu-screen label,#appearance-screen label,.wheel-bind > span) {text-transform:capitalize;}
@@ -35,6 +40,16 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #performance {position:absolute;z-index:5;right:12px;top:12px;width:280px;max-width:calc(100% - 48px);max-height:calc(100% - 48px);overflow:hidden;padding:10px 12px;background:#000d;color:#fff;pointer-events:none;font:12px/1.45 monospace;font-variant-numeric:tabular-nums;}
 #performance-values {margin:0;font:inherit;white-space:pre-wrap;}
 #performance p {margin:8px 0 0;color:#bbb;font:11px/1.4 Arial,sans-serif;}
+/* F4 weather test panel, like the F3 overlay. The select takes clicks while the pointer is free. */
+#weather-panel {position:absolute;z-index:5;left:12px;top:12px;width:224px;padding:10px 12px;background:#000d;color:#fff;font:12px/1.45 monospace;font-variant-numeric:tabular-nums;}
+#weather-panel select {margin-left:6px;font:inherit;}
+#weather-panel div {margin:6px 0 0;}
+#weather-panel label {display:block;margin:4px 0 0;}
+#weather-panel div select {margin:0 6px 0 0;}
+#weather-panel button {font:inherit;}
+#weather-map {display:block;width:200px;height:200px;margin:0 0 8px;}
+#weather-values {margin:8px 0 0;font:inherit;white-space:pre-wrap;}
+#weather-panel p {margin:8px 0 0;color:#bbb;font:11px/1.4 Arial,sans-serif;}
 /* Pause menu: one column of buttons over the dimmed world. */
 .pause-menu {position:absolute;z-index:2;inset:0;display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100% - 32px));height:fit-content;max-height:calc(100dvh - 32px);margin:auto;overflow:auto;overscroll-behavior:contain;}
 .pause-menu button {position:static;height:46px;padding:0 18px;border-left-width:3px;border:1px solid var(--seam);border-radius:4px;background:var(--asphalt-glass);color:var(--bleach);font-size:18px;text-align:left;text-shadow:none;transition:background-color .15s,border-color .15s;}
@@ -59,7 +74,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #menu.road-view :is(#menu-art,#menu-frame) {display:none;}
 /* The road view stays clear. Only the bottom darkens under the buttons. */
 #menu.road-view::before {content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(transparent 70%,#0008);}
-#menu.road-view :is(#status,#capture-error) {left:50%;right:auto;width:min(900px,calc(100% - 32px));transform:translateX(-50%);text-align:center;}
+#menu.road-view #capture-error {left:50%;right:auto;width:min(900px,calc(100% - 32px));transform:translateX(-50%);text-align:center;}
 .start-menu {position:absolute;z-index:2;left:50%;bottom:max(clamp(24px,7vh,72px),env(safe-area-inset-bottom));display:grid;justify-items:center;gap:22px;width:min(760px,calc(100% - 32px));transform:translateX(-50%);animation:start-in .7s ease-out .15s backwards;}
 @keyframes start-in {from {opacity:0;transform:translate(-50%,18px);}}
 .start-menu button {position:static;text-shadow:none;transition:background-color .15s,border-color .15s,color .15s;}
@@ -78,7 +93,6 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #session-distance {position:absolute;z-index:2;right:clamp(16px,6vw,96px);bottom:clamp(16px,7vh,72px);display:grid;padding:16px 24px 14px;border:3px solid var(--bleach);border-radius:10px;background:var(--asphalt);box-shadow:0 0 0 5px var(--asphalt),0 12px 40px #0009;text-align:right;}
 #session-distance-label {color:var(--dust);font-size:16px;font-weight:600;}
 #session-distance-value {color:var(--bleach);font-size:clamp(34px,4.5vw,56px);font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums;}
-#menu:has(#settings-screen:not([hidden]),#game-mode-screen:not([hidden]),#multiplayer-screen:not([hidden])) #status {visibility:hidden;}
 /* Menu screens (Settings, Game mode, Saves, Multiplayer): a solid window in the middle of a dimmed screen. */
 .menu-screen {position:absolute;inset:0;z-index:3;display:grid;place-items:center;padding:16px;background:#000b;}
 .menu-panel {position:relative;display:flex;flex-direction:column;border-radius:6px;overflow:hidden;width:min(880px,100%);max-height:calc(100dvh - 32px);background:var(--asphalt);border:1px solid var(--seam);box-shadow:0 20px 60px #000c;font:400 17px/1.35 var(--menu-font);font-variant-numeric:tabular-nums;color:var(--bleach);text-shadow:none;}
@@ -136,7 +150,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .key-row button {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 #draw-distance-value {min-width:5.5em;}
 #appearance-screen {position:absolute;inset:0;z-index:2;}
-#menu:has(#appearance-screen:not([hidden])) :is(#menu-art,#menu-frame,#status) {display:none;}
+#menu:has(#appearance-screen:not([hidden])) :is(#menu-art,#menu-frame) {display:none;}
 .appearance-panel {border-top:4px solid transparent;border-image:var(--lane) 4;border-image-width:4px 0 0 0;position:absolute;left:0;top:0;bottom:0;width:min(440px,45vw);display:flex;flex-direction:column;gap:12px;padding:20px 24px;overflow:auto;overscroll-behavior:contain;background:var(--asphalt);border-right:1px solid var(--seam);box-shadow:20px 0 60px #0008;font:400 17px/1.35 var(--menu-font);font-variant-numeric:tabular-nums;color:var(--bleach);text-shadow:none;}
 #appearance-title {margin:0;font-size:30px;font-weight:800;color:var(--bleach);}
 .appearance-panel label {display:flex;align-items:center;justify-content:space-between;gap:12px;}
@@ -274,7 +288,6 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
  .key-row {grid-template-columns:repeat(3,minmax(0,1fr));}
  .key-row span {grid-column:1/-1;}
  .settings-columns {grid-template-columns:1fr;}
- #menu.narrow #status {font-size:18px;}
  .save-body {grid-template-columns:1fr;}
  #save-tiles {grid-template-columns:repeat(2,minmax(0,1fr));}
  #capture-error {font-size:16px;top:60px;max-height:70px;overflow:auto;}

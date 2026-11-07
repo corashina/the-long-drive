@@ -89,10 +89,7 @@ impl StorageRecord {
         )?;
         let world = &manifest.world;
         for volume in &self.prototype_volumes {
-            let prototype = world
-                .prototypes
-                .iter()
-                .find(|prototype| prototype.source == volume.prototype);
+            let prototype = world.prototypes.find(&volume.prototype);
             require(
                 prototype.is_some_and(|prototype| (volume.node as usize) < prototype.nodes.len())
                     && volume.usables.iter().all(|usable| {
@@ -104,7 +101,7 @@ impl StorageRecord {
                     && volume.slots.iter().all(|slot| {
                         world
                             .records
-                            .get(slot)
+                            .find(slot)
                             .is_some_and(|record| record.class_name == "partslotscript")
                     })
                     && finite(&volume.center)
@@ -116,10 +113,7 @@ impl StorageRecord {
         for flag in &self.prototype_flags {
             require(
                 (flag.dont_mount || flag.dont_mount_till_pickup)
-                    && world
-                        .prototypes
-                        .iter()
-                        .any(|prototype| prototype.source == flag.prototype),
+                    && world.prototypes.find(&flag.prototype).is_some(),
                 "storage prototype flag",
             )?;
         }

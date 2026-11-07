@@ -44,17 +44,11 @@ pub(crate) fn roadside_stamp(reference: &ReferenceManifest) -> SourceStamp {
     }
 }
 
-/// The native adapter charges and hands over one structure claim, as the renderer ledger does.
+/// The native adapter hands over one structure claim, as the renderer does.
 pub(crate) fn accept_structure(stream: &mut WorldStream, id: &crate::world::GeneratedId) {
-    stream.ledger.add_claim();
     stream
         .accept_structure_renderer(stream.request, id)
         .unwrap();
-}
-
-/// Renderer loads hold `bytes` of staging credit until the next call.
-pub(crate) fn hold_renderer_staging(stream: &mut WorldStream, bytes: usize) {
-    stream.ledger.hold_staging(bytes);
 }
 
 pub(crate) fn views() -> [crate::world::RequiredView; 1] {
@@ -482,8 +476,7 @@ pub(crate) fn weapon<'a>(
             reference
                 .world
                 .prototypes
-                .iter()
-                .find(|p| p.source == w.prototype.0)
+                .find(&w.prototype.0)
                 .and_then(|p| p.nodes.iter().find(|n| n.parent.is_none()))
                 .is_some_and(|n| {
                     let name = n.name.to_lowercase();

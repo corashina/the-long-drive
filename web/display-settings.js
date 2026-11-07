@@ -32,6 +32,8 @@ export const ROWS={
  reflections:{values:LEVELS,default:0},
  // 0 full, 1 half (mips 1+ only, as Unity masterTextureLimit 1). Applies after a reload.
  textures:{values:[0,1],default:0},
+ // 0 high (6000 rain drops), 1 medium (3000), 2 low (1000).
+ rain:{values:LEVELS,default:0},
 };
 const NAMES=Object.keys(ROWS);
 const POSITIONS=1000;

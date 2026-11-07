@@ -19,7 +19,6 @@ struct Patch {
     chunk: [usize; 2],
     context: u64,
     collider: ColliderHandle,
-    bytes: usize,
 }
 
 #[derive(Default)]
@@ -62,15 +61,6 @@ impl Ground {
         if self.context != 0 {
             self.context += 1;
         }
-    }
-    pub(super) fn retained_bytes(&self) -> usize {
-        self.roads.capacity() * std::mem::size_of::<TerrainRoadPoint>()
-            + self.patches.capacity() * std::mem::size_of::<Patch>()
-            + self.patches.iter().map(|p| p.bytes).sum::<usize>()
-            + self.holes.capacity() * std::mem::size_of::<[[f32; 3]; 4]>()
-            + self.foundations.capacity() * std::mem::size_of::<TerrainFoundation>()
-            + self.generated.capacity() * std::mem::size_of::<super::super::FoundationPoint>()
-            + self.tile_roads.capacity() * std::mem::size_of::<TerrainRoadPoint>()
     }
     fn covers(&self, unit: [i64; 2], chunk: [usize; 2]) -> bool {
         self.patches
@@ -197,13 +187,12 @@ impl WorldStream {
         for x in x0..=x1 {
             for z in z0..=z1 {
                 if !self.ground.covers(unit, [x, z]) {
-                    let (collider, bytes) = self.build_patch(physics, unit, [x, z]);
+                    let collider = self.build_patch(physics, unit, [x, z]);
                     self.ground.patches.push(Patch {
                         unit,
                         chunk: [x, z],
                         context,
                         collider,
-                        bytes,
                     });
                 }
             }
@@ -217,7 +206,7 @@ impl WorldStream {
         physics: &mut PhysicsWorld,
         unit: [i64; 2],
         chunk: [usize; 2],
-    ) -> (ColliderHandle, usize) {
+    ) -> ColliderHandle {
         let context = TerrainContext {
             evaluator: &self.evaluator,
             tile: self.tiles[0],
@@ -228,7 +217,7 @@ impl WorldStream {
             holes: &[],
             biome_override: self.mode.biome_override(),
         };
-        let (shape, center, bytes) = patch_shape(&context, unit, chunk);
+        let (shape, center) = patch_shape(&context, unit, chunk);
         let layer = self.terrain_layer;
         let collider = shape
             .friction(0.6)
@@ -240,17 +229,17 @@ impl WorldStream {
                 InteractionTestMode::And,
             ))
             .build();
-        (physics.insert_collider(collider), bytes)
+        physics.insert_collider(collider)
     }
 }
 
-/// The heightfield over `chunk` of tile `unit` on the tile grid, its absolute center and its
-/// bytes. The tile job context gives the tile vertex heights.
+/// The heightfield over `chunk` of tile `unit` on the tile grid and its absolute center.
+/// The tile job context gives the tile vertex heights.
 fn patch_shape(
     context: &TerrainContext<'_>,
     unit: [i64; 2],
     chunk: [usize; 2],
-) -> (ColliderBuilder, [f64; 3], usize) {
+) -> (ColliderBuilder, [f64; 3]) {
     let tile = context.tile;
     let last = tile.resolution as usize - 1;
     let x0 = chunk[0] * PATCH_CELLS;
@@ -277,10 +266,8 @@ fn patch_shape(
         1.0,
         (grid(z1) - grid(z0)) as f32,
     );
-    let bytes = std::mem::size_of::<rapier3d::prelude::Collider>()
-        + heights.len() * std::mem::size_of::<f32>() * 2;
     let shape = ColliderBuilder::heightfield(Array2::new(rows, x1 - x0 + 1, heights), scale);
-    (shape, center, bytes)
+    (shape, center)
 }
 
 #[cfg(test)]
@@ -336,7 +323,7 @@ mod tests {
         };
         let mut physics = PhysicsWorld::empty(0, 2);
         let local = |p: [f64; 3]| p.map(|v| v as f32);
-        let (tile_collider, _) = physics
+        let tile_collider = physics
             .insert_source_mesh(
                 &surface,
                 Some(tile.size as f32),
@@ -345,10 +332,9 @@ mod tests {
                 u32::MAX,
                 0.6,
                 0.0,
-                usize::MAX,
             )
             .unwrap();
-        let (shape, center, _) = patch_shape(&context, unit, [1, 0]);
+        let (shape, center) = patch_shape(&context, unit, [1, 0]);
         let patch = physics.insert_collider(shape.translation(Vector::from_array(local(center))));
         physics.refresh_queries();
         let height = |collider: ColliderHandle, x: f32, z: f32| {

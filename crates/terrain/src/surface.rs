@@ -386,9 +386,6 @@ impl TerrainSurfaceJob {
             + (n - 1) * (n - 1) * 24
             + std::mem::size_of::<std::ops::Range<usize>>()
     }
-    pub fn retained_bytes(&self) -> usize {
-        (self.border.capacity() + self.border_normals.capacity()) * 12
-    }
     pub fn begin(&mut self, unit: [i64; 2], context: TerrainContext<'_>, output: &mut TerrainMesh) {
         let tile = context.tile;
         let n = tile.resolution as usize;

@@ -1,29 +1,6 @@
 const CAPACITY=4096;
 const statistics=values=>{const sorted=[...values].sort((a,b)=>a-b);return {count:sorted.length,meanMs:sorted.length?sorted.reduce((a,b)=>a+b,0)/sorted.length:null,p95Ms:sorted[Math.ceil(sorted.length*.95)-1]??null,p99Ms:sorted[Math.ceil(sorted.length*.99)-1]??null,maxMs:sorted.at(-1)??null};};
 
-// Keep invalid clock evidence separate from game transport. Never invent a zero duration.
-const clockEvidence=value=>Number.isFinite(value)?value:typeof value==='number'?String(value):value??null;
-const arithmeticUncertainty=values=>Number.EPSILON*values.reduce((sum,value)=>sum+Math.abs(value),0);
-export function workerClockHandshake({windowOrigin,windowSent,windowReceived,workerOrigin,workerReceived,workerSent}){
- const fields={windowOrigin,windowSent,windowReceived,workerOrigin,workerReceived,workerSent},values=Object.values(fields);
- const finite=values.every(Number.isFinite),contextTimes=[windowSent,windowReceived,workerReceived,workerSent].every(Number.isFinite);
- // Subtract context origins before combining local timestamps to limit cancellation.
- const receiveMs=finite?(workerOrigin-windowOrigin)+(workerReceived-windowSent):null;
- const returnMs=finite?(windowOrigin-workerOrigin)+(windowReceived-workerSent):null;
- const roundTripMs=contextTimes?(windowReceived-windowSent)-(workerSent-workerReceived):null;
- const reason=!finite?'invalid-clock-timestamp':windowReceived<windowSent||workerSent<workerReceived?'nonmonotonic-context-clock':receiveMs<0||returnMs<0||roundTripMs<0?'negative-handshake-delivery':null;
- return {valid:reason===null,reason,windowOrigin:Number.isFinite(windowOrigin)?windowOrigin:null,workerOrigin:Number.isFinite(workerOrigin)?workerOrigin:null,roundTripMs,receiveMs,returnMs,arithmeticUncertaintyMs:finite?arithmeticUncertainty(values):null,clockResolutionMs:null,raw:Object.fromEntries(Object.entries(fields).map(([key,value])=>[key,clockEvidence(value)]))};
-}
-function deliveryInterval(clock,localSent,remoteReceived,toWorker){
- const values=[clock?.windowOrigin,clock?.workerOrigin,localSent,remoteReceived],finite=values.every(Number.isFinite);
- const rawMs=finite?(toWorker?clock.workerOrigin-clock.windowOrigin:clock.windowOrigin-clock.workerOrigin)+(remoteReceived-localSent):null;
- const arithmeticUncertaintyMs=finite?arithmeticUncertainty(values):null;
- const reason=!finite?'invalid-clock-timestamp':!clock.valid?'invalid-clock-handshake':rawMs<0?Math.abs(rawMs)<=arithmeticUncertaintyMs?'below-zero-within-arithmetic-uncertainty':'negative-delivery-interval':null;
- return {valid:reason===null,reason,valueMs:reason===null?rawMs:null,rawMs,arithmeticUncertaintyMs,clockResolutionMs:null,uncertaintyBasis:'Floating-point arithmetic only. Browser timer coarsening is unknown.',raw:toWorker?{windowSent:clockEvidence(localSent),workerReceived:clockEvidence(remoteReceived)}:{workerSent:clockEvidence(localSent),windowReceived:clockEvidence(remoteReceived)}};
-}
-export function workerDeliveryInterval(clock,{workerSent,windowReceived}){return deliveryInterval(clock,workerSent,windowReceived,false);}
-export function workerInputDeliveryInterval(clock,{windowSent,workerReceived}){return deliveryInterval(clock,windowSent,workerReceived,true);}
-
 export function createCpuProfile(now,timeOrigin){
  const inputs=new Float64Array(CAPACITY*8),jobs=new Array(CAPACITY),jobBytes=new Uint32Array(CAPACITY),stages=new Map();
  let enabled=false,inputCount=0,jobCount=0,inputDropped=0,jobDropped=0,pendingFloor=0,lastConsumed=0,lastSubmitted=0,retainedJobBytes=0;

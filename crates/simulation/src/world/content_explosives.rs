@@ -36,13 +36,8 @@ impl TankExplosion {
             explosion_type: integer(f, "explosionType")?,
             no_shoot_hole: flag(f, "noShootHole")?,
             no_shoot_explode: flag(f, "noShootExplode")?,
-            parent_dest: optional(f, "parentDest")?.and_then(|s| {
-                prototype
-                    .nodes
-                    .iter()
-                    .position(|n| &n.source == s)
-                    .map(|i| NodeId(i as u32))
-            }),
+            parent_dest: optional(f, "parentDest")?
+                .and_then(|s| prototype.nodes.index(s).map(|i| NodeId(i as u32))),
         })
     }
 }

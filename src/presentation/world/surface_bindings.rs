@@ -51,12 +51,7 @@ impl SourceWorldVisuals {
             {
                 continue;
             }
-            let prototype = reference
-                .world
-                .prototypes
-                .iter()
-                .find(|p| p.source == *source)
-                .ok_or_else(|| ReferenceError("Missing road prototype".into()))?;
+            let prototype = reference.world.prototype(source)?;
             let plan = prototypes
                 .plan(stream.frame().request.session, source)
                 .unwrap();
@@ -69,7 +64,7 @@ impl SourceWorldVisuals {
                         .as_ref()
                         .ok_or_else(|| ReferenceError("Missing road material identity".into()))?;
                     let identity = (material.asset, material.gltf_material);
-                    cache.admit_world_primary(identity, reference, ledger)?;
+                    cache.admit_world_primary(identity, reference)?;
                     ready &= cache.world_primary_ready(identity);
                 }
             }
@@ -79,18 +74,6 @@ impl SourceWorldVisuals {
             let Some(loaded) = prototypes.loaded(stream.frame().request.session, source) else {
                 continue;
             };
-            // Road bindings persist for this bank. Reserve before allocating any binding.
-            let count = prototype
-                .skins
-                .iter()
-                .map(|skin| skin.triangles.len())
-                .sum::<usize>();
-            let mut allocation = ledger.allocation();
-            allocation.prototype_cpu +=
-                count * (8192 + crate::presentation::caster_material::CPU_BYTES);
-            allocation.prototype_gpu +=
-                count * (2048 + crate::presentation::caster_material::gpu_bytes());
-            ledger.set_allocation(allocation)?;
             let mut bindings = Vec::with_capacity(
                 prototype
                     .skins
@@ -167,16 +150,7 @@ impl SourceWorldVisuals {
             // The terrain material lives as long as its stream hold.
             let hold = crate::world::RendererFact::HoldPrototype(record.source.clone());
             if !stream.holds_prototype(&record.source) && !facts.contains(&hold) {
-                // A full stream table waits like a full credit.
-                if !stream.can_hold_prototype(&record.source) {
-                    ledger.wait_for_hold();
-                    continue;
-                }
                 facts.push(hold);
-                let mut allocation = ledger.allocation();
-                allocation.prototype_cpu += std::mem::size_of::<TerrainMaterial>() + 256 + 8192;
-                allocation.prototype_gpu += 2048;
-                ledger.set_allocation(allocation)?;
             }
             cache.admit_world_material(record, reference, ledger)?;
             if !cache.world_textures.ready(&record.source) {
@@ -207,13 +181,13 @@ fn terrain_renderer(
 ) -> Result<(u8, crate::reference::render_lighting::RendererRecord), ReferenceError> {
     let records = &reference.world.records;
     let transform = records
-        .get(&reference.world.terrain.prefabs[tier])
+        .find(&reference.world.terrain.prefabs[tier])
         .ok_or_else(|| ReferenceError("Missing terrain transform".into()))?;
     let Some(WorldValue::Link(owner)) = transform.fields.get("m_GameObject") else {
         return Err(ReferenceError("Missing terrain owner".into()));
     };
     let object = records
-        .get(owner)
+        .find(owner)
         .ok_or_else(|| ReferenceError("Missing terrain GameObject".into()))?;
     let layer = match object.fields.get("m_Layer") {
         Some(WorldValue::Integer(layer)) => *layer as u8,

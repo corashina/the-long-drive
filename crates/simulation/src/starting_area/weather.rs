@@ -4,7 +4,7 @@ use crate::audio::interiors::WorldInteriors;
 use crate::interaction::items::ItemStore;
 use crate::reference::{ColliderId, ItemId, ReferenceManifest};
 use crate::vehicle::{PhysicsWorld, VehiclePose};
-use crate::weather::{ImportantObject, InteriorVolume};
+use crate::weather::{ImportantObject, InteriorVolume, Shelter, WeatherKind};
 use rapier3d::math::{Rotation, Vector};
 use rapier3d::prelude::{Collider, ColliderHandle, QueryFilter, Ray, RigidBodyHandle};
 use std::collections::HashMap;
@@ -18,7 +18,16 @@ pub(super) struct WeatherBindings {
     garage: Vec<ColliderHandle>,
     world: WorldInteriors,
     volumes: Vec<InteriorVolume>,
+    /// Rain loop blends by `Shelter` index: outside, building roof and car roof.
+    shelter: [f32; 3],
 }
+
+/// Shelter blend change per second.
+const SHELTER_FADE: f32 = 2.;
+/// The wind loop is at full gain at this wind speed with gust, in meters per second.
+const WIND_FULL: f32 = 16.;
+/// Wind loop gain inside a shelter.
+const WIND_INSIDE: f32 = 0.3;
 
 impl WeatherBindings {
     /// `interiors` are the garage interior colliders of the live interior list.
@@ -41,6 +50,7 @@ impl WeatherBindings {
             world: WorldInteriors::new(garage.len()),
             volumes: Vec::with_capacity(garage.len() + 256),
             garage,
+            shelter: [1., 0., 0.],
         }
     }
 
@@ -87,6 +97,23 @@ impl WeatherBindings {
         }
     }
 
+    /// True when `point` is inside a live interior volume. Volumes of the `open` body do not count.
+    fn inside(
+        &self,
+        physics: &PhysicsWorld,
+        point: [f32; 3],
+        open: Option<RigidBodyHandle>,
+    ) -> bool {
+        let point = Vector::from_array(point);
+        let colliders = &physics.rapier().colliders;
+        self.volumes.iter().any(|v| {
+            (open.is_none() || v.root != open)
+                && colliders
+                    .get(v.collider)
+                    .is_some_and(|c| c.shape().contains_point(c.position(), point))
+        })
+    }
+
     /// The root of a body that wind moves. The player body has none.
     fn wind_root(&self, items: &ItemStore, body: RigidBodyHandle) -> Option<RigidBodyHandle> {
         (body != self.player).then(|| root(&self.items, items, body))
@@ -114,16 +141,49 @@ fn root(
 
 impl GarageRuntime {
     /// Runs once before physics, with normal simulation time. Sleep does not speed storms up.
-    pub(super) fn advance_weather(&mut self, reference: &ReferenceManifest, dt: f32) {
+    /// `skip` is the extra cycle time of a sleep. It moves the forecast and the cells.
+    pub(super) fn advance_weather(&mut self, reference: &ReferenceManifest, dt: f32, skip: f32) {
         let bindings = &mut self.weather_bindings;
         bindings.sync(&self.area.items, &self.physics, &self.stream);
         self.weather
             .reserve_bodies(self.physics.rapier().bodies.len());
-        let player = self
-            .stream
-            .origin
-            .absolute(self.area.player.body_pose(&self.physics).position);
+        let local = self.area.player.body_pose(&self.physics).position;
+        let player = self.stream.origin.absolute(local);
+        // A roofless vehicle seat (bike, cabrio) is open.
+        let roof = self
+            .area
+            .player
+            .seat_vehicle()
+            .and_then(|key| self.vehicles.get(key))
+            .is_some_and(|v| {
+                crate::weather::vehicle_roof(
+                    reference.world.prototypes[v.prototype].root_name(),
+                    crate::car::world_vehicle(reference, v.prototype)
+                        .balance
+                        .is_some(),
+                )
+            });
+        // The seat vehicle volume is the cabin, not a building.
+        let open = self
+            .area
+            .player
+            .seat_vehicle()
+            .and(self.area.player.seat_body());
+        self.weather.shelter = Shelter::new(roof, || bindings.inside(&self.physics, local, open));
         let stream = &mut self.stream;
+        let cycle = self.lighting.cycle.output();
+        let time = crate::weather::WeatherTime {
+            dt,
+            skip,
+            part: crate::weather::DayPart::new(cycle.phase, cycle.progress),
+        };
+        self.weather.advance_cells(
+            time,
+            player,
+            self.net_guest,
+            |xz| stream.biome_at(xz),
+            |xz| stream.height_at(xz),
+        );
         self.weather.advance(
             &reference.weather,
             self.simulation_seconds,
@@ -131,6 +191,7 @@ impl GarageRuntime {
             player,
             |point| stream.terrain_sample(point),
         );
+        self.physics.set_wetness(self.weather.mix().wetness);
         let (bindings, items) = (&self.weather_bindings, &self.area.items);
         // WaitForSeconds resumes after Update. Apply the cached targets before later rescans.
         self.weather.apply_wind(
@@ -166,10 +227,89 @@ impl GarageRuntime {
         );
         self.lighting
             .cycle
-            .compose_weather(&reference.weather, self.weather.influence());
+            .scroll_clouds(dt, self.weather.wind.speed);
+        self.lighting.cycle.compose_weather(
+            &reference.weather,
+            self.weather.influence(),
+            self.weather.mix(),
+            &self.weather.sample().look(),
+        );
         self.advance_tumbleweeds(reference, dt);
+        let bindings = &mut self.weather_bindings;
+        let step = SHELTER_FADE * dt;
+        for (i, blend) in bindings.shelter.iter_mut().enumerate() {
+            let target = if i == self.weather.shelter as usize {
+                1.
+            } else {
+                0.
+            };
+            *blend += (target - *blend).clamp(-step, step);
+        }
+        use crate::audio::{AudioAction, AudioKind, SurvivalAudioEvent};
         let audio = &mut self.audio;
-        use crate::audio::AudioKind;
+        while let Some(thunder) = self.weather.lightning.pop_thunder() {
+            // A close strike plays the sharp crack.
+            let kind = if thunder.distance < crate::weather::CLOSE_DISTANCE {
+                AudioKind::ThunderClose
+            } else {
+                AudioKind::Thunder
+            };
+            let row = audio
+                .reference
+                .survival
+                .iter()
+                .find(|b| b.kind == kind as u32)
+                .expect("validated thunder audio");
+            let last = row.clips.len() - 1;
+            let clip = row.clips[((thunder.variant * row.clips.len() as f32) as usize).min(last)];
+            // Far thunder is quieter: full gain at the nearest strike distance.
+            let near = crate::weather::STRIKE_DISTANCE[0];
+            let gain = row.gain[0] * (near / thunder.distance.max(near)).sqrt();
+            let pitch = row.pitch[0];
+            audio.survival_event(SurvivalAudioEvent {
+                session: 0,
+                emitter: 0,
+                kind,
+                action: AudioAction::Start,
+                clip,
+                gain,
+                pitch,
+                position: player,
+            });
+        }
+        let rain = self.weather.mix().rain;
+        let shelter = bindings.shelter;
+        for (kind, blend) in [AudioKind::Rain, AudioKind::RainInside, AudioKind::RainCar]
+            .into_iter()
+            .zip(shelter)
+        {
+            let gain = rain * blend;
+            if gain > 0. {
+                let row = audio
+                    .reference
+                    .survival
+                    .iter()
+                    .find(|b| b.kind == kind as u32)
+                    .expect("validated rain audio");
+                audio.source_loop(kind, 0, row.gain[0] * gain, player);
+            } else {
+                audio.stop_survival_loop(kind, 0);
+            }
+        }
+        let wind = &self.weather.wind;
+        let blend = 1. - (1. - WIND_INSIDE) * (1. - shelter[0]);
+        let gain = (wind.speed * wind.gust / WIND_FULL).min(1.) * blend;
+        if gain > 0. {
+            let row = audio
+                .reference
+                .survival
+                .iter()
+                .find(|b| b.kind == AudioKind::Wind as u32)
+                .expect("validated wind audio");
+            audio.source_loop(AudioKind::Wind, 0, row.gain[0] * gain, player);
+        } else {
+            audio.stop_survival_loop(AudioKind::Wind, 0);
+        }
         audio.remove_storm_loops(self.weather.storms());
         // sandstormscript.Update: source.volume = defVolume * llerp.
         let volume = audio
@@ -234,7 +374,10 @@ impl GarageRuntime {
                 .tumbleweeds
                 .spawn(r, now, &[player], |item| spawned.contains(item), cast);
         // Unity AddForce uses Force mode. Integrate one fixed step.
-        let integration_dt = physics.rapier().integration_parameters.dt;
+        // Thunderstorm gusts scale the source force.
+        let storm = self.weather.sample().weight(WeatherKind::Thunderstorm);
+        let scale = 1. + (self.weather.wind.gust - 1.) * storm;
+        let integration_dt = physics.rapier().integration_parameters.dt * scale;
         for (item, force) in self.weather.tumbleweeds.forces() {
             if let Some(handle) = body(item) {
                 self.physics

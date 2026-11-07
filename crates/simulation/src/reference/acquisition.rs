@@ -375,7 +375,7 @@ impl AcquisitionReference {
                     "sharedassets1.assets",
                     [26573, 27344, 41123][index],
                 ) && s.root.0 == 0
-                    && station.is_some_and(|p| m.world.records.get(&p.source)
+                    && station.is_some_and(|p| m.world.records.find(&p.source)
                         .is_some_and(|r| matches!(r.fields.get("m_GameObject"), Some(WorldValue::Link(owner)) if owner == &s.source)))
                     && source_is(
                         &s.building,

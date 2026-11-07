@@ -5,16 +5,16 @@ use bevy::prelude::{Component, Quat, Transform, Vec3};
 
 #[derive(Component)]
 pub struct CapVisual {
-    pub(crate) opening: OpeningId,
-    pub(crate) closed: Transform,
-    pub(crate) opened: Transform,
-    pub(crate) euler: bool,
-    pub(crate) closed_euler: Vec3,
-    pub(crate) open_euler: Vec3,
+    pub opening: OpeningId,
+    pub closed: Transform,
+    pub opened: Transform,
+    pub euler: bool,
+    pub closed_euler: Vec3,
+    pub open_euler: Vec3,
     /// Source `capLerp` while `DoMove` runs.
-    pub(crate) motion: Option<f32>,
+    pub motion: Option<f32>,
     /// Current `TCap` pose. Car part node poses also write this node, so the cap keeps its own pose.
-    pub(crate) pose: Transform,
+    pub pose: Transform,
 }
 impl CapVisual {
     /// Advances the cap toward the pose of `valve` and returns the new local pose.

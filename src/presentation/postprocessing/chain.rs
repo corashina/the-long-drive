@@ -30,7 +30,7 @@ use bevy::render::{
     render_resource::*,
     renderer::{RenderAdapter, RenderDevice, RenderQueue},
 };
-use simulation::lighting::CyclePhase;
+use simulation::lighting::{CyclePhase, WeatherGrade};
 
 #[derive(Clone)]
 pub struct PostShaders {
@@ -80,6 +80,8 @@ pub struct PostFrame {
     pub delta_seconds: f32,
     /// Main-view grading temperature. None keeps the applied value.
     pub grading_temperature: Option<f32>,
+    /// Weather grade on top of the main grading.
+    pub grade: WeatherGrade,
     /// `DeadV` weight over the main stack, 0 to 1.
     pub dead_weight: f32,
     /// `PPVSunGlasses` lens: index in `clothing.glasses_profiles`. None is no lens grading.
@@ -101,6 +103,17 @@ pub struct PostFrame {
     /// Main view clip planes.
     pub near: f32,
     pub far: f32,
+}
+/// Weather grade change that bakes the LUT again.
+const GRADE_STEP: f32 = 0.01;
+/// Grading temperature at weather warmth 1.
+const WARMTH_TEMPERATURE: f32 = 30.;
+/// The main grading with the weather grade. Saturation and contrast multiply the source factors.
+fn weather_grading(mut grading: GradingSettings, grade: WeatherGrade) -> GradingSettings {
+    grading.saturation = ((grading.saturation / 100. + 1.) * grade.saturation - 1.) * 100.;
+    grading.contrast = ((grading.contrast / 100. + 1.) * grade.contrast - 1.) * 100.;
+    grading.temperature += grade.warmth * WARMTH_TEMPERATURE;
+    grading
 }
 struct ColorTarget {
     _texture: Texture,
@@ -171,6 +184,8 @@ pub struct SourcePostChain {
     /// The stack effects in the Uber and bloom uniforms.
     effects: Option<StackEffects>,
     main: MainChain,
+    /// Weather grade in the main grading.
+    grade: WeatherGrade,
     stop_nan: bool,
     completed: u32,
     pending: Option<u32>,
@@ -206,6 +221,9 @@ impl SourcePostChain {
         let startup_count = previous.as_ref().map_or(1, |old| old.startup_count);
         let resize_count = previous.as_ref().map_or(0, |old| old.resize_count + 1);
         let completed = previous.as_ref().map_or(0, |old| old.completed);
+        let grade = previous
+            .as_ref()
+            .map_or_else(WeatherGrade::default, |old| old.grade);
         let (mut copy, old_dof, old_main, old_uber, old_taa, grain, dead) = match previous {
             Some(old) => (
                 old.copy,
@@ -456,6 +474,7 @@ impl SourcePostChain {
             dead,
             effects: None,
             main,
+            grade,
             stop_nan,
             completed,
             pending: None,
@@ -632,16 +651,32 @@ impl SourcePostChain {
         };
         changed |= saturation != self.main.base.saturation;
         self.main.base.saturation = saturation;
+        // The LUT bakes again only when the weather grade moves by more than a step.
+        let grade = frame.grade;
+        if ![grade.saturation, grade.contrast, grade.warmth]
+            .iter()
+            .all(|v| v.is_finite())
+        {
+            return Err("Invalid weather grade".into());
+        }
+        if (grade.saturation - self.grade.saturation).abs() > GRADE_STEP
+            || (grade.contrast - self.grade.contrast).abs() > GRADE_STEP
+            || (grade.warmth - self.grade.warmth).abs() > GRADE_STEP
+        {
+            self.grade = grade;
+            changed = true;
+        }
         if changed {
+            let base = weather_grading(self.main.base, self.grade);
             // The lens overrides the main grading.
             let (grading, tonemapper) = match frame.glasses {
-                Some(index) => self.main.base.with_glasses(
+                Some(index) => base.with_glasses(
                     self.main
                         .profiles
                         .get(index as usize)
                         .ok_or("Invalid source glasses profile")?,
                 ),
-                None => (self.main.base, Tonemapper::Neutral),
+                None => (base, Tonemapper::Neutral),
             };
             self.main.glasses = frame.glasses;
             if grading != self.main.grading || tonemapper != self.main.tonemapper {

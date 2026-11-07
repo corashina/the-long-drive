@@ -35,7 +35,7 @@ impl StartupTerrain {
                 .sum::<f32>();
             let record = reference
                 .records
-                .get(source)
+                .find(source)
                 .filter(|r| r.class_name == "Transform")
                 .ok_or_else(|| {
                     ReferenceError(format!(
@@ -74,7 +74,7 @@ impl StartupTerrain {
                 // Asset roots can have source parents outside the exported scene.
                 let mut source = &node.source;
                 while let Some(WorldValue::Link(parent)) = records
-                    .get(source)
+                    .find(source)
                     .and_then(|record| record.fields.get("m_Father"))
                 {
                     offset += self
@@ -101,7 +101,7 @@ impl StartupTerrain {
         let get = |id: &SourceId| -> Result<&'a WorldSourceRecord, ReferenceError> {
             reference
                 .records
-                .get(id)
+                .find(id)
                 .ok_or_else(|| ReferenceError(format!("{}:{} startup record", id.file, id.path_id)))
         };
         fn number(value: &WorldValue) -> f32 {
@@ -348,7 +348,7 @@ pub fn source_world_pose(
     while let Some(source) = current {
         let record = reference
             .records
-            .get(&source)
+            .find(&source)
             .filter(|r| r.class_name == "Transform")
             .ok_or_else(|| {
                 ReferenceError(format!(

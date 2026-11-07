@@ -1,5 +1,5 @@
 use super::*;
-use crate::world::{AttachmentSnapshot, GeneratedId, GeneratedKey, ObjectKey, SpawnContext};
+use crate::world::{AttachmentSnapshot, GeneratedId, ObjectKey, SpawnContext};
 
 impl SaveSnapshot {
     pub(super) fn validate_world(
@@ -163,11 +163,7 @@ impl SaveSnapshot {
             generated(&replay.id)?;
             generated(instance)?;
             links(
-                reference
-                    .world
-                    .prototypes
-                    .iter()
-                    .any(|p| p.source == replay.prototype),
+                reference.world.prototypes.find(&replay.prototype).is_some(),
                 "Unknown replay prototype",
             )?;
             links(
@@ -441,6 +437,7 @@ fn descendant(child: &GeneratedId, parent: &GeneratedId) -> bool {
 mod tests {
     use super::*;
     use crate::world::AbsolutePose;
+    use crate::world::GeneratedKey;
 
     fn id(path_id: i64) -> r::SourceId {
         r::SourceId {

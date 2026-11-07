@@ -134,11 +134,55 @@ struct FlyerSqueak {
     pitch: f32,
     end: f64,
 }
+/// Source `tankcapscript.PlayFillSound` and `Update`: the fill or pour gain, and the steps the sound stays on.
+#[derive(Clone, Copy, Default)]
+struct FillLatch {
+    latch: u32,
+    gain: f32,
+}
+impl FillLatch {
+    /// Returns true while the sound plays.
+    fn step(
+        &mut self,
+        flow: Option<(bool, f32)>,
+        fill_called: bool,
+        empty_pour: bool,
+        max_gain: f32,
+        [pour_min, pour_max]: [f32; 2],
+        latch_steps: u32,
+    ) -> bool {
+        if let Some((fill, value)) = flow {
+            self.gain = if fill {
+                max_gain * value
+            } else {
+                inverse_lerp(pour_min, pour_max, value)
+            };
+            if fill_called || fill {
+                self.latch = latch_steps;
+            }
+        }
+        if empty_pour {
+            self.latch = 0;
+        }
+        let playing = !empty_pour && (flow.is_some() || self.latch > 0);
+        if !fill_called && self.latch > 0 {
+            self.latch -= 1;
+        }
+        playing
+    }
+}
 struct FluidSound {
     opening: crate::reference::OpeningId,
     index: usize,
-    latch: u32,
-    gain: f32,
+    fill: FillLatch,
+}
+/// A generated cap that fills or pours. It plays clip `clip` of the fluid fill row.
+struct WorldFill {
+    opening: crate::reference::OpeningId,
+    cap: ItemId,
+    clip: usize,
+    fill: FillLatch,
+    seen: bool,
 }
 pub struct AudioState {
     pub survival_events: Vec<SurvivalAudioEvent>,
@@ -156,6 +200,9 @@ pub struct AudioState {
     mechanism_items: HashMap<ItemId, usize>,
     fluid_sounds: Vec<FluidSound>,
     fluid_openings: HashMap<crate::reference::OpeningId, usize>,
+    /// Fluid fill row clip index of each world cap source.
+    world_fill_clips: HashMap<crate::reference::SourceId, usize>,
+    world_fills: Vec<WorldFill>,
     positions: HashMap<u32, [f32; 3]>,
     removed: std::collections::HashSet<u32>,
     random: u32,
@@ -217,6 +264,13 @@ impl AudioState {
             mechanism_items: HashMap::new(),
             fluid_sounds: Vec::new(),
             fluid_openings: HashMap::new(),
+            world_fill_clips: reference
+                .world_fluids
+                .caps
+                .iter()
+                .map(|c| (c.cap.clone(), c.clip as usize))
+                .collect(),
+            world_fills: Vec::with_capacity(16),
             positions: reference.emitters.iter().map(|e| (e.id, [0.; 3])).collect(),
             removed: std::collections::HashSet::with_capacity(reference.emitters.len()),
             random: session.wrapping_add(0x9e3779b9),
@@ -467,8 +521,7 @@ impl AudioState {
                 Some(FluidSound {
                     opening: o.id,
                     index,
-                    latch: 0,
-                    gain: 0.,
+                    fill: FillLatch::default(),
                 })
             })
             .collect();
@@ -907,30 +960,79 @@ impl AudioState {
         let Some(id) = a.fill_voice else {
             return;
         };
-        if fill_called {
+        if fill_called || flow.is_some_and(|(fill, _)| fill) {
             self.signals[self.voice_indices[&id]].looping = a.fill_loop;
         }
-        if let Some((fill, value)) = flow {
-            if fill {
-                self.signals[self.voice_indices[&id]].looping = a.fill_loop;
-            }
-            self.fluid_sounds[i].gain = if fill {
-                a.max_gain * value
-            } else {
-                inverse_lerp(a.pour_speed_min, a.pour_speed_max, value)
+        let playing = self.fluid_sounds[i].fill.step(
+            flow,
+            fill_called,
+            empty_pour,
+            a.max_gain,
+            [a.pour_speed_min, a.pour_speed_max],
+            a.fill_latch_steps,
+        );
+        self.voice(id, playing, self.fluid_sounds[i].fill.gain, 1.);
+    }
+    /// Fill and pour loops of generated caps, at the cap.
+    fn world_fluids(&mut self, area: &StartingArea, stream: &WorldStream) {
+        for w in &mut self.world_fills {
+            w.seen = false;
+        }
+        let (pour_speed, latch_steps) = (
+            self.reference.world_fluids.pour_speed,
+            self.reference.world_fluids.latch_steps,
+        );
+        for (opening, cap, clips, flow, fill_called, empty_pour) in
+            area.interaction.generated_flows()
+        {
+            let index = match self.world_fills.iter().position(|w| w.opening == opening) {
+                Some(index) => index,
+                None if flow.is_some() || fill_called => {
+                    let Some(&clip) = self.world_fill_clips.get(&clips.source) else {
+                        continue;
+                    };
+                    self.world_fills.push(WorldFill {
+                        opening,
+                        cap,
+                        clip,
+                        fill: FillLatch::default(),
+                        seen: false,
+                    });
+                    self.world_fills.len() - 1
+                }
+                None => continue,
             };
-            if fill_called || fill {
-                self.fluid_sounds[i].latch = a.fill_latch_steps;
+            let w = &mut self.world_fills[index];
+            let playing = w.fill.step(
+                flow,
+                fill_called,
+                empty_pour,
+                clips.fill_volume,
+                pour_speed,
+                latch_steps,
+            );
+            let position = area.items.get(cap).map(|item| item.pose.position);
+            w.seen = playing && position.is_some();
+            if let (true, Some(position)) = (w.seen, position) {
+                let (clip, gain) = (w.clip, w.fill.gain.clamp(0., 1.));
+                self.clip_loop(
+                    AudioKind::FluidFill,
+                    cap.0,
+                    clip,
+                    gain,
+                    None,
+                    stream.origin.absolute(position),
+                );
             }
         }
-        if empty_pour {
-            self.fluid_sounds[i].latch = 0;
+        // A removed cap or a sound that ended stops its loop.
+        for w in &self.world_fills {
+            if !w.seen {
+                self.survival_loops
+                    .retain(|v| v.kind != AudioKind::FluidFill || v.emitter != w.cap.0);
+            }
         }
-        let playing = !empty_pour && (flow.is_some() || self.fluid_sounds[i].latch > 0);
-        if !fill_called && self.fluid_sounds[i].latch > 0 {
-            self.fluid_sounds[i].latch -= 1;
-        }
-        self.voice(id, playing, self.fluid_sounds[i].gain, 1.);
+        self.world_fills.retain(|w| w.seen);
     }
     pub fn owner_alive(&self, emitter: u32) -> bool {
         !self.removed.contains(&emitter)
@@ -983,9 +1085,9 @@ impl AudioState {
             m.remaining = 0.;
         }
         for f in &mut self.fluid_sounds {
-            f.latch = 0;
-            f.gain = 0.;
+            f.fill = FillLatch::default();
         }
+        self.world_fills.clear();
         self.cars.reset();
         self.outside_gain = self.reference.mixer_controls.outside.initial_gain;
         self.sensor.sensed = false;
@@ -1098,6 +1200,7 @@ impl AudioState {
                 flags.1,
             );
         }
+        self.world_fluids(area, stream);
         if self.world_interiors.sync(
             stream.structure_revision(),
             stream.frame().structures,
@@ -1589,6 +1692,16 @@ pub enum AudioKind {
     ComputerNote = 23,
     Horror = 24,
     Hum = 25,
+    /// Added weather clips. They are not in the source.
+    Rain = 26,
+    RainInside = 27,
+    Thunder = 28,
+    Wind = 29,
+    ThunderClose = 30,
+    /// Rain on a car roof. The player sits in a vehicle with a roof.
+    RainCar = 31,
+    /// Source `tankcapscript.PlayFillSound` of a generated cap.
+    FluidFill = 32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]

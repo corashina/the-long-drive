@@ -1386,7 +1386,11 @@ impl GarageRuntime {
         profile.next(Stage::StepCreatures);
         self.advance_urine(reference, FIXED_DT);
         self.advance_ambient(reference, FIXED_DT);
-        self.advance_weather(reference, FIXED_DT);
+        self.advance_weather(
+            reference,
+            FIXED_DT,
+            FIXED_DT * factors.cycle_extra_per_sim_second,
+        );
         self.advance_sky(reference, FIXED_DT);
         self.advance_flyers(reference, FIXED_DT);
         self.advance_creatures(reference, FIXED_DT);

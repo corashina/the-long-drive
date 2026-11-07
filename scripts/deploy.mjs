@@ -1,7 +1,7 @@
 // Stages the built game for Cloudflare Pages and uploads it with Wrangler.
 // The WASM packages get a content hash in their path, so browsers cache them as immutable.
 // Files over the Pages size limit and the Brotli files go to R2 under their SHA-256.
-// Brotli files: the 6 WASM files, and each runtime package file, start pack and the reference manifest that shrinks by 10% or more.
+// Brotli files: the 4 WASM files, and each runtime package file, start pack and the reference manifest that shrinks by 10% or more.
 // Crunch textures (.crn) shrink by about 1%, so they get no Brotli try.
 // Start packs and the manifest are gzip at rest. Their Brotli file holds the decoded bytes, so the game skips its gzip step.
 // `functions/[[path]].js` serves them on the same site. `functions/api/` stores game events in D1.
@@ -35,6 +35,8 @@ const ROUTES = ['/pkg/*', '/assets/runtime/*', `/${MANIFEST}`, '/api/*'];
 const BROTLI_RATIO = 0.9;
 const brotli = promisify(brotliCompress);
 const gunzipAsync = promisify(gunzip);
+// Not a project dependency: CI does not need its ~220 MB. `npx` fetches it once.
+export const WRANGLER = 'wrangler@4.147.0';
 
 const webPath = path => path.split(sep).join('/');
 // The export library, old runtime packages and export evidence are not part of the site. `stagePackages` copies `pkg`.
@@ -205,7 +207,7 @@ export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot
 }
 
 function wrangler(args) {
-  const result = spawnSync('npx', ['wrangler', ...args], {cwd: projectRoot, stdio: 'inherit', shell: process.platform === 'win32'});
+  const result = spawnSync('npx', ['--yes', WRANGLER, ...args], {cwd: projectRoot, stdio: 'inherit', shell: process.platform === 'win32'});
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 

@@ -1,7 +1,7 @@
 //! Reused hash set of the generated ids that selected change records name. A miss means the id
 //! is not named. A hit needs an exact check, because two ids can share a hash.
 use crate::world::changes::{ChangeRecordIndex, ChangeRecords};
-use crate::world::{GeneratedId, GeneratedKey, ObjectKey};
+use crate::world::{GeneratedId, ObjectKey};
 use std::collections::HashSet;
 use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 
@@ -37,9 +37,6 @@ impl ReplayIds {
     }
     pub fn may_contain(&self, id: &GeneratedId) -> bool {
         self.hashes.contains(&self.hasher.hash_one(id))
-    }
-    pub fn retained_bytes(&self) -> usize {
-        crate::world::metrics::map_bytes(self.hashes.capacity(), std::mem::size_of::<u64>())
     }
 }
 
@@ -80,6 +77,7 @@ pub fn selects(
 mod tests {
     use super::*;
     use crate::reference::{ItemId, SourceId};
+    use crate::world::GeneratedKey;
     use crate::world::{Placement, StructureInstance, WorldLayer};
 
     fn id(ordinal: u32) -> GeneratedId {
@@ -158,7 +156,6 @@ mod tests {
         for ordinal in [2, 4, 6, 3, 5] {
             structures.push(StructureInstance {
                 fixed_decoration: false,
-                cpu_bytes: 0,
                 placement: placement(ordinal),
                 bodies: Vec::new(),
                 colliders: Vec::new(),

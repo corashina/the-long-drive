@@ -2586,15 +2586,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "grass-worker"
-version = "0.1.0"
-dependencies = [
- "grass-mesh",
- "wasm-bindgen",
- "wasm-heap",
-]
-
-[[package]]
 name = "grid"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3114,6 +3105,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "mesh-worker"
+version = "0.1.0"
+dependencies = [
+ "grass-mesh",
+ "road-mesh",
+ "terrain",
+ "wasm-bindgen",
+ "wasm-heap",
 ]
 
 [[package]]
@@ -4091,15 +4093,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "road-worker"
-version = "0.1.0"
-dependencies = [
- "road-mesh",
- "wasm-bindgen",
- "wasm-heap",
-]
-
-[[package]]
 name = "robust"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4547,15 +4540,6 @@ version = "0.1.0"
 dependencies = [
  "glam 0.33.12",
  "serde",
-]
-
-[[package]]
-name = "terrain-worker"
-version = "0.1.0"
-dependencies = [
- "terrain",
- "wasm-bindgen",
- "wasm-heap",
 ]
 
 [[package]]

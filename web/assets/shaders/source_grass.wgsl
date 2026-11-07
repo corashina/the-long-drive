@@ -26,7 +26,7 @@ struct GrassUniform {
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> grass: GrassUniform;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var displacement: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var displacement_sampler: sampler;
-struct GrassFrameUniform {origin_time:vec4<f32>,area:vec4<f32>,clip_from_world:mat4x4<f32>,camera:vec4<f32>}
+struct GrassFrameUniform {origin_time:vec4<f32>,area:vec4<f32>,clip_from_world:mat4x4<f32>,camera:vec4<f32>,wind:vec4<f32>}
 @group(#{MATERIAL_BIND_GROUP}) @binding(3) var<uniform> grass_frame:GrassFrameUniform;
 struct GrassVertex {
     @location(0) anchor: vec3<f32>,
@@ -59,7 +59,9 @@ fn source_wind(p:vec2<f32>)->vec2<f32> {
     let a=sin((r.x+452.)*100.+3.*turbulence+r.y+987.)*cos((r.x+452.)*10.+2.*turbulence+(r.y+987.)*.5);
     let b=sin(r.x*100.+3.*turbulence+r.y)*cos(r.x*10.+2.*turbulence+r.y*.5);
     let wind=vec2(a,b)*grass.wind.z+base;
-    return vec2(wind.y*c-wind.x*s,wind.x*c+wind.y*s);
+    // The sim wind sets the bend rotation. The field keeps the source rotation.
+    let wc=grass_frame.wind.x; let ws=grass_frame.wind.y;
+    return vec2(wind.y*wc-wind.x*ws,wind.x*wc+wind.y*ws);
 }
 @vertex
 fn vertex(input:GrassVertex)->GrassOutput {

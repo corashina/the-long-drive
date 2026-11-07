@@ -52,6 +52,31 @@ pub struct CycleOutput {
     pub flare_brightness: f32,
     /// Active shader time. The cloud shader uses time / 20 with each layer's speed.
     pub shader_time_seconds: f64,
+    /// Weather share of the sky that shows the fog color. 0 is the clear source sky.
+    pub overcast: f32,
+    /// Wind phase of each cloud layer. Add it to the source phase `speed * time / 20`.
+    pub cloud_wind: [f32; 2],
+    /// Weather color grade on top of the source grading.
+    pub grade: WeatherGrade,
+}
+
+/// Weather color grade. Saturation and contrast are factors, warmth is -1 (cool) to 1 (warm).
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct WeatherGrade {
+    pub saturation: f32,
+    pub contrast: f32,
+    pub warmth: f32,
+}
+
+impl Default for WeatherGrade {
+    /// No change.
+    fn default() -> Self {
+        Self {
+            saturation: 1.,
+            contrast: 1.,
+            warmth: 0.,
+        }
+    }
 }
 
 impl CycleOutput {
@@ -90,6 +115,7 @@ pub struct CycleState {
     next_biome_refresh: f64,
     /// Resolved source `DDS.fogModifier`.
     fog_modifier: f32,
+    cloud_wind: [f32; 2],
 }
 
 impl CycleState {
@@ -103,6 +129,7 @@ impl CycleState {
             cloud_coordinate: 0.,
             star_rotation: 0.,
             previous_cycle_extra: 0.,
+            cloud_wind: [0.; 2],
             clear_output: output.clone(),
             sampled_sky: output.sky_tint,
             output,
@@ -233,20 +260,33 @@ impl CycleState {
         }
     }
 
-    /// Compose from retained clear values. SetBiome samples sky tint once per source second.
+    /// Wind adds `speed / 10` of each layer speed to the cloud scroll. `speed` is in meters per second.
+    pub fn scroll_clouds(&mut self, dt: f32, speed: f32) {
+        for (phase, cloud) in self.cloud_wind.iter_mut().zip(&self.clear_output.clouds) {
+            // The shader phase scales are multiples of 1/20, so a wrap at 20 does not jump.
+            *phase = (*phase + cloud.speed * speed / 10. * dt / 20.).rem_euclid(20.);
+        }
+    }
+
+    /// Compose from retained clear values. The weather mix applies first, then the sandstorm.
+    /// SetBiome samples sky tint once per source second.
     pub fn compose_weather(
         &mut self,
         weather: &crate::reference::WeatherReference,
         influence: crate::weather::StormInfluence,
+        mix: crate::weather::WeatherMix,
+        look: &crate::weather::WeatherLook,
     ) {
-        self.output = self.clear_output.clone();
+        self.output.clone_from(&self.clear_output);
+        self.output.cloud_wind = self.cloud_wind;
+        apply_mix(&mut self.output, mix, look);
         let w = influence.strength.clamp(0., 1.);
         let r = &self.reference;
         let s = &weather.storm;
         let o = &mut self.output;
         if self.elapsed_seconds >= self.sky_sample_time + f64::from(r.biome_refresh_seconds) {
             self.sky_sample_time = self.elapsed_seconds;
-            self.sampled_sky = color_lerp(self.clear_output.sky_tint, s.sky_color, w);
+            self.sampled_sky = color_lerp(o.sky_tint, s.sky_color, w);
         }
         if influence.id.is_none() || w == 0. {
             return;
@@ -590,9 +630,68 @@ fn evaluate(
         flare_progress,
         flare_brightness,
         shader_time_seconds: active,
+        overcast: 0.,
+        cloud_wind: [0.; 2],
+        grade: WeatherGrade::default(),
     }
 }
 
+/// Cloud shader threshold at full cover. The shader subtracts it from the noise sum, so a lower
+/// value gives more cloud.
+const OVERCAST_CLOUD_THRESHOLD: f32 = 0.6;
+/// Light added at full lightning `flash`.
+const FLASH_LIGHT: f32 = 1.5;
+/// Cool white added to the fog, sky and cloud color at full lightning `flash`.
+const FLASH_SKY: [f32; 3] = [1.0, 1.05, 1.2];
+/// The weather does not darken a fog channel below this value, so night does not go black (#795).
+const SKY_FLOOR: f32 = 0.03;
+
+/// Weather types are a new feature: the source has only the sandstorm. The look multiplies the
+/// clear light and colors. It does not add black.
+fn apply_mix(
+    o: &mut CycleOutput,
+    mix: crate::weather::WeatherMix,
+    look: &crate::weather::WeatherLook,
+) {
+    o.directional_intensity = o.directional_intensity * look.sun + mix.flash * FLASH_LIGHT;
+    o.ambient = o.ambient * look.ambient + mix.flash * FLASH_LIGHT;
+    o.sky_tint = grey(o.sky_tint, [look.ambient; 3], look.sky);
+    for cloud in &mut o.clouds {
+        let density = lerp(cloud.density, OVERCAST_CLOUD_THRESHOLD, look.cloud_cover);
+        cloud.density = density.min(cloud.density);
+        cloud.color = grey(cloud.color, [look.cloud_shade; 3], look.cloud_grey);
+        cloud.color[3] = lerp(cloud.color[3], 1., look.cloud_cover) * (1. - look.cloud_hide);
+    }
+    o.fog_density = o.fog_density.max(look.fog_density);
+    let fog = grey(o.fog_color, look.fog_shade, look.fog_grey);
+    for (c, f) in o.fog_color[..3].iter_mut().zip(fog) {
+        *c = f.max(c.min(SKY_FLOOR));
+    }
+    // The lightning flash lights the fog, the sky and the clouds.
+    for (c, lift) in o.fog_color.iter_mut().zip(FLASH_SKY) {
+        *c += mix.flash * lift;
+    }
+    for cloud in &mut o.clouds {
+        for (c, lift) in cloud.color.iter_mut().zip(FLASH_SKY) {
+            *c += mix.flash * lift;
+        }
+    }
+    o.flare_brightness *= look.flare;
+    o.overcast = look.sky;
+    o.grade = WeatherGrade {
+        saturation: look.saturation,
+        contrast: look.contrast,
+        warmth: look.warmth,
+    };
+    o.ambient_temperature +=
+        mix.temperature + crate::weather::WET_TEMPERATURE * mix.wetness.clamp(0., 1.);
+}
+/// Lerp the RGB channels to their luminance times `shade`, at most 1. Alpha stays.
+fn grey(c: [f32; 4], shade: [f32; 3], t: f32) -> [f32; 4] {
+    let value = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+    let channel = |i: usize| lerp(c[i], (value * shade[i]).min(1.), t);
+    [channel(0), channel(1), channel(2), c[3]]
+}
 fn color_lerp(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
     std::array::from_fn(|i| lerp(a[i], b[i], t))
 }
@@ -1228,4 +1327,44 @@ pub fn spot_cookie_matrix(
             -local.z * projected_scale,
         ]
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::weather::{CellSample, WeatherKind, WeatherMix};
+
+    fn full(kind: WeatherKind) -> CellSample {
+        let mut sample = CellSample::default();
+        sample.weights[kind as usize] = 1.;
+        sample
+    }
+
+    #[test]
+    fn full_fog_gives_120_m_visibility() {
+        let mut output = CycleOutput {
+            fog_density: 0.002,
+            ..Default::default()
+        };
+        apply_mix(
+            &mut output,
+            WeatherMix::default(),
+            &full(WeatherKind::Fog).look(),
+        );
+        assert!((1.73 / output.fog_density - 120.).abs() < 0.1);
+    }
+
+    #[test]
+    fn full_rain_lowers_temperature_by_5() {
+        let mut output = CycleOutput {
+            ambient_temperature: 20.,
+            ..Default::default()
+        };
+        apply_mix(
+            &mut output,
+            WeatherKind::Rain.target(),
+            &full(WeatherKind::Rain).look(),
+        );
+        assert_eq!(output.ambient_temperature, 15.);
+    }
 }

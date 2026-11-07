@@ -16,15 +16,6 @@ pub struct GrassMeshData {
     pub patches: Vec<u32>,
     pub indices: Vec<u32>,
 }
-impl GrassMeshData {
-    pub fn retained_bytes(&self) -> usize {
-        self.anchors.capacity() * 12
-            + self.uvs.capacity() * 8
-            + self.blades.capacity() * 16
-            + self.patches.capacity() * 4
-            + self.indices.capacity() * 4
-    }
-}
 /// Exact reservations for the pending plan. Source patches and cached domains are separate.
 #[derive(Clone, Copy, Debug)]
 pub struct GrassAllocation {
@@ -264,8 +255,5 @@ impl GrassExpansion {
     }
     fn scratch_bytes(&self) -> usize {
         std::mem::size_of::<Self>() + self.plans.capacity() * std::mem::size_of::<PatchPlan>()
-    }
-    pub fn retained_bytes(&self) -> usize {
-        self.plans.capacity() * std::mem::size_of::<PatchPlan>() + self.output.retained_bytes()
     }
 }

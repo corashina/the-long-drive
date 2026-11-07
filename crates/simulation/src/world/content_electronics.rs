@@ -86,9 +86,8 @@ impl WorldStream {
                 let root = rules.root(reference, component)?;
                 let layer = reference
                     .prototypes
-                    .iter()
-                    .find(|p| p.source == content.placement.prototype)
-                    .and_then(|p| p.nodes.iter().find(|n| &n.source == root))
+                    .find(&content.placement.prototype)
+                    .and_then(|p| p.nodes.find(root))
                     .map_or(0, |n| u32::from(n.layer));
                 let mut state = Electronics::from_fields(f)?;
                 if let Some(jam) = content.inputs.jam(parent, component) {
@@ -150,13 +149,8 @@ impl WorldStream {
                 b.powered = powered;
                 b.factor = b.state.factor();
                 // The bake reads the jam. Flashlights and lights refresh together.
-                self.contents.set_jam(
-                    &self.reference,
-                    &parent,
-                    &component,
-                    jam,
-                    self.available_staging_bytes(),
-                )?;
+                self.contents
+                    .set_jam(&self.reference, &parent, &component, jam)?;
                 self.refresh_lamp_outputs();
                 continue;
             }
@@ -197,15 +191,5 @@ impl Bound for ElectronicsBinding {
     }
     fn item(&self) -> Option<ItemId> {
         None
-    }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.component.file.capacity()
-            + self.lights.capacity() * std::mem::size_of::<(SourceId, f32)>()
-            + self
-                .lights
-                .iter()
-                .map(|l| l.0.file.capacity())
-                .sum::<usize>()
     }
 }

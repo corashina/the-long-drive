@@ -144,7 +144,7 @@ fn terrain_surface(v:TerrainOutput)->TerrainSurface {
 }
 
 #import "shaders/source_lighting.wgsl"::{lamp_lighting, source_brdf, receiver, cookie_uv_gradient, cookies, cookie_sampler, attenuation, default_cookie, default_sampler, attenuation_sampler}
-#import source_view_lighting::{lighting, diffuse_sh, direct_attenuation, lamp_shadow, fog_factor, sun_cookie, sun_cookie_sampler}
+#import source_view_lighting::{lighting, diffuse_sh, direct_attenuation, lamp_shadow, fog_factor, sun_cookie, sun_cookie_sampler, weather_surface}
 
 
 
@@ -153,7 +153,8 @@ fn terrain_surface(v:TerrainOutput)->TerrainSurface {
 @fragment
 fn fragment(in:TerrainOutput)->FragmentOutput {
     if covered(in.world_position) {discard;}
-    let surface=terrain_surface(in);
+    let ground=terrain_surface(in);
+    let surface=weather_surface(ground.albedo,ground.normal,ground.smoothness,in.world_position,in.normal.y);
     var pbr=pbr_input_new();
     pbr.frag_coord=in.position;
     pbr.world_position=vec4(in.world_position,1.);

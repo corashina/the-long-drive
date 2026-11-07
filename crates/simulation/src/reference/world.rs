@@ -5,17 +5,17 @@ pub use fields::WorldFields;
 mod initial_materials;
 mod initialization;
 mod lod;
-mod memory;
 use super::{
-    AssetId, AssetUsage, ColliderGeometry, EngineGlobals, EnginePartReference, GaugePartReference,
-    LibraryProvenance, NodeId, RadiatorPartReference, ReferenceManifest, SourceHash, SourceId,
+    AssetId, ColliderGeometry, EngineGlobals, EnginePartReference, GaugePartReference,
+    LibraryProvenance, NodeId, RadiatorPartReference, ReferenceError, SourceHash, SourceId,
     Transform, WorldFollowersReference, WorldHitchReference, WorldTrailerReference,
     WorldVehicleReference,
 };
 #[cfg(feature = "validate")]
-use super::{AssetRecord, PrototypeBounds, field, finite, hash, source_valid, transform};
-#[cfg(feature = "validate")]
-use super::{ReferenceError, require};
+use super::{
+    AssetRecord, AssetUsage, PrototypeBounds, ReferenceManifest, field, finite, hash, require,
+    source_valid, transform,
+};
 pub use grass::*;
 pub use initial_materials::*;
 pub use initialization::*;
@@ -126,7 +126,7 @@ pub struct WorldPrototypeReference {
     pub source: SourceId,
     pub role: WorldPrototypeRole,
     pub asset: AssetId,
-    pub nodes: Vec<WorldPrototypeNode>,
+    pub nodes: SourceList<WorldPrototypeNode>,
     pub controls: Vec<u32>,
     pub excluded_actions: Vec<String>,
     pub deferred_materials: Vec<WorldSourceMaterial>,
@@ -229,6 +229,13 @@ impl WorldPushReference {
 }
 
 impl WorldPrototypeReference {
+    /// The name of the root node, such as `Car02Full`.
+    pub fn root_name(&self) -> &str {
+        self.nodes
+            .iter()
+            .find(|n| n.parent.is_none())
+            .map_or("", |n| n.name.as_str())
+    }
     /// A node pose relative to the prototype root, with the node's own local scale.
     pub fn root_relative(&self, index: usize) -> (rapier3d::math::Pose, rapier3d::math::Vector) {
         use rapier3d::math::{Pose, Rotation, Vector};
@@ -861,7 +868,7 @@ fn checked_record<'a>(
     classes: &[&str],
 ) -> Result<&'a WorldSourceRecord, ReferenceError> {
     let record = records
-        .get(source)
+        .find(source)
         .ok_or_else(|| ReferenceError(field(source, "missing ownership record")))?;
     require(
         classes.contains(&record.class_name.as_str()),
@@ -948,11 +955,7 @@ impl WorldReference {
             }
         }
         for row in &self.mechanisms {
-            let prototype = self
-                .prototypes
-                .iter()
-                .find(|p| p.source == row.prototype)
-                .ok_or_else(|| ReferenceError("Missing world mechanism prototype".into()))?;
+            let prototype = self.prototype(&row.prototype)?;
             let node = |n: super::NodeId| n.0 > 0 && n.0 as usize <= prototype.nodes.len();
             require(
                 (row.node as usize) < prototype.nodes.len()
@@ -969,6 +972,11 @@ impl WorldReference {
             if let Some(rotation) = &row.recipe.rotation {
                 require(
                     rotation.targets.iter().all(|t| node(t.node))
+                        && rotation
+                            .limits_degrees
+                            .iter()
+                            .all(|v| finite(v) && v[0] <= v[1])
+                        && finite(&rotation.initial_degrees)
                         && rotation.sensitivity.is_finite(),
                     "world rotation inputs",
                 )?;
@@ -1685,7 +1693,7 @@ impl WorldReference {
         let mut source_bodies = HashMap::new();
         for (index, object) in objects.iter().enumerate() {
             for source in object.components() {
-                let component = records.get(source).ok_or_else(|| {
+                let component = records.find(source).ok_or_else(|| {
                     ReferenceError(field(source, "missing source component type/owner record"))
                 })?;
                 require(
@@ -1719,7 +1727,7 @@ impl WorldReference {
         let road_rules: Vec<_> = objects
             .iter()
             .flat_map(|object| object.components())
-            .filter_map(|source| records.get(source))
+            .filter_map(|source| records.find(source))
             .filter(|record| record.class_name == "roadscript")
             .collect();
         if p.role == WorldPrototypeRole::Road {
@@ -1797,7 +1805,7 @@ impl WorldReference {
                     && c.body.is_none_or(|i| (i as usize) < p.bodies.len())
                     && (c.node as usize) < p.nodes.len()
                     && ([c.deformed_skin.is_some(), c.geometry.is_some(), c.source_empty_mesh.is_some()].into_iter().filter(|v| *v).count() == 1)
-                    && c.source_empty_mesh.as_ref().is_none_or(|s| self.records.get(s).is_some_and(|r| r.class_name == "Mesh" && matches!(r.fields.get("m_VertexData"), Some(WorldValue::Record(v)) if matches!(v.get("m_VertexCount"),Some(WorldValue::Integer(0))))))
+                    && c.source_empty_mesh.as_ref().is_none_or(|s| self.records.find(s).is_some_and(|r| r.class_name == "Mesh" && matches!(r.fields.get("m_VertexData"), Some(WorldValue::Record(v)) if matches!(v.get("m_VertexCount"),Some(WorldValue::Integer(0))))))
                     && c.deformed_skin.is_none_or(|i| (i as usize) < p.skins.len())
                     && c.role_valid(),
                 &f,
@@ -1866,9 +1874,10 @@ impl WorldReference {
             &field(&p.source, "prototype push"),
         )?;
         require(
-            p.trailer.as_ref().is_none_or(|t| {
-                t.valid(p) && self.prototypes.iter().any(|g| g.source == t.grip.prototype)
-            }) && p.hitches.iter().all(|h| h.valid(p)),
+            p.trailer
+                .as_ref()
+                .is_none_or(|t| t.valid(p) && self.prototypes.find(&t.grip.prototype).is_some())
+                && p.hitches.iter().all(|h| h.valid(p)),
             &field(&p.source, "prototype trailer/hitches"),
         )?;
         require(
@@ -2078,11 +2087,16 @@ pub struct WorldRenderTarget {
     pub offset: [f32; 2],
 }
 
-/// A row with a source ID. `SourceTable` finds rows by it.
+/// A row with a source ID. `SourceList` finds rows by it.
 pub trait Sourced {
     fn source(&self) -> &SourceId;
 }
 impl Sourced for WorldPrototypeReference {
+    fn source(&self) -> &SourceId {
+        &self.source
+    }
+}
+impl Sourced for WorldPrototypeNode {
     fn source(&self) -> &SourceId {
         &self.source
     }
@@ -2092,16 +2106,17 @@ impl Sourced for WorldSourceRecord {
         &self.source
     }
 }
+
 /// Rows with a source lookup built at load.
 #[derive(Clone, Debug)]
-pub struct SourceTable<T> {
+pub struct SourceList<T> {
     list: Vec<T>,
     /// Row indices sorted by source. The first of equal sources leads.
     order: Vec<u32>,
 }
-pub type WorldPrototypes = SourceTable<WorldPrototypeReference>;
-pub type WorldRecords = SourceTable<WorldSourceRecord>;
-impl<T> Default for SourceTable<T> {
+pub type WorldPrototypes = SourceList<WorldPrototypeReference>;
+pub type WorldRecords = SourceList<WorldSourceRecord>;
+impl<T> Default for SourceList<T> {
     fn default() -> Self {
         Self {
             list: Vec::new(),
@@ -2109,7 +2124,7 @@ impl<T> Default for SourceTable<T> {
         }
     }
 }
-impl<T: Sourced> SourceTable<T> {
+impl<T: Sourced> SourceList<T> {
     pub fn new(list: Vec<T>) -> Self {
         let mut order = (0..list.len() as u32).collect::<Vec<_>>();
         order.sort_by(|&a, &b| list[a as usize].source().cmp(list[b as usize].source()));
@@ -2123,7 +2138,8 @@ impl<T: Sourced> SourceTable<T> {
         let index = *self.order.get(at)? as usize;
         (self.list[index].source() == source).then_some(index)
     }
-    pub fn get(&self, source: &SourceId) -> Option<&T> {
+    /// The first row of `source`.
+    pub fn find(&self, source: &SourceId) -> Option<&T> {
         self.index(source).map(|index| &self.list[index])
     }
     pub fn contains(&self, source: &SourceId) -> bool {
@@ -2136,27 +2152,54 @@ impl<T: Sourced> SourceTable<T> {
         result
     }
 }
-impl<T> std::ops::Deref for SourceTable<T> {
+impl<T> std::ops::Deref for SourceList<T> {
     type Target = [T];
     fn deref(&self) -> &Self::Target {
         &self.list
     }
 }
-impl<'a, T> IntoIterator for &'a SourceTable<T> {
+impl<'a, T> IntoIterator for &'a SourceList<T> {
     type Item = &'a T;
     type IntoIter = std::slice::Iter<'a, T>;
     fn into_iter(self) -> Self::IntoIter {
         self.list.iter()
     }
 }
-impl<T: Serialize> Serialize for SourceTable<T> {
+impl<T: Serialize> Serialize for SourceList<T> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.list.serialize(serializer)
     }
 }
-impl<'de, T: Sourced + Deserialize<'de>> Deserialize<'de> for SourceTable<T> {
+impl<'de, T: Sourced + Deserialize<'de>> Deserialize<'de> for SourceList<T> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Vec::deserialize(deserializer).map(Self::new)
+    }
+}
+impl WorldReference {
+    /// The first world prototype of `source`.
+    pub fn prototype(&self, source: &SourceId) -> Result<&WorldPrototypeReference, ReferenceError> {
+        self.prototype_index(source)
+            .map(|index| &self.prototypes[index])
+    }
+    /// Index of the first world prototype of `source`.
+    pub fn prototype_index(&self, source: &SourceId) -> Result<usize, ReferenceError> {
+        self.prototypes.index(source).ok_or_else(|| {
+            ReferenceError(format!(
+                "World prototype {}:{} missing",
+                source.file, source.path_id
+            ))
+        })
+    }
+}
+impl WorldPrototypeReference {
+    /// Index of the first node of `source`.
+    pub fn node(&self, source: &SourceId) -> Result<usize, ReferenceError> {
+        self.nodes.index(source).ok_or_else(|| {
+            ReferenceError(format!(
+                "World prototype {}:{} node {}:{} missing",
+                self.source.file, self.source.path_id, source.file, source.path_id
+            ))
+        })
     }
 }
 
@@ -2205,4 +2248,29 @@ fn validate_world_library(
             && current.source_manifest_sha256 == accepted.source_manifest_sha256,
         "world library receipt",
     )
+}
+
+#[cfg(test)]
+mod source_list_tests {
+    use super::*;
+
+    struct Row(SourceId);
+    impl Sourced for Row {
+        fn source(&self) -> &SourceId {
+            &self.0
+        }
+    }
+
+    /// Lookups match `iter().position`: the first row of a source wins.
+    #[test]
+    fn finds_first_row_of_a_source() {
+        let id = |path_id| SourceId {
+            file: "a".into(),
+            path_id,
+        };
+        let list = SourceList::new(vec![Row(id(2)), Row(id(1)), Row(id(2))]);
+        assert_eq!(list.index(&id(2)), Some(0));
+        assert_eq!(list.index(&id(1)), Some(1));
+        assert_eq!(list.index(&id(3)), None);
+    }
 }

@@ -30,7 +30,6 @@ pub mod labels;
 pub mod level;
 pub mod mechanisms;
 pub mod melee;
-pub mod memory;
 pub mod parts;
 pub mod push;
 pub mod spray;
@@ -181,8 +180,11 @@ struct OpeningRules {
 }
 /// Source `tankcapscript.openSound`, `closeSound`, `tekerSound` and their volumes.
 /// `USE` and `TUNE` play them with `mainscript.PlayClipAtPoint` at the cap.
+/// `PlayFillSound` plays the `SSource` of the cap component `source` up to `fill_volume`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CapClips {
+    pub source: crate::reference::SourceId,
+    pub fill_volume: f32,
     pub open: Option<crate::reference::SourceId>,
     pub close: Option<crate::reference::SourceId>,
     pub tune: Option<crate::reference::SourceId>,
@@ -387,47 +389,6 @@ impl InteractionState {
         items: &items::ItemStore,
     ) -> Result<Option<crate::save::CarrySnapshot>, crate::save::SaveError> {
         self.carry.capture_save(ids, items)
-    }
-    pub fn retained_binding_bytes(&self) -> usize {
-        use memory::{map, set, vector};
-        map(&self.light_controls)
-            + self.binoculars.heap_bytes()
-            + map(&self.light_nodes)
-            + set(&self.usable_light_controls)
-            + self.controls.heap_bytes()
-            + map(&self.kinds)
-            + map(&self.wheel_slots)
-            + self
-                .wheel_slots
-                .values()
-                .map(|r| {
-                    set(&r.fits)
-                        + r.source.file.capacity()
-                        + memory::strings(&r.rim_main_types)
-                        + memory::strings(&r.rim_types)
-                })
-                .sum::<usize>()
-            + set(&self.tire_fits)
-            + map(&self.pickup_layers)
-            + map(&self.removal_layers)
-            + set(&self.usable_items)
-            + set(&self.filling_items)
-            + map(&self.collider_bindings)
-            + map(&self.mechanism_bodies)
-            + vector(&self.openings)
-            + vector(&self.receipt_tanks)
-            + self
-                .receipt_tanks
-                .iter()
-                .map(|tank| tank.retained_cap_bytes())
-                .sum::<usize>()
-            + vector(&self.callback_nodes)
-            + set(&self.supplies)
-            + map(&self.source_supply_emission)
-            + map(&self.tank_rules)
-            + self.carry.retained_binding_bytes()
-            + self.parts.retained_binding_bytes()
-            + self.mechanisms.retained_binding_bytes()
     }
 
     pub fn new(reference: &ReferenceManifest) -> Result<Self, ReferenceError> {
@@ -1186,7 +1147,7 @@ impl InteractionState {
             };
         }
         let get = |source: &crate::reference::SourceId| {
-            reference.world.records.get(source).ok_or_else(|| {
+            reference.world.records.find(source).ok_or_else(|| {
                 ReferenceError(format!(
                     "Missing source supply {}:{}",
                     source.file, source.path_id
@@ -1257,6 +1218,8 @@ impl InteractionState {
                 reference.language.names.len(),
             )?,
             clips: Some(CapClips {
+                source: definition.cap.clone(),
+                fill_volume: number(cap_record, "maxVolume")?,
                 open: link(cap_record, "openSound"),
                 close: link(cap_record, "closeSound"),
                 tune: link(cap_record, "tekerSound"),
@@ -1404,6 +1367,31 @@ impl InteractionState {
     }
     pub fn opening_valves(&self) -> impl Iterator<Item = (OpeningId, f32)> + '_ {
         self.openings.iter().map(|o| (o.reference.id, o.valve))
+    }
+    /// Generated caps with their clips, cap item, flow and source fill flags.
+    pub fn generated_flows(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            OpeningId,
+            ItemId,
+            &CapClips,
+            Option<(bool, f32)>,
+            bool,
+            bool,
+        ),
+    > {
+        self.openings.iter().filter_map(|o| {
+            let clips = o.reference.clips.as_ref()?;
+            Some((
+                o.reference.id,
+                o.reference.cap,
+                clips,
+                o.flow,
+                o.fill_called,
+                o.empty_pour,
+            ))
+        })
     }
     /// The clips and the cap item of a generated cap.
     pub fn cap_clips(&self, id: OpeningId) -> Option<(&CapClips, ItemId)> {

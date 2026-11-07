@@ -82,9 +82,6 @@ impl FileReceipt {
         }
         Ok(())
     }
-    fn retained_bytes(&self) -> usize {
-        self.file.capacity() + self.sha256.capacity()
-    }
 }
 
 impl FileCatalog {
@@ -153,58 +150,6 @@ impl FileCatalog {
             .get(asset)
             .map(|&index| &self.plans[index].input)
             .ok_or_else(|| ReferenceError(format!("Missing plan receipt: {asset}")))
-    }
-    pub fn check_plan_reservation(
-        &self,
-        asset: &str,
-        cpu: usize,
-        staging: usize,
-    ) -> Result<(), ReferenceError> {
-        let bytes = self.plan(asset)?.bytes as usize;
-        require(
-            bytes
-                .checked_mul(18)
-                .is_some_and(|required| required <= cpu)
-                && bytes
-                    .checked_mul(2)
-                    .is_some_and(|required| required <= staging),
-            "plan reservation",
-        )
-    }
-    pub fn retained_bytes(&self) -> usize {
-        use std::mem::size_of;
-        size_of::<Self>()
-            + self.files.capacity() * size_of::<FileReceipt>()
-            + self.plans.capacity() * size_of::<PlanReceipt>()
-            + self
-                .packs
-                .iter()
-                .chain(&self.top_packs)
-                .map(|p| {
-                    size_of::<PackReceipt>()
-                        + p.file.capacity()
-                        + p.sha256.capacity()
-                        + p.files.capacity() * size_of::<String>()
-                        + p.files.iter().map(String::capacity).sum::<usize>()
-                })
-                .sum::<usize>()
-            + self
-                .files
-                .iter()
-                .map(FileReceipt::retained_bytes)
-                .sum::<usize>()
-            + self
-                .plans
-                .iter()
-                .map(|p| p.asset_file.capacity() + p.input.retained_bytes())
-                .sum::<usize>()
-            + [&self.paths, &self.plan_paths]
-                .iter()
-                .map(|map| {
-                    map.capacity() * (size_of::<(String, usize)>() + 16)
-                        + map.keys().map(String::capacity).sum::<usize>()
-                })
-                .sum::<usize>()
     }
 }
 

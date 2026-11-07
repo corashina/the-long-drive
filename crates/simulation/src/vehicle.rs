@@ -240,6 +240,8 @@ pub struct PhysicsWorld {
     /// Count of the last collider edit of each body. See `shape_revision`.
     body_shapes: HashMap<RigidBodyHandle, u64>,
     shape_edits: u64,
+    /// Weather tire grip multiplier for all wheel sets.
+    tire_grip: f32,
 }
 
 impl PhysicsWorld {
@@ -264,6 +266,7 @@ impl PhysicsWorld {
             step_ms: 0.,
             body_shapes: HashMap::new(),
             shape_edits: 0,
+            tire_grip: 1.0,
         };
         physics.physics.integration_parameters.dt = FIXED_DT;
         physics
@@ -396,6 +399,7 @@ impl PhysicsWorld {
             QueryFilter::default().predicate(&ground),
             &vehicle.torques,
             &vehicle.steer,
+            self.tire_grip,
         );
     }
 
@@ -413,7 +417,13 @@ impl PhysicsWorld {
             QueryFilter::default().predicate(&ground),
             torques,
             steer,
+            self.tire_grip,
         );
+    }
+
+    /// Sets the tire grip of all wheel sets from weather wetness 0..1.
+    pub fn set_wetness(&mut self, wetness: f32) {
+        self.tire_grip = wheel::wet_grip(wetness);
     }
 
     /// Started contacts of the last step.
@@ -572,10 +582,6 @@ impl PhysicsWorld {
         self.query_bounds.refresh(&mut self.physics);
     }
 
-    pub fn query_storage_bytes(&self) -> usize {
-        self.query_bounds.retained_bytes()
-    }
-
     pub fn queries<'a>(&'a self, filter: QueryFilter<'a>) -> QueryPipeline<'a> {
         QueryPipeline {
             dispatcher: self.physics.narrow_phase.query_dispatcher(),
@@ -685,23 +691,7 @@ impl PhysicsWorld {
         filter: u32,
         friction: f32,
         restitution: f32,
-        available_cpu: usize,
-    ) -> Result<(ColliderHandle, usize), ReferenceError> {
-        // Reserve vertices, indices, BVH construction and retained collider storage before allocation.
-        let reservation = match grid {
-            Some(_) => surface.vertices.len().saturating_mul(5),
-            None => surface
-                .vertices
-                .len()
-                .saturating_mul(48)
-                .saturating_add(surface.triangles.len().saturating_mul(256)),
-        }
-        .saturating_add(std::mem::size_of::<rapier3d::prelude::Collider>());
-        if reservation > available_cpu {
-            return Err(ReferenceError(format!(
-                "Source collision reservation exceeds budget: {reservation}"
-            )));
-        }
+    ) -> Result<ColliderHandle, ReferenceError> {
         let mesh = source_collider(surface, grid)?
             .friction(friction)
             .restitution(restitution)
@@ -712,26 +702,9 @@ impl PhysicsWorld {
                 InteractionTestMode::And,
             ))
             .build();
-        let shape = mesh.shape();
-        let bytes = std::mem::size_of::<rapier3d::prelude::Collider>()
-            + match shape.as_heightfield() {
-                Some(field) => {
-                    std::mem::size_of_val(field.heights().data())
-                        + std::mem::size_of_val(field.cells_statuses().data())
-                }
-                None => shape
-                    .as_trimesh()
-                    .expect("source triangle mesh")
-                    .total_memory_size(),
-            };
-        if bytes > available_cpu {
-            return Err(ReferenceError(format!(
-                "Source collision allocation exceeds budget: {bytes}"
-            )));
-        }
         let handle = self.insert_collider(mesh);
         self.refresh_queries();
-        Ok((handle, bytes))
+        Ok(handle)
     }
 
     pub fn remove_collider(&mut self, handle: ColliderHandle) {

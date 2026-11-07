@@ -58,10 +58,36 @@ enum Action {
     Storm { distance: f32 },
     /// Sets the source day cycle seconds.
     Cycle { seconds: f64 },
-    /// Answers the player, the cycle, the cars and the items within `radius` metres.
+    /// Locks the weather: one 20 km cell of `kind` at the player and no spawns. `null` keeps the kind until the next forecast change.
+    Weather {
+        kind: Option<crate::weather::WeatherKind>,
+    },
+    /// Answers the weather cells, as `weather` does. It changes nothing. For the F4 weather panel.
+    Forecast,
+    /// Adds a full-strength cell of `kind` at the player. It removes the lock. Host only.
+    /// `radius` is in meters, default `ADD_RADIUS`. With 8 cells, it replaces the weakest.
+    #[serde(rename = "spawn_cell")]
+    SpawnCell {
+        kind: crate::weather::WeatherKind,
+        radius: Option<f32>,
+    },
+    /// Moves the day cycle to the middle of a time of day. Host only.
+    #[serde(rename = "set_time")]
+    SetTime { phase: TimeOfDay },
+    /// Answers the player, the day cycle, the cars and the items within `radius` metres.
     State { radius: f32 },
     /// Answers the worker CPU profile. `window.gameCpuProfile(true)` starts it and clears it.
     Profile,
+}
+
+/// A `set_time` target. Each is the middle of its cycle phase, noon is the middle of the day.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum TimeOfDay {
+    Dawn,
+    Noon,
+    Dusk,
+    Midnight,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -271,6 +297,42 @@ fn apply(
             runtime.lighting.cycle.set_cycle_seconds(seconds);
             Ok(("Cycle set.".into(), Value::Null))
         }
+        Action::Weather { kind } => {
+            let local = runtime.area.player.body_pose(&runtime.physics).position;
+            let player = runtime.stream.origin.absolute(local);
+            runtime.weather.lock(kind, player);
+            Ok(("Weather set.".into(), weather(runtime)))
+        }
+        Action::Forecast => Ok(("Weather.".into(), weather(runtime))),
+        Action::SpawnCell { kind, radius } => {
+            if runtime.net_guest {
+                return Err("The host owns the weather.".into());
+            }
+            let radius = radius.unwrap_or(crate::weather::ADD_RADIUS);
+            if !(radius > 0. && radius <= crate::weather::LOCK_RADIUS) {
+                return Err(format!(
+                    "Radius must be above 0 and at most {}.",
+                    crate::weather::LOCK_RADIUS
+                ));
+            }
+            let player = player_xz(runtime);
+            runtime.weather.cells.add(kind, player, radius);
+            Ok(("Cell spawned.".into(), weather(runtime)))
+        }
+        Action::SetTime { phase } => {
+            if runtime.net_guest {
+                return Err("The host owns the time.".into());
+            }
+            let c = &reference.lighting.cycle;
+            let seconds = match phase {
+                TimeOfDay::Dawn => c.dawn_seconds / 2.,
+                TimeOfDay::Noon => (c.dawn_seconds + c.day_seconds - c.dusk_seconds) / 2.,
+                TimeOfDay::Dusk => c.day_seconds - c.dusk_seconds / 2.,
+                TimeOfDay::Midnight => c.day_seconds + c.night_seconds / 2.,
+            };
+            runtime.lighting.cycle.set_cycle_seconds(f64::from(seconds));
+            Ok(("Time set.".into(), weather(runtime)))
+        }
         Action::State { radius } => Ok(("State.".into(), state(runtime, reference, radius))),
         Action::Profile => profile(),
     }
@@ -401,7 +463,7 @@ fn sit(
     let bodies = &runtime.physics.rapier().bodies;
     let name = |seat: &ItemSeat| match &seat.owner {
         SeatOwner::Vehicle(key) => runtime.vehicles.get(key).map_or("", |v| {
-            prototype_name(&reference.world.prototypes[v.prototype])
+            WorldPrototypeReference::root_name(&reference.world.prototypes[v.prototype])
         }),
         SeatOwner::Item(_) | SeatOwner::Ufo(_) => "",
     };
@@ -509,18 +571,16 @@ fn equip(
     reference: &ReferenceManifest,
     name: &str,
 ) -> Result<(String, Value), String> {
-    let guns = reference.guns.weapons.iter().filter_map(|g| {
-        reference
-            .world
-            .prototypes
-            .iter()
-            .find(|w| w.source == g.prototype.0)
-    });
+    let guns = reference
+        .guns
+        .weapons
+        .iter()
+        .filter_map(|g| reference.world.prototypes.find(&g.prototype.0));
     let Some(prototype) = guns
         .clone()
-        .find(|w| prototype_name(w).eq_ignore_ascii_case(name))
+        .find(|w| WorldPrototypeReference::root_name(w).eq_ignore_ascii_case(name))
     else {
-        let mut names: Vec<_> = guns.map(prototype_name).collect();
+        let mut names: Vec<_> = guns.map(WorldPrototypeReference::root_name).collect();
         names.sort_unstable();
         names.dedup();
         return Err(format!("No gun {name}. Names: {}", names.join(", ")));
@@ -599,7 +659,7 @@ fn hand(
                 .iter()
                 .find(|i| i.name.eq_ignore_ascii_case(name))
                 .and_then(|i| i.prototype.as_ref())
-                .and_then(|p| reference.world.prototypes.iter().find(|w| &w.source == p))
+                .and_then(|p| reference.world.prototypes.find(p))
                 .ok_or(error)?;
             match loaded_world_item(runtime, &prototype.source, |_| true) {
                 Some(item) => item,
@@ -666,15 +726,10 @@ fn building(
     let mut sequence = crate::world::BuildingSequence::new(&reference.world, seed);
     let mut names = Vec::new();
     for placement in std::iter::from_fn(|| sequence.next()).take(BUILDING_SEARCH) {
-        let Some(prototype) = reference
-            .world
-            .prototypes
-            .iter()
-            .find(|p| p.source == placement.prototype)
-        else {
+        let Some(prototype) = reference.world.prototypes.find(&placement.prototype) else {
             continue;
         };
-        let found = prototype_name(prototype);
+        let found = WorldPrototypeReference::root_name(prototype);
         if found.to_lowercase().contains(&wanted) {
             return Ok((found.to_string(), placement.pose.position));
         }
@@ -749,12 +804,12 @@ fn spawn_world(
     let prototypes = &reference.world.prototypes;
     let Some(prototype) = prototypes
         .iter()
-        .find(|p| prototype_name(p).eq_ignore_ascii_case(name))
+        .find(|p| WorldPrototypeReference::root_name(p).eq_ignore_ascii_case(name))
     else {
         let wanted = name.to_lowercase();
         let mut names: Vec<_> = prototypes
             .iter()
-            .map(prototype_name)
+            .map(WorldPrototypeReference::root_name)
             .filter(|n| n.to_lowercase().contains(&wanted))
             .collect();
         names.sort_unstable();
@@ -826,7 +881,7 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
                 .body_active(runtime.physics.chassis_handle(key));
             json!({
                 "key": format!("{key:?}"),
-                "name": prototype_name(&reference.world.prototypes[car.prototype]),
+                "name": WorldPrototypeReference::root_name(&reference.world.prototypes[car.prototype]),
                 "position": origin.absolute(position),
                 "near": near(position),
                 "gap": if active { gap(position) } else { Value::Null },
@@ -857,18 +912,13 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
         "supported": runtime.world_supported(),
         "pending": runtime.stream.pending_parts(),
         "required_ready": runtime.stream.required_ready(),
-        // Shared budgets with the renderer credit: [used, limit].
+        // World counts and caps: [used, limit].
         "budgets": runtime
             .stream
-            .presentation_budgets(runtime.stream.presentation_credit())
+            .budgets()
             .iter()
             .map(|b| (b.name.to_owned(), json!([b.used, b.limit])))
             .collect::<serde_json::Map<_, _>>(),
-        // Renderer asset CPU: [used, credit]. Credit above use goes back on a reclaim.
-        "renderer_asset_cpu": [
-            runtime.stream.presentation_used().prototype_cpu,
-            runtime.stream.presentation_credit().prototype_cpu,
-        ],
         // Sandbox world spawns and where each one waits.
         "world_spawns": runtime
             .stream
@@ -879,9 +929,8 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
                     "name": reference
                         .world
                         .prototypes
-                        .iter()
-                        .find(|w| w.source == p.prototype)
-                        .map_or("", prototype_name),
+                        .find(&p.prototype)
+                        .map_or("", WorldPrototypeReference::root_name),
                     "position": p.pose.position,
                     "radius": p.bounds.max[0] - p.pose.position[0],
                     "progress": progress,
@@ -909,6 +958,46 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
             }))
             .collect::<Vec<_>>(),
         "storm_influence": runtime.weather.influence().strength,
+        "weather": weather(runtime),
+    })
+}
+
+/// The player absolute `x`, `z`.
+fn player_xz(runtime: &GarageRuntime) -> [f64; 2] {
+    let local = runtime.area.player.body_pose(&runtime.physics).position;
+    let player = runtime.stream.origin.absolute(local);
+    [player[0], player[2]]
+}
+
+/// `kind` has the largest weight at the player. `kinds` lists every kind. Cell centers and
+/// `player` are absolute `x`, `z`. `wind.dir` is a unit vector along `x`, `z`. `temperature` is in degrees C.
+fn weather(runtime: &GarageRuntime) -> Value {
+    let weather = &runtime.weather;
+    let wind = &weather.wind;
+    let cycle = runtime.lighting.cycle.output();
+    json!({
+        "kind": weather.kind(),
+        "next": weather.forecast.next,
+        "next_in": weather.forecast.wait,
+        "phase": crate::weather::DayPart::new(cycle.phase, cycle.progress),
+        "time": runtime.lighting.cycle.cycle_seconds(),
+        "kinds": crate::weather::WeatherKind::ALL,
+        "player": player_xz(runtime),
+        "rain": weather.mix().rain,
+        "wetness": weather.wetness,
+        "temperature": runtime.lighting.cycle.output().ambient_temperature,
+        "wind": {"dir": wind.dir, "speed": wind.speed, "gust": wind.gust},
+        "locked": weather.cells.locked(),
+        "cells": weather
+            .cells
+            .iter()
+            .map(|c| json!({
+                "kind": c.kind,
+                "center": c.center,
+                "radius": c.radius,
+                "strength": c.strength(),
+            }))
+            .collect::<Vec<_>>(),
     })
 }
 
@@ -975,9 +1064,8 @@ fn gap_json(reference: &ReferenceManifest, stream: &WorldStream, gap: SupportGap
             "structure": reference
                 .world
                 .prototypes
-                .iter()
-                .find(|w| w.source == p.prototype)
-                .map_or("", prototype_name),
+                .find(&p.prototype)
+                .map_or("", WorldPrototypeReference::root_name),
             "position": p.pose.position,
             "scale": p.scale,
             "progress": stream.structure_audit(p),
@@ -989,14 +1077,6 @@ fn gap_json(reference: &ReferenceManifest, stream: &WorldStream, gap: SupportGap
 }
 
 /// The name of the prototype root node.
-fn prototype_name(prototype: &WorldPrototypeReference) -> &str {
-    prototype
-        .nodes
-        .iter()
-        .find(|n| n.parent.is_none())
-        .map_or("", |n| n.name.as_str())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

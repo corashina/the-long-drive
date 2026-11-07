@@ -144,18 +144,13 @@ impl MeleeReference {
 impl MeleeWeaponReference {
     #[cfg(feature = "validate")]
     fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
-        let prototype = m
-            .world
-            .prototypes
-            .iter()
-            .find(|p| p.source == self.prototype.0)
-            .ok_or_else(|| ReferenceError("melee weapon world prototype".into()))?;
+        let prototype = m.world.prototype(&self.prototype.0)?;
         require(
             [&self.target, &self.trigger]
                 .into_iter()
                 .chain(&self.right_hand_poses)
                 .chain(&self.left_hand_poses)
-                .all(|s| prototype.nodes.iter().any(|n| n.source == *s)),
+                .all(|s| prototype.nodes.find(s).is_some()),
             "melee weapon transform links",
         )?;
         let c = &self.contact;

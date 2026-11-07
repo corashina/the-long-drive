@@ -58,13 +58,6 @@ impl WheelSet {
         self.body
     }
 
-    pub fn heap_bytes(&self) -> usize {
-        self.wheels.capacity() * std::mem::size_of::<WheelState>()
-            + self.colliders.capacity() * std::mem::size_of::<WheelColliderReference>()
-            + self.contacts.capacity() * std::mem::size_of::<Contact>()
-            + self.accumulated.capacity() * std::mem::size_of::<[f32; 2]>()
-    }
-
     pub fn wheels(&self) -> &[WheelState] {
         &self.wheels
     }
@@ -90,7 +83,7 @@ impl WheelSet {
     }
 
     /// One physics step. `torques` and `steer` hold one value per wheel.
-    /// A disabled set or a sleeping body does no work.
+    /// `grip` multiplies the tire stiffness. A disabled set or a sleeping body does no work.
     pub(super) fn step(
         &mut self,
         physics: &mut rapier3d::prelude::PhysicsWorld,
@@ -99,6 +92,7 @@ impl WheelSet {
         filter: QueryFilter,
         torques: &[WheelTorques],
         steer: &[f32],
+        grip: f32,
     ) {
         assert_eq!(torques.len(), self.wheels.len());
         assert_eq!(steer.len(), self.wheels.len());
@@ -126,6 +120,7 @@ impl WheelSet {
                     queries.cast_ray_and_get_normal(&Ray::new(origin, -up), travel + radius, true);
                 wheel.steering = *steering;
                 wheel.previous_angle = wheel.angle;
+                wheel.previous_suspension_length = wheel.contact.map(|_| wheel.suspension_length);
                 wheel.contact = hit.map(|(collider, hit)| WheelContact {
                     collider,
                     point: origin - up * hit.time_of_impact,
@@ -168,6 +163,7 @@ impl WheelSet {
                 velocity: relative_velocity(&physics.bodies, own, ground, point),
                 sprung_mass: sprung.get(wheel.connection),
                 gravity,
+                grip,
             };
             *contact = wheel::solve(wheel, collider, frame, *torques, FIXED_DT)
                 .map(|force| (force, point, ground));
@@ -362,5 +358,55 @@ mod tests {
         let masses = SprungMasses::new(&set, Vector::new(0.0, 0.5, -0.35), 200.0);
         assert!((masses.get(set[0].connection) - 150.0).abs() < 0.5);
         assert!((masses.get(set[1].connection) - 50.0).abs() < 0.5);
+    }
+
+    /// A fast rear-heavy car on flat ground stops a pitch kick and stays at ride height.
+    /// Damping on the chassis velocity along body up made this pitch grow at 40 m/s.
+    #[test]
+    fn fast_car_stops_pitching() {
+        use crate::vehicle::{PhysicsWorld, collider_profile};
+        use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
+        let mut physics = PhysicsWorld::empty(1, 2);
+        physics.insert_collider(
+            ColliderBuilder::cuboid(10.0, 0.1, 500.0).translation(Vector::new(0.0, -0.1, -490.0)),
+        );
+        // The wheels roll forward along -z.
+        let speed = 40.0;
+        let body = physics.insert_body(
+            RigidBodyBuilder::dynamic()
+                .translation(Vector::new(0.0, 0.435, 0.0))
+                .linvel(Vector::new(0.0, 0.0, -speed))
+                .angvel(Vector::new(0.5, 0.0, 0.0)),
+        );
+        physics.insert_collider_with_parent(
+            ColliderBuilder::cuboid(0.8, 0.3, 2.0)
+                .translation(Vector::new(0.0, 0.5, 0.5))
+                .mass(820.0)
+                .build(),
+            body,
+        );
+        let car = crate::vehicle::car_prototype_fixture();
+        let collider = &car.vehicle.as_ref().unwrap().wheels[0].collider;
+        let mounts: Vec<_> = [(-0.7, -1.2), (0.7, -1.2), (-0.7, 1.2), (0.7, 1.2)]
+            .iter()
+            .map(|&(x, z)| WheelMount {
+                connection: Vector::new(x, 0.0, z),
+                collider,
+                profile: collider_profile(collider),
+            })
+            .collect();
+        let mut set = WheelSet::new(body, &mounts);
+        for wheel in &mut set.wheels {
+            wheel.omega = speed / wheel.profile.radius;
+        }
+        let mut lowest = f32::MAX;
+        for _ in 0..400 {
+            physics.step_wheel_set(&mut set, &[WheelTorques::default(); 4], &[0.0; 4]);
+            physics.step_physics();
+            lowest = lowest.min(physics.rapier().bodies[body].translation().y);
+        }
+        let body = &physics.rapier().bodies[body];
+        assert!(lowest > 0.4, "{lowest}");
+        assert!(body.angvel().x.abs() < 0.01, "{}", body.angvel().x);
     }
 }

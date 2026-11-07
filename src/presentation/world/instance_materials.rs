@@ -126,8 +126,7 @@ impl InstanceMaterials<'_> {
                 .ok_or_else(|| {
                     ReferenceError("Missing generated primary material identity".into())
                 })?;
-            self.cache
-                .admit_world_primary(identity, reference, ledger)?;
+            self.cache.admit_world_primary(identity, reference)?;
             Ok(self.cache.world_primary_ready(identity))
         }
     }
@@ -645,9 +644,9 @@ pub fn selected_material<'a>(
                 || a.color_material.is_some())
     });
     let selected = appearance.and_then(|a| a.material.as_ref()).or_else(|| stream.prop_material(placement).filter(|(renderer,_)| {
-                                        let owner = reference.world.records.get(*renderer)
+                                        let owner = reference.world.records.find(*renderer)
                                             .and_then(|r| r.fields.get("m_GameObject"));
-                                        let node_owner = reference.world.records.get(node)
+                                        let node_owner = reference.world.records.find(node)
                                             .and_then(|r| r.fields.get("m_GameObject"));
                                         matches!((owner,node_owner), (Some(crate::reference::WorldValue::Link(a)),Some(crate::reference::WorldValue::Link(b))) if a == b)
                                     }).map(|(_,material)| material));

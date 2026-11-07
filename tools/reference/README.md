@@ -229,6 +229,13 @@ Run the installed export check after extraction:
 Pinned package metadata: [pygltflib](https://pypi.org/pypi/pygltflib/json).
 Unity defaults: [Physic Material](https://docs.unity3d.com/2021.3/Documentation/Manual/class-PhysicMaterial.html).
 
+## Added audio
+
+`added_audio` holds weather clips that are not in the source: rain loops (outside, building roof, car roof), thunder, a wind loop and a close thunder crack.
+`clips.json` gives their survival rows and provenance. The clips are CC0 and synthesized.
+Regenerate them with `python -m tools.reference.synth_weather` (needs numpy and ffmpeg).
+The runtime stage copies them as `audio-added-N.ogg` and adds rows like `storm_inside`.
+
 ## Development support limits
 
 Bevy loaded representative static and skinned glTF assets with all dependencies ready.

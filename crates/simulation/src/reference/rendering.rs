@@ -372,23 +372,6 @@ impl TextureRecord {
             bytes: rest,
         })
     }
-    pub fn retained_cpu_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self.slot.capacity()
-            + self.source.file.capacity()
-            + match &self.storage {
-                TextureStorage::Rgba8 { input, .. } => {
-                    input.file.capacity() + input.sha256.capacity()
-                }
-                TextureStorage::NativeBc { input, top, .. } => {
-                    input.file.capacity()
-                        + input.sha256.capacity()
-                        + top
-                            .as_ref()
-                            .map_or(0, |t| t.file.capacity() + t.sha256.capacity())
-                }
-            }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

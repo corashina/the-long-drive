@@ -36,12 +36,6 @@ pub(crate) struct RoadLamps {
     origin: [f64; 3],
 }
 impl RoadLamps {
-    pub fn clone_bytes(&self) -> usize {
-        self.source_proxies.capacity() * std::mem::size_of::<SourceProxy>()
-            + self.required.capacity() * std::mem::size_of::<crate::world::GeneratedId>()
-            + self.prototype_nodes.capacity()
-                * std::mem::size_of::<(crate::reference::NodeId, Entity)>()
-    }
     pub fn ready(&self) -> bool {
         self.preflight_ready
             && self.required.len() == self.source_proxies.len()
@@ -306,19 +300,25 @@ pub(crate) fn finish_road_lamp_warmup(commands: &mut Commands, source: &mut Sour
     source.road_lamps.prototype_nodes.clear();
 }
 
-/// A light of a moving item sits on the drawn item pose, between the last two steps.
-/// The newest step pose leads the drawn car at speed, and the light flickers.
+/// A light of a moving structure, such as a car, sits on the drawn body pose, between the last two steps.
+/// The newest step pose leads the drawn car at speed, and the light jumps each step.
 fn light_transform(
     frame: &crate::world::RendererFrame<'_>,
     poses: &crate::presentation::sim_frame::SimFrameResource,
     light: &crate::world::WorldLight,
 ) -> Transform {
-    if let Some(local) = &light.item
-        && let Some(item) = poses.interpolated(simulation::boundary::PoseKey::Item(local.item))
+    if let Some(local) = &light.body
+        && let Some(slot) = poses.structure_slot(&local.structure)
+        && let Some(row) = poses.structure_views[slot as usize]
+            .poses
+            .iter()
+            .find(|row| {
+                row.kind == simulation::boundary::NodePoseRow::BODY && row.node == local.body
+            })
     {
-        let rotation = Quat::from_array(item.rotation);
+        let rotation = Quat::from_array(row.rotation);
         return Transform::from_translation(
-            Vec3::from_array(item.position) + rotation * Vec3::from_array(local.position),
+            Vec3::from_array(row.translation) + rotation * Vec3::from_array(local.position),
         )
         .with_rotation(rotation * Quat::from_array(local.rotation));
     }
@@ -458,11 +458,11 @@ pub(crate) fn source_lamp_admission(
     reference: &crate::reference::ReferenceManifest,
     light_outputs: &[crate::lighting::LightOutput],
     biome_enabled: bool,
-) -> Result<(usize, usize, usize), crate::reference::ReferenceError> {
+) -> Result<(), crate::reference::ReferenceError> {
     source.road_lamps.preflight_ready = false;
     source.road_lamps.allocation.fill(None);
     if source.warming || source.road_lamps.recipe.is_none() {
-        return Ok((0, 0, 0));
+        return Ok(());
     }
     let mut count = 0;
     for light in frame.lights.iter().filter(|light| {
@@ -546,24 +546,5 @@ pub(crate) fn source_lamp_admission(
         source.road_lamps.allocation[index] = Some(slot);
     }
     source.road_lamps.preflight_ready = true;
-    let proxies = source.road_lamps.source_proxies.len()
-        + source
-            .road_lamps
-            .required
-            .iter()
-            .filter(|id| {
-                !source
-                    .road_lamps
-                    .source_proxies
-                    .iter()
-                    .any(|p| p.id == **id)
-            })
-            .count();
-    let objects = proxies * 2;
-    // ECS and GPU transform reservations include the old and new overlap until the next frame.
-    Ok((
-        objects * 2048 + proxies * 1024 + std::mem::size_of_val(&source.road_lamps.allocation),
-        objects * 256,
-        objects,
-    ))
+    Ok(())
 }

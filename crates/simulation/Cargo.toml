@@ -8,6 +8,9 @@ rust-version = "1.99"
 [features]
 validate = []
 
+[lib]
+doctest = false
+
 [dependencies]
 bevy_platform = "=0.19.1"
 base64 = "=0.22.1"

@@ -62,6 +62,10 @@ pub const VELOCITY: u8 = 19;
 pub const REMOVE: u8 = 48;
 /// Port only. The source sends an AI as a save item (`itemPosUpd`). Port rabbits are not items.
 pub const CREATURE: u8 = 64;
+/// Port only. The source has no weather cycle.
+pub const WEATHER: u8 = 65;
+/// Port only. The source has no lightning.
+pub const STRIKE: u8 = 66;
 /// Port only. The source shows no body of a dead peer.
 pub const RAGDOLL: u8 = 67;
 pub const HEADER: usize = 2;
@@ -171,6 +175,42 @@ pub struct BodyMessage {
 pub struct TimeMessage {
     /// `CycleState::cycle_seconds`.
     pub cycle_seconds: f64,
+}
+
+/// One host weather cell. `kind` is a `WeatherKind` value.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct WeatherCellWire {
+    pub center: [f64; 2],
+    pub radius: f32,
+    pub life: f32,
+    pub age: f32,
+    pub kind: u32,
+}
+
+/// The host weather cells, wind and surface state. The first `count` cells are live.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct WeatherCellsMessage {
+    pub cells: [WeatherCellWire; crate::weather::MAX_CELLS],
+    /// `Wind::dir`.
+    pub wind_dir: [f32; 2],
+    /// `Wind::speed`.
+    pub wind_speed: f32,
+    pub count: u32,
+    pub wetness: f32,
+    pub locked: u32,
+    /// `Forecast::next` as a `WeatherKind` value.
+    pub forecast_next: u32,
+    /// `Forecast::wait`.
+    pub forecast_wait: f32,
+}
+
+/// One host lightning strike at an absolute position.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct StrikeMessage {
+    pub position: [f64; 3],
 }
 
 /// Source `SSound`: a fart, shit or burp at a world position.
@@ -593,6 +633,13 @@ impl Message for RadioMessage {
 }
 impl Message for TimeMessage {
     const TYPE: u8 = TIME;
+}
+impl Message for WeatherCellsMessage {
+    const TYPE: u8 = WEATHER;
+}
+impl Message for StrikeMessage {
+    const TYPE: u8 = STRIKE;
+    const RELIABLE: bool = true;
 }
 impl Message for SoundMessage {
     const TYPE: u8 = SOUND;

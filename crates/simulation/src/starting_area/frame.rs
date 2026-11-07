@@ -2,7 +2,7 @@
 use super::{GarageRuntime, SessionPhase};
 use crate::boundary::{
     BudgetRow, Change, CigaretteRow, ConditionRow, CreatureBoneRow, CreatureRow, HumanRow,
-    PlaneRow, PoseRow, SimFrame, StateBlock, ValveRow,
+    PlaneRow, PoseRow, SimFrame, StateBlock, ValveRow, WheelSprayRow,
 };
 use crate::creatures::animator::Action;
 use crate::creatures::evil::EyeKind;
@@ -10,6 +10,7 @@ use crate::interaction::cigarettes::EmberPhase;
 use crate::interaction::items::ItemLocation;
 use crate::reference::{ItemId, ReferenceManifest};
 use crate::vehicle::VehiclePose;
+use crate::weather;
 use crate::world::ObjectKey;
 
 impl GarageRuntime {
@@ -196,17 +197,12 @@ impl GarageRuntime {
         self.fill_hud(reference, frame);
         self.fill_audio(reference, alpha, self.render_input, &mut frame.audio);
         frame.budgets.clear();
-        if !self.started() {
-            let stream = &self.stream;
-            frame.budgets.extend(
-                stream
-                    .presentation_budgets(stream.presentation_credit())
-                    .map(|b| BudgetRow {
-                        used: b.used as f64,
-                        limit: b.limit as f64,
-                    }),
-            );
-        }
+        frame
+            .budgets
+            .extend(self.stream.budgets().map(|b| BudgetRow {
+                used: b.used as f64,
+                limit: b.limit as f64,
+            }));
         if let Some(aims) = self.home_cable(reference) {
             frame.changes.push(Change::HomeCable(aims));
         }
@@ -306,6 +302,48 @@ impl GarageRuntime {
                 PoseRow::new(self.menu_view.pose(&self.stream.origin), PoseRow::ACTIVE);
         }
         frame.lighting.road_lamp = lighting.road_lamp_output(&reference.lighting);
+        let mix = self.weather.mix();
+        let wind = &self.weather.wind;
+        let origin = self.stream.origin.offset;
+        let mut cells = [crate::boundary::WetCell::default(); crate::weather::MAX_CELLS];
+        let wet = self.weather.cells.iter().filter_map(|c| {
+            let wet = c.kind.target().rain * c.strength();
+            (wet > 0.).then(|| crate::boundary::WetCell {
+                center: [
+                    (c.center[0] - origin[0]) as f32,
+                    (c.center[1] - origin[2]) as f32,
+                ],
+                radius: c.radius,
+                wet,
+            })
+        });
+        for (slot, cell) in cells.iter_mut().zip(wet) {
+            *slot = cell;
+        }
+        frame.weather = crate::boundary::WeatherFrame {
+            rain: mix.rain,
+            heavy: self
+                .weather
+                .sample()
+                .weight(crate::weather::WeatherKind::Thunderstorm),
+            flash: mix.flash,
+            wetness: mix.wetness,
+            shelter: self.weather.shelter,
+            wind: wind.dir.map(|v| v * wind.speed),
+            gust: wind.gust,
+            bolt: self.weather.lightning.bolt().map(|bolt| {
+                let mut top = bolt.position;
+                top[1] += f64::from(bolt.height);
+                crate::boundary::BoltFrame {
+                    start: self.stream.origin.local(top),
+                    end: self.stream.origin.local(bolt.position),
+                    seed: bolt.seed,
+                    age: bolt.age,
+                }
+            }),
+            cells,
+        };
+        self.fill_wheel_spray(mix.wetness, frame);
         frame.lights.clear();
         frame.lights.extend_from_slice(lighting.light_outputs());
         frame.lamp_materials.clear();
@@ -339,6 +377,38 @@ impl GarageRuntime {
                         },
                     )
                 }));
+        }
+    }
+    /// Wheels on the ground of fast cars near the player, when the ground is wet.
+    fn fill_wheel_spray(&self, wetness: f32, frame: &mut SimFrame) {
+        frame.wheel_spray.clear();
+        if wetness <= weather::SPRAY_GROUND {
+            return;
+        }
+        let player =
+            rapier3d::math::Vector::from_array(self.area.player.body_pose(&self.physics).position);
+        let bodies = &self.physics.rapier().bodies;
+        for key in self.vehicles.keys() {
+            let body = &bodies[self.physics.chassis_handle(key)];
+            let velocity = body.linvel();
+            let amount = weather::spray_amount(velocity.length(), wetness);
+            let far = body.translation().distance(player) > weather::SPRAY_DISTANCE;
+            if amount <= 0. || far {
+                continue;
+            }
+            for wheel in self.physics.wheel_states(key) {
+                if frame.wheel_spray.len() == weather::MAX_SPRAY {
+                    return;
+                }
+                if let Some(contact) = wheel.contact {
+                    frame.wheel_spray.push(WheelSprayRow {
+                        position: contact.point.to_array(),
+                        amount,
+                        velocity: velocity.to_array(),
+                        radius: wheel.profile.radius,
+                    });
+                }
+            }
         }
     }
     fn fill_conditions(&mut self, reference: &ReferenceManifest, frame: &mut SimFrame) {
@@ -381,23 +451,19 @@ impl GarageRuntime {
 
 impl GarageRuntime {
     fn perf_block(&self) -> crate::boundary::PerfBlock {
-        let counters = self.stream.performance_counters();
         crate::boundary::PerfBlock {
-            render_cpu_bytes: counters.render_cpu_bytes as f64,
-            render_gpu_bytes: counters.render_gpu_bytes as f64,
             contacts: self.loaded_vehicle().map_or(0, |key| {
                 self.physics.wheel_contacts(key).filter(|v| *v).count() as u32
             }),
             bodies: self.physics.rapier().bodies.len() as u32,
             colliders: self.physics.collider_count() as u32,
-            roads: counters.roads as u32,
-            terrain: counters.terrain as u32,
-            objects: counters.objects as u32,
-            jobs: counters.jobs as u32,
-            pending: counters.pending as u32,
             storms: self.weather.storms().len() as u32,
             storm_strength: self.weather.influence().strength,
             weather_particles: self.weather.particle_count() as u32,
+            weather_kind: self.weather.kind() as u32,
+            weather_cells: self.weather.cells.len() as u32,
+            weather_rain: self.weather.mix().rain,
+            weather_wetness: self.weather.wetness,
             ..Default::default()
         }
     }
@@ -505,12 +571,8 @@ impl GarageRuntime {
             "supported": self.world_supported(),
             "required_ready": self.stream.required_ready(),
             "failure": frame.failure,
-            "gpu_ledger": {
-                "prototype_gpu": self.stream.presentation_credit().prototype_gpu,
-                "active_gpu": self.stream.presentation_credit().active_gpu,
-            },
             "jobs": self.stream.startup_job_audit(),
-            "budgets": self.stream.budget_audit(),
+            "budgets": self.stream.budgets().map(|b| (b.used, b.limit)),
             "physics_bodies": self.physics.rapier().bodies.len(),
             "physics_colliders": self.physics.collider_count(),
             "active_items": self.area.items.len(),

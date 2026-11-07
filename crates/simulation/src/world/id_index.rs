@@ -54,7 +54,4 @@ impl IdIndex {
         self.first
             .try_reserve(count.saturating_sub(self.first.len()))
     }
-    pub fn retained_bytes(&self) -> usize {
-        super::metrics::map_bytes(self.first.capacity(), std::mem::size_of::<(u64, u32)>())
-    }
 }

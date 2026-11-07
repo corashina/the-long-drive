@@ -63,7 +63,7 @@ window.addEventListener('blur',startupBlurred);
 function stopStartupEnvironment(){startupVisibilityChanged();document.removeEventListener('visibilitychange',startupVisibilityChanged);window.removeEventListener('blur',startupBlurred);}
 cpuProfile.enable(startupCpuProfile);
 let rustCpuProfile,rustCpuAudit,profileStep=0,startupRenderTrace=startupCpuProfile?observeRenderMainThread():null;
-window.gameCpuProfile=enabled=>{cpuProfile.enable(enabled);profileStep=0;rustCpuProfile?.(enabled);simulation.profile(enabled);if(enabled)grassClients.profileHandshake();};
+window.gameCpuProfile=enabled=>{cpuProfile.enable(enabled);profileStep=0;rustCpuProfile?.(enabled);simulation.profile(enabled);};
 window.gameCpuProfileSnapshot=()=>cpuProfile.snapshot();
 // Main thread Rust stages, in the format of the worker `profile` sandbox reply.
 window.gameMainCpuAudit=()=>rustCpuAudit?JSON.parse(rustCpuAudit()):null;
@@ -77,6 +77,8 @@ import {createFeedback} from './feedback.js';
 import {createLoading} from './loading.js';
 import {createStartupTrace} from './startup-trace.js';
 import {createPerformance} from './performance.js';
+import {createWeatherPanel} from './weather-panel.js';
+import {wasmMemoryFailure,wasmMemoryLimit} from './wasm-memory.js';
 import {loadUiAssets} from './ui-layout.js';
 import {createSimulation,installSimulationBridge} from './simulation.js';
 import {NAME_KEY,ROOM_PARAM,createMultiplayer} from './multiplayer.js';
@@ -85,7 +87,7 @@ import {ROLE} from './net.js';
 import {createAnalytics,hostedSite} from './analytics.js';
 import {installGrassBridge} from './grass.js';
 import {installCrunch} from './crunch.js';
-import {configureAssetCatalog,readAsset,releaseStartPacks,startPackMeasurements,worldBootstrapMeasurements,worldInputBytes,worldInputMetadataBytes,setAssetCpuProfile} from './world-assets.js';
+import {configureAssetCatalog,readAsset,releaseStartPacks,startPackMeasurements,worldBootstrapMeasurements,worldInputBytes,setAssetCpuProfile} from './world-assets.js';
 setAssetCpuProfile(cpuProfile);
 // Start the simulation worker and its WASM download early.
 const simulation=createSimulation(new Worker(new URL('./simulation-worker.js',import.meta.url),{type:'module'}),message=>fail(message));
@@ -96,8 +98,7 @@ window.sourceReadAsset=(base,receipt)=>readAsset(base,JSON.parse(receipt));
 window.sourceReleasePacks=releaseStartPacks;
 installCrunch(window);
 window.sourceInputBytes=worldInputBytes;
-window.sourceInputMetadataBytes=worldInputMetadataBytes;
-const canvas=document.querySelector('#game'),status=document.querySelector('#status'),runtimeError=document.querySelector('#runtime-error');
+const canvas=document.querySelector('#game'),toast=document.querySelector('#toast'),runtimeError=document.querySelector('#runtime-error');
 const loading=createLoading(),thumbnail=createThumbnail(canvas);
 let lastThumbnail=null;
 performance.setResourceTimingBufferSize?.(16000);
@@ -119,10 +120,13 @@ analytics.event('start');
 window.addEventListener('pagehide',()=>analytics.end());
 let adapterName='';
 let wasmMemory,renderAudit,watchRenderAudit,renderAuditWatched=false,initialReadyMs=null,peakFrameMs=0,lastFrameTime=null,measureRequested=false;
-const performancePanel=createPerformance(()=>wasmMemory?.buffer.byteLength,()=>renderAudit&&JSON.parse(renderAudit()),on=>{renderAuditWatched=on;watchRenderAudit?.(on);},()=>worldDrawDistance,()=>simulation.stats());
+const wasmLimit=wasmMemoryLimit(navigator.deviceMemory),wasmTotal=()=>(wasmMemory?.buffer.byteLength??0)+simulation.wasmBytes()+grassClients.wasmBytes();
+const performancePanel=createPerformance(wasmTotal,wasmLimit,()=>renderAudit&&JSON.parse(renderAudit()),on=>{renderAuditWatched=on;watchRenderAudit?.(on);},()=>worldDrawDistance,()=>simulation.stats());
 window.gamePerformanceFrame=performancePanel.frame;
+window.gamePerformanceBudget=performancePanel.budget;
 window.gamePerformanceCounters=performancePanel.counters;
 window.gamePerformance=since=>performancePanel.snapshot(since);
+createWeatherPanel(simulation,()=>multiplayer?.role===ROLE.GUEST);
 // The failure message after a startup or runtime failure, else null. `gameFailure` reports a failure.
 window.gameFailureMessage=()=>failure;
 // The start menu model, for `tests/bench/fps.mjs`. Null before the interface loads.
@@ -175,6 +179,8 @@ window.gameState = { speedKmh: 0, camera: 'First person', x: 0, y: 0, z: 0, cont
 window.gameUpdate = (kmh, mode, x, y, z, contacts, steps, surfaces, colliders, absoluteX, absoluteY, absoluteZ,
   originX, originY, originZ, rebases, travelM, preparedRoads, fuelLiters, paused, started, autosaveSafe, seated) => {
   const now=performance.now();
+  const memoryFailure=wasmMemoryFailure(wasmTotal(),wasmLimit);
+  if(memoryFailure)fail(memoryFailure);
   if(lastFrameTime!==null)peakFrameMs=Math.max(peakFrameMs,now-lastFrameTime);
   lastFrameTime=now;
   const state = window.gameState;
@@ -214,7 +220,7 @@ const sleep={phase:0,eligible:false,showHint:false,charge:0,cooldownRemaining:0,
 window.gameSleep=(phase,eligible,showHint,charge,cooldownRemaining,progress)=>{
  sleep.phase=phase;sleep.eligible=eligible;sleep.showHint=showHint;sleep.charge=charge;sleep.cooldownRemaining=cooldownRemaining;sleep.progress=progress;sleep.held=(input.state.held&262144)!==0;sleep.dead=dead;sleeping=phase===2;survival?.updateSleep(sleep,feedback?.state.enabled);
 };
-function fail(message,notifyRenderer=true){if(failed)return;failed=true;failure=message;bootChoice.close();analytics.error(message);if(/Draw distance [\d.]+ m does not fit/.test(message))slider?.clear();performancePanel.stop();startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.fail({...startupFailureDetails,message,loading:loading.snapshot()});startupDone=true;loading.fail();const text='Cannot start the game. '+message+' Reload to try again.';if(menu){menu.fail(text);status.textContent='';}else{status.textContent='';runtimeError.textContent=text;runtimeError.hidden=false;}if(notifyRenderer)renderFailure?.(message);}
+function fail(message,notifyRenderer=true){if(failed)return;failed=true;failure=message;bootChoice.close();analytics.error(message);if(message.startsWith('WASM memory '))slider?.clear();performancePanel.stop();startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.fail({...startupFailureDetails,message,loading:loading.snapshot()});startupDone=true;loading.fail();const text='Cannot start the game. '+message+' Reload to try again.';toast.classList.remove('shown');if(menu)menu.fail(text);else{runtimeError.textContent=text;runtimeError.hidden=false;}if(notifyRenderer)renderFailure?.(message);}
 function finishStartup(){if(failed||startupDone||!startupReady||!input||!menu)return;startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.finish({inputReady:true});startupDone=true;}
 window.gameFailure=message=>fail(message,false);
 window.gameLoading=()=>{if(failed)return;loading.start(true);menu.loading();};

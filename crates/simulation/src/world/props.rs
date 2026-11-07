@@ -1,7 +1,7 @@
 //! Cached source candidate grids and coordinate-seeded object selection.
 use super::{
-    AbsolutePose, GeneratedId, GeneratedKey, Placement, RoadCurve, SourceRandom, TerrainContext,
-    WorldBounds, WorldLayer, source_perlin,
+    AbsolutePose, GeneratedKey, Placement, RoadCurve, SourceRandom, TerrainContext, WorldBounds,
+    WorldLayer, source_perlin,
 };
 use crate::reference::{
     ReferenceError, SourceId, WorldGeneratorReference, WorldReference, WorldValue,
@@ -80,17 +80,14 @@ impl PropGenerator {
             })
             .collect();
         max_chance += reference.types.len() as f32 * reference.no_spawn_chance;
-        let record = |source: &SourceId| world.records.get(source).expect("checked source record");
+        let record = |source: &SourceId| world.records.find(source).expect("checked source record");
         let mut prototypes = Vec::with_capacity(reference.types.len());
         for selection in &reference.types {
             let Some(source) = &selection.prototype else {
                 prototypes.push(None);
                 continue;
             };
-            let prototype = world
-                .prototypes
-                .get(source)
-                .ok_or_else(|| ReferenceError("Missing source prop prototype".into()))?;
+            let prototype = world.prototype(source)?;
             let owner = field_link(&record(source).fields, "m_GameObject")?;
             let object = record(owner);
             let component = object
@@ -145,26 +142,6 @@ impl PropGenerator {
             width: world.road.width,
             seed,
         })
-    }
-    pub fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self.points.capacity() * 8
-            + self.chances.capacity() * 4
-            + self.reference.types.capacity()
-                * std::mem::size_of::<crate::reference::WorldObjectTypeReference>()
-            + self.prototypes.capacity() * std::mem::size_of::<Option<PrototypeRule>>()
-            + self
-                .prototypes
-                .iter()
-                .flatten()
-                .map(|p| {
-                    p.source.file.capacity()
-                        + p.rock.as_ref().map_or(0, |r| {
-                            r.materials.capacity() * std::mem::size_of::<SourceId>()
-                                + r.materials.iter().map(|s| s.file.capacity()).sum::<usize>()
-                        })
-                })
-                .sum::<usize>()
     }
     pub fn candidate_count(&self) -> usize {
         self.points.len()

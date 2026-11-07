@@ -1,12 +1,12 @@
-//! Selected prototype ownership. Reservations precede every accessor or scene allocation.
+//! Selected prototype loads and their renderer counts.
 use super::{
     preflight::{
         SourcePlan, SourcePlanLoader, load_plan,
-        selected::{IoLedger, Reservation, SelectedMetadata, control_bytes, retained_plan_bytes},
+        selected::{SelectedMetadata, input_room},
     },
     prototype_loader::{SourceGltf, SourceGltfLoader, SourceGltfSettings},
 };
-use crate::ownership::PresentationLedger;
+use crate::ownership::{PresentationLedger, RendererCounts};
 use crate::{
     reference::{ReferenceError, ReferenceManifest, SourceId, prototype_plan::PrototypePlan},
     world::RendererWorld,
@@ -24,24 +24,17 @@ struct Entry {
     session: u64,
     request: u64,
     retired: bool,
-    cpu: usize,
-    gpu: usize,
-    staging: usize,
     state: State,
     lods: Option<Arc<super::lod::LodTable>>,
-    nodes: Option<Arc<super::node_plan::NodePlan>>,
+    nodes: Option<Arc<crate::presentation_logic::node_plan::NodePlan>>,
 }
 #[derive(Resource, Default)]
 pub struct SourcePrototypes {
     entries: Vec<Entry>,
     next_request: u64,
     accounted_session: u64,
-    /// Prototype bytes of all entries, as charged to the ledger.
-    entry_cpu: usize,
-    entry_gpu: usize,
     retired_sources: Vec<SourceId>,
-    io: IoLedger,
-    control_cpu: usize,
+    io: RendererCounts,
     /// Inputs of the last `retire_unused` pass.
     unused_key: Option<[u64; 8]>,
     /// Prototype indices with an instance or a pending or published structure.
@@ -77,33 +70,14 @@ impl SourcePrototypes {
         if self.entries.len() >= 8192 {
             return Err(ReferenceError("Source prototype owner limit".into()));
         }
-        // Reserve container storage before extending the selected owner list.
-        let retired_capacity = self.entries.len() + self.retired_sources.len() + 1;
-        let extra = usize::from(self.entries.len() == self.entries.capacity())
-            * std::mem::size_of::<Entry>()
-            + source.file.len()
-            + retired_capacity.saturating_sub(self.retired_sources.capacity())
-                * std::mem::size_of::<SourceId>();
-        let mut allocation = ledger.allocation();
-        allocation.prototype_cpu += extra;
-        allocation.pending += 1;
-        ledger.set_allocation(allocation)?;
+        ledger.add_pending(1);
         self.io.pending += 1;
         self.next_request = self.next_request.wrapping_add(1);
-        self.control_cpu += extra;
-        self.entries.reserve_exact(1);
-        if self.retired_sources.capacity() < retired_capacity {
-            self.retired_sources
-                .reserve_exact(retired_capacity - self.retired_sources.len());
-        }
         self.entries.push(Entry {
             source: source.clone(),
             session,
             request: self.next_request,
             retired: false,
-            cpu: 0,
-            gpu: 0,
-            staging: 0,
             state: State::Queued,
             lods: None,
             nodes: None,
@@ -139,18 +113,13 @@ impl SourcePrototypes {
                 State::Loading { .. } | State::Ready(_)
             ));
         };
-        let prototype = reference
-            .world
-            .prototypes
-            .get(source)
-            .ok_or_else(|| ReferenceError("Missing checked source prototype".into()))?;
+        let prototype = reference.world.prototype(source)?;
         let record = reference
             .assets
             .iter()
             .find(|a| a.id == prototype.asset)
             .ok_or_else(|| ReferenceError("Missing prototype asset".into()))?;
-        let reservation = entry.state.payload_reservation()?;
-        if !reservation.fits(ledger, entry.cpu, entry.gpu, false) {
+        if !input_room(ledger, false) {
             return Ok(false);
         }
         let settings = SourceGltfSettings {
@@ -169,9 +138,6 @@ impl SourcePrototypes {
             })
             .load::<SourceGltf>(record.path.clone());
         entry.state.start_payload(asset);
-        entry.cpu = reservation.cpu;
-        entry.gpu = reservation.gpu;
-        entry.staging = reservation.staging;
         self.account(stream, ledger)?;
         Ok(true)
     }
@@ -213,8 +179,11 @@ impl SourcePrototypes {
         &mut self,
         session: u64,
         source: &SourceId,
-        build: impl FnOnce(&LoadedPrototype) -> Result<super::node_plan::NodePlan, ReferenceError>,
-    ) -> Result<Option<Arc<super::node_plan::NodePlan>>, ReferenceError> {
+        build: impl FnOnce(
+            &LoadedPrototype,
+        )
+            -> Result<crate::presentation_logic::node_plan::NodePlan, ReferenceError>,
+    ) -> Result<Option<Arc<crate::presentation_logic::node_plan::NodePlan>>, ReferenceError> {
         let Some(entry) = self
             .entries
             .iter_mut()
@@ -246,7 +215,7 @@ impl SourcePrototypes {
             reference
                 .world
                 .prototypes
-                .get(&e.source)
+                .find(&e.source)
                 .is_some_and(|p| p.deferred_materials.iter().any(|m| m.source == *source))
         })
     }
@@ -256,7 +225,7 @@ impl SourcePrototypes {
         asset: crate::reference::AssetId,
     ) -> bool {
         self.entries.iter().filter(|e| !e.retired).any(|e| {
-            reference.world.prototypes.get(&e.source).is_some_and(|p| {
+            reference.world.prototypes.find(&e.source).is_some_and(|p| {
                 p.asset == asset
                     || p.nodes.iter().any(|n| {
                         super::preflight::initial_material(reference, &n.source)
@@ -349,39 +318,15 @@ impl SourcePrototypes {
     ) -> Result<(), ReferenceError> {
         let session = stream.frame().request.session;
         if self.accounted_session != session {
-            self.io = IoLedger::default();
-            self.control_cpu = 0;
-            self.entry_cpu = 0;
-            self.entry_gpu = 0;
+            self.io = RendererCounts::default();
             self.accounted_session = session;
         }
-        let entry_cpu = self.entries.iter().map(|e| e.cpu).sum::<usize>();
-        let entry_gpu = self.entries.iter().map(|e| e.gpu).sum::<usize>();
-        let mut io = IoLedger::default();
+        let mut io = RendererCounts::default();
         for entry in &self.entries {
-            io.add(entry.state.io(entry.staging));
+            io.add(entry.state.io());
         }
-        let control_cpu = control_bytes::<Entry>(
-            self.entries.capacity(),
-            self.entries.iter().map(|e| e.source.file.capacity()).sum(),
-            self.retired_sources.capacity(),
-            self.retired_sources.iter().map(|s| s.file.capacity()).sum(),
-        ) + self.used.capacity()
-            + self.queued.capacity();
-        let mut allocation = ledger.allocation();
-        allocation.prototype_cpu = allocation
-            .prototype_cpu
-            .saturating_sub(self.entry_cpu + self.control_cpu)
-            + entry_cpu
-            + control_cpu;
-        allocation.prototype_gpu =
-            allocation.prototype_gpu.saturating_sub(self.entry_gpu) + entry_gpu;
-        allocation = io.replace(self.io, allocation);
-        ledger.set_allocation(allocation)?;
-        self.entry_cpu = entry_cpu;
-        self.entry_gpu = entry_gpu;
+        io.apply(self.io, ledger)?;
         self.io = io;
-        self.control_cpu = control_cpu;
         Ok(())
     }
     pub fn prepare(
@@ -395,7 +340,7 @@ impl SourcePrototypes {
         plans: &mut Assets<SourcePlan>,
         meshes: &mut Assets<Mesh>,
         skins: &mut Assets<SkinnedMeshInverseBindposes>,
-        uploads: &mut crate::presentation::upload_budget::UploadBudget,
+        uploads: &mut crate::presentation_logic::upload_budget::UploadBudget,
     ) -> Result<(), ReferenceError> {
         let session = stream.frame().request.session;
         for entry in &mut self.entries {
@@ -432,17 +377,9 @@ impl SourcePrototypes {
                     }
                     entry.state.complete_metadata(plan);
                     let plan = entry.state.plan().unwrap();
-                    let prototype = reference
-                        .world
-                        .prototypes
-                        .get(&entry.source)
-                        .ok_or_else(|| ReferenceError("Missing checked source prototype".into()))?;
+                    let prototype = reference.world.prototype(&entry.source)?;
                     entry.retired = true;
                     validate_plan(plan, prototype, reference)?;
-                    let cpu = retained_plan_bytes(plan);
-                    entry.cpu = cpu;
-                    entry.gpu = 0;
-                    entry.staging = 0;
                     entry.retired = false;
                 }
                 State::Loading { plan, asset } => {
@@ -494,18 +431,7 @@ impl SourcePrototypes {
                             "Source primitive count changed after preflight".into(),
                         ));
                     }
-                    // Keep both main-world data and render extraction and upload copies charged.
-                    let cpu = loaded.mesh_bytes * 2
-                        + loaded.skin_bytes * 2
-                        + retained_plan_bytes(plan)
-                        + State::ready_control_bytes()
-                        + plan.scene_bytes
-                        + loaded.meshes.len() * 4096;
-                    let gpu = loaded.mesh_bytes + loaded.skin_bytes + loaded.meshes.len() * 8;
-                    entry.cpu = cpu;
-                    entry.gpu = gpu;
                     entry.state.complete_payload();
-                    entry.staging = 0;
                     entry.retired = false;
                 }
                 State::Ready(_) => {
@@ -555,38 +481,19 @@ impl SourcePrototypes {
             if ledger.available_external_jobs() == 0 {
                 return Ok(());
             }
-            let prototype = reference
-                .world
-                .prototypes
-                .get(&entry.source)
-                .ok_or_else(|| ReferenceError("Missing checked source prototype".into()))?;
+            let prototype = reference.world.prototype(&entry.source)?;
             let record = reference
                 .assets
                 .iter()
                 .find(|a| a.id == prototype.asset)
                 .ok_or_else(|| ReferenceError("Missing prototype asset".into()))?;
-            let reservation = Reservation::metadata(&reference.file_catalog, &record.path)?;
-            // A full stream table waits like a full credit.
-            if !stream.can_hold_prototype(&entry.source) {
-                ledger.wait_for_hold();
-                return Ok(());
-            }
-            if !reservation.fits(ledger, entry.cpu, entry.gpu, true) {
+            if !input_room(ledger, true) {
                 return Ok(());
             }
             facts.push(crate::world::RendererFact::HoldPrototype(
                 entry.source.clone(),
             ));
-            let handle = load_plan(
-                server,
-                &reference.file_catalog,
-                &record.path,
-                reservation.cpu,
-                reservation.staging,
-            )?;
-            entry.cpu = reservation.cpu;
-            entry.gpu = 0;
-            entry.staging = reservation.staging;
+            let handle = load_plan(server, &reference.file_catalog, &record.path)?;
             entry.state = State::PlanLoading(handle);
             self.account(stream, ledger)?;
         }

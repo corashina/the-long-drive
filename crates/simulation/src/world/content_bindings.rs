@@ -271,87 +271,6 @@ impl WorldStream {
                 .set_replay(&owner, &content.origin, &content.content.placement.id);
         }
     }
-    /// Bounds the new owner payload, the type-fit pairs, and the reallocation of existing vectors and maps.
-    pub(super) fn binding_reservation(
-        &self,
-        prototype: &crate::reference::WorldPrototypeReference,
-        id: &crate::world::GeneratedId,
-        fixed_decoration: bool,
-    ) -> Result<(usize, usize), ReferenceError> {
-        if fixed_decoration {
-            return Ok((0, 0));
-        }
-        let mut components = 0usize;
-        let mut parts = 0usize;
-        let mut fields_bytes = 0usize;
-        for node in &prototype.nodes {
-            for class in [
-                "pickupable",
-                "partscript",
-                "partslotscript",
-                "tankcapscript",
-                "tankscript",
-                "wheelscript",
-                "gumiscript",
-                "flashlightscript",
-                "ediblescript",
-            ] {
-                if let Some(record) =
-                    self.contents
-                        .rules
-                        .component(&self.reference, &node.source, class)?
-                {
-                    components += 1;
-                    parts += usize::from(matches!(class, "partscript" | "partslotscript"));
-                    fields_bytes += match record.fields {
-                        Fields::Record(fields) => fields
-                            .values()
-                            .map(crate::reference::world::WorldValue::input_heap_bytes)
-                            .sum::<usize>(),
-                        Fields::Compact(fields) => fields
-                            .iter()
-                            .map(|f| f.value.input_heap_bytes())
-                            .sum::<usize>(),
-                    };
-                }
-            }
-        }
-        components += self
-            .reference
-            .mechanisms
-            .iter()
-            .filter(|r| r.prototype == prototype.source)
-            .count();
-        if components == 0 {
-            return Ok((0, 0));
-        }
-        let identities = components.saturating_mul(
-            super::super::contents::identity_heap(id)
-                + prototype
-                    .nodes
-                    .iter()
-                    .map(|n| n.name.len())
-                    .max()
-                    .unwrap_or(0)
-                + 128,
-        );
-        // Each component covers its typed owner, maps, copied recipes and auxiliary item.
-        // A fit can add a pair in both directions. 64 bytes cover the hash table slot.
-        let additions = components.saturating_mul(8192)
-            + prototype.nodes.len().saturating_mul(1024)
-            + prototype.colliders.len().saturating_mul(2048)
-            + fields_bytes.saturating_mul(8)
-            + identities.saturating_mul(8)
-            + parts
-                .saturating_mul(self.binding_objects + components)
-                .saturating_mul(128);
-        Ok((
-            self.binding_owner_bytes
-                .saturating_mul(2)
-                .saturating_add(additions.saturating_mul(2)),
-            components,
-        ))
-    }
     pub(super) fn sync_static_controls(
         &mut self,
         reference: &ReferenceManifest,
@@ -391,8 +310,7 @@ impl WorldStream {
             let prototype = reference
                 .world
                 .prototypes
-                .iter()
-                .find(|p| p.source == instance.placement.prototype)
+                .find(&instance.placement.prototype)
                 .unwrap();
             let mut content =
                 crate::world::contents::ContentInstance::for_structure(instance.placement.clone());
@@ -563,8 +481,7 @@ impl WorldStream {
             let prototype = self
                 .reference
                 .prototypes
-                .iter()
-                .find(|p| p.source == placement.prototype)
+                .find(&placement.prototype)
                 .unwrap();
             let hose = reference
                 .item_prototypes
@@ -994,8 +911,7 @@ impl WorldStream {
                 let prototype = reference
                     .world
                     .prototypes
-                    .iter()
-                    .find(|p| p.source == instance.placement.prototype)
+                    .find(&instance.placement.prototype)
                     .unwrap();
                 for (source, handle) in &instance.colliders {
                     let collider = prototype
@@ -1390,11 +1306,7 @@ fn bind_pickup(
         .position(|b| prototype.nodes[b.node as usize].source == *root)
         .ok_or_else(|| ReferenceError("Generated pickup has no source body".into()))?;
     let body = instance.bodies[body_index];
-    let pickup_node = prototype
-        .nodes
-        .iter()
-        .position(|n| &n.source == root)
-        .ok_or_else(|| ReferenceError("Generated pickup transform missing".into()))?;
+    let pickup_node = prototype.node(root)?;
     let placement = &content.content.placement;
     let pickup_pose = crate::world::placement::place_pose(
         placement.pose,
@@ -1466,10 +1378,7 @@ fn bind_pickup(
         interaction.register_generated_pickup(id, rule.clone(), layers, container);
         // pickupable `RightHandPos` and `LeftHandPos` are Transforms under the pickupable.
         let grip = |source: &Option<crate::reference::SourceId>| {
-            let index = prototype
-                .nodes
-                .iter()
-                .position(|n| Some(&n.source) == source.as_ref())?;
+            let index = prototype.nodes.index(source.as_ref()?)?;
             Some(to_rapier(crate::world::node_frame(
                 prototype,
                 pickup_node,

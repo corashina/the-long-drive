@@ -8,8 +8,9 @@ self.gameCpuInputConsumed=()=>{inputConsumed=true;};
 self.gameCpuClearInput=()=>{clearInput=true;};
 // A step that holds for 2 s writes why. Copy the line from the console.
 self.gameHoldReport=report=>console.warn('[hold] '+report);
-installTerrainBridge(self,createTerrain(new Worker(new URL('./terrain-worker.js',import.meta.url),{type:'module'}),null));
-installRoadBridge(self,null);
+const terrain=createTerrain(new Worker(new URL('./mesh-worker.js?job=terrain',import.meta.url),{type:'module'}),null);
+installTerrainBridge(self,terrain);
+const roads=installRoadBridge(self,null);
 const ready=init().then(exports=>{memory=exports.memory;});
 self.addEventListener('message',async({data})=>{
  try{
@@ -24,13 +25,13 @@ self.addEventListener('message',async({data})=>{
   // Multiplayer: `net.js` owns the peers. Packets go with the commands and frames.
   if(data.netSession){const {role,slot}=data.netSession;net_session(role,slot);netOn=role!==0;return;}
   if(data.netLeave!==undefined){net_leave(data.netLeave);return;}
-  // `?sandbox` pages only. It runs between ticks, so the next frame shows the result.
+  // `?sandbox` pages and the F4 weather panel. It runs between ticks, so the next frame shows the result.
   if(data.sandbox!==undefined){self.postMessage({sandbox:sandbox(data.sandbox)});return;}
   if(data.net)net_receive(data.net);
   const started=performance.now(),frame=tick(data.command),tickMs=performance.now()-started;
   const net=netOn?net_send():null,transfer=[frame.buffer];
   if(net)transfer.push(net.buffer);
-  self.postMessage({frame,tickMs,wasmBytes:memory.buffer.byteLength,inputConsumed,clearInput,net},transfer);
+  self.postMessage({frame,tickMs,wasmBytes:memory.buffer.byteLength+terrain.wasmBytes()+roads.wasmBytes(),inputConsumed,clearInput,net},transfer);
   inputConsumed=clearInput=false;
  }catch(error){self.postMessage({error:error?.message??String(error)});}
 });

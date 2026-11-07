@@ -5,7 +5,6 @@ pub mod impostor;
 pub mod primary;
 pub mod specular;
 pub mod terrain;
-pub mod terrain_coverage;
 use crate::ownership::upload_receipt;
 mod top_mips;
 mod world_texture_upload;
@@ -196,7 +195,7 @@ pub struct SourceMaterials {
     >,
     pub world_textures: world_textures::WorldTextures,
     pub world_primary: primary::PrimaryOwnership,
-    pub world_deferred: primary::DeferredAllocation,
+    pub world_deferred: crate::ownership::RendererCounts,
     top_mips: top_mips::TopMips,
     pub standard_records: HashMap<AssetId<StandardMaterial>, (source::AssetId, u32)>,
     records: Vec<Arc<MaterialRecord>>,
@@ -379,7 +378,7 @@ impl Plugin for SourceMaterialPlugin {
             ExtractResourcePlugin::<MaterialLoading>::default(),
             ExtractResourcePlugin::<RetainedColors>::default(),
             MaterialPlugin::<terrain::TerrainMaterial>::default(),
-            terrain_coverage::TerrainCoveragePlugin,
+            crate::presentation_logic::terrain_coverage::TerrainCoveragePlugin,
             MaterialPlugin::<specular::SpecularMaterial>::default(),
             MaterialPlugin::<impostor::ImpostorMaterial>::default(),
             MaterialPlugin::<grass::material::GrassMaterial>::default(),
@@ -578,7 +577,7 @@ pub fn load_materials(
         generated: default(),
         world_textures: world_textures::WorldTextures::default(),
         world_primary: primary::PrimaryOwnership::default(),
-        world_deferred: primary::DeferredAllocation::default(),
+        world_deferred: crate::ownership::RendererCounts::default(),
         top_mips: default(),
         standard_records: HashMap::new(),
         sort_data,

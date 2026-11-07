@@ -28,7 +28,6 @@ pub(in crate::world) struct TerrainMetadata {
     pub request: WorldRequest,
     pub key: SurfaceKey,
     pub tile: TerrainTile,
-    pub pending_bytes: usize,
     pub input: TileInput,
 }
 
@@ -57,12 +56,6 @@ impl TerrainExecution {
         if let Some(pending) = &mut self.pending {
             pending.metadata.input = input;
         }
-    }
-
-    pub(in crate::world) fn pending_bytes(&self) -> usize {
-        self.pending
-            .as_ref()
-            .map_or(0, |pending| pending.metadata.pending_bytes)
     }
 
     /// Keeps the job for the new request if `retain`. Otherwise drops it.

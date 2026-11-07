@@ -22,7 +22,7 @@ pub(super) fn bind(
     let invalid = |s: &str| ReferenceError(format!("Generated condition: {s}"));
     let node_of = |source: &SourceId| -> Result<Option<usize>, ReferenceError> {
         let root = rules.root(world, source)?;
-        Ok(prototype.nodes.iter().position(|n| &n.source == root))
+        Ok(prototype.nodes.index(root))
     };
     // Items by the node of their pickup.
     let mut owners: Vec<(usize, ItemId)> = Vec::with_capacity(1 + content.bindings.len());

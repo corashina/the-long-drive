@@ -304,8 +304,7 @@ impl WorldStream {
             let prototype = self
                 .reference
                 .prototypes
-                .iter()
-                .find(|p| p.source == instance.placement.prototype)
+                .find(&instance.placement.prototype)
                 .expect("structure prototype");
             for (source, handle) in &instance.colliders {
                 if prototype

@@ -299,7 +299,7 @@ impl SpawnEvaluation<'_> {
                                 );
                                 self.start_save(&child, save, depth + 1)?;
                                 let (fluid, tanks) = self.random_default(save)?;
-                                if self.reference.prototypes.iter().any(|p| p.source == root) {
+                                if self.reference.prototypes.find(&root).is_some() {
                                     self.push(SpawnedContent {
                                         inputs: super::spawn_state::SpawnInitialization::default(),
                                         placement: child.clone(),

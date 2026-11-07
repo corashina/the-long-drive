@@ -11,7 +11,7 @@ export function createGrass(worker,profile,now=()=>performance.now()){
  const sources=new Map(),publications=new Map();
  const release=(reason)=>{if(job?.record)link.diagnostic(()=>{job.record.physicalReleaseAt=now();job.record.releaseReason=reason;link.emit(job.record);});job=null;result=null;state='Idle';};
  const post=data=>link.post({...data,profileCpu:Boolean(profile?.enabled)},data.input?[data.input.buffer]:[]);
- const copyPost=(type,id,input)=>{let start;link.diagnostic(()=>{start=now();});const copy=input.slice();let record=null;link.diagnostic(()=>{record={kind:'grass',phase:type,identity:id,inputBytes:input.byteLength,inputPackingMs:packingMs,mainCopyStart:start,mainInputCopyMs:now()-start,messageSubmitStart:now()};});let submitted;link.diagnostic(()=>{submitted=now();});post({type,identity:id,input:copy});link.diagnostic(()=>{if(record)record.messageSubmitMs=now()-submitted;});packingMs=null;return record;};
+ const copyPost=(type,id,input)=>{let start;link.diagnostic(()=>{start=now();});const copy=input.slice();let record=null;link.diagnostic(()=>{record={kind:'grass',phase:type,identity:id,inputBytes:input.byteLength,inputPackingMs:packingMs,mainCopyStart:start,mainInputCopyMs:now()-start};});let submitted;link.diagnostic(()=>{submitted=now();});post({type,identity:id,input:copy});link.diagnostic(()=>{if(record)record.messageSubmitMs=now()-submitted;});packingMs=null;return record;};
  const receive=(data,received)=>{
   if(!valid(data.identity)){link.fail('Malformed grass reply identity.');return;}
   if(data.type==='installed'||data.type==='retired'){
@@ -47,17 +47,16 @@ export function createGrass(worker,profile,now=()=>performance.now()){
   packingEnded(){link.diagnostic(()=>{if(packingStart!==null)packingMs=now()-packingStart;packingStart=null;});},
   publicationStartedRaw(bytes){const key=entity(bytes);link.diagnostic(()=>{const r=publications.get(key);if(r)r.publicationStart=now();});},
   publicationEndedRaw(bytes,accepted){const key=entity(bytes),r=publications.get(key);publications.delete(key);link.diagnostic(()=>{if(r){const at=now();link.emit({...r,phase:'publication',accepted,publicationWaitMs:(r.publicationStart??at)-r.consumedAt,publicationMs:at-(r.publicationStart??at)});}});},
-  capacityLimit(bytes){live();link.capacityLimit(bytes);},
   install(id,input,scratch){live();if(!link.initialized()||!valid(id)||sources.has(id.entity)||!Number.isSafeInteger(scratch)||scratch<0||input.byteLength<GRASS_DATASET_HEADER)throw Error('Invalid grass installation.');const count=new DataView(input.buffer,input.byteOffset,input.byteLength).getUint32(GRASS_DATASET_HEADER-4,true);if(input.byteLength!==GRASS_DATASET_HEADER+count*GRASS_PATCH_BYTES)throw Error('Invalid grass dataset size.');const record=copyPost('install',id,input);sources.set(id.entity,{identity:{...id},state:'Installing',count,scratch,record});},
   installed(key){live();return sources.get(key)?.state==='Installed';},
   retire(key){live();const s=sources.get(key);if(!s)return true;if(job?.identity.entity===key)return false;if(s.state!=='Retiring'){s.state='Retiring';post({type:'retire',identity:s.identity});}return false;},
   submit(id,input){live();const s=sources.get(id.entity);if(state!=='Idle'||!valid(id)||BigInt(id.revision)<=lastRevision||s?.state!=='Installed'||s.identity.session!==id.session||input.byteLength!==80)throw Error('Invalid grass submission.');const record=copyPost('plan',id,input);job={identity:{...id},record,plan:null,patchCount:s.count,scratch:s.scratch};lastRevision=BigInt(id.revision);state='Planning';},
-  approve(id,bytes){live();if(state!=='Planned'||!same(id,job.identity)||bytes!==job.plan[3])throw Error('Invalid grass approval.');link.diagnostic(()=>{if(job.record){job.record.admissionWaitMs=now()-job.plannedAt;job.record.messageSubmitStart=now();job.record.outputBytes=bytes;}});post({type:'evaluate',identity:job.identity});state='Emitting';},
+  approve(id,bytes){live();if(state!=='Planned'||!same(id,job.identity)||bytes!==job.plan[3])throw Error('Invalid grass approval.');link.diagnostic(()=>{if(job.record){job.record.admissionWaitMs=now()-job.plannedAt;job.record.outputBytes=bytes;}});post({type:'evaluate',identity:job.identity});state='Emitting';},
   poll(){live();return state==='Ready'?1:state==='Planned'?0:state==='Idle'?-1:-2;},
   read(output){live();if(state!=='Ready')throw Error('The grass worker has no result.');let start;link.diagnostic(()=>{start=now();});for(const name of ['anchors','uvs','blades','patches','indices']){if(output[name].length!==result[name].length)throw Error('Invalid grass output target.');output[name].set(result[name]);}link.diagnostic(()=>{if(job.record)job.record.mainResultCopyMs=now()-start;});link.diagnostic(()=>{if(job.record)publications.set(job.identity.entity,{...job.record,consumedAt:now()});});release('consumed');},
   discard(){if(link.closed()||!job||state==='Canceling')return;result=null;post({type:'discard',identity:job.identity});state='Canceling';},
   dispose(){if(!link.dispose())return;release('owner-termination');sources.clear();publications.clear();},
-  profileHandshake:link.profileHandshake,profileState:()=>{let jobActive=Boolean(job?.record);for(const source of sources.values())jobActive||=Boolean(source.record);return {jobActive,handshakeActive:link.handshakePending(),publicationActive:publications.size>0};},
+  profileState:()=>{let jobActive=Boolean(job?.record);for(const source of sources.values())jobActive||=Boolean(source.record);return {jobActive,publicationActive:publications.size>0};},
  };
  api.installRaw=(id,input,scratch)=>api.install(identity(id),input,scratch);
  api.installedRaw=key=>api.installed(entity(key));api.retireRaw=key=>api.retire(entity(key));
@@ -65,8 +64,8 @@ export function createGrass(worker,profile,now=()=>performance.now()){
  api.planRaw=out=>{live();if(state!=='Planned'||out.length!==5)throw Error('No grass plan.');out.set(job.plan);};
  api.approveRaw=(id,bytes)=>api.approve(identity(id),bytes);
  api.readRaw=(anchors,uvs,blades,patches,indices)=>api.read({anchors,uvs,blades,patches,indices});
- link.profileHandshake();return api;
+ return api;
 }
 export function installGrassBridge(target,profile){
- return installWorkerClients(target,'gameGrassCreate',new URL('./grass-worker.js',import.meta.url),createGrass,profile);
+ return installWorkerClients(target,'gameGrassCreate',new URL('./mesh-worker.js?job=grass',import.meta.url),createGrass,profile);
 }

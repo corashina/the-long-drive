@@ -47,16 +47,6 @@ pub struct Tools {
     prototypes: Option<HashMap<SourceId, usize>>,
     scan: Option<(u64, u64)>,
 }
-impl Tools {
-    pub fn heap_bytes(&self) -> usize {
-        self.bindings.capacity() * std::mem::size_of::<ToolBinding>()
-            + self
-                .bindings
-                .iter()
-                .map(|b| crate::world::contents::identity_heap(&b.parent))
-                .sum::<usize>()
-    }
-}
 
 /// Source `sprayscript.SelectRandomColor`. None keeps the authored color.
 fn random_color(t: &SprayTool, random: &mut UnityRandom) -> Option<[f32; 4]> {
@@ -94,7 +84,7 @@ fn local(
             crate::world::placement::node_pose(prototype, index),
         )
     };
-    let index = super::content_small_items::node_index(prototype, node)?;
+    let index = prototype.node(node)?;
     Ok(super::content_small_items::relative(
         place(root),
         place(index),
@@ -168,20 +158,12 @@ impl WorldStream {
     ) -> Result<ToolBinding, ReferenceError> {
         let content = &self.contents.active()[slot];
         let placement = &content.content.placement;
-        let prototype = self
-            .reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == placement.prototype)
-            .ok_or_else(|| ReferenceError("Tool prototype missing".into()))?;
+        let prototype = self.reference.prototype(&placement.prototype)?;
         let rules = &self.contents.rules;
         let pickup = rules
             .component(&self.reference, &placement.prototype, "pickupable")?
             .ok_or_else(|| ReferenceError("Loot tool has no pickup".into()))?;
-        let root = super::content_small_items::node_index(
-            prototype,
-            rules.root(&self.reference, pickup.source)?,
-        )?;
+        let root = prototype.node(rules.root(&self.reference, pickup.source)?)?;
         let item_pose = to_rapier(items.get(item).expect("checked tool item").pose);
         let pose = |node: &SourceId| local(prototype, placement, root, node).map(|p| item_pose * p);
         let saved = self
@@ -191,10 +173,7 @@ impl WorldStream {
             .and_then(|s| s.tool);
         let invalid = || ReferenceError("Invalid saved loot tool state".into());
         let cleaning = &mut interaction.cleaning;
-        let index = |n: Option<&SourceId>| {
-            n.map(|n| super::content_small_items::node_index(prototype, n))
-                .transpose()
-        };
+        let index = |n: Option<&SourceId>| n.map(|n| prototype.node(n)).transpose();
         let mut binding = ToolBinding {
             parent: placement.id.clone(),
             item,

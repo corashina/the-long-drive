@@ -118,18 +118,9 @@ pub fn run() -> Result<(), JsValue> {
     let materials = presentation::materials::load_materials(&reference).map_err(js_error)?;
     let fixed_assets =
         presentation::fixed_assets::SourceFixedAssets::new(&reference).map_err(js_error)?;
-    let mut ledger = crate::ownership::PresentationLedger::default();
-    let (fixed, graph) = crate::ownership::fixed::admit_control(
-        &mut ledger,
-        presentation::readiness::control_bytes(),
-        presentation::readiness::RendererStateHandle::default,
-    )
-    .map_err(js_error)?;
-    let allocation =
-        presentation::world::runtime::SourcePresentationAllocation::bootstrap(fixed, ledger);
     App::new()
-        .insert_resource(graph)
-        .insert_resource(allocation)
+        .insert_resource(presentation::readiness::RendererStateHandle::default())
+        .init_resource::<presentation::world::runtime::SourcePresentationAllocation>()
         .insert_resource(materials)
         .insert_resource(fixed_assets)
         .insert_resource(RuntimeReference(reference.clone()))
@@ -218,7 +209,7 @@ pub fn run() -> Result<(), JsValue> {
         .init_resource::<SimFrameResource>()
         .init_resource::<presentation::world::grass_jobs::GrassJobs>()
         .init_resource::<crate::presentation::world_metrics::MeshMeasurements>()
-        .add_plugins(presentation::upload_budget::install)
+        .add_plugins(crate::presentation_logic::upload_budget::install)
         .add_systems(
             Last,
             (
@@ -695,6 +686,7 @@ fn prepare_world(
     views: Res<presentation::view_frame::SourceViewFrame>,
     epoch: Res<presentation::view_frame::SourceSceneEpoch>,
     windows: Query<&Window>,
+    mut grass_wind: Local<presentation::materials::grass::displacement::GrassWind>,
 ) {
     let drive = &mut *drive;
     drive.world_ms = sim.frame.state.perf.world_ms;
@@ -762,7 +754,7 @@ fn prepare_world(
         sim,
         grant,
         view,
-        frame.lighting.cycle.shader_time_seconds as f32,
+        grass_wind.advance(frame.lighting.cycle.shader_time_seconds, frame.weather.wind),
         lod_view,
         frame.lighting.road_lamp.enabled,
         &frame.lights,

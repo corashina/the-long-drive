@@ -74,7 +74,7 @@ pub fn tick(command: &[u8]) -> Result<Vec<u8>, JsValue> {
 }
 
 /// Runs a JSON array of sandbox actions (`simulation::sandbox`). Returns the JSON replies.
-/// The page offers it only with `?sandbox`.
+/// `?sandbox` pages offer all of it. The F4 weather panel uses it in every build.
 #[wasm_bindgen]
 pub fn sandbox(json: &str) -> Result<String, JsValue> {
     with_session(|s| s.sandbox(json))

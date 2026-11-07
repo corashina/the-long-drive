@@ -24,13 +24,15 @@ pub struct WorldLight {
     pub intensity: f32,
     /// Prototype node of a structure light. None: a road light.
     pub node: Option<u32>,
-    /// The item that moves the light, such as a car. The renderer places the light on the drawn item.
-    pub item: Option<ItemLight>,
+    /// The structure body that moves the light, such as a car. The renderer places the light on the drawn body.
+    pub body: Option<BodyLight>,
 }
-/// The pose of a light in the frame of the item that moves it.
-#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ItemLight {
-    pub item: crate::reference::ItemId,
+/// The pose of a light in the frame of the structure body that moves it.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BodyLight {
+    pub structure: GeneratedId,
+    /// Prototype body index, as in `NodePoseRow::BODY` rows.
+    pub body: u32,
     pub position: [f32; 3],
     pub rotation: [f32; 4],
 }
@@ -69,11 +71,6 @@ impl WorldLight {
             .sum::<f64>()
             <= (self.range as f64).powi(2)
     }
-    pub fn heap_bytes(&self) -> usize {
-        super::contents::identity_heap(&self.id)
-            + self.record.source.file.capacity()
-            + self.prototype.file.capacity()
-    }
 }
 struct RoadLightRecipe {
     reference: RoadLampReference,
@@ -92,7 +89,7 @@ pub fn record<'a>(
 ) -> Result<&'a WorldSourceRecord, ReferenceError> {
     world
         .records
-        .get(id)
+        .find(id)
         .ok_or_else(|| ReferenceError(format!("Missing source record {}:{}", id.file, id.path_id)))
 }
 /// The `roadscript` record of a road prototype.
@@ -124,18 +121,7 @@ pub fn object_node(
                 && matches!(r.fields.get("m_GameObject"), Some(WorldValue::Link(go)) if go == object)
         })
         .ok_or_else(|| ReferenceError("Missing source object transform".into()))?;
-    transform_node(prototype, &transform.source)
-}
-/// The prototype node of a source Transform.
-pub fn transform_node(
-    prototype: &WorldPrototypeReference,
-    transform: &SourceId,
-) -> Result<usize, ReferenceError> {
-    prototype
-        .nodes
-        .iter()
-        .position(|n| &n.source == transform)
-        .ok_or_else(|| ReferenceError("Missing source transform node".into()))
+    prototype.node(&transform.source)
 }
 /// Source `roadscript.RandomPoleRot` inputs of one road prototype.
 #[derive(Clone)]
@@ -165,7 +151,7 @@ impl RoadPole {
         controller: &WorldSourceRecord,
     ) -> Result<Self, ReferenceError> {
         let f = &controller.fields;
-        let node = transform_node(prototype, link(f, "randomPoleRotTransform")?)?;
+        let node = prototype.node(link(f, "randomPoleRotTransform")?)?;
         Ok(Self {
             node,
             scale: Vector::from_array(super::placement::node_pose(prototype, node).scale),
@@ -325,11 +311,7 @@ impl SourceRoadLight {
         let world = &reference.world;
         let mut recipes = Vec::with_capacity(3);
         for source in &world.road.prototypes {
-            let prototype = world
-                .prototypes
-                .iter()
-                .find(|p| &p.source == source)
-                .unwrap();
+            let prototype = world.prototypes.find(source).unwrap();
             let controller = road_controller(world, source)?;
             let pole = RoadPole::new(prototype, controller)?;
             let koz = record(world, link(&controller.fields, "koz")?)?;
@@ -364,21 +346,6 @@ impl SourceRoadLight {
     pub fn influence_margin(&self) -> f64 {
         self.recipes.iter().map(|r| r.margin).fold(0., f64::max)
     }
-    pub fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self.recipes.capacity() * std::mem::size_of::<RoadLightRecipe>()
-            + self
-                .recipes
-                .iter()
-                .map(|r| {
-                    r.reference.source.file.capacity()
-                        + r.reference.road_source.file.capacity()
-                        + r.reference.generator_source.file.capacity()
-                        + r.reference.lights.capacity() * std::mem::size_of::<LightId>()
-                        + r.light.source.file.capacity()
-                })
-                .sum::<usize>()
-    }
     pub fn place(&self, reference: &WorldReference, segment: &RoadSegment) -> WorldLight {
         let recipe = &self.recipes[segment.biome as usize];
         let prototype = road_prototype(reference, segment);
@@ -408,7 +375,7 @@ impl SourceRoadLight {
             enabled: true,
             intensity: recipe.light.startup_intensity,
             node: None,
-            item: None,
+            body: None,
         }
     }
 }
@@ -418,11 +385,7 @@ pub(super) fn road_prototype<'a>(
     segment: &RoadSegment,
 ) -> &'a WorldPrototypeReference {
     let source = &world.road.prototypes[segment.biome as usize];
-    world
-        .prototypes
-        .iter()
-        .find(|p| &p.source == source)
-        .unwrap()
+    world.prototypes.find(source).unwrap()
 }
 /// Select all influencing source lights. Visibility and pole mesh distance do not reject light influence.
 pub fn required_world_lights(

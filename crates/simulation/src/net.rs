@@ -127,7 +127,7 @@ impl Net {
             runtime.place(f32::from(self.slot) / MAX_PLAYERS as f32, &others);
         }
     }
-    /// The dead player respawns near the nearest other player, or in the garage when
+    /// The dead player respawns near the nearest living other player, or in the garage when
     /// there is none. `prepare` then moves it to a free spot.
     pub fn respawn(&mut self, reference: &ReferenceManifest, runtime: &mut GarageRuntime) {
         if !runtime.needs_output().dead {
@@ -137,6 +137,11 @@ impl Net {
         let base = self
             .figures
             .iter()
+            .filter(|(slot, _)| {
+                self.remotes
+                    .iter()
+                    .any(|r| r.slot == *slot && !r.smoothing.dead())
+            })
             .map(|(_, pose)| *pose)
             .min_by(|a, b| {
                 (a.translation - at)
@@ -208,6 +213,7 @@ impl Net {
             runtime.shared_breaks.clear();
             runtime.area.interaction.push.pushes.clear();
             runtime.shared_radios.clear();
+            runtime.weather.strike = None;
             self.cars.end(runtime);
             self.inventory.clear(runtime);
             self.objects.skip(&mut runtime.area.items);
@@ -466,9 +472,12 @@ impl Net {
                 | message::CAR_IGNITION => {
                     self.cars.receive(reference, runtime, self.clock, packet)
                 }
-                message::TIME | message::RADIO_CHANNEL | message::RADIO | message::SOUND => {
-                    WorldSync::receive(self.role, packet, index, runtime)
-                }
+                message::TIME
+                | message::RADIO_CHANNEL
+                | message::RADIO
+                | message::SOUND
+                | message::WEATHER
+                | message::STRIKE => WorldSync::receive(self.role, packet, index, runtime),
                 message::CREATURE if self.role == NetRole::Guest => {
                     creatures::receive(reference, packet, runtime)
                 }

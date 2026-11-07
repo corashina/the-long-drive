@@ -140,38 +140,12 @@ impl ContentInstance {
             || parts.has_external_dependents(owns)
             || wheels.has_external_dependents(owns)
     }
-    pub fn control_heap_bytes(&self) -> usize {
-        self.suspended_bodies.capacity()
-            * std::mem::size_of::<(rapier3d::prelude::RigidBodyHandle, bool)>()
-            + self
-                .baseline
-                .as_ref()
-                .map_or(0, super::ObjectSnapshot::heap_bytes)
-            + self
-                .bindings
-                .iter()
-                .map(|b| b.baseline.heap_bytes())
-                .sum::<usize>()
-            + placement_heap(&self.origin)
-            + placement_heap(&self.content.placement)
-            + self.bindings.capacity() * std::mem::size_of::<ContentBinding>()
-            + self
-                .bindings
-                .iter()
-                .map(|b| b.source.file.capacity())
-                .sum::<usize>()
-            + self.nodes.capacity() * std::mem::size_of::<crate::reference::NodeId>()
-            + self.poses.capacity() * std::mem::size_of::<crate::vehicle::VehiclePose>()
-            + self.mechanism_colliders.capacity() * std::mem::size_of::<ContentCollider>()
-    }
 }
 pub struct SourceContents {
     pub rules: SourceRules,
     pub state: SourceSpawnState,
     cursors: Vec<Cursor>,
     active: Vec<ContentInstance>,
-    /// `retained_bytes` and `pending_bytes` of the current state. Every `&mut self` call clears it.
-    bytes: std::cell::Cell<Option<(usize, usize)>>,
     // It changes on membership and order only. Pose and appearance remain live.
     active_revision: u64,
     /// Bumps when a cursor or its root content changes.
@@ -198,7 +172,6 @@ struct AncestorIndex {
 }
 impl SourceContents {
     pub fn discard_replay_siblings(&mut self, wanted: &[Placement]) {
-        self.bytes.set(None);
         let previous = self.active.len();
         self.active.retain(|content| {
             content.item.is_some()
@@ -269,7 +242,6 @@ impl SourceContents {
             ),
             cursors: Vec::new(),
             active: Vec::new(),
-            bytes: Default::default(),
             active_revision: 0,
             roots_revision: 0,
             deferred: Vec::new(),
@@ -313,11 +285,9 @@ impl SourceContents {
     }
     /// Active contents got their items. Scans that skip contents without an item run again.
     pub(super) fn items_bound(&mut self) {
-        self.bytes.set(None);
         self.active_revision += 1;
     }
     pub(super) fn push_active(&mut self, mut content: ContentInstance) {
-        self.bytes.set(None);
         if !content.content.inputs.humans.is_empty() {
             self.humans.push(content.content);
             return;
@@ -328,13 +298,11 @@ impl SourceContents {
     }
     /// The next human monster placement and its `newAiScript.Start` roll.
     pub fn take_human(&mut self) -> Option<(Placement, super::spawn_state::HumanRoll)> {
-        self.bytes.set(None);
         let content = self.humans.pop()?;
         let roll = content.inputs.humans.first()?.1;
         Some((content.placement, roll))
     }
     pub fn remove_active(&mut self, index: usize) -> ContentInstance {
-        self.bytes.set(None);
         let last = self.active.len() - 1;
         let content = self.active.swap_remove(index);
         // Patch a current index: the removed entry goes, the last entry moves to `index`.
@@ -391,7 +359,6 @@ impl SourceContents {
         })
     }
     pub fn select_revision(&mut self, session: u64, revision: u64) {
-        self.bytes.set(None);
         if self.selection != Some((session, revision)) {
             self.selection = Some((session, revision));
             // A newly selected region performs its first check without simulating timed polling.
@@ -402,42 +369,7 @@ impl SourceContents {
             }
         }
     }
-    /// Reserves the queues. None: they fit the staging limit but not the room, so work waits.
-    fn admit_queues(
-        &mut self,
-        limit: usize,
-        deferred: usize,
-        staging: usize,
-        staging_limit: usize,
-    ) -> Result<Option<usize>, ReferenceError> {
-        self.bytes.set(None);
-        fn overlap<T>(values: &Vec<T>, extra: usize) -> usize {
-            let required = values.len().saturating_add(extra);
-            if required > values.capacity() {
-                (required + values.capacity()).saturating_mul(std::mem::size_of::<T>())
-            } else {
-                0
-            }
-        }
-        let bytes = overlap(&self.active, limit).saturating_add(overlap(&self.deferred, deferred));
-        if bytes > staging_limit {
-            return Err(ReferenceError(
-                "Source continuation queues exceed staging".into(),
-            ));
-        }
-        if bytes > staging {
-            return Ok(None);
-        }
-        self.active
-            .try_reserve_exact(limit)
-            .map_err(|_| ReferenceError("Source content queue allocation failed".into()))?;
-        self.deferred
-            .try_reserve_exact(deferred)
-            .map_err(|_| ReferenceError("Source continuation queue allocation failed".into()))?;
-        Ok(Some(staging - bytes))
-    }
     pub fn retain_requests(&mut self, structures: &[Placement], replays: &[Placement]) {
-        self.bytes.set(None);
         let previous = self.active.len();
         self.active.retain(|c| {
             !c.replay_only || c.item.is_some() || replays.iter().any(|p| p.id == c.origin.id)
@@ -470,10 +402,7 @@ impl SourceContents {
         limit: usize,
         budget: usize,
         pending: usize,
-        staging: usize,
-        staging_limit: usize,
-    ) -> Result<bool, ReferenceError> {
-        self.bytes.set(None);
+    ) -> Result<(), ReferenceError> {
         let initial_pending = self.pending_requests();
         self.update = self.update.wrapping_add(1);
         let eligible = self
@@ -483,35 +412,19 @@ impl SourceContents {
             .map(|b| b.tasks.len() - b.next)
             .sum::<usize>();
         let initial_count = self.active.len();
-        let initial_bytes = self.scan_retained();
         for _ in 0..eligible {
-            let remaining = limit.saturating_sub(self.active.len().saturating_sub(initial_count));
-            let available =
-                staging.saturating_sub(self.scan_retained().saturating_sub(initial_bytes));
-            if remaining == 0 {
-                return Ok(false);
-            }
-            if available == 0 {
-                return Ok(true);
+            if limit <= self.active.len().saturating_sub(initial_count) {
+                return Ok(());
             }
             let cap = budget.saturating_sub(self.active.len().saturating_sub(initial_count));
-            match self.advance_deferred(reference, remaining, cap, available, staging_limit)? {
-                Some(true) => {}
-                Some(false) => return Ok(false),
-                None => return Ok(true),
+            if !self.advance_deferred(reference, cap)? {
+                return Ok(());
             }
         }
         let limit = limit.saturating_sub(self.active.len().saturating_sub(initial_count));
-        let staging = staging.saturating_sub(self.scan_retained().saturating_sub(initial_bytes));
         if limit == 0 {
-            return Ok(false);
+            return Ok(());
         }
-        if staging == 0 {
-            return Ok(true);
-        }
-        let cursor_before = self.scan_retained();
-        // True: work waits for staging room that the renderer holds.
-        let mut waits = false;
         for (instance, replay_only) in structures
             .iter()
             .map(|p| (p, false))
@@ -547,31 +460,6 @@ impl SourceContents {
             {
                 continue;
             }
-            let bound = self.rules.initialization_bound(
-                reference,
-                &p.prototype,
-                identity_heap(&p.id),
-                0,
-            )? + cable.map_or(0, appearance_bytes)
-                + (self.cursors.capacity() + self.cursors.len() + 1)
-                    * std::mem::size_of::<Cursor>()
-                + existing.map_or(0, |c| {
-                    spawned_heap(&c.content) + c.content.inputs.retained_bytes()
-                });
-            // Only a cursor that can never fit fails. Staging room is transient: the
-            // remaining structures get their cursors in a later update.
-            if bound > staging_limit {
-                return Err(ReferenceError(
-                    "Source caller cursor exceeds staging".into(),
-                ));
-            }
-            if bound > staging.saturating_sub(self.scan_retained().saturating_sub(cursor_before)) {
-                waits = true;
-                break;
-            }
-            self.cursors
-                .try_reserve_exact(1)
-                .map_err(|_| ReferenceError("Source cursor allocation failed".into()))?;
             let eligible = if building.is_some() {
                 eligible_callers(reference, &self.rules, &p.prototype)?
             } else {
@@ -593,21 +481,12 @@ impl SourceContents {
                     .unwrap_or_default(),
             });
         }
-        let staging = staging.saturating_sub(self.scan_retained().saturating_sub(cursor_before));
         if let Some(index) = self.cursors.iter().position(|c| c.root.is_none()) {
             if pending.saturating_add(initial_pending) <= self.pending_requests() {
-                return Ok(waits);
+                return Ok(());
             }
-            let Some(staging) = self.admit_queues(limit, 1, staging, staging_limit)? else {
-                return Ok(true);
-            };
             let cursor = &self.cursors[index];
             let parent = &cursor.parent;
-            // Staging room is transient. A root that can fit waits for it.
-            let bytes = SpawnEvaluation::initialization_bytes(reference, &self.rules, parent)?;
-            if bytes > staging && bytes <= staging_limit {
-                return Ok(true);
-            }
             // A fixed startup placement evaluates from a copy of the startup random. It never
             // advances the live random, so it needs no boundary and replays the same contents.
             let startup = parent.id.layer == super::WorldLayer::Startup;
@@ -627,41 +506,38 @@ impl SourceContents {
                 ));
             }
             let cap = budget.saturating_sub(self.active.len().saturating_sub(initial_count));
-            let evaluate = |random: &mut super::UnityRandom,
-                            context: super::SpawnContext,
-                            pools: &mut Vec<super::spawn_state::PaintingPool>,
-                            initialization: &super::spawn_state::SpawnInitialization,
-                            staging: usize| {
-                let mut e =
-                    SpawnEvaluation::new(reference, &self.rules, random, context, pools, cap);
-                e.staging = staging;
-                e.admit_initialization(parent)?;
-                e.initialization = initialization.clone();
-                let tanks = match row {
-                    Some(r) => e.start_tanks(r)?,
-                    None => Vec::new(),
+            let evaluate =
+                |random: &mut super::UnityRandom,
+                 context: super::SpawnContext,
+                 pools: &mut Vec<super::spawn_state::PaintingPool>,
+                 initialization: &super::spawn_state::SpawnInitialization| {
+                    let mut e =
+                        SpawnEvaluation::new(reference, &self.rules, random, context, pools, cap);
+                    e.initialization = initialization.clone();
+                    let tanks = match row {
+                        Some(r) => e.start_tanks(r)?,
+                        None => Vec::new(),
+                    };
+                    e.output.push(SpawnedContent {
+                        inputs: super::spawn_state::SpawnInitialization::default(),
+                        placement: parent.clone(),
+                        appearance: Default::default(),
+                        cable: cables
+                            .iter()
+                            .find(|(id, _)| id == &parent.id)
+                            .map(|(_, c)| c.clone())
+                            .unwrap_or_default(),
+                        lights: Vec::new(),
+                        fluid: None,
+                        tanks,
+                        buried: row.is_some_and(|r| r.buried),
+                        distance_offset: [0.; 3],
+                        ammo: None,
+                    });
+                    e.queue_start(parent.clone(), None);
+                    e.finish_starts()?;
+                    Ok((e.output, e.deferred, e.initialization))
                 };
-                e.output.push(SpawnedContent {
-                    inputs: super::spawn_state::SpawnInitialization::default(),
-                    placement: parent.clone(),
-                    appearance: Default::default(),
-                    cable: cables
-                        .iter()
-                        .find(|(id, _)| id == &parent.id)
-                        .map(|(_, c)| c.clone())
-                        .unwrap_or_default(),
-                    lights: Vec::new(),
-                    fluid: None,
-                    tanks,
-                    buried: row.is_some_and(|r| r.buried),
-                    distance_offset: [0.; 3],
-                    ammo: None,
-                });
-                e.queue_start(parent.clone(), None);
-                e.finish_starts()?;
-                e.check_staging(staging)?;
-                Ok((e.output, e.deferred, e.initialization))
-            };
             let (mut output, deferred, inputs) = if startup {
                 let mut random = super::UnityRandom::restore(super::UnityRandomState {
                     words: reference.spawn_context.startup_state,
@@ -671,7 +547,6 @@ impl SourceContents {
                     self.state.context,
                     &mut Vec::new(),
                     &cursor.inputs,
-                    staging,
                 )?
             } else {
                 self.state.invoke(
@@ -679,7 +554,6 @@ impl SourceContents {
                     cursor.building.as_ref().unwrap_or(&cursor.parent.prototype),
                     0,
                     SpawnPhase::ComponentStart,
-                    staging,
                     &cursor.inputs,
                     evaluate,
                 )?
@@ -744,26 +618,15 @@ impl SourceContents {
                     baseline: None,
                 });
             }
-            return Ok(waits);
+            return Ok(());
         }
         if self.cursors.is_empty() {
-            return Ok(waits);
+            return Ok(());
         }
         let before_count = self.active.len();
-        let before_bytes = self.scan_retained();
-        let mut current_bytes = before_bytes;
-        let mut dirty = false;
         for _ in 0..self.cursors.len() {
             let limit = limit.saturating_sub(self.active.len().saturating_sub(before_count));
-            if dirty {
-                current_bytes = self.scan_retained();
-                dirty = false;
-            }
-            #[cfg(test)]
-            tests::check_guard(self, current_bytes);
-            let staging = staging.saturating_sub(current_bytes.saturating_sub(before_bytes));
-            if limit == 0 || staging == 0 {
-                waits |= staging == 0;
+            if limit == 0 {
                 break;
             }
             let index = self.next % self.cursors.len();
@@ -792,12 +655,6 @@ impl SourceContents {
                 self.next = index;
                 break;
             }
-            dirty = true;
-            let Some(staging) = self.admit_queues(limit, 1, staging, staging_limit)? else {
-                self.next = index;
-                waits = true;
-                break;
-            };
             let cursor = &self.cursors[index];
             let first = cursor.next == 0;
             let source = if first {
@@ -821,25 +678,16 @@ impl SourceContents {
             if !cursor.replay_only {
                 self.state.context.chance_bits = chance.map(f32::to_bits);
             }
-            self.active
-                .try_reserve_exact(limit)
-                .map_err(|_| ReferenceError("Nested content allocation failed".into()))?;
-            self.deferred
-                .try_reserve_exact(1)
-                .map_err(|_| ReferenceError("Source continuation allocation failed".into()))?;
             let cap = budget.saturating_sub(self.active.len().saturating_sub(before_count));
             let (output, chance, deferred, initialization) = self.state.invoke(
                 &parent.id,
                 source,
                 cursor.next as u32,
                 SpawnPhase::SynchronousAndStarts,
-                staging,
                 &cursor.inputs,
-                |random, context, pools, initialization, staging| {
+                |random, context, pools, initialization| {
                     let mut evaluation =
                         SpawnEvaluation::new(reference, &self.rules, random, context, pools, cap);
-                    evaluation.staging = staging;
-                    evaluation.admit_initialization(parent)?;
                     evaluation.initialization = initialization.clone();
                     if let Some(root) = &cursor.root {
                         evaluation.output.push(root.clone());
@@ -853,7 +701,6 @@ impl SourceContents {
                         context.chance_bits.map(f32::from_bits),
                     )?;
                     evaluation.finish_starts()?;
-                    evaluation.check_staging(staging)?;
                     Ok((
                         evaluation.output,
                         chance,
@@ -917,20 +764,16 @@ impl SourceContents {
                 }
             }
         }
-        Ok(waits)
+        Ok(())
     }
-    /// Some(false): no eligible batch. None: the batch waits for staging room.
+    /// False: no eligible batch.
     fn advance_deferred(
         &mut self,
         reference: &WorldReference,
-        limit: usize,
         cap: usize,
-        staging: usize,
-        staging_limit: usize,
-    ) -> Result<Option<bool>, ReferenceError> {
-        self.bytes.set(None);
+    ) -> Result<bool, ReferenceError> {
         let Some(index) = self.deferred.iter().position(|b| b.eligible <= self.update) else {
-            return Ok(Some(false));
+            return Ok(false);
         };
         let final_task = self.deferred[index].next + 1 == self.deferred[index].tasks.len();
         if !self.cursors.iter().any(|c| {
@@ -940,17 +783,9 @@ impl SourceContents {
         }) {
             return Err(ReferenceError("Missing source deferred family".into()));
         }
-        // A child appends before the old record retires, including its final task.
-        // The existing family claim covers it. Its record and CPU storage need admission.
-        let Some(staging) = self.admit_queues(limit, 1, staging, staging_limit)? else {
-            return Ok(None);
-        };
         let batch = &self.deferred[index];
         let (parent, source) = &batch.tasks[batch.next];
         let replay_only = batch.replay_only;
-        self.active
-            .try_reserve_exact(limit)
-            .map_err(|_| ReferenceError("Deferred content allocation failed".into()))?;
         if replay_only
             && !self.state.has_boundary(
                 &parent.id,
@@ -968,13 +803,10 @@ impl SourceContents {
             source,
             batch.next as u32,
             SpawnPhase::ComponentStart,
-            staging,
             &batch.inputs,
-            |random, context, pools, initialization, staging| {
+            |random, context, pools, initialization| {
                 let mut evaluation =
                     SpawnEvaluation::new(reference, &self.rules, random, context, pools, cap);
-                evaluation.staging = staging;
-                evaluation.admit_initialization(parent)?;
                 evaluation.initialization = initialization.clone();
                 // The continuation can change its existing instance's selector and condition.
                 if let Some(existing) = self.active.iter().find(|c| {
@@ -991,7 +823,6 @@ impl SourceContents {
                 }
                 evaluation.spawn_slot(parent, source)?;
                 evaluation.finish_starts()?;
-                evaluation.check_staging(staging)?;
                 Ok((
                     evaluation.output,
                     evaluation.deferred,
@@ -1052,7 +883,7 @@ impl SourceContents {
                 });
             }
         }
-        Ok(Some(true))
+        Ok(true)
     }
     fn complete_deferred(
         &mut self,
@@ -1061,7 +892,6 @@ impl SourceContents {
         initialization: super::spawn_state::SpawnInitialization,
         final_task: bool,
     ) -> Result<(), ReferenceError> {
-        self.bytes.set(None);
         let owner = &self.deferred[index];
         let cursor = self
             .cursors
@@ -1109,13 +939,11 @@ impl SourceContents {
         parent: &GeneratedId,
         source: &SourceId,
         on: bool,
-        staging: usize,
     ) -> Result<(), ReferenceError> {
-        self.bytes.set(None);
         let deferred = |i: &super::spawn_state::SpawnInitialization| {
             i.lamps.iter().any(|(p, s, _)| p == parent && s == source)
         };
-        self.refresh_lamp(reference, parent, staging, deferred, |inputs| {
+        self.refresh_lamp(reference, parent, deferred, |inputs| {
             let state = &mut inputs
                 .lamps
                 .iter_mut()
@@ -1134,13 +962,11 @@ impl SourceContents {
         parent: &GeneratedId,
         source: &SourceId,
         lamps: u64,
-        staging: usize,
     ) -> Result<(), ReferenceError> {
-        self.bytes.set(None);
         let deferred = |i: &super::spawn_state::SpawnInitialization| {
             i.lamps.iter().any(|(p, s, _)| p == parent && s == source)
         };
-        self.refresh_lamp(reference, parent, staging, deferred, |inputs| {
+        self.refresh_lamp(reference, parent, deferred, |inputs| {
             inputs.break_lamps(parent, source, lamps)
         })
     }
@@ -1151,15 +977,13 @@ impl SourceContents {
         parent: &GeneratedId,
         component: &SourceId,
         jam: f32,
-        staging: usize,
     ) -> Result<(), ReferenceError> {
-        self.bytes.set(None);
         let deferred = |i: &super::spawn_state::SpawnInitialization| {
             i.initialized
                 .iter()
                 .any(|(p, s)| p == parent && s == component)
         };
-        self.refresh_lamp(reference, parent, staging, deferred, |inputs| {
+        self.refresh_lamp(reference, parent, deferred, |inputs| {
             inputs.set_jam(parent, component, jam);
             true
         })
@@ -1170,24 +994,13 @@ impl SourceContents {
         &mut self,
         reference: &WorldReference,
         parent: &GeneratedId,
-        staging: usize,
         deferred: impl Fn(&super::spawn_state::SpawnInitialization) -> bool,
         change: impl Fn(&mut super::spawn_state::SpawnInitialization) -> bool,
     ) -> Result<(), ReferenceError> {
-        self.bytes.set(None);
         let current = self
             .instances()
             .find(|c| &c.placement.id == parent)
             .ok_or_else(|| ReferenceError("Generated lamp instance missing".into()))?;
-        let required = current.inputs.retained_bytes().saturating_mul(4)
-            + current.appearance.capacity() * std::mem::size_of::<super::NodeAppearance>() * 2
-            + current.lights.capacity() * std::mem::size_of::<super::WorldLight>() * 2
-            + placement_heap(&current.placement) * 2;
-        if required > staging {
-            return Err(ReferenceError(
-                "Generated lamp refresh exceeds shared staging".into(),
-            ));
-        }
         let mut inputs = current.inputs.clone();
         let current = current.clone();
         let lamp_changed = change(&mut inputs);
@@ -1201,14 +1014,11 @@ impl SourceContents {
             &mut pools,
             1,
         );
-        evaluation.staging = staging;
-        evaluation.admit_initialization(&current.placement)?;
         evaluation.initialization = inputs;
         evaluation.output.push(current);
         evaluation.bake_appearance()?;
         evaluation.bake_lamps()?;
         evaluation.bake_cables();
-        evaluation.check_staging(staging)?;
         let content = evaluation.output.pop().unwrap();
         self.input_revision = self.input_revision.wrapping_add(1);
         if let Some(cursor) = self.cursors.iter_mut().find(|c| &c.parent.id == parent) {
@@ -1236,40 +1046,6 @@ impl SourceContents {
                 .root = Some(content);
         }
         Ok(())
-    }
-    fn deferred_bytes(&self) -> usize {
-        self.deferred.capacity() * std::mem::size_of::<DeferredBatch>()
-            + self
-                .deferred
-                .iter()
-                .map(|b| {
-                    identity_heap(&b.owner)
-                        + b.tasks.capacity() * std::mem::size_of::<(Placement, SourceId)>()
-                        + b.inputs.retained_bytes()
-                        + b.tasks
-                            .iter()
-                            .map(|(p, s)| placement_heap(p) + s.file.capacity())
-                            .sum::<usize>()
-                })
-                .sum::<usize>()
-    }
-    fn count_pending(&self) -> usize {
-        self.cursors
-            .iter()
-            .filter(|c| c.replay_only)
-            .map(|c| std::mem::size_of::<Cursor>() + cursor_heap(c))
-            .sum::<usize>()
-            + self
-                .active
-                .iter()
-                .filter(|c| c.item.is_none() && c.replay_only)
-                .map(|c| {
-                    std::mem::size_of::<ContentInstance>()
-                        + placement_heap(&c.origin)
-                        + spawned_heap(&c.content)
-                })
-                .sum::<usize>()
-            + self.deferred_bytes()
     }
     pub fn pending_requests(&self) -> usize {
         self.cursors
@@ -1380,7 +1156,6 @@ impl SourceContents {
     }
     /// The active content or cursor root of placement `id`.
     pub fn instance_mut(&mut self, id: &GeneratedId) -> Option<&mut SpawnedContent> {
-        self.bytes.set(None);
         if let Some(i) = self
             .active
             .iter()
@@ -1433,107 +1208,10 @@ impl SourceContents {
         &SourceRules,
         &super::stream::content_boxes::BoxReleases,
     ) {
-        self.bytes.set(None);
         (&mut self.active, &self.rules, &self.boxes)
     }
     pub fn active_mut(&mut self) -> &mut [ContentInstance] {
-        self.bytes.set(None);
         &mut self.active
-    }
-    /// `retained_bytes` and `pending_bytes`, from the cache when no edit came after the last count.
-    fn bytes(&self) -> (usize, usize) {
-        if let Some(bytes) = self.bytes.get() {
-            #[cfg(test)]
-            assert_eq!(bytes, (self.count_retained(), self.count_pending()));
-            return bytes;
-        }
-        let bytes = (self.count_retained(), self.count_pending());
-        self.bytes.set(Some(bytes));
-        bytes
-    }
-    /// Retained bytes for readers outside this type. Tests count each call as one scan.
-    pub fn retained_bytes(&self) -> usize {
-        Self::observe_scan();
-        self.bytes().0
-    }
-    pub fn pending_bytes(&self) -> usize {
-        self.bytes().1
-    }
-    /// Retained bytes inside a `&mut self` call, which must not fill the cache.
-    fn scan_retained(&self) -> usize {
-        Self::observe_scan();
-        self.count_retained()
-    }
-    fn observe_scan() {
-        #[cfg(test)]
-        if tests::OBSERVING.get() {
-            tests::RETAINED_SCANS.set(tests::RETAINED_SCANS.get() + 1);
-        }
-    }
-    fn count_retained(&self) -> usize {
-        self.deferred_bytes()
-            + self.cursors.capacity() * std::mem::size_of::<Cursor>()
-            + self.cursors.iter().map(cursor_heap).sum::<usize>()
-            + self.active.capacity() * std::mem::size_of::<ContentInstance>()
-            + self
-                .active
-                .iter()
-                .map(|c| {
-                    c.suspended_bodies.capacity()
-                        * std::mem::size_of::<(rapier3d::prelude::RigidBodyHandle, bool)>()
-                        + c.baseline
-                            .as_ref()
-                            .map_or(0, super::ObjectSnapshot::heap_bytes)
-                        + c.bindings
-                            .iter()
-                            .map(|b| b.baseline.heap_bytes())
-                            .sum::<usize>()
-                        + placement_heap(&c.origin)
-                        + c.caps.capacity() * std::mem::size_of::<GeneratedCapVisual>()
-                        + c.caps
-                            .iter()
-                            .map(|c| {
-                                (c.visual.open_nodes.capacity() + c.visual.closed_nodes.capacity())
-                                    * std::mem::size_of::<crate::reference::NodeId>()
-                            })
-                            .sum::<usize>()
-                        + c.poses.capacity() * std::mem::size_of::<crate::vehicle::VehiclePose>()
-                        + c.mechanism_colliders.capacity() * std::mem::size_of::<ContentCollider>()
-                        + c.slots.capacity() * std::mem::size_of::<ContentSlot>()
-                        + c.slots
-                            .iter()
-                            .map(|s| s.source.file.capacity())
-                            .sum::<usize>()
-                        + c.bindings.capacity() * std::mem::size_of::<ContentBinding>()
-                        + c.nodes.capacity() * std::mem::size_of::<crate::reference::NodeId>()
-                        + c.bindings
-                            .iter()
-                            .map(|b| b.source.file.capacity())
-                            .sum::<usize>()
-                        + c.content.inputs.retained_bytes()
-                        + placement_heap(&c.content.placement)
-                        + c.content.tanks.capacity()
-                            * std::mem::size_of::<(SourceId, crate::fluids::FluidContainer)>()
-                        + c.content
-                            .tanks
-                            .iter()
-                            .map(|(s, _)| s.file.capacity())
-                            .sum::<usize>()
-                        + c.content.lights.capacity() * std::mem::size_of::<super::WorldLight>()
-                        + c.content
-                            .lights
-                            .iter()
-                            .map(super::WorldLight::heap_bytes)
-                            .sum::<usize>()
-                        + c.content.appearance.capacity()
-                            * std::mem::size_of::<super::NodeAppearance>()
-                        + c.content
-                            .appearance
-                            .iter()
-                            .map(super::NodeAppearance::heap_bytes)
-                            .sum::<usize>()
-                })
-                .sum::<usize>()
     }
 }
 /// Building callers in source order, without `dontSpawn` callers.
@@ -1580,107 +1258,15 @@ pub(super) fn spawn_step(
     }
     Ok(chance)
 }
-pub fn identity_heap(id: &GeneratedId) -> usize {
-    id.generator.file.capacity()
-        + id.children.capacity() * std::mem::size_of::<(SourceId, u32)>()
-        + id.children
-            .iter()
-            .map(|(s, _)| s.file.capacity())
-            .sum::<usize>()
-}
-pub fn placement_heap(p: &Placement) -> usize {
-    identity_heap(&p.id) + p.prototype.file.capacity()
-}
 pub fn distance(a: [f64; 3], b: [f64; 3]) -> f32 {
     let x = (a[0] - b[0]) as f32;
     let z = (a[2] - b[2]) as f32;
     x * x + z * z
 }
 
-fn spawned_heap(content: &SpawnedContent) -> usize {
-    content.inputs.retained_bytes()
-        + placement_heap(&content.placement)
-        + content.tanks.capacity()
-            * std::mem::size_of::<(SourceId, crate::fluids::FluidContainer)>()
-        + content
-            .tanks
-            .iter()
-            .map(|(s, _)| s.file.capacity())
-            .sum::<usize>()
-        + content.lights.capacity() * std::mem::size_of::<super::WorldLight>()
-        + content
-            .lights
-            .iter()
-            .map(super::WorldLight::heap_bytes)
-            .sum::<usize>()
-        + appearance_bytes(&content.appearance)
-        + appearance_bytes(&content.cable)
-}
-pub fn appearance_bytes(appearance: &Vec<super::NodeAppearance>) -> usize {
-    appearance.capacity() * std::mem::size_of::<super::NodeAppearance>()
-        + appearance
-            .iter()
-            .map(super::NodeAppearance::heap_bytes)
-            .sum::<usize>()
-}
-fn cursor_heap(cursor: &Cursor) -> usize {
-    placement_heap(&cursor.parent)
-        + cursor.building.as_ref().map_or(0, |s| s.file.capacity())
-        + cursor.inputs.retained_bytes()
-        + cursor.root.as_ref().map_or(0, spawned_heap)
-        + cursor.callers.capacity() * std::mem::size_of::<SourceId>()
-        + cursor
-            .callers
-            .iter()
-            .map(|s| s.file.capacity())
-            .sum::<usize>()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::{Cell, RefCell};
-
-    thread_local! {
-        pub(super) static OBSERVING: Cell<bool> = const { Cell::new(false) };
-        pub(super) static RETAINED_SCANS: Cell<usize> = const { Cell::new(0) };
-        static GUARDS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
-    }
-
-    pub(super) fn check_guard(contents: &SourceContents, current_bytes: usize) {
-        if !OBSERVING.get() {
-            return;
-        }
-        assert_eq!(
-            current_bytes,
-            contents.scan_retained(),
-            "stale final cursor guard"
-        );
-        GUARDS.with_borrow_mut(|guards| {
-            guards.push(RETAINED_SCANS.get() - guards.len() - 1);
-        });
-    }
-
-    struct ScanCheck;
-    impl ScanCheck {
-        fn new() -> Self {
-            RETAINED_SCANS.set(0);
-            GUARDS.with_borrow_mut(Vec::clear);
-            OBSERVING.set(true);
-            Self
-        }
-        fn production_scans(&self) -> Vec<usize> {
-            GUARDS.with_borrow(Clone::clone)
-        }
-    }
-    impl Drop for ScanCheck {
-        fn drop(&mut self) {
-            OBSERVING.set(false);
-            RETAINED_SCANS.set(0);
-            GUARDS.with_borrow_mut(Vec::clear);
-        }
-    }
-
     fn reference() -> &'static WorldReference {
         static REFERENCE: std::sync::OnceLock<crate::reference::ReferenceManifest> =
             std::sync::OnceLock::new();
@@ -1795,7 +1381,6 @@ mod tests {
             }
         }
         let history = contents.state.capture_history();
-        let scans = ScanCheck::new();
         contents
             .advance(
                 reference,
@@ -1807,11 +1392,8 @@ mod tests {
                 1,
                 1,
                 1,
-                1,
-                crate::world::stream::STAGING,
             )
             .unwrap();
-        assert_eq!(scans.production_scans(), [5, 5, 5, 5]);
         assert_eq!(contents.next, 0);
         assert!(contents.active.is_empty());
         assert!(contents.deferred.is_empty());
@@ -1830,9 +1412,7 @@ mod tests {
         for cursor in contents.cursors.iter_mut().skip(1) {
             cursor.building = None;
         }
-        let before = contents.retained_bytes();
         let live = contents.state.live_state();
-        let scans = ScanCheck::new();
         contents
             .advance(
                 reference,
@@ -1844,12 +1424,8 @@ mod tests {
                 128,
                 128,
                 128,
-                32 * 1024 * 1024,
-                crate::world::stream::STAGING,
             )
             .unwrap();
-        assert_eq!(scans.production_scans(), [5, 6, 6, 6]);
-        assert!(contents.retained_bytes() > before);
         assert_eq!(contents.next, 0);
         assert_eq!(
             contents.cursors.iter().map(|c| c.next).collect::<Vec<_>>(),
@@ -1896,70 +1472,5 @@ mod tests {
         );
         assert!(contents.deferred.is_empty());
         assert_eq!(contents.cursors[0].chance, None);
-    }
-
-    #[test]
-    #[ignore = "requires the installed source export"]
-    fn final_cursor_scan_refreshes_after_missing_replay_boundary() {
-        let reference = reference();
-        let mut contents = cursors(reference);
-        contents.cursors[0].replay_only = true;
-        let history = contents.state.capture_history();
-        let before = contents.retained_bytes();
-        let staging = std::mem::size_of::<ContentInstance>() + std::mem::size_of::<DeferredBatch>();
-        let mut rejected = cursors(reference);
-        rejected.cursors[0].replay_only = true;
-        // The queues fit the limit but not the room, so the cursor waits for room.
-        let waits = rejected
-            .advance(
-                reference,
-                spawn(reference),
-                &[],
-                &[],
-                &[],
-                [[0.; 3]; 2],
-                1,
-                1,
-                1,
-                staging - 1,
-                crate::world::stream::STAGING,
-            )
-            .unwrap();
-        assert!(waits);
-        assert_eq!(rejected.active.capacity(), 0);
-        assert_eq!(rejected.deferred.capacity(), 0);
-        assert_eq!(rejected.next, 0);
-        assert_eq!(rejected.cursors[0].next, 0);
-        assert_eq!(rejected.state.capture_history(), history);
-        let scans = ScanCheck::new();
-        contents
-            .advance(
-                reference,
-                spawn(reference),
-                &[],
-                &[],
-                &[],
-                [[0.; 3]; 2],
-                1,
-                1,
-                1,
-                staging,
-                crate::world::stream::STAGING,
-            )
-            .unwrap();
-        assert_eq!(scans.production_scans(), [5, 6]);
-        assert_eq!(contents.retained_bytes() - before, staging);
-        assert_eq!(contents.active.capacity(), 1);
-        assert_eq!(contents.deferred.capacity(), 1);
-        assert_eq!(contents.next, 1);
-        assert_eq!(
-            contents.cursors.iter().map(|c| c.next).collect::<Vec<_>>(),
-            [1, 0, 0, 0]
-        );
-        assert_eq!(contents.cursors[0].initial_eligible, Some(true));
-        assert_eq!(contents.cursors[1].initial_eligible, None);
-        assert!(contents.active.is_empty());
-        assert!(contents.deferred.is_empty());
-        assert_eq!(contents.state.capture_history(), history);
     }
 }

@@ -143,47 +143,6 @@ impl PartAttachments {
             .map(|s| s.reference.id)
     }
 
-    pub(super) fn retained_binding_bytes(&self) -> usize {
-        use super::memory::{map, strings, vector};
-        vector(&self.parts)
-            + map(&self.indices)
-            + vector(&self.slots)
-            + map(&self.slot_indices)
-            + map(&self.collider_slots)
-            + map(&self.wheel_covers)
-            + self
-                .parts
-                .iter()
-                .map(|p| {
-                    let r = &p.reference;
-                    r.source.file.capacity()
-                        + strings(&r.main_types)
-                        + strings(&r.part_types)
-                        + vector(&r.colliders)
-                        + vector(&r.enable_if_mounted)
-                        + vector(&r.enable_if_dismounted)
-                        + vector(&r.disable_if_mounted)
-                        + vector(&r.disable_if_dismounted)
-                        + vector(&p.shapes)
-                        + vector(&p.members)
-                        + p.pickup.source.file.capacity()
-                        + vector(&p.assembly_fluids)
-                })
-                .sum::<usize>()
-            + self
-                .slots
-                .iter()
-                .map(|s| {
-                    s.reference.source.file.capacity()
-                        + strings(&s.reference.main_types)
-                        + strings(&s.reference.part_types)
-                        + vector(&s.reference.colliders)
-                        + vector(&s.scan_shapes)
-                        + vector(&s.compatible)
-                })
-                .sum::<usize>()
-    }
-
     pub fn new(r: &ReferenceManifest) -> Result<Self, ReferenceError> {
         let indices: HashMap<_, _> = r
             .parts

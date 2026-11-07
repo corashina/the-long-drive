@@ -48,11 +48,8 @@ pub use rendering::*;
 
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "validate")]
-use std::collections::HashSet;
-use std::{
-    collections::{BTreeMap, HashMap},
-    fmt,
-};
+use std::collections::{HashMap, HashSet};
+use std::{collections::BTreeMap, fmt};
 
 pub mod conditions;
 pub use conditions::*;

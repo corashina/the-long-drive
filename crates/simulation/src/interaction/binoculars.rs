@@ -94,7 +94,4 @@ impl Binoculars {
     pub fn active(&self) -> Option<BinocularUse> {
         self.active
     }
-    pub fn heap_bytes(&self) -> usize {
-        self.bound.capacity() * std::mem::size_of::<Bound>()
-    }
 }

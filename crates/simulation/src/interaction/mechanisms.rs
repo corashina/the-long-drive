@@ -153,22 +153,6 @@ impl MechanismState {
         Ok(())
     }
 
-    pub(super) fn retained_binding_bytes(&self) -> usize {
-        use super::memory::{map, mechanism, vector};
-        vector(&self.controls)
-            + self
-                .controls
-                .iter()
-                .map(|c| mechanism(&c.reference))
-                .sum::<usize>()
-            + map(&self.items)
-            + vector(&self.frames)
-            + map(&self.nodes)
-            + map(&self.bodies)
-            + map(&self.item_nodes)
-            + vector(&self.order)
-    }
-
     pub fn new(reference: &ReferenceManifest) -> Result<Self, ReferenceError> {
         let mut needed = HashSet::new();
         needed.extend(reference.items.iter().map(|i| i.node));
@@ -947,7 +931,15 @@ impl MechanismState {
             });
         }
     }
+    /// Source `usablescript.Rot`: clamp the values, then pose the targets.
+    /// A start value can be outside the limits (Car01 glovebox lid: 90 in [-90, 0]).
     fn apply(&mut self, index: usize) {
+        let c = &mut self.controls[index];
+        if let Some(r) = &c.reference.rotation {
+            for (value, [min, max]) in c.degrees.iter_mut().zip(r.limits_degrees) {
+                *value = value.clamp(min, max);
+            }
+        }
         let c = &self.controls[index];
         if let Some(r) = &c.reference.rotation {
             for target in &r.targets {

@@ -34,7 +34,7 @@ impl WorldInput {
 }
 
 impl GarageRuntime {
-    /// One world step from the renderer input. The grant answers the renderer report.
+    /// One world step from the renderer input. The grant answers the renderer step.
     pub fn step_world(
         &mut self,
         reference: &ReferenceManifest,
@@ -43,9 +43,8 @@ impl GarageRuntime {
     ) -> Result<Option<PresentationGrant>, ReferenceError> {
         let mut command = std::mem::take(&mut input.pending);
         self.stream.apply_renderer_facts(&mut command.facts)?;
-        // Own work runs on the given-back credit first. The renderer gets the room it leaves.
-        if let Some(report) = command.report {
-            self.stream.take_presentation_report(report);
+        if command.renderer_step {
+            self.stream.lend_publication();
         }
         self.advance_world(
             reference,
@@ -54,7 +53,9 @@ impl GarageRuntime {
             input.lamps.as_deref(),
             budget_ms,
         )?;
-        Ok(command.report.map(|_| self.stream.grant_presentation()))
+        Ok(command
+            .renderer_step
+            .then(|| self.stream.grant_presentation()))
     }
     /// Applies the renderer facts, publishes the renderer-ready work, then prepares the next work.
     /// `admitted_lights` are the lamps the renderer admitted in its last step.

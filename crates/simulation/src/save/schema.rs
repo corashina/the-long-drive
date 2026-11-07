@@ -1,7 +1,7 @@
 use super::{InstanceId, SourceKey};
 use serde::{Deserialize, Serialize};
 
-pub const SAVE_SCHEMA_VERSION: u32 = 46;
+pub const SAVE_SCHEMA_VERSION: u32 = 51;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -96,6 +96,23 @@ pub struct WeatherSnapshot {
     /// Seconds from the last spawn to the next spawn.
     pub wait: f32,
     pub storms: Vec<StormSnapshot>,
+    /// The weather cells. A new feature: the source saves only the sandstorm.
+    pub cells: Vec<crate::weather::WeatherCell>,
+    /// The F4 lock. The only cell is then the lock cell.
+    pub locked: bool,
+    /// The next kind at the player.
+    pub forecast: crate::weather::ForecastSnapshot,
+    pub wetness: f32,
+    pub wind: WindSnapshot,
+}
+/// The wind. A new feature: the source has no wind. The gust starts again from its noise.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindSnapshot {
+    /// Unit direction along world `x`, `z`.
+    pub dir: [f32; 2],
+    /// Meters per second without the gust.
+    pub speed: f32,
 }
 /// Source save_sandstorm: pos, euler rot y, prefabid, life, size, speed, xdir and ydir.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -468,6 +485,41 @@ pub struct ToolSnapshot {
 #[cfg(test)]
 mod g04_ordered_state {
     use super::*;
+
+    #[test]
+    fn weather_cells_wind_and_forecast_round_trip() {
+        let weather = WeatherSnapshot {
+            since_spawn: 1.,
+            wait: 2.,
+            storms: Vec::new(),
+            cells: vec![crate::weather::WeatherCell {
+                kind: crate::weather::WeatherKind::Thunderstorm,
+                center: [1e6, -2e5],
+                radius: 1500.,
+                life: 1800.,
+                age: 300.,
+                aimed: true,
+            }],
+            locked: false,
+            forecast: crate::weather::ForecastSnapshot {
+                current: crate::weather::WeatherKind::Rain,
+                next: crate::weather::WeatherKind::Fog,
+                wait: 420.,
+                random: u64::MAX - 3,
+            },
+            wetness: 0.8,
+            wind: WindSnapshot {
+                dir: [0.6, -0.8],
+                speed: 7.5,
+            },
+        };
+        let json = serde_json::to_string(&weather).unwrap();
+        assert!(json.contains(r#""kind":"thunderstorm""#));
+        assert_eq!(
+            serde_json::from_str::<WeatherSnapshot>(&json).unwrap(),
+            weather
+        );
+    }
 
     #[test]
     fn dead_rabbit_bones_round_trip() {

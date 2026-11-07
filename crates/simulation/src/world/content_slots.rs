@@ -44,12 +44,7 @@ pub(super) fn bind(
         }
         let node_id = |source: &SourceId| -> Result<NodeId, ReferenceError> {
             let root = rules.root(&reference.world, source)?;
-            prototype
-                .nodes
-                .iter()
-                .position(|n| &n.source == root)
-                .map(|i| content.nodes[i])
-                .ok_or_else(|| ReferenceError("Generated slot target missing".into()))
+            prototype.node(root).map(|i| content.nodes[i])
         };
         let mount = node_id(optional(f, "T")?.unwrap_or(&node.source))?;
         let detach = optional(f, "DT")?.map(node_id).transpose()?;

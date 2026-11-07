@@ -140,11 +140,7 @@ impl BreakableReference {
             // Node sources of the owner prototype.
             let nodes: Vec<&SourceId> = match owner.kind {
                 BreakableOwnerKind::World => {
-                    let p = m
-                        .world
-                        .prototypes
-                        .iter()
-                        .find(|p| p.source == owner.prototype);
+                    let p = m.world.prototypes.find(&owner.prototype);
                     require(
                         p.is_some_and(|p| (owner.node as usize) < p.nodes.len()),
                         "breakable world owner",

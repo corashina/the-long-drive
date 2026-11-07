@@ -4,12 +4,12 @@ use super::{
     grass_jobs::GrassJobs,
     instance_materials::{InstanceMaterial, InstanceMaterials, RendererMaterial, ready},
     lod::{LodInstance, LodOwner, LodSchedule, LodTable},
-    node_plan::{NodePlan, anchor_local, matrix_transform},
     pipelines::{PipelineTicket, WorldPipelines},
     prototype_loader::SourceGltf,
     prototypes::SourcePrototypes,
 };
 use crate::ownership::PresentationLedger;
+use crate::presentation_logic::node_plan::{NodePlan, anchor_local, matrix_transform};
 use crate::world::stream::content_index::InstanceSelection;
 use crate::world::{RendererFact, RendererFacts};
 use crate::{
@@ -182,9 +182,6 @@ struct Instance {
     lod: LodInstance,
     plan: Arc<NodePlan>,
     ready: bool,
-    cpu: usize,
-    gpu: usize,
-    objects: usize,
     visible: bool,
     /// `StructureRow::WORN` and `StructureRow::CAMERA_HIDDEN` of the last view.
     hidden: u32,
@@ -257,7 +254,6 @@ pub struct SourceInstances {
     slot_instances: HashMap<u32, Vec<usize>>,
     selection: InstanceSelection,
     lods: LodSchedule,
-    cache_bytes: usize,
     props: GpuProps,
     /// Changes when an instance is added or removed.
     revision: u64,
@@ -309,21 +305,6 @@ impl SourceInstances {
     }
     pub(crate) fn props_mut(&mut self) -> &mut GpuProps {
         &mut self.props
-    }
-    pub(crate) fn cache_bytes(&self) -> usize {
-        self.cache_bytes
-    }
-    fn measure_cache_bytes(&self) -> usize {
-        use crate::interaction::memory::platform_map;
-        platform_map(&self.slot_instances)
-            + self
-                .slot_instances
-                .values()
-                .map(|owners| owners.capacity() * std::mem::size_of::<usize>())
-                .sum::<usize>()
-            + self.selection.retained_bytes()
-            + self.lods.retained_bytes()
-            + self.props.retained_bytes()
     }
     pub(crate) fn startup_audit(&self, grass: &GrassJobs) -> serde_json::Value {
         serde_json::json!({
@@ -514,10 +495,7 @@ impl SourceInstances {
             if prototypes.requested(source) {
                 continue;
             }
-            let prototype =
-                reference.world.prototypes.get(source).ok_or_else(|| {
-                    ReferenceError("Missing generated structure prototype".into())
-                })?;
+            let prototype = reference.world.prototype(source)?;
             prototypes.request(stream, ledger, &prototype.source)?;
         }
         Ok(())
@@ -575,11 +553,7 @@ impl SourceInstances {
                             .position(instances, |i| &i.placement.id, &p.id)
                             .is_none()
                 })
-                .min_by(|a, b| {
-                    stream
-                        .focus_distance_squared(a.pose.position)
-                        .total_cmp(&stream.focus_distance_squared(b.pose.position))
-                })
+                .min_by(|a, b| stream.load_order(a, b))
                 .cloned();
             self.empty_pick = self.pending.is_none().then_some(pick_key);
         }
@@ -595,7 +569,7 @@ impl SourceInstances {
             let child = reference
                 .world
                 .prototypes
-                .get(&placement.prototype)
+                .find(&placement.prototype)
                 .is_some_and(|p| {
                     p.deferred_materials
                         .iter()
@@ -603,11 +577,7 @@ impl SourceInstances {
                 });
             ledger.can_request_independent(1 + usize::from(child))
         }) {
-            let prototype_index = reference
-                .world
-                .prototypes
-                .index(&placement.prototype)
-                .ok_or_else(|| ReferenceError("Missing generated structure prototype".into()))?;
+            let prototype_index = reference.world.prototype_index(&placement.prototype)?;
             let prototype = &reference.world.prototypes[prototype_index];
             stage = "plan";
             let admitted = prototypes
@@ -639,7 +609,7 @@ impl SourceInstances {
                 )? {
                     "payload"
                 } else {
-                    "payload_credit"
+                    "payload_wait"
                 };
                 let lods = prototypes.lods(
                     stream.frame().request.session,
@@ -705,26 +675,10 @@ impl SourceInstances {
                                     .count()
                             })
                             .sum::<usize>();
-                        // Reservations include ECS storage, transforms, material bind groups, and LOD membership.
-                        let mut cpu = count
-                            * (2048
-                                + std::mem::size_of::<DMat4>()
-                                + std::mem::size_of::<(Vec3, Vec3)>()
-                                + std::mem::size_of::<Option<u32>>())
-                            + std::mem::size_of::<Vec<()>>()
-                            + primitives * (8192 + crate::presentation::caster_material::CPU_BYTES);
-                        let mut gpu =
-                            primitives * (2048 + crate::presentation::caster_material::gpu_bytes());
-                        let objects = count + primitives;
                         let request = stream.frame().request;
                         if !stream.structure_wanted(request, &placement.id) {
                             return Err(ReferenceError("Stale instance renderer admission".into()));
                         }
-                        let mut a = ledger.allocation();
-                        a.active_cpu += cpu;
-                        a.active_gpu += gpu;
-                        a.objects += objects;
-                        ledger.set_allocation(a)?;
                         let mut continuation =
                             ledger.claim_structure(request, placement.id.clone());
                         let root_pose = local_root(placement, stream.origin);
@@ -1075,21 +1029,6 @@ impl SourceInstances {
                                         .id();
                                     owned_bindings.push((Some(entity), binding.clone()));
                                     let mut variants = Vec::with_capacity(variant_ids.len());
-                                    if !variant_ids.is_empty() {
-                                        let extra_cpu = variant_ids.len()
-                                            * (8192
-                                                + crate::presentation::caster_material::CPU_BYTES);
-                                        let extra_gpu = variant_ids.len()
-                                            * (2048
-                                                + crate::presentation::caster_material::gpu_bytes(
-                                                ));
-                                        let mut allocation = ledger.allocation();
-                                        allocation.active_cpu += extra_cpu;
-                                        allocation.active_gpu += extra_gpu;
-                                        ledger.set_allocation(allocation)?;
-                                        cpu += extra_cpu;
-                                        gpu += extra_gpu;
-                                    }
                                     for source in variant_ids {
                                         let initial = super::instance_materials::source_primary(
                                             reference, prototype, &source,
@@ -1173,21 +1112,6 @@ impl SourceInstances {
                                         let mesh_data = meshes.get(&mesh).ok_or_else(|| {
                                             ReferenceError("Missing Grass prototype mesh".into())
                                         })?;
-                                        let patch_bytes = mesh_data
-                                            .indices()
-                                            .ok_or_else(|| {
-                                                ReferenceError(
-                                                    "Missing Grass source triangles".into(),
-                                                )
-                                            })?
-                                            .len()
-                                            / 3
-                                            * std::mem::size_of::<GrassPatch>()
-                                            * 2;
-                                        let mut a = ledger.allocation();
-                                        a.active_cpu += patch_bytes;
-                                        ledger.set_allocation(a)?;
-                                        cpu += patch_bytes;
                                         let source_world = source_worlds[node.index as usize];
                                         let patches = grass_patches(mesh_data, source_world)?;
                                         let settings = settings_from_source(record)?;
@@ -1273,9 +1197,6 @@ impl SourceInstances {
                                 lod: LodInstance::new(lods.clone()),
                                 plan: node_plan.clone(),
                                 ready: false,
-                                cpu,
-                                gpu,
-                                objects,
                                 visible: false,
                                 hidden: 0,
                                 origin: stream.origin.offset,
@@ -1313,11 +1234,6 @@ impl SourceInstances {
                                     }
                                     materials.release(binding);
                                 }
-                                let mut a = ledger.allocation();
-                                a.active_cpu = a.active_cpu.saturating_sub(cpu);
-                                a.active_gpu = a.active_gpu.saturating_sub(gpu);
-                                a.objects = a.objects.saturating_sub(objects);
-                                ledger.set_allocation(a)?;
                                 ledger.release_claim(&mut continuation)?;
                                 result?;
                             }
@@ -1438,7 +1354,6 @@ impl SourceInstances {
             }
             self.slot_instances.retain(|_, owners| !owners.is_empty());
             self.bindings_dirty = false;
-            self.cache_bytes = self.measure_cache_bytes();
         }
         for slot in sim.changed_structures.drain(..) {
             for &index in self.slot_instances.get(&slot).into_iter().flatten() {
@@ -1982,11 +1897,6 @@ impl SourceInstances {
                     materials.release(variant.binding);
                 }
             }
-            let mut a = ledger.allocation();
-            a.active_cpu = a.active_cpu.saturating_sub(instance.cpu);
-            a.active_gpu = a.active_gpu.saturating_sub(instance.gpu);
-            a.objects = a.objects.saturating_sub(instance.objects);
-            ledger.set_allocation(a)?;
             if let Some(claim) = instance.continuation.as_mut() {
                 ledger.release_claim(claim)?;
             }

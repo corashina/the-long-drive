@@ -3,7 +3,7 @@
 //! The texture and its view do not change, so no bind group changes.
 use super::SourceMaterials;
 use crate::presentation::primary_image::{SourceTopMip, SourceTopMipSettings};
-use crate::presentation::upload_budget::{UploadBudget, UploadSpend};
+use crate::presentation_logic::upload_budget::{UploadBudget, UploadSpend};
 use crate::reference::{FileCatalog, FileReceipt, TextureStorage};
 use bevy::{
     asset::{AssetId, LoadState},
@@ -58,25 +58,6 @@ pub(super) struct TopMips {
     /// Loaded top mips. The render world takes each one when the frame budget holds it.
     uploads: Arc<Mutex<VecDeque<Upload>>>,
 }
-impl TopMips {
-    /// Bytes of loaded and loading top mips.
-    pub fn bytes(&self) -> usize {
-        self.jobs
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|j| j.bytes() + j.receipt.bytes as usize)
-            .sum::<usize>()
-            + self
-                .uploads
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|u| u.data.len())
-                .sum::<usize>()
-    }
-}
-
 impl SourceMaterials {
     /// Queues the top mips of the fixed textures. Call once when the game starts.
     pub fn start_top_mips(&mut self, catalog: &FileCatalog) {

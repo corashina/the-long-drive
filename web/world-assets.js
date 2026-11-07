@@ -8,7 +8,7 @@ let contentBase,files=new Map(),plans=new Map(),onFetched=()=>{};
 let packed=new Map(),packHeld=0;
 // Top packs hold the top mips of start textures. They load in order after the game starts.
 let topPacks=[],topPackOf=new Map(),topStarted=0,topRead=0;
-export const worldBootstrapMeasurements={dependencyWorkers:0,maxDependencyBytes:0,dependencyPayloadCopyBytes:0,inputMetadataBytes:0,dependencyStagingReserve:0};
+export const worldBootstrapMeasurements={dependencyWorkers:0,maxDependencyBytes:0,dependencyPayloadCopyBytes:0,dependencyStagingReserve:0};
 export const startPackMeasurements={packs:0,topPacks:0,entries:0,read:0,unused:0,heldPeakBytes:0};
 function canonical(path){return typeof path==='string'&&!/[^a-zA-Z0-9_./ -]/.test(path)&&!path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith(' ')||p.endsWith(' '));}
 export function assetUrl(base,path){
@@ -20,15 +20,15 @@ function checkReceipt(receipt){
  if(receipt.file.endsWith('.png')&&(!Array.isArray(receipt.image_size)||receipt.image_size.length!==2||receipt.image_size.some(n=>!Number.isInteger(n)||n<=0||n>0xffffffff)||receipt.image_size[0]*receipt.image_size[1]*4>0xffffffff))throw Error('Missing PNG receipt dimensions.');
 }
 export function configureAssetCatalog(base,catalog,record=()=>{}){
- const nextFiles=new Map(),nextPlans=new Map();let metadata=0;
+ const nextFiles=new Map(),nextPlans=new Map();
  for(const receipt of catalog.files){
   checkReceipt(receipt);assetUrl(base,receipt.file);
   if(nextFiles.has(receipt.file))throw Error('Duplicate file receipt.');
-  nextFiles.set(receipt.file,receipt);metadata+=384+receipt.file.length*2+receipt.sha256.length*2;
+  nextFiles.set(receipt.file,receipt);
  }
  for(const plan of catalog.plans){
   if(!nextFiles.has(plan.asset_file)||nextFiles.get(plan.input.file)?.sha256!==plan.input.sha256||nextFiles.get(plan.input.file)?.bytes!==plan.input.bytes||nextPlans.has(plan.asset_file))throw Error('Invalid plan receipt.');
-  nextPlans.set(plan.asset_file,plan.input);metadata+=384+plan.asset_file.length*2+plan.input.file.length*2;
+  nextPlans.set(plan.asset_file,plan.input);
  }
  if(!Number.isInteger(catalog.dependency_staging_reserve)||catalog.dependency_staging_reserve<=0||catalog.dependency_staging_reserve>=MAX_WORLD_STAGING)throw Error('Invalid dependency staging reservation.');
  if(!Array.isArray(catalog.packs)||!Array.isArray(catalog.top_packs))throw Error('Invalid start pack receipts.');
@@ -46,7 +46,6 @@ export function configureAssetCatalog(base,catalog,record=()=>{}){
  catalog.packs.forEach(checkPack('start'));
  catalog.top_packs.forEach(checkPack('top'));
  contentBase=base;files=nextFiles;plans=nextPlans;onFetched=record;
- worldBootstrapMeasurements.inputMetadataBytes=metadata;
  worldBootstrapMeasurements.dependencyStagingReserve=catalog.dependency_staging_reserve;
  releaseStartPacks();
  topPacks=catalog.top_packs;topPackOf=nextTopOf;topStarted=0;topRead=0;
@@ -136,7 +135,6 @@ async function takePacked(receipt,signal){
 }
 export function assetReceipt(path){const value=files.get(path);if(!value)throw Error('Missing asset receipt: '+path);return value;}
 export function worldInputBytes(path){return assetReceipt(path).bytes;}
-export function worldInputMetadataBytes(){return worldBootstrapMeasurements.inputMetadataBytes;}
 export function checkImageSize(receipt,width,height){
  if(!receipt.image_size||receipt.image_size[0]!==width||receipt.image_size[1]!==height)throw Error('Invalid decoded image dimensions.');
 }

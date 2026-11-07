@@ -203,15 +203,6 @@ impl CarryState {
         self.rules.insert(id, reference.pickup.clone());
     }
 
-    pub(super) fn retained_binding_bytes(&self) -> usize {
-        super::memory::map(&self.rules)
-            + self
-                .rules
-                .values()
-                .map(|r| r.source.file.capacity())
-                .sum::<usize>()
-    }
-
     pub fn new(reference: &ReferenceManifest) -> Result<Self, ReferenceError> {
         let player = &reference.player;
         if !player.carry_min_weight.is_finite()

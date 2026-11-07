@@ -50,8 +50,6 @@ impl BatchQueue {
     pub fn admit(
         &mut self,
         requests: impl IntoIterator<Item = (BatchIdentity, usize)>,
-        available: usize,
-        releasable: bool,
     ) -> Result<(), Admission> {
         let mut proposed = [None; SLOTS];
         let mut total = 0usize;
@@ -72,23 +70,14 @@ impl BatchQueue {
         if total > STAGING_LIMIT {
             return Err(Admission::Permanent);
         }
-        if self.slots.iter().any(Option::is_some) || total > available {
-            return Err(if releasable || self.slots.iter().any(Option::is_some) {
-                Admission::Wait
-            } else {
-                Admission::Permanent
-            });
+        if self.slots.iter().any(Option::is_some) {
+            return Err(Admission::Wait);
         }
         self.slots = proposed;
         Ok(())
     }
     /// Reserve a new prefetch after the last owner, without changing the retained owners.
-    pub fn refill(
-        &mut self,
-        identity: BatchIdentity,
-        bytes: usize,
-        available: usize,
-    ) -> Result<(), Admission> {
+    pub fn refill(&mut self, identity: BatchIdentity, bytes: usize) -> Result<(), Admission> {
         let free = match self.slots.iter().position(Option::is_none) {
             Some(0) => return Err(Admission::Permanent),
             Some(free) => free,
@@ -100,9 +89,6 @@ impl BatchQueue {
             .is_none_or(|n| n > STAGING_LIMIT)
         {
             return Err(Admission::Permanent);
-        }
-        if bytes > available {
-            return Err(Admission::Wait);
         }
         self.slots[free] = Some(BatchOwner {
             identity,

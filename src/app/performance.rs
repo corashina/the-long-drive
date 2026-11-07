@@ -1,7 +1,8 @@
 use super::Drive;
-use crate::browser::{game_performance_counters, game_performance_frame};
+use crate::browser::{game_performance_budget, game_performance_counters, game_performance_frame};
 use crate::presentation::sim_frame::SimFrameResource;
 use bevy::prelude::*;
+use simulation::world::metrics::BUDGET_LABELS;
 
 pub(super) fn publish(
     mut drive: ResMut<Drive>,
@@ -20,21 +21,21 @@ pub(super) fn publish(
         return;
     }
     drive.body_counters = true;
+    for (index, (budget, (name, unit))) in sim.frame.budgets.iter().zip(BUDGET_LABELS).enumerate() {
+        game_performance_budget(index as u32, name, budget.used, budget.limit, unit);
+    }
     game_performance_counters(
         perf.frame_steps,
         perf.contacts,
         perf.bodies,
         perf.colliders,
-        perf.roads,
-        perf.terrain,
-        perf.objects,
-        perf.jobs,
-        perf.pending,
-        perf.render_cpu_bytes,
-        perf.render_gpu_bytes,
         perf.storms,
         perf.storm_strength,
         perf.weather_particles,
+        perf.weather_kind,
+        perf.weather_cells,
+        perf.weather_rain,
+        perf.weather_wetness,
         archetypes.iter().map(|a| a.len()).sum(),
         perf.dynamic_bodies,
         perf.awake_bodies,

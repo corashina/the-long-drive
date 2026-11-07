@@ -36,6 +36,8 @@ struct LightingUniform {
     sun_shadow: SunShadow,
     // Only the world view fills the lamp slots.
     lamp_shadows: array<LampShadow, 4>,
+    // x=wetness, y=0, zw=world origin x and z modulo PUDDLE_PERIOD.
+    weather_surface: vec4<f32>,
 }
 @group(1) @binding(0) var<uniform> lighting: LightingUniform;
 @group(1) @binding(1) var sun_cookie: texture_2d<f32>;
@@ -78,6 +80,44 @@ fn indirect_specular(specular: vec3<f32>,one_minus_reflectivity: f32,smoothness:
     let grazing=clamp(smoothness+(1.0-one_minus_reflectivity),0.0,1.0);
     let f=1.0-abs(dot(normal,view));let f2=f*f;let f5=f2*f2*f;
     return reduction*radiance*(specular+(vec3(grazing)-specular)*f5);
+}
+// Puddle noise: cells per metre, and the period in metres. lighting_scene.rs has the same period.
+const PUDDLE_SCALE: f32 = 0.25;
+const PUDDLE_PERIOD: f32 = 1024.0;
+// Hash of a noise cell. The cell wraps at PUDDLE_PERIOD * PUDDLE_SCALE = 256.
+fn puddle_hash(cell: vec2<i32>) -> f32 {
+    let p = vec2<u32>(cell & vec2(255));
+    var h = p.x * 374761393u + p.y * 668265263u;
+    h = (h ^ (h >> 13u)) * 1274126177u;
+    return f32(h >> 16u) / 65535.0;
+}
+// Value noise 0..1 at a world position of the current origin.
+fn puddle_noise(position: vec3<f32>) -> f32 {
+    let p = (position.xz + lighting.weather_surface.zw) * PUDDLE_SCALE;
+    let cell = vec2<i32>(floor(p));
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    let bottom = mix(puddle_hash(cell), puddle_hash(cell + vec2(1, 0)), u.x);
+    let top = mix(puddle_hash(cell + vec2(0, 1)), puddle_hash(cell + vec2(1, 1)), u.x);
+    return mix(bottom, top, u.y);
+}
+struct WeatherSurface { albedo: vec3<f32>, normal: vec3<f32>, smoothness: f32 }
+// Wetness and puddles of an outdoor surface. `up` is the y of the geometric normal.
+fn weather_surface(albedo: vec3<f32>, normal: vec3<f32>, smoothness: f32, position: vec3<f32>, up: f32) -> WeatherSurface {
+    let wetness = lighting.weather_surface.x;
+    var out = WeatherSurface(albedo, normal, smoothness);
+    if wetness <= 0.0 { return out; }
+    out.albedo *= 1.0 - 0.35 * wetness;
+    out.smoothness = max(smoothness, 0.8 * wetness);
+    // Puddles only on near-flat surfaces, where the noise is above 1.4 - wetness.
+    if up > 0.95 && wetness > 0.4 {
+        let threshold = 1.4 - wetness;
+        let puddle = smoothstep(threshold, threshold + 0.05, puddle_noise(position));
+        out.albedo *= 1.0 - 0.5 * puddle;
+        out.smoothness = mix(out.smoothness, 0.95, puddle);
+        out.normal = normalize(mix(normal, vec3(0.0, 1.0, 0.0), puddle));
+    }
+    return out;
 }
 fn source_mul(m: mat4x4<f32>, v: vec4<f32>) -> vec4<f32> {
     return ((m[1]*v.y + m[0]*v.x) + m[2]*v.z) + m[3]*v.w;

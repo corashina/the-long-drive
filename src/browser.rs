@@ -7,10 +7,6 @@ extern "C" {
     pub type GrassTransport;
     #[wasm_bindgen(method,structural,catch,js_name=initialized)]
     pub fn grass_initialized(this: &GrassTransport) -> Result<bool, JsValue>;
-    #[wasm_bindgen(method,structural,catch,js_name=capacityLimit)]
-    pub fn grass_capacity_limit(this: &GrassTransport, bytes: f64) -> Result<(), JsValue>;
-    #[wasm_bindgen(method,structural,js_name=wasmBytes)]
-    pub fn grass_wasm_bytes(this: &GrassTransport) -> f64;
     #[wasm_bindgen(method,structural,catch,js_name=installRaw)]
     pub fn grass_install(
         this: &GrassTransport,
@@ -126,22 +122,22 @@ extern "C" {
         update_ms: f64,
         render_ms: f64,
     ) -> bool;
+    /// One F3 row: a world count against its cap.
+    #[wasm_bindgen(js_namespace = window, js_name = gamePerformanceBudget)]
+    pub fn game_performance_budget(index: u32, name: &str, used: f64, limit: f64, unit: &str);
     #[wasm_bindgen(js_namespace = window, js_name = gamePerformanceCounters)]
     pub fn game_performance_counters(
         steps: u32,
         wheel_contacts: u32,
         bodies: u32,
         colliders: u32,
-        roads: u32,
-        terrain: u32,
-        objects: u32,
-        jobs: u32,
-        pending: u32,
-        cpu_bytes: f64,
-        gpu_bytes: f64,
         storms: u32,
         storm_influence: f32,
         storm_particles: u32,
+        weather_kind: u32,
+        weather_cells: u32,
+        weather_rain: f32,
+        weather_wetness: f32,
         entities: u32,
         dynamic_bodies: u32,
         awake_bodies: u32,

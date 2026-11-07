@@ -58,7 +58,6 @@ struct TextureArray {
     layers: Vec<Layer>,
     image: Option<Handle<Image>>,
     users: usize,
-    bytes: usize,
     next_layer: usize,
     next_batch: usize,
 }
@@ -83,7 +82,6 @@ pub struct WorldTextures {
     /// Live source layer and bounded queue upload overlap.
     session: u64,
     cancelled: bool,
-    gpu_reserved: usize,
 }
 impl Default for WorldTextures {
     fn default() -> Self {
@@ -94,7 +92,6 @@ impl Default for WorldTextures {
             materials: HashMap::new(),
             session: NEXT_SESSION.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             cancelled: false,
-            gpu_reserved: 0,
         }
     }
 }
@@ -106,7 +103,7 @@ impl WorldTextures {
             "session": self.session,
             "arrays": self.arrays.iter().flatten().map(|a| serde_json::json!({
                 "layers": a.layers.len(), "next_layer": a.next_layer, "next_batch": a.next_batch, "failed": a.failed,
-                "gpu_bytes": a.bytes, "users": a.users, "owners": Arc::strong_count(&a.owner),
+                "users": a.users, "owners": Arc::strong_count(&a.owner),
                 "image": a.image.as_ref().map(|h| format!("{:?}", h.id())),
                 "sources": a.layers.iter().map(|l| &l.source).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
@@ -137,73 +134,12 @@ impl WorldTextures {
     pub fn upload_receipts(&self) -> Arc<Mutex<HashSet<AssetId<Image>>>> {
         Arc::clone(&self.uploaded)
     }
-    pub fn bytes(&self) -> (usize, usize) {
-        (
-            self.staging_bytes() + self.metadata_bytes(),
-            self.gpu_reserved,
-        )
-    }
-
-    fn metadata_bytes(&self) -> usize {
-        use std::mem::size_of;
-        let arrays = self.arrays.capacity() * size_of::<Option<TextureArray>>()
-            + self
-                .arrays
-                .iter()
-                .flatten()
-                .map(|array| {
-                    4096 + array.layers.capacity() * size_of::<Layer>()
-                        + array
-                            .layers
-                            .iter()
-                            .map(|layer| {
-                                layer.source.file.capacity()
-                                    + layer.batches.len() * size_of::<TextureBatchReference>()
-                                    + layer
-                                        .batches
-                                        .iter()
-                                        .map(|c| {
-                                            c.descriptor.file.capacity()
-                                                + c.descriptor.sha256.capacity()
-                                        })
-                                        .sum::<usize>()
-                            })
-                            .sum::<usize>()
-                })
-                .sum::<usize>();
-        let materials = map_bytes(
-            self.materials.capacity(),
-            size_of::<(SourceId, MaterialTextures)>(),
-        ) + self
-            .materials
-            .iter()
-            .map(|(id, material)| {
-                id.file.capacity()
-                    + material.arrays.capacity() * size_of::<usize>()
-                    + map_bytes(
-                        material.slots.capacity(),
-                        size_of::<(String, TextureBinding)>(),
-                    )
-                    + material.slots.keys().map(String::capacity).sum::<usize>()
-            })
-            .sum::<usize>();
-        queue_bytes()
-            + arrays
-            + materials
-            + map_bytes(
-                self.uploaded.lock().unwrap().capacity(),
-                size_of::<AssetId<Image>>(),
-            )
-    }
-
     /// Reserve the complete material before starting any asynchronous load.
     pub fn admit(
         &mut self,
         material: &WorldSourceMaterial,
         textures: &[LightingTextureRecord],
         bank_materials: &[WorldSourceMaterial],
-        cpu_available: usize,
-        gpu_available: usize,
     ) -> Result<(), ReferenceError> {
         if self.materials.contains_key(&material.source) {
             return Ok(());
@@ -237,84 +173,12 @@ impl WorldTextures {
                 })
             })
             .collect();
-        let mut added = 0usize;
-
-        for ((key, layers), existing) in groups.iter().zip(&existing) {
-            if existing.is_none() {
-                let bytes = key
-                    .layer_bytes()?
-                    .checked_mul(layers.len())
-                    .ok_or_else(|| ReferenceError("Source texture array size overflow".into()))?;
-                added = added
-                    .checked_add(bytes)
-                    .ok_or_else(|| ReferenceError("Source texture allocation overflow".into()))?;
-            }
-        }
-        // Reserve binding metadata. Layer buffers are admitted when loading starts.
-        let metadata = groups
-            .iter()
-            .zip(&existing)
-            .filter(|(_, old)| old.is_none())
-            .map(|((_, layers), _)| {
-                4096 + std::mem::size_of::<TextureArray>() * 4
-                    + layers
-                        .iter()
-                        .map(|layer| {
-                            std::mem::size_of::<Layer>()
-                                + layer.source.file.len()
-                                + layer.batches.len() * std::mem::size_of::<TextureBatchReference>()
-                                + layer
-                                    .batches
-                                    .iter()
-                                    .map(|c| c.descriptor.file.len() + c.descriptor.sha256.len())
-                                    .sum::<usize>()
-                        })
-                        .sum::<usize>()
-            })
-            .sum::<usize>()
-            + map_bytes(
-                (self.materials.len() + 1).next_power_of_two() * 2,
-                std::mem::size_of::<(SourceId, MaterialTextures)>(),
-            )
-            + map_bytes(
-                material.textures.len().next_power_of_two() * 2,
-                std::mem::size_of::<(String, TextureBinding)>(),
-            )
-            + material
-                .textures
-                .iter()
-                .map(|slot| slot.property.len())
-                .sum::<usize>()
-            + material.source.file.len()
-            + groups.len() * std::mem::size_of::<usize>();
-        let cpu = Some(self.staging_bytes());
-        let gpu = added.checked_add(self.gpu_reserved);
-        if cpu.is_none_or(|v| {
-            v.saturating_add(self.metadata_bytes())
-                .saturating_add(metadata)
-                > cpu_available
-        }) || gpu.is_none_or(|v| v > gpu_available)
-        {
-            return Err(ReferenceError(format!(
-                "Source texture budget {}:{}: CPU {} / {}, GPU {} / {} bytes",
-                material.source.file,
-                material.source.path_id,
-                self.staging_bytes()
-                    .saturating_add(self.metadata_bytes())
-                    .saturating_add(metadata),
-                cpu_available,
-                self.gpu_reserved.saturating_add(added),
-                gpu_available
-            )));
-        }
-        self.gpu_reserved = gpu.unwrap();
         let mut indices = Vec::with_capacity(groups.len());
         for ((key, records), existing) in groups.into_iter().zip(existing) {
             let index = if let Some(index) = existing {
                 self.arrays[index].as_mut().unwrap().users += 1;
                 index
             } else {
-                let bytes = key.layer_bytes()? * records.len();
                 let layers = records
                     .into_iter()
                     .map(|record| Layer {
@@ -329,7 +193,6 @@ impl WorldTextures {
                     layers,
                     image: None,
                     users: 1,
-                    bytes,
                     next_layer: 0,
                     next_batch: 0,
                 });
@@ -426,8 +289,6 @@ impl WorldTextures {
         if self.cancelled {
             return Ok(());
         }
-        let metadata = self.metadata_bytes();
-        let cpu_available = ledger.available_prototype_cpu_bytes() + self.bytes().0;
         let mut queue = self.uploads.lock().unwrap();
         // New batches follow the last owner in batch order.
         let last = queue
@@ -517,22 +378,7 @@ impl WorldTextures {
             // waits for a job can hold the dependency reserve while job owners wait (K4).
             let jobs = ledger.available_external_jobs();
             selected.truncate(jobs.max(1));
-            // Every request runs, so the report asks for all credit of the batches at once.
             let claims = ledger.can_request_independent(selected.len());
-            // Ask ahead for the claims and jobs of every free slot. Credit takes a stream round
-            // trip, so a slot that asks only when it fills waits several frames for each batch.
-            let ahead = queue
-                .ownership
-                .slots
-                .iter()
-                .filter(|slot| slot.is_none())
-                .count()
-                .max(selected.len());
-            ledger.can_request_independent(ahead);
-            ledger.request(crate::world::PresentationAllocation {
-                jobs: ahead,
-                ..Default::default()
-            });
             let shared = if let Some((owner, _, _, _)) = &last {
                 let path = &queue
                     .jobs
@@ -565,32 +411,14 @@ impl WorldTextures {
             if let Some((_, _, _, index)) = shared {
                 selected[index].4 = 4096;
             }
-            let available = ledger
-                .available_staging_bytes()
-                .min(cpu_available.saturating_sub(metadata + queue.ownership.bytes()));
-            let requested = selected.iter().map(|s| s.4).sum::<usize>();
-            // Staging asked ahead stays within two batches, so stream generation keeps its room.
-            let batch_bytes = selected.iter().map(|s| s.4).max().unwrap_or(0);
-            let ahead_bytes = requested.max(
-                (2 * batch_bytes)
-                    .saturating_sub(queue.ownership.bytes())
-                    .min(batch_bytes * ahead),
-            );
-            // Short credit waits. The report asks the stream for the rest.
-            ledger.request_staging(ahead_bytes);
-            ledger.request_prototype(ahead_bytes, 0);
             if !claims || jobs == 0 {
                 queue.counters[7] += 1;
                 return Ok(());
             }
             let admission = if refill {
-                queue
-                    .ownership
-                    .refill(selected[0].3, selected[0].4, available)
+                queue.ownership.refill(selected[0].3, selected[0].4)
             } else {
-                queue
-                    .ownership
-                    .admit(selected.iter().map(|s| (s.3, s.4)), available, true)
+                queue.ownership.admit(selected.iter().map(|s| (s.3, s.4)))
             };
             match admission {
                 Ok(()) => queue.counters[9] += 1,
@@ -602,12 +430,12 @@ impl WorldTextures {
                     let (i, l, b, _, _) = selected[0];
                     let source = &self.arrays[i].as_ref().unwrap().layers[l];
                     return Err(ReferenceError(format!(
-                        "{}:{} {}: batch pair admission requested {} bytes, available {} bytes",
+                        "{}:{} {}: batch pair needs {} bytes, above the {} byte staging limit",
                         source.source.file,
                         source.source.path_id,
                         source.batches[b].descriptor.file,
                         selected.iter().map(|s| s.4).sum::<usize>(),
-                        available
+                        crate::ownership::texture_batch::STAGING_LIMIT,
                     )));
                 }
             }
@@ -684,18 +512,6 @@ impl WorldTextures {
             .filter(|o| o.identity.session == self.session)
             .count()
     }
-    pub fn staging_bytes(&self) -> usize {
-        self.uploads
-            .lock()
-            .unwrap()
-            .ownership
-            .slots
-            .iter()
-            .flatten()
-            .filter(|o| o.identity.session == self.session)
-            .map(|o| o.bytes)
-            .sum()
-    }
     pub fn admitted(&self, material: &SourceId) -> bool {
         self.materials.contains_key(material)
     }
@@ -770,26 +586,8 @@ impl WorldTextures {
             }
             // Dropping layer handles releases this owner without invalidating other users.
             drop(array.layers);
-            self.gpu_reserved -= array.bytes;
         }
         Ok(())
-    }
-}
-
-fn queue_bytes() -> usize {
-    std::mem::size_of::<Mutex<super::world_texture_upload::UploadQueue>>()
-        + 2 * std::mem::size_of::<usize>()
-}
-
-// Hash-table allocation upper bound from capacity, including control bytes.
-fn map_bytes(capacity: usize, entry: usize) -> usize {
-    if capacity == 0 {
-        0
-    } else {
-        capacity
-            .saturating_mul(2)
-            .saturating_mul(entry + 1)
-            .saturating_add(16)
     }
 }
 

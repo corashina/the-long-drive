@@ -101,15 +101,6 @@ impl Identities {
             ObjectKey::Generated(id) => self.generated.remove(id),
         }
     }
-    fn retained_bytes(&self) -> usize {
-        super::metrics::map_bytes(
-            self.imported.capacity(),
-            std::mem::size_of::<(crate::reference::ItemId, usize)>(),
-        ) + super::metrics::map_bytes(
-            self.generated.capacity(),
-            std::mem::size_of::<(super::GeneratedId, usize)>(),
-        )
-    }
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -120,15 +111,9 @@ pub struct ChangeRecords {
     #[serde(skip)]
     attachment_owners: HashMap<ObjectKey, usize>,
     #[serde(skip)]
-    attachment_owner_bytes: usize,
-    #[serde(skip)]
     regions: BTreeMap<(i64, i64), Vec<usize>>,
     #[serde(skip)]
     revision: u64,
-    #[serde(skip)]
-    payload_bytes: usize,
-    #[serde(skip)]
-    region_bytes: usize,
     /// Car-side state of car objects. A car takes its state back when it spawns.
     #[serde(serialize_with = "pairs")]
     vehicles: BTreeMap<ObjectKey, crate::car::VehicleState>,
@@ -246,7 +231,6 @@ impl ChangeRecords {
             *count += 1;
         } else {
             self.attachment_owners.insert(owner.clone(), 1);
-            self.attachment_owner_bytes += key_heap(owner);
         }
     }
     fn unindex_attachment_owner(&mut self, owner: &ObjectKey) {
@@ -254,8 +238,6 @@ impl ChangeRecords {
         *count -= 1;
         if *count == 0 {
             self.attachment_owners.remove(owner);
-            self.attachment_owner_bytes =
-                self.attachment_owner_bytes.saturating_sub(key_heap(owner));
         }
     }
     pub fn record(&mut self, key: ObjectKey, current: ObjectSnapshot, baseline: &ObjectSnapshot) {
@@ -297,14 +279,6 @@ impl ChangeRecords {
                 self.unindex(index);
                 self.index(new_region, index);
             }
-            self.payload_bytes = self.payload_bytes.saturating_sub(
-                self.records[index]
-                    .1
-                    .snapshot
-                    .as_ref()
-                    .map_or(0, ObjectSnapshot::heap_bytes),
-            );
-            self.payload_bytes += current.heap_bytes();
             self.records[index].1.snapshot = Some(current);
             self.revision = self.revision.wrapping_add(1);
         } else {
@@ -342,11 +316,6 @@ impl ChangeRecords {
         {
             self.records[index].1.replay = Some(placement.clone());
             self.records[index].1.instance = Some(instance.clone());
-            self.payload_bytes +=
-                super::contents::placement_heap(self.records[index].1.replay.as_ref().unwrap())
-                    + super::contents::identity_heap(
-                        self.records[index].1.instance.as_ref().unwrap(),
-                    );
             self.revision = self.revision.wrapping_add(1);
         }
     }
@@ -368,9 +337,6 @@ impl ChangeRecords {
             if let Some(entries) = self.regions.get_mut(&cell) {
                 entries.retain(|i| *i != index);
                 if entries.is_empty() {
-                    self.region_bytes = self
-                        .region_bytes
-                        .saturating_sub(entries.capacity() * std::mem::size_of::<usize>());
                     self.regions.remove(&cell);
                 }
             }
@@ -378,9 +344,7 @@ impl ChangeRecords {
     }
     fn index(&mut self, cell: (i64, i64), index: usize) {
         let entries = self.regions.entry(cell).or_default();
-        let before = entries.capacity();
         entries.push(index);
-        self.region_bytes += (entries.capacity() - before) * std::mem::size_of::<usize>();
     }
     fn insert(&mut self, key: ObjectKey, change: ObjectChange) {
         let index = if let Some(index) = self.identities.get(&key) {
@@ -401,10 +365,6 @@ impl ChangeRecords {
                 }
             }
             self.unindex(index);
-            self.payload_bytes = self
-                .payload_bytes
-                .saturating_sub(change_heap(&self.records[index].0, &self.records[index].1));
-            self.payload_bytes += change_heap(&self.records[index].0, &change);
             self.records[index].1 = change;
             index
         } else {
@@ -413,7 +373,6 @@ impl ChangeRecords {
             }
             let index = self.records.len();
             self.identities.insert(&key, index);
-            self.payload_bytes += change_heap(&key, &change);
             self.records.push((key, change));
             index
         };
@@ -440,9 +399,6 @@ impl ChangeRecords {
         if index != last {
             self.unindex(last);
         }
-        self.payload_bytes = self
-            .payload_bytes
-            .saturating_sub(change_heap(&self.records[index].0, &self.records[index].1));
         self.records.swap_remove(index);
         if index != last {
             self.identities.insert(&self.records[index].0, index);
@@ -474,30 +430,6 @@ impl ChangeRecords {
     }
     pub fn iter(&self) -> impl Iterator<Item = (&ObjectKey, &ObjectChange)> {
         self.records.iter().map(|(key, change)| (key, change))
-    }
-    pub fn query_reservation(&self, bounds: WorldBounds) -> (usize, usize) {
-        let mut count = 0;
-        let mut bytes = 0;
-        let min = region(bounds.min);
-        let max = region(bounds.max);
-        for (_, entries) in self.regions.range((min.0, i64::MIN)..=(max.0, i64::MAX)) {
-            for &index in entries {
-                let (key, record) = &self.records[index];
-                if record.snapshot.as_ref().is_some_and(|s| {
-                    (0..3).all(|i| {
-                        s.pose.position[i] >= bounds.min[i] && s.pose.position[i] <= bounds.max[i]
-                    })
-                }) {
-                    count += 1;
-                    bytes += std::mem::size_of::<ObjectKey>()
-                        + key_heap(key)
-                        + record.replay.as_ref().map_or(0, |p| {
-                            std::mem::size_of::<Placement>() + super::contents::placement_heap(p)
-                        });
-                }
-            }
-        }
-        (count, bytes)
     }
     pub fn get_indexed(&self, index: ChangeRecordIndex) -> (&ObjectKey, &ObjectChange) {
         let (key, change) = &self.records[index.0];
@@ -580,64 +512,9 @@ impl ChangeRecords {
     ) -> Option<crate::simulation::gauges::GaugeSnapshot> {
         self.gauges.remove(key)
     }
-    pub fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + object_states_bytes(&self.vehicles)
-            + object_states_bytes(&self.wheel_slots)
-            + self
-                .wheel_slots
-                .values()
-                .map(|rims| {
-                    rims.capacity() * std::mem::size_of::<Option<ObjectKey>>()
-                        + rims.iter().flatten().map(key_heap).sum::<usize>()
-                })
-                .sum::<usize>()
-            + object_states_bytes(&self.engines)
-            + self
-                .engines
-                .values()
-                .map(|e| e.start_draw.capacity())
-                .sum::<usize>()
-            + object_states_bytes(&self.radiators)
-            + object_states_bytes(&self.bus_doors)
-            + self
-                .bus_doors
-                .values()
-                .map(|d| d.capacity() * std::mem::size_of::<[bool; 2]>())
-                .sum::<usize>()
-            + object_states_bytes(&self.gauges)
-            + self
-                .gauges
-                .values()
-                .map(|g| (g.values.capacity() + g.counters.capacity()) * std::mem::size_of::<f32>())
-                .sum::<usize>()
-            + self.records.capacity() * std::mem::size_of::<(ObjectKey, ObjectChange)>()
-            + self.identities.retained_bytes()
-            + self.attachment_owners.capacity().saturating_mul(2)
-                * (std::mem::size_of::<(ObjectKey, usize)>() + 1)
-            + 16
-            + self.attachment_owner_bytes
-            + self.payload_bytes
-            + self.region_bytes
-            + (self.regions.len() + 1)
-                * (11 * std::mem::size_of::<((i64, i64), Vec<usize>)>()
-                    + 12 * std::mem::size_of::<usize>()
-                    + 64)
-    }
-}
-/// B-tree nodes and key heap of an object state map.
-fn object_states_bytes<V>(map: &BTreeMap<ObjectKey, V>) -> usize {
-    map.len() * (std::mem::size_of::<(ObjectKey, V)>() + 16)
-        + map.keys().map(key_heap).sum::<usize>()
 }
 fn attachment_owner(snapshot: &ObjectSnapshot) -> Option<&ObjectKey> {
     snapshot.attachment.as_ref()?.owner.as_ref()
-}
-pub fn key_heap(key: &ObjectKey) -> usize {
-    match key {
-        ObjectKey::Imported(_) => 0,
-        ObjectKey::Generated(id) => super::contents::identity_heap(id),
-    }
 }
 
 /// Capture active state before teardown. Owner identities never contain runtime handles.
@@ -807,40 +684,4 @@ pub fn restore_motion(
             }
         });
     }
-}
-
-impl ObjectSnapshot {
-    pub fn heap_bytes(&self) -> usize {
-        self.food.as_ref().map_or(0, |f| f.source.file.capacity())
-            + self
-                .conditions
-                .iter()
-                .map(|c| {
-                    size_of::<crate::save::SurfaceSnapshot>()
-                        + c.source.file.capacity()
-                        + c.source.path_id.capacity()
-                })
-                .sum::<usize>()
-            + self.attachment.as_ref().map_or(0, |a| {
-                a.owner.as_ref().map_or(0, key_heap)
-                    + a.slot.as_ref().map_or(0, |s| s.file.capacity())
-                    + a.volume.as_ref().map_or(0, |s| s.file.capacity())
-            })
-    }
-}
-
-fn change_heap(key: &ObjectKey, change: &ObjectChange) -> usize {
-    key_heap(key) * 2
-        + change
-            .replay
-            .as_ref()
-            .map_or(0, super::contents::placement_heap)
-        + change
-            .instance
-            .as_ref()
-            .map_or(0, super::contents::identity_heap)
-        + change
-            .snapshot
-            .as_ref()
-            .map_or(0, ObjectSnapshot::heap_bytes)
 }

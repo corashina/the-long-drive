@@ -540,20 +540,8 @@ fn weapon(
         .position(|m| m.controller == record.controller)
         .ok_or_else(|| ReferenceError("Missing melee motion".into()))?;
     // The item glTF and the world glTF are separate assets of one prefab source.
-    let prototype = r
-        .world
-        .prototypes
-        .iter()
-        .find(|p| p.source == record.prototype.0)
-        .ok_or_else(|| ReferenceError("Missing melee world prototype".into()))?;
-    let node = |source: &SourceId| {
-        prototype
-            .nodes
-            .iter()
-            .position(|n| n.source == *source)
-            .map(|i| prototype.root_relative(i))
-            .ok_or_else(|| ReferenceError("Missing melee node".into()))
-    };
+    let prototype = r.world.prototype(&record.prototype.0)?;
+    let node = |source: &SourceId| prototype.node(source).map(|i| prototype.root_relative(i));
     let (tip, _) = node(&record.target)?;
     let (trigger, scale) = node(&record.trigger)?;
     let swing_clips = record

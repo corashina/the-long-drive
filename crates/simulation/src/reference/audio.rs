@@ -100,6 +100,12 @@ record!(FluidAudioReference {
     pour_speed_min: f32, pour_speed_max: f32, fill_loop: bool, fill_latch_steps: u32,
     open_binding: Option<u32>, close_binding: Option<u32>, tune_binding: Option<u32>, method: AudioMethod
 });
+// Source `tankcapscript.PlayFillSound` of generated caps. They play through the survival row of kind 32.
+record!(WorldCapFillReference {
+    cap: SourceId,
+    clip: u32
+});
+record!(WorldFluidAudioReference { pour_speed: [f32; 2], latch_steps: u32, caps: Vec<WorldCapFillReference> });
 record!(LampAudioReference { source: SourceId, control: LightControlId, voices: Vec<u32>, on_binding: Option<u32>, off_binding: Option<u32>, method: AudioMethod });
 record!(AudioManagedEvidence {
     file: String,
@@ -157,6 +163,7 @@ record!(AudioReference {
     portable_radios: Vec<PortableRadioAudioReference>,
     radio_stimuli: Vec<RadioStimulusReference>,
     mechanisms: Vec<MechanismAudioReference>, fluids: Vec<FluidAudioReference>,
+    world_fluids: WorldFluidAudioReference,
     interiors: Vec<AudioInteriorReference>, routes: Vec<AudioRouteReference>, lamps: Vec<LampAudioReference>,
     silent_actions: Vec<String>, managed: AudioManagedEvidence, native: AudioNativeEvidence,
     shared: AudioSharedReference, mixer_controls: AudioMixerControls,
@@ -422,7 +429,7 @@ impl AudioReference {
             let s = &b.settings;
             require(
                 mixers.contains(&b.mixer)
-                    && b.one_shot == matches!(b.kind, 0 | 10..=15 | 17 | 21 | 22)
+                    && b.one_shot == matches!(b.kind, 0 | 10..=15 | 17 | 21 | 22 | 28 | 30)
                     && b.source.path_id != 0
                     && b.audio_source.path_id != 0
                     && method(&b.method)
@@ -690,6 +697,19 @@ impl AudioReference {
                 "audio fluid",
             )?;
         }
+        let w = &self.world_fluids;
+        let fill = self.survival.iter().find(|b| b.kind == 32);
+        require(
+            values(w.pour_speed)
+                && w.pour_speed[1] > w.pour_speed[0]
+                && (w.caps.is_empty()
+                    || fill.is_some_and(|b| {
+                        b.role == "fluid_fill"
+                            && !b.one_shot
+                            && w.caps.iter().all(|c| (c.clip as usize) < b.clips.len())
+                    })),
+            "world fluid audio",
+        )?;
         let interiors = ids(self.interiors.iter().map(|i| i.id), "audio interior IDs")?;
         let control = |c: &AudioControlReference| {
             game.nodes.iter().any(|n| n.id == c.node)
@@ -825,10 +845,7 @@ impl AudioReference {
         )?;
         for a in &self.ambience {
             require(
-                game.world
-                    .prototypes
-                    .iter()
-                    .any(|p| p.source == a.prototype)
+                game.world.prototypes.find(&a.prototype).is_some()
                     && !a.clips.is_empty()
                     && a.clips.iter().all(|id| clips.contains(id))
                     && [
@@ -851,11 +868,7 @@ impl AudioReference {
         }
         for z in &self.ambience_zones {
             require(
-                game.world
-                    .prototypes
-                    .iter()
-                    .any(|p| p.source == z.prototype)
-                    && clips.contains(&z.clip),
+                game.world.prototypes.find(&z.prototype).is_some() && clips.contains(&z.clip),
                 "ambience zone source",
             )?;
         }
@@ -994,6 +1007,12 @@ impl AudioReference {
             (23, "computer_note"),
             (24, "horror"),
             (25, "hum"),
+            (26, "rain"),
+            (27, "rain_inside"),
+            (28, "thunder"),
+            (29, "wind"),
+            (30, "thunder_close"),
+            (31, "rain_car"),
         ];
         for (kind, role) in required {
             require(
@@ -1015,16 +1034,23 @@ impl AudioReference {
                 "required audio clips and pitch",
             )?;
         }
-        // The ambience zone and sled rows exist only when the world has zones or sleds.
+        // The ambience zone, sled and fluid fill rows exist only when the world has them.
         let optional = |kind: u32, role: &str| {
             self.survival
                 .iter()
                 .filter(|b| b.kind == kind && b.role == role && !b.clips.is_empty())
                 .count()
         };
-        let (zones, sleds) = (optional(19, "ambience_zone"), optional(20, "sled"));
+        let (zones, sleds, fills) = (
+            optional(19, "ambience_zone"),
+            optional(20, "sled"),
+            optional(32, "fluid_fill"),
+        );
         require(
-            zones <= 1 && sleds <= 1 && self.survival.len() == required.len() + zones + sleds,
+            zones <= 1
+                && sleds <= 1
+                && fills <= 1
+                && self.survival.len() == required.len() + zones + sleds + fills,
             "required audio roles",
         )
     }

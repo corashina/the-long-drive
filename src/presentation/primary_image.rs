@@ -47,7 +47,7 @@ impl AssetLoader for SourcePrimaryImageLoader {
             return Err(invalid("Primary image path differs from admitted storage"));
         }
         let srgb = record.color_space == TextureColorSpace::Srgb;
-        let (byte_count, format, width, height, input, top, crunch) = match &record.storage {
+        let (_, format, width, height, input, top, crunch) = match &record.storage {
             TextureStorage::NativeBc {
                 format,
                 source_format,

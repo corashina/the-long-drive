@@ -13,7 +13,7 @@
 
 #import source_float_store::half4
 
-#import source_view_lighting::{lighting, diffuse_sh, indirect_specular, direct_attenuation, lamp_shadow, fog_factor, sun_cookie, sun_cookie_sampler}
+#import source_view_lighting::{lighting, diffuse_sh, indirect_specular, direct_attenuation, lamp_shadow, fog_factor, sun_cookie, sun_cookie_sampler, weather_surface}
 
 #import "shaders/source_lighting.wgsl"::{lamp_lighting, source_brdf, object_first_light, receiver, cookie_uv_gradient, cookies, cookie_sampler, attenuation, default_cookie, default_sampler, attenuation_sampler}
 
@@ -248,6 +248,13 @@ fn fragment(
     }
     if source_flag(5u) { smoothness = main.a * source.factors.z; }
     let occlusion = mix(1.0, sample_source(3u, uv, detail_uv, offset).g, source.scales.z);
+    // Only Standard surfaces get weather: not unlit, stained glass or the player skin.
+    if source.flags.z == 0u {
+        let wet = weather_surface(albedo, pbr.N, smoothness, in.world_position.xyz, pbr.world_normal.y);
+        albedo = wet.albedo;
+        pbr.N = wet.normal;
+        smoothness = wet.smoothness;
+    }
     var specular = mix(vec3(0.04), albedo, metallic);
     var one_minus_reflectivity = 0.96 * (1.0 - metallic);
     if source.specular.w > 0.5 {

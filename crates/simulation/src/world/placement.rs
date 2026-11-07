@@ -1,7 +1,7 @@
 //! Source building selection, spatial replay, and physical supply locations.
 use super::{
-    AbsolutePose, GeneratedId, GeneratedKey, Placement, RandomState, RoadCurve, SourceRandom,
-    TerrainEvaluator, WorldBounds, WorldLayer,
+    AbsolutePose, GeneratedKey, Placement, RandomState, RoadCurve, SourceRandom, TerrainEvaluator,
+    WorldBounds, WorldLayer,
 };
 use crate::reference::{
     ColliderGeometry, ReferenceError, SourceId, Transform, WorldBuildingGroup,
@@ -513,32 +513,8 @@ impl PlacementIndex {
     pub fn checkpoint_count(&self) -> usize {
         self.blocks.len()
     }
-    pub fn retained_index_bytes(&self) -> usize {
-        self.checked_blocks.capacity() * std::mem::size_of::<bool>()
-            + self.blocks.capacity() * std::mem::size_of::<Block>()
-            + self.foundations.capacity() * std::mem::size_of::<FoundationPoint>()
-            + self.supplies.capacity() * std::mem::size_of::<SupplyPoint>()
-            + self
-                .blocks
-                .iter()
-                .map(|b| checkpoint_heap(&b.checkpoint))
-                .sum::<usize>()
-            + checkpoint_heap(&self.sequence.state)
-            + checkpoint_heap(&self.replay.state)
-    }
 }
 
-fn checkpoint_heap(state: &BuildingCheckpoint) -> usize {
-    state.groups.capacity() * std::mem::size_of::<BuildingGroupState>()
-        + state
-            .groups
-            .iter()
-            .map(|g| {
-                (g.available.capacity() + g.current_available.capacity())
-                    * std::mem::size_of::<i32>()
-            })
-            .sum::<usize>()
-}
 fn select(
     rule: &WorldBuildingGroup,
     state: &mut BuildingGroupState,
@@ -680,7 +656,7 @@ impl Inputs {
             .types
             .iter()
             .map(|kind| {
-                let prototype = reference.prototypes.get(&kind.prototype).unwrap();
+                let prototype = reference.prototypes.find(&kind.prototype).unwrap();
                 copy_prototype(prototype, kind.type_id, &reference.records)
             })
             .collect();
@@ -747,7 +723,7 @@ pub fn building_offset(rules: &WorldBuildingReference) -> f64 {
 
 fn record<'a>(records: &'a WorldRecords, id: &SourceId) -> &'a WorldSourceRecord {
     records
-        .get(id)
+        .find(id)
         .unwrap_or_else(|| panic!("missing checked source {}:{}", id.file, id.path_id))
 }
 fn link(value: &WorldValue) -> &SourceId {
@@ -876,11 +852,7 @@ fn copy_prototype(
             let ranges = array(&component.fields["range2"]);
             for (i, coord) in coords.iter().enumerate() {
                 let source = link(coord);
-                let index = prototype
-                    .nodes
-                    .iter()
-                    .position(|n| &n.source == source)
-                    .unwrap();
+                let index = prototype.nodes.index(source).unwrap();
                 let scale = prototype.nodes[index].transform.scale[0];
                 let factor = if ranges.len() < coords.len() {
                     0.0

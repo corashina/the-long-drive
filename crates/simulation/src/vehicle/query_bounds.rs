@@ -54,10 +54,6 @@ impl<H: Copy + Eq> HandleQueue<H> {
         }
         self.handles.clear();
     }
-    pub(super) fn retained_bytes(&self) -> usize {
-        self.handles.capacity() * std::mem::size_of::<H>()
-            + self.markers.capacity() * std::mem::size_of::<Option<(H, usize)>>()
-    }
 }
 
 struct ColliderState {
@@ -122,17 +118,6 @@ impl QueryBounds {
     pub(super) fn finish_step(&mut self) {
         self.step_bodies.clear(|h| h.into_raw_parts().0 as usize);
         self.step_colliders.clear(|h| h.into_raw_parts().0 as usize);
-    }
-
-    pub fn retained_bytes(&self) -> usize {
-        self.pending_bodies.retained_bytes()
-            + self.pending_colliders.retained_bytes()
-            + self.removals.retained_bytes()
-            + self.step_bodies.retained_bytes()
-            + self.step_colliders.retained_bytes()
-            + self.geometry_changed.capacity() * std::mem::size_of::<bool>()
-            + self.bvh.heap_memory_size()
-            + self.states.capacity() * std::mem::size_of::<Option<ColliderState>>()
     }
 
     pub fn refresh(&mut self, physics: &mut PhysicsWorld) -> usize {

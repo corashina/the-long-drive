@@ -3,7 +3,7 @@ use super::{
     frame_graph::FrameAudit,
     lighting_scene::ProbeActivation,
     surface_views::SourceSurfaceView,
-    view_frame::{SourceSceneEpoch, SourceSubmissionAcks, SourceViewClock, SourceViewFrame},
+    view_frame::{SourceSceneEpoch, SourceSubmissionAcks, SourceViewClock},
 };
 use crate::{render_readiness::*, render_scale::SceneScaleSetting};
 use bevy::ecs::system::SystemParam;
@@ -109,9 +109,6 @@ impl RendererReadinessAccess<'_, '_> {
             self.submissions.main_token(),
         )
     }
-    pub(crate) fn graph_ready(&self, content: RendererContentCheck) -> bool {
-        self.graph_blocker(content).is_none()
-    }
     /// The first condition that holds the graph proof.
     pub(crate) fn graph_blocker(&self, content: RendererContentCheck) -> Option<&'static str> {
         match self.request(content) {
@@ -119,17 +116,6 @@ impl RendererReadinessAccess<'_, '_> {
             None => Some("no readiness request"),
         }
     }
-}
-pub(crate) fn control_bytes() -> usize {
-    std::alloc::Layout::new::<[usize; 2]>()
-        .extend(std::alloc::Layout::new::<Mutex<RendererState>>())
-        .unwrap()
-        .0
-        .pad_to_align()
-        .size()
-        + 3 * std::mem::size_of::<RendererStateHandle>()
-        + 2 * std::mem::size_of::<SourceViewFrame>()
-        + std::mem::size_of::<Option<crate::world::RequiredViews>>()
 }
 pub(crate) fn observe_main_readiness(
     state: Res<RendererStateHandle>,

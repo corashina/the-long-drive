@@ -61,6 +61,8 @@ pub struct DisplaySettings {
     pub reflections: u32,
     /// "Textures": 0 full, 1 half. Half skips the top mip, as Unity `masterTextureLimit` 1.
     pub textures: u32,
+    /// "Rain": 0 high, 1 medium, 2 low. It sets the rain drop cap.
+    pub rain: u32,
 }
 
 /// The menu value for Auto scene resolution.
@@ -79,10 +81,11 @@ impl DisplaySettings {
             value.reflections,
             value.mirrors,
             value.ambient_occlusion,
+            value.rain,
         ];
         if levels.iter().any(|level| *level > 2) {
             return Err(
-                "Shadows, Grass, Antialiasing, Reflections, Mirrors and Ambient occlusion must be 0, 1 or 2".into(),
+                "Shadows, Grass, Antialiasing, Reflections, Mirrors, Ambient occlusion and Rain must be 0, 1 or 2".into(),
             );
         }
         if value.textures > 1 {
@@ -92,6 +95,14 @@ impl DisplaySettings {
             return Err("Mirror draw distance must be a finite distance".into());
         }
         Ok(value)
+    }
+    /// The rain drop cap of the "Rain" level, for the 32 m drop box.
+    pub fn rain_drops(&self) -> u32 {
+        match self.rain {
+            0 => 6_000,
+            1 => 3_000,
+            _ => 1_000,
+        }
     }
 }
 
@@ -132,7 +143,7 @@ mod tests {
     use super::*;
 
     /// `displayRecord` of the `web/display-settings.js` defaults.
-    const DEFAULTS: &str = r#"{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":0,"mirror_distance":150,"lamp_shadows":true,"antialiasing":1,"ambient_occlusion":0,"reflections":0,"textures":0}"#;
+    const DEFAULTS: &str = r#"{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":0,"mirror_distance":150,"lamp_shadows":true,"antialiasing":1,"ambient_occlusion":0,"reflections":0,"textures":0,"rain":0}"#;
 
     #[test]
     fn browser_record_parses_and_checks_values() {
