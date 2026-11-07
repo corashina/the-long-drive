@@ -327,6 +327,7 @@ impl RoadWorker {
                 triangles: mesh.triangles,
                 submeshes: mesh.submeshes,
                 colors: Vec::new(),
+                grid: None,
             };
         }
         self.job = RoadJob::Idle;

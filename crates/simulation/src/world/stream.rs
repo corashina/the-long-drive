@@ -3850,13 +3850,9 @@ impl WorldStream {
                 self.road_layers[road.biome as usize]
             });
             let surface = &work.published.surface;
-            let tile = self.tiles[0];
-            let grid = (work.published.key.layer == WorldLayer::Terrain
-                && ::terrain::regular_grid(tile, &surface.vertices, &surface.triangles))
-            .then_some(tile.size as f32);
             match physics.insert_source_mesh(
                 surface,
-                grid,
+                surface.grid.map(|size| size as f32),
                 self.origin.local(work.published.surface.origin),
                 layer,
                 self.reference.collision_rules.layers[layer as usize],
@@ -5685,14 +5681,22 @@ fn surface_render_cpu(surface: &WorldSurface) -> usize {
     surface_render_bytes(surface) * 2 + surface.submeshes.len() * 4096
 }
 fn surface_render_bytes(surface: &WorldSurface) -> usize {
+    // The renderer rebuilds UV and triangles of a grid tile.
+    let (uv, triangles) = match surface.grid {
+        Some(_) => (
+            surface.vertices.len(),
+            surface.submeshes.iter().map(|r| r.len()).sum(),
+        ),
+        None => (surface.uv.len(), surface.triangles.len()),
+    };
     let attributes = surface.vertices.len() * (12 + 32)
         + surface.normals.len() * 12
         + surface.tangents.len() * 16
-        + surface.uv.len() * 8
+        + uv * 8
         + surface.colors.len() * 16;
     attributes
         .saturating_mul(surface.submeshes.len())
-        .saturating_add(surface.triangles.len() * 12)
+        .saturating_add(triangles * 12)
         .saturating_add(surface.submeshes.len() * 8)
 }
 

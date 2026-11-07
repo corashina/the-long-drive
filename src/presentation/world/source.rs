@@ -447,9 +447,23 @@ fn surface_mesh(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::RENDER_WORLD,
     );
+    // A grid tile comes without UV and triangles. Rebuild them from its size and resolution.
+    let (uv, triangles) = match surface.grid {
+        Some(size) => {
+            let resolution = surface.vertices.len().isqrt() as u32;
+            (
+                ::terrain::grid_uv(size, resolution),
+                std::borrow::Cow::Owned(::terrain::grid_triangles(resolution)),
+            )
+        }
+        None => (
+            surface.uv.clone(),
+            std::borrow::Cow::Borrowed(surface.triangles.as_slice()),
+        ),
+    };
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, surface.vertices.clone());
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, surface.normals.clone());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, surface.uv.clone());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
     if !surface.colors.is_empty() {
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, surface.colors.clone());
     }
@@ -457,7 +471,7 @@ fn surface_mesh(
         mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, surface.tangents.clone());
     }
     mesh.insert_indices(Indices::U32(
-        surface.triangles[range].iter().flatten().copied().collect(),
+        triangles[range].iter().flatten().copied().collect(),
     ));
     let mut record = record.clone();
     let mut min = Vec3::splat(f32::MAX);

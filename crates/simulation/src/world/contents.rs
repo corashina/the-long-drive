@@ -187,6 +187,14 @@ pub struct SourceContents {
     humans: Vec<SpawnedContent>,
     /// Scratch set of `WorldStream::capture_changes`: the items that contents own or bind.
     pub(super) bound_items: std::collections::HashSet<ItemId>,
+    /// Active content seeds for `any_ancestor`. Rebuilt on the first query after a membership change.
+    ancestors: std::cell::RefCell<AncestorIndex>,
+}
+/// (seed, active index) pairs sorted by seed, valid for one `active_revision`.
+#[derive(Default)]
+struct AncestorIndex {
+    revision: Option<u64>,
+    seeds: Vec<(u64, usize)>,
 }
 impl SourceContents {
     pub fn discard_replay_siblings(&mut self, wanted: &[Placement]) {
@@ -272,6 +280,7 @@ impl SourceContents {
             boxes: Default::default(),
             humans: Vec::new(),
             bound_items: Default::default(),
+            ancestors: Default::default(),
         }
     }
     pub fn eligibility_changed(
@@ -326,9 +335,60 @@ impl SourceContents {
     }
     pub fn remove_active(&mut self, index: usize) -> ContentInstance {
         self.bytes.set(None);
+        let last = self.active.len() - 1;
         let content = self.active.swap_remove(index);
+        // Patch a current index: the removed entry goes, the last entry moves to `index`.
+        let ancestors = self.ancestors.get_mut();
+        if ancestors.revision == Some(self.active_revision) {
+            let entry = |seeds: &[(u64, usize)], seed: u64, at: usize| {
+                let start = seeds.partition_point(|e| e.0 < seed);
+                let mut rest = seeds[start..].iter().take_while(|e| e.0 == seed);
+                rest.position(|e| e.1 == at).map(|i| start + i)
+            };
+            let seeds = &mut ancestors.seeds;
+            let patched = entry(seeds, content.content.placement.id.seed(), index)
+                .map(|removed| seeds.remove(removed))
+                .and_then(|_| {
+                    if index == last {
+                        return Some(());
+                    }
+                    let moved = self.active[index].content.placement.id.seed();
+                    entry(seeds, moved, last).map(|moved| seeds[moved].1 = index)
+                });
+            ancestors.revision = patched.map(|()| self.active_revision + 1);
+        }
         self.active_revision += 1;
         content
+    }
+    /// True when an active content whose id is a proper prefix of `id` passes `test`.
+    pub fn any_ancestor(
+        &self,
+        id: &GeneratedId,
+        mut test: impl FnMut(&ContentInstance) -> bool,
+    ) -> bool {
+        if id.children.is_empty() {
+            return false;
+        }
+        let mut ancestors = self.ancestors.borrow_mut();
+        if ancestors.revision != Some(self.active_revision) {
+            ancestors.seeds.clear();
+            ancestors.seeds.extend(
+                self.active
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| (c.content.placement.id.seed(), i)),
+            );
+            ancestors.seeds.sort_unstable_by_key(|e| e.0);
+            ancestors.revision = Some(self.active_revision);
+        }
+        id.ancestor_seeds().any(|seed| {
+            let start = ancestors.seeds.partition_point(|e| e.0 < seed);
+            ancestors.seeds[start..]
+                .iter()
+                .take_while(|e| e.0 == seed)
+                .map(|e| &self.active[e.1])
+                .any(|owner| owner.content.placement.id.is_ancestor_of(id) && test(owner))
+        })
     }
     pub fn select_revision(&mut self, session: u64, revision: u64) {
         self.bytes.set(None);
@@ -1369,14 +1429,14 @@ impl SourceContents {
     pub fn active_parts(
         &mut self,
     ) -> (
-        &mut Vec<ContentInstance>,
+        &mut [ContentInstance],
         &SourceRules,
         &super::stream::content_boxes::BoxReleases,
     ) {
         self.bytes.set(None);
         (&mut self.active, &self.rules, &self.boxes)
     }
-    pub fn active_mut(&mut self) -> &mut Vec<ContentInstance> {
+    pub fn active_mut(&mut self) -> &mut [ContentInstance] {
         self.bytes.set(None);
         &mut self.active
     }

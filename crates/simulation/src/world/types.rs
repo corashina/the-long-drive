@@ -119,6 +119,30 @@ impl GeneratedId {
         let children = self.0.key.children.len().checked_sub(1)?;
         Some(self.0.key.prefix_seed(children))
     }
+    /// The seeds of each proper prefix of this key, shortest first. Empty: the key has no children.
+    pub fn ancestor_seeds(&self) -> impl Iterator<Item = u64> + '_ {
+        let key = &self.0.key;
+        let parents = key.children.len().saturating_sub(1);
+        let root = (!key.children.is_empty()).then(|| key.prefix_seed(0));
+        root.into_iter().chain(key.children[..parents].iter().scan(
+            root.unwrap_or(FNV_OFFSET),
+            |hash, (child, ordinal)| {
+                mix_source(hash, child);
+                mix(hash, &ordinal.to_le_bytes());
+                Some(*hash)
+            },
+        ))
+    }
+    /// True when `self` is a proper prefix of `child`: the same root with fewer children.
+    pub fn is_ancestor_of(&self, child: &GeneratedId) -> bool {
+        let (parent, child) = (&self.0.key, &child.0.key);
+        parent.layer == child.layer
+            && parent.generator == child.generator
+            && parent.unit == child.unit
+            && parent.ordinal == child.ordinal
+            && child.children.len() > parent.children.len()
+            && child.children.starts_with(&parent.children)
+    }
     /// This id with one more child: `source` with ordinal `ordinal`.
     pub fn with_child(&self, source: &SourceId, ordinal: u32) -> Self {
         let mut key = self.0.key.clone();
@@ -200,6 +224,9 @@ pub struct WorldSurface {
     pub colors: Vec<[f32; 4]>,
     #[serde(with = "pod_bytes")]
     pub triangles: Vec<[u32; 3]>,
+    /// Some: a regular terrain grid tile of this size (`terrain::regular_grid`). It has no
+    /// triangles and no UV. `terrain::grid_triangles` and `terrain::grid_uv` rebuild them.
+    pub grid: Option<u32>,
 }
 
 /// Mesh arrays as one byte string, so the frame codec copies them in one step.
@@ -281,5 +308,11 @@ mod tests {
         assert_eq!(a.parent_seed(), None);
         let json = serde_json::to_string(&child).unwrap();
         assert_eq!(serde_json::from_str::<GeneratedId>(&json).unwrap(), child);
+        let grandchild = child.with_child(&source, 2);
+        let seeds: Vec<u64> = grandchild.ancestor_seeds().collect();
+        assert_eq!(seeds, [a.seed(), child.seed()]);
+        assert!(a.is_ancestor_of(&grandchild) && child.is_ancestor_of(&grandchild));
+        assert!(!grandchild.is_ancestor_of(&child) && !a.is_ancestor_of(&a));
+        assert_eq!(a.ancestor_seeds().count(), 0);
     }
 }
