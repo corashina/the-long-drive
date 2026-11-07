@@ -1,6 +1,7 @@
 import {gameFields,installGameMode,installGameOptions,installSeed,installStartCar} from './game-mode.js';
 // New game, Load and Join reload the page, as the source loads the game scene again. The simulation
 // then starts in the menu game mode, from the save or from the host world, so one world exists at a time.
+// A fresh page asks Singleplayer or Multiplayer first, so a join from it loads only the host world.
 const NEW_GAME_KEY='tls-new-game',LOAD_KEY='tls-load',JOIN_KEY='tls-join';
 const takeSession=key=>{try{const v=sessionStorage.getItem(key);sessionStorage.removeItem(key);return v;}catch{return null;}};
 // A browser shortcut (Ctrl+W while the crouch key is held) must not close a running game. The game's own reloads skip the prompt.
@@ -9,6 +10,11 @@ const reloadWith=(key,value)=>{try{sessionStorage.setItem(key,value);}catch{}rel
 const newGameSeed=(()=>{const v=Number(takeSession(NEW_GAME_KEY)??NaN);return Number.isInteger(v)?v:undefined;})();
 const loadName=takeSession(LOAD_KEY);
 const joinRoom=(()=>{try{return JSON.parse(takeSession(JOIN_KEY)??'null');}catch{return null;}})();
+const storedName=(()=>{try{return localStorage.getItem(NAME_KEY)??'';}catch{return '';}})();
+const bootChoice=createBootChoice({document,preset:joinRoom?{mode:'join',room:joinRoom}:newGameSeed!==undefined||loadName!==null?{mode:'single'}:null,
+ invite:(new URLSearchParams(location.search).get(ROOM_PARAM)??'').trim().toUpperCase().slice(0,6),name:storedName,
+ storeName:value=>{try{localStorage.setItem(NAME_KEY,value);}catch{}}});
+const firstChoice=bootChoice.pick();
 const seed=installSeed(window,document.querySelector('#seed'),Math.random,newGameSeed);
 import {createSettings,frameLimit,installSettingsBridge} from './settings.js';
 import {displayFields,installDisplaySettings} from './display-settings.js';
@@ -75,7 +81,8 @@ import {createWeatherPanel} from './weather-panel.js';
 import {wasmMemoryFailure,wasmMemoryLimit} from './wasm-memory.js';
 import {loadUiAssets} from './ui-layout.js';
 import {createSimulation,installSimulationBridge} from './simulation.js';
-import {createMultiplayer} from './multiplayer.js';
+import {NAME_KEY,ROOM_PARAM,createMultiplayer} from './multiplayer.js';
+import {createBootChoice} from './boot-choice.js';
 import {ROLE} from './net.js';
 import {createAnalytics,hostedSite} from './analytics.js';
 import {installGrassBridge} from './grass.js';
@@ -89,7 +96,7 @@ const grassClients=installGrassBridge(window,cpuProfile);
 window.sourceReadAsset=(base,receipt)=>readAsset(base,JSON.parse(receipt));
 window.sourceInputBytes=worldInputBytes;
 const canvas=document.querySelector('#game'),toast=document.querySelector('#toast'),runtimeError=document.querySelector('#runtime-error');
-const loading=createLoading(joinRoom?.code??''),thumbnail=createThumbnail(canvas);
+const loading=createLoading(),thumbnail=createThumbnail(canvas);
 let lastThumbnail=null;
 performance.setResourceTimingBufferSize?.(16000);
 let startupFailureDetails=null,startupDone=false,startupReady=false;
@@ -210,11 +217,11 @@ const sleep={phase:0,eligible:false,showHint:false,charge:0,cooldownRemaining:0,
 window.gameSleep=(phase,eligible,showHint,charge,cooldownRemaining,progress)=>{
  sleep.phase=phase;sleep.eligible=eligible;sleep.showHint=showHint;sleep.charge=charge;sleep.cooldownRemaining=cooldownRemaining;sleep.progress=progress;sleep.held=(input.state.held&262144)!==0;sleep.dead=dead;sleeping=phase===2;survival?.updateSleep(sleep,feedback?.state.enabled);
 };
-function fail(message,notifyRenderer=true){if(failed)return;failed=true;failure=message;analytics.error(message);if(message.startsWith('WASM memory '))slider?.clear();performancePanel.stop();startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.fail({...startupFailureDetails,message,loading:loading.snapshot()});startupDone=true;loading.fail();const text='Cannot start the game. '+message+' Reload to try again.';toast.classList.remove('shown');if(menu)menu.fail(text);else{runtimeError.textContent=text;runtimeError.hidden=false;}if(notifyRenderer)renderFailure?.(message);}
+function fail(message,notifyRenderer=true){if(failed)return;failed=true;failure=message;bootChoice.close();analytics.error(message);if(message.startsWith('WASM memory '))slider?.clear();performancePanel.stop();startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.fail({...startupFailureDetails,message,loading:loading.snapshot()});startupDone=true;loading.fail();const text='Cannot start the game. '+message+' Reload to try again.';toast.classList.remove('shown');if(menu)menu.fail(text);else{runtimeError.textContent=text;runtimeError.hidden=false;}if(notifyRenderer)renderFailure?.(message);}
 function finishStartup(){if(failed||startupDone||!startupReady||!input||!menu)return;startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.finish({inputReady:true});startupDone=true;}
 window.gameFailure=message=>fail(message,false);
 window.gameLoading=()=>{if(failed)return;loading.start(true);menu.loading();};
-window.gameReady=()=>{if(failed||!worldAdmitted)return;if(initialReadyMs===null){initialReadyMs=performance.now()-bootStarted;analytics.event('ready',{loadMs:Math.round(initialReadyMs),gpu:adapterName,quality:settings.values.quality});}releaseStartPacks();loading.finish();menu.ready();multiplayer?.ready();startupReady=true;finishStartup();};
+window.gameReady=()=>{if(failed||!worldAdmitted)return;if(initialReadyMs===null){initialReadyMs=performance.now()-bootStarted-bootChoice.waitedMs;analytics.event('ready',{loadMs:Math.round(initialReadyMs),gpu:adapterName,quality:settings.values.quality});}releaseStartPacks();loading.finish();menu.ready();multiplayer?.ready();startupReady=true;finishStartup();};
 window.addEventListener('error',event=>fail(event.message||'The runtime stopped.'));
 window.addEventListener('unhandledrejection',event=>fail(event.reason?.message||String(event.reason)));
 const mebibytes=bytes=>Math.round(bytes/1048576).toLocaleString('en-US');
@@ -283,15 +290,23 @@ async function load(){
  slider=installDrawDistance(()=>localStorage,()=>sessionStorage,document.querySelector('#draw-distance'),document.querySelector('#draw-distance-value'),{minimum:range.minimum.drawDistance,maximum:range.maximum.drawDistance,fallback:range.default});
  worldDrawDistance=slider.value();
  const garageMode=[worldDrawDistance,window.gameBiome(),window.gameStartCar(),window.gameSeed()];
- // The world of a Join reload, of a Load reload, or of Load last at start. `save` is its JSON.
- let joined;
+ // The world of the boot choice: the host world of a join, the save of a Load reload, or of Load last. `save` is its JSON.
+ // A failed join asks again, so no world loads before the player has one.
+ let multiplayerReady;const multiplayerCreated=new Promise(resolve=>{multiplayerReady=resolve;});
  const storedSave=async()=>{
   const name=await startSave({loadName,newGame:newGameSeed!==undefined,autoLoad:settings.values.BAutoLoad,list:()=>saveStorage.list(),buildId:manifest.build_id});
   if(name===null)return null;
   const record=await saveStorage.read(name);if(record===null)throw new Error('No saved game.');
   return {save:new TextEncoder().encode(JSON.stringify(await verifyRecord(record))),operation:'load'};
  };
- const startWorld=joinRoom?new Promise(resolve=>{joined=resolve;}):storedSave().catch(error=>({error:error?.message??String(error),operation:'load'}));
+ const startWorld=(async()=>{
+  for(let choice=await firstChoice;;){
+   if(choice.mode==='single'){loading.join('');return storedSave().catch(error=>({error:error?.message??String(error),operation:'load'}));}
+   const result=await (await multiplayerCreated).join(choice.room);
+   if(result.save)return {save:result.save,operation:'join'};
+   choice=await bootChoice.pick(result.error);
+  }
+ })();
  const simulationStarted=startWorld.then(async world=>({world,...await simulation.start(manifestHash,...garageMode,gameOptions.bits(),world?.save??new Uint8Array())}));
  // False: the garage is the new game world.
  const reloadNewGame=started=>{
@@ -322,8 +337,9 @@ async function load(){
  const resets={graphics:[()=>slider.reset()],controls:[()=>drivingSettings.resetMouse()]};
  menu=createMenu({canvas,language,appearance,settings,resets,defaultAssists:manifest.driving.default_assists,ui:manifest.ui,bindings,saveSession,buildId:manifest.build_id,thumbnail:()=>lastThumbnail,sleeping:()=>sleeping,seated:()=>window.gameState.seated,guest:()=>multiplayer?.role===ROLE.GUEST,online:()=>Boolean(multiplayer)&&multiplayer.role!==ROLE.OFF,worldDrawDistance:()=>worldDrawDistance,slider,audio,onNewGame:()=>seed.reroll(),reloadNewGame,autoNewGame:newGameSeed!==undefined,onPause:()=>thumbnail.capture().then(blob=>{lastThumbnail=blob;}),clearInput:()=>input.clear(),queueAction:a=>{actions=a;}});
  multiplayer=createMultiplayer({document,target:window,Peer:window.peerjs.Peer,buildId:manifest.build_id,exportHash:manifestHash,simulation,saveSession,menu,outfit,storage:()=>localStorage,
-  room:joinRoom,joined:(save,error)=>joined({save,error,operation:'join'}),reloadJoin:room=>reloadWith(JOIN_KEY,JSON.stringify(room)),loading,
+  reloadJoin:room=>reloadWith(JOIN_KEY,JSON.stringify(room)),loading,
   audio,media:navigator.mediaDevices,voiceKeys:()=>actionIds.voicechat===undefined?[]:settings.values.inputs[actionIds.voicechat]});
+ multiplayerReady(multiplayer);
  {const changed=outfit.changed;outfit.changed=()=>{changed();multiplayer.look(outfit.outfit);};}
  feedback=createFeedback(manifest.ui,manifest,settings,actionIds,language);
  startup.end('interface');
