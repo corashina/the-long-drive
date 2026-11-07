@@ -91,12 +91,12 @@ impl DisplaySettings {
         }
         Ok(value)
     }
-    /// The rain drop cap of the "Rain" level.
+    /// The rain drop cap of the "Rain" level, for the 32 m drop box.
     pub fn rain_drops(&self) -> u32 {
         match self.rain {
-            0 => 12_000,
-            1 => 6_000,
-            _ => 2_000,
+            0 => 6_000,
+            1 => 3_000,
+            _ => 1_000,
         }
     }
 }
