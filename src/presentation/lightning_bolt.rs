@@ -60,8 +60,7 @@ pub fn install(app: &mut App) {
         )
         .add_systems(
             SourceSurface,
-            draw.in_set(SourceSurfaceStage::AfterOpaque)
-                .after(super::source_effects::encode_ao)
+            draw.in_set(SourceSurfaceStage::Weather)
                 .run_if(super::frame_graph::surface_ready)
                 .run_if(super::shadow_queue::collector_encoded),
         );

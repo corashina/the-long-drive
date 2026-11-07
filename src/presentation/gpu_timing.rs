@@ -15,8 +15,8 @@ use std::sync::{
     atomic::{AtomicU8, AtomicU32, Ordering},
 };
 
-/// Shadow atlas, opaque, after opaque (depth resolve, AO), transparent, postprocessing.
-pub const STAGES: usize = 5;
+/// Shadow atlas, opaque, after opaque (depth resolve, shafts, AO), weather, transparent, postprocessing.
+pub const STAGES: usize = 6;
 const MARKS: u32 = STAGES as u32 + 1;
 const ALL_MARKS: u8 = (1 << MARKS) - 1;
 const BYTES: u64 = MARKS as u64 * wgpu::QUERY_SIZE as u64;
@@ -80,9 +80,10 @@ pub fn install(app: &mut App) {
                     .before(super::shadow_atlas::render_atlas),
                 mark::<1>.after(Collector).before(Opaque),
                 mark::<2>.after(Opaque).before(AfterOpaque),
-                mark::<3>.after(AfterOpaque).before(Transparent),
-                mark::<4>.after(Transparent).before(Postprocessing),
-                mark::<5>.after(AfterTransparent),
+                mark::<3>.after(AfterOpaque).before(Weather),
+                mark::<4>.after(Weather).before(Transparent),
+                mark::<5>.after(Transparent).before(Postprocessing),
+                mark::<6>.after(AfterTransparent),
             ),
         );
 }
