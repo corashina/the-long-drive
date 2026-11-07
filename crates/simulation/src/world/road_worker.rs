@@ -99,13 +99,20 @@ struct Installed {
     layout: RoadLayout,
 }
 
+/// Canceling keeps physical ownership until a reply or termination.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum RoadJob {
+    #[default]
+    Idle,
+    Running(RoadJobId),
+    Canceling(RoadJobId),
+}
 #[derive(Default)]
 pub struct RoadWorker {
     next: u64,
     last_submitted: u64,
     installed: [Option<Installed>; 3],
-    job: Option<RoadJobId>,
-    canceled: bool,
+    job: RoadJob,
     #[cfg(target_arch = "wasm32")]
     transport: Option<crate::host::RoadTransport>,
     #[cfg(target_arch = "wasm32")]
@@ -181,7 +188,7 @@ impl RoadWorker {
         input: &[u8],
         layout: RoadLayout,
     ) -> Result<(), ReferenceError> {
-        if self.job.is_some()
+        if self.job != RoadJob::Idle
             || identity.owner >= 3
             || self.installed[identity.owner as usize].is_some()
         {
@@ -205,7 +212,7 @@ impl RoadWorker {
     }
     /// Input starts with the source slot and its exact revision, followed by the pose.
     pub fn submit(&mut self, identity: RoadJobId, input: &[u8]) -> Result<(), ReferenceError> {
-        if self.job.is_some()
+        if self.job != RoadJob::Idle
             || input.len() != 156
             || identity.sequence != self.next
             || identity.sequence <= self.last_submitted
@@ -230,8 +237,7 @@ impl RoadWorker {
             ));
         }
         self.last_submitted = identity.sequence;
-        self.job = Some(identity);
-        self.canceled = false;
+        self.job = RoadJob::Running(identity);
         Ok(())
     }
     pub fn poll(&mut self) -> Result<RoadPoll, ReferenceError> {
@@ -244,26 +250,25 @@ impl RoadWorker {
             self.wasm_bytes = transport.road_wasm_bytes() as usize;
             match result.map_err(js_error)? {
                 -1 => {
-                    self.job = None;
-                    self.canceled = false;
+                    self.job = RoadJob::Idle;
                     Ok(RoadPoll::Idle)
                 }
                 -2 => Ok(RoadPoll::Busy),
-                1 if !self.canceled => self
-                    .job
-                    .map(RoadPoll::Ready)
-                    .ok_or_else(|| error("Result has no owner")),
+                1 => match self.job {
+                    RoadJob::Running(id) => Ok(RoadPoll::Ready(id)),
+                    RoadJob::Idle => Err(error("Result has no owner")),
+                    RoadJob::Canceling(_) => Err(error("Invalid transport state")),
+                },
                 _ => Err(error("Invalid transport state")),
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
             Ok(match self.job {
-                Some(id) if !self.canceled => RoadPoll::Ready(id),
-                _ => {
-                    self.job = None;
+                RoadJob::Running(id) => RoadPoll::Ready(id),
+                RoadJob::Idle | RoadJob::Canceling(_) => {
+                    self.job = RoadJob::Idle;
                     self.result = None;
-                    self.canceled = false;
                     RoadPoll::Idle
                 }
             })
@@ -324,12 +329,13 @@ impl RoadWorker {
                 colors: Vec::new(),
             };
         }
-        self.job = None;
+        self.job = RoadJob::Idle;
         Ok(())
     }
-    /// Cancellation retains physical ownership until a reply or termination.
     pub fn discard(&mut self) {
-        self.canceled = true;
+        if let RoadJob::Running(id) = self.job {
+            self.job = RoadJob::Canceling(id);
+        }
         #[cfg(target_arch = "wasm32")]
         if let Some(t) = &self.transport {
             t.road_discard();
@@ -349,8 +355,7 @@ impl RoadWorker {
             self.result = None;
         }
         self.installed = [None; 3];
-        self.job = None;
-        self.canceled = false;
+        self.job = RoadJob::Idle;
         // Keep the sequence across transport replacement. Never reuse an identity.
     }
     pub fn packing_started(&mut self) -> Result<(), ReferenceError> {

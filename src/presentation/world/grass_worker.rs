@@ -33,14 +33,33 @@ pub enum GrassPoll {
     Planned(GrassJobId, GrassAllocation),
     Ready(GrassJobId),
 }
+/// One job at a time. State names match `web/grass.js`.
+#[derive(Clone, Copy, Debug, Default)]
+enum GrassJob {
+    #[default]
+    Idle,
+    Planning(GrassJobId),
+    Planned(GrassJobId, GrassAllocation),
+    Emitting(GrassJobId, GrassAllocation),
+    Ready(GrassJobId, GrassAllocation),
+    Canceling(GrassJobId),
+}
+impl GrassJob {
+    fn id(self) -> Option<GrassJobId> {
+        match self {
+            Self::Idle => None,
+            Self::Planning(id)
+            | Self::Planned(id, _)
+            | Self::Emitting(id, _)
+            | Self::Ready(id, _)
+            | Self::Canceling(id) => Some(id),
+        }
+    }
+}
 #[derive(Default)]
 pub struct GrassWorker {
-    job: Option<GrassJobId>,
-    ready: bool,
+    job: GrassJob,
     last_revision: u64,
-    plan: Option<GrassAllocation>,
-    approved: bool,
-    canceled: bool,
     #[cfg(target_arch = "wasm32")]
     transport: Option<crate::browser::GrassTransport>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -52,10 +71,10 @@ pub struct GrassWorker {
 }
 impl GrassWorker {
     pub fn busy(&self) -> bool {
-        self.job.is_some()
+        !matches!(self.job, GrassJob::Idle)
     }
     pub fn owns(&self, id: GrassJobId) -> bool {
-        self.job == Some(id)
+        self.job.id() == Some(id)
     }
     pub fn initialize(&mut self) -> Result<bool, ReferenceError> {
         #[cfg(target_arch = "wasm32")]
@@ -163,7 +182,7 @@ impl GrassWorker {
         let _ = entity;
     }
     pub fn submit(&mut self, id: GrassJobId, view: GrassView) -> Result<(), ReferenceError> {
-        if self.job.is_some() || id.revision <= self.last_revision {
+        if !matches!(self.job, GrassJob::Idle) || id.revision <= self.last_revision {
             return Err(error("Actor is busy"));
         }
         #[cfg(target_arch = "wasm32")]
@@ -199,11 +218,7 @@ impl GrassWorker {
             );
         }
         self.last_revision = id.revision;
-        self.ready = false;
-        self.job = Some(id);
-        self.plan = None;
-        self.approved = false;
-        self.canceled = false;
+        self.job = GrassJob::Planning(id);
         Ok(())
     }
     pub fn poll(&mut self) -> Result<GrassPoll, ReferenceError> {
@@ -214,10 +229,7 @@ impl GrassWorker {
             };
             match t.grass_poll().map_err(js_error)? {
                 -1 => {
-                    self.job = None;
-                    self.plan = None;
-                    self.approved = false;
-                    self.canceled = false;
+                    self.job = GrassJob::Idle;
                     Ok(GrassPoll::Idle)
                 }
                 -2 => Ok(GrassPoll::Busy),
@@ -231,55 +243,61 @@ impl GrassWorker {
                         output_bytes: words[3] as usize,
                         gpu_bytes: words[4] as usize,
                     };
-                    self.plan = Some(p);
-                    Ok(GrassPoll::Planned(
-                        self.job.ok_or_else(|| error("Plan has no owner"))?,
-                        p,
-                    ))
+                    let (GrassJob::Planning(id) | GrassJob::Planned(id, _)) = self.job else {
+                        return Err(error("Plan has no owner"));
+                    };
+                    self.job = GrassJob::Planned(id, p);
+                    Ok(GrassPoll::Planned(id, p))
                 }
                 1 => {
-                    self.ready = true;
-                    Ok(GrassPoll::Ready(
-                        self.job.ok_or_else(|| error("Output has no owner"))?,
-                    ))
+                    let (GrassJob::Emitting(id, p) | GrassJob::Ready(id, p)) = self.job else {
+                        return Err(error("Output has no owner"));
+                    };
+                    self.job = GrassJob::Ready(id, p);
+                    Ok(GrassPoll::Ready(id))
                 }
                 _ => Err(error("Invalid actor state")),
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let Some(id) = self.job else {
-                return Ok(GrassPoll::Idle);
-            };
-            if self.canceled {
-                self.task = None;
-                self.job = None;
-                return Ok(GrassPoll::Idle);
-            }
-            let t = self.task.as_mut().unwrap();
-            if self.approved {
-                Ok(if t.prepare().map_err(ReferenceError)? {
-                    self.ready = true;
-                    GrassPoll::Ready(id)
-                } else {
-                    GrassPoll::Busy
-                })
-            } else {
-                Ok(if let Some(p) = t.plan().map_err(ReferenceError)? {
-                    self.plan = Some(p);
-                    GrassPoll::Planned(id, p)
-                } else {
-                    GrassPoll::Busy
-                })
+            match self.job {
+                GrassJob::Idle => Ok(GrassPoll::Idle),
+                GrassJob::Canceling(_) => {
+                    self.task = None;
+                    self.job = GrassJob::Idle;
+                    Ok(GrassPoll::Idle)
+                }
+                GrassJob::Planning(id) | GrassJob::Planned(id, _) => Ok(
+                    if let Some(p) = self.task.as_mut().unwrap().plan().map_err(ReferenceError)? {
+                        self.job = GrassJob::Planned(id, p);
+                        GrassPoll::Planned(id, p)
+                    } else {
+                        GrassPoll::Busy
+                    },
+                ),
+                GrassJob::Emitting(id, p) | GrassJob::Ready(id, p) => Ok(
+                    if self
+                        .task
+                        .as_mut()
+                        .unwrap()
+                        .prepare()
+                        .map_err(ReferenceError)?
+                    {
+                        self.job = GrassJob::Ready(id, p);
+                        GrassPoll::Ready(id)
+                    } else {
+                        GrassPoll::Busy
+                    },
+                ),
             }
         }
     }
     pub fn approve(&mut self, id: GrassJobId, bytes: usize) -> Result<(), ReferenceError> {
-        if self.job != Some(id)
-            || self.approved
-            || self.canceled
-            || self.plan.is_none_or(|p| p.output_bytes != bytes)
-        {
+        let GrassJob::Planned(owner, plan) = self.job else {
+            return Err(error("Invalid plan approval"));
+        };
+        if owner != id || plan.output_bytes != bytes {
             return Err(error("Invalid plan approval"));
         }
         #[cfg(target_arch = "wasm32")]
@@ -294,16 +312,18 @@ impl GrassWorker {
             .unwrap()
             .approve()
             .map_err(ReferenceError)?;
-        self.approved = true;
+        self.job = GrassJob::Emitting(id, plan);
         Ok(())
     }
     pub fn consume(&mut self, id: GrassJobId) -> Result<GrassMeshData, ReferenceError> {
-        if self.job != Some(id) || !self.approved || self.canceled || !self.ready {
+        let GrassJob::Ready(owner, p) = self.job else {
+            return Err(error("Invalid output owner"));
+        };
+        if owner != id {
             return Err(error("Invalid output owner"));
         }
         #[cfg(target_arch = "wasm32")]
         let output = {
-            let p = self.plan.unwrap();
             let mut o = GrassMeshData {
                 anchors: vec![[0.; 3]; p.vertices],
                 uvs: vec![[0.; 2]; p.vertices],
@@ -325,15 +345,17 @@ impl GrassWorker {
             o
         };
         #[cfg(not(target_arch = "wasm32"))]
-        let output = self.task.take().unwrap().finish().1;
-        self.ready = false;
-        self.job = None;
-        self.plan = None;
-        self.approved = false;
+        let output = {
+            let _ = p;
+            self.task.take().unwrap().finish().1
+        };
+        self.job = GrassJob::Idle;
         Ok(output)
     }
     pub fn discard(&mut self) {
-        self.canceled = true;
+        if let Some(id) = self.job.id() {
+            self.job = GrassJob::Canceling(id);
+        }
         #[cfg(target_arch = "wasm32")]
         if let Some(t) = &self.transport {
             t.grass_discard();
@@ -379,10 +401,7 @@ impl GrassWorker {
             self.domains = None;
             self.task = None;
         }
-        self.job = None;
-        self.plan = None;
-        self.approved = false;
-        self.canceled = false;
+        self.job = GrassJob::Idle;
     }
 }
 impl Drop for GrassWorker {
@@ -400,4 +419,42 @@ fn js_error(v: wasm_bindgen::JsValue) -> ReferenceError {
         &v.dyn_ref::<js_sys::Error>()
             .map_or_else(|| format!("{v:?}"), |e| String::from(e.message())),
     )
+}
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    #[test]
+    fn approve_and_consume_need_their_state() {
+        let settings = GrassSettings {
+            edge_length: 1.0,
+            max_tessellation: 2,
+            max_height: 1.0,
+            fade_end: 10.0,
+            lod_start: 1.0,
+            lod_end: 5.0,
+            lod_max: 3,
+            smooth_domain: false,
+            thin_start: 5.0,
+            thin_floor: 0.5,
+        };
+        let mut input = Vec::new();
+        grass_mesh::encode_dataset(&[], settings, &mut input);
+        let id = GrassJobId {
+            session: 1,
+            revision: 1,
+            entity: 1,
+        };
+        let mut worker = GrassWorker::default();
+        worker.install(id, &input, 0).unwrap();
+        worker.submit(id, GrassView::default()).unwrap();
+        assert!(worker.approve(id, 0).is_err());
+        let plan = loop {
+            if let GrassPoll::Planned(_, plan) = worker.poll().unwrap() {
+                break plan;
+            }
+        };
+        assert!(worker.consume(id).is_err());
+        worker.approve(id, plan.output_bytes).unwrap();
+        assert!(worker.consume(id).is_err());
+    }
 }
