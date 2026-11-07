@@ -256,9 +256,11 @@ async function load(){
  // The worker parses and checks its copy while this thread loads the interface.
  simulation.load(bytes.slice());
  loading.step('code',0);
- const [{default:init,prepare,run,source_render_failure,source_render_audit,watch_render_audit,cpu_profile,cpu_profile_audit,request_thumbnail,wake_frame,prewarm_pipeline_list},module]=await code;
+ const [{default:init,prepare,run,source_render_failure,source_render_audit,watch_render_audit,cpu_profile,cpu_profile_audit,request_thumbnail,wake_frame,prewarm_pipeline_list,set_depth_prepass},module]=await code;
  const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;watchRenderAudit=watch_render_audit;watch_render_audit(renderAuditWatched);
  rustCpuProfile=cpu_profile;rustCpuAudit=cpu_profile_audit;if(startupCpuProfile)rustCpuProfile(true);
+ // Hidden bench toggle: ?prepass=0 draws the world view opaque pass without the depth prepass.
+ if(new URLSearchParams(location.search).get('prepass')==='0')set_depth_prepass(false);
  window.gameThumbnailFrame=()=>thumbnail.frame();thumbnail.connect(request_thumbnail);
  // The bundled pipeline prewarm list plus this run's play pipelines. Save it as src/presentation/prewarm_pipelines.json.
  window.gamePrewarmList=()=>prewarm_pipeline_list();
