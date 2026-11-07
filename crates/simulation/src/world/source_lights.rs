@@ -36,6 +36,13 @@ pub struct ItemLight {
 }
 impl WorldLight {
     /// Structure lights append their component identity. Road lights share the pole identity.
+    /// The seed of the owner id that `owned_by` accepts. None: no id owns the light.
+    pub fn owner_seed(&self) -> Option<u64> {
+        if self.biome.is_some() {
+            return Some(self.id.seed());
+        }
+        self.id.parent_seed()
+    }
     pub fn owned_by(&self, parent: &GeneratedId) -> bool {
         if self.biome.is_some() {
             return self.id == *parent;

@@ -117,9 +117,7 @@ impl WorldStream {
             layer: WorldLayer::Terrain,
             unit,
         };
-        self.surfaces
-            .iter()
-            .any(|s| s.key == key && s.collider.is_some())
+        self.surface(key).is_some_and(|s| s.collider.is_some())
     }
     /// Removes patches that a tile replaced, that the windows left, or that have an old
     /// terrain context. Then adds patches where the windows have no tile collider.

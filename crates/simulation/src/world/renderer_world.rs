@@ -4,7 +4,7 @@
 use super::{PublishedSurface, SurfaceKey, WorldRequest, WorldStream};
 use crate::reference::{ReferenceError, ReferenceManifest, SourceId, WorldReference};
 use crate::world::{
-    GeneratedId, NodeAppearance, Placement, StartupTerrain, SupplyDefinition, SupplyPoint,
+    GeneratedId, IdIndex, NodeAppearance, Placement, StartupTerrain, SupplyDefinition, SupplyPoint,
     WorldBounds, WorldLayer, WorldLight, WorldOrigin, WorldSurface,
 };
 use serde::{Deserialize, Serialize};
@@ -48,6 +48,8 @@ pub struct RendererFrame<'a> {
     pub request: WorldRequest,
     pub origin: WorldOrigin,
     pub surfaces: &'a [RendererSurface],
+    /// Changes when `surfaces` changes.
+    pub surface_revision: u64,
     pub lights: &'a [WorldLight],
     pub structures: &'a [RendererStructure],
     pub supplies: &'a [RendererSupply],
@@ -118,6 +120,7 @@ pub struct WorldDelta {
     replay: Vec<GeneratedId>,
     required_ready: bool,
     membership: (u64, u64, u64),
+    pick_revision: u64,
     road_required: [bool; 3],
     road_loaded: [bool; 3],
     holds_changed: bool,
@@ -173,7 +176,9 @@ pub struct RendererWorld {
     structures: Vec<RendererStructure>,
     supplies: Vec<RendererSupply>,
     startup: Option<StartupTerrain>,
+    surface_revision: u64,
     pending: Vec<Placement>,
+    pending_index: IdIndex,
     /// Content initialization of each pending structure.
     initialized: Vec<bool>,
     placements: HashMap<GeneratedId, PlacementValues>,
@@ -181,11 +186,15 @@ pub struct RendererWorld {
     /// Pole rope appearance by road segment index.
     cables: Vec<(i64, Vec<NodeAppearance>)>,
     required_structures: Vec<GeneratedId>,
+    required_index: IdIndex,
     required_lights: Vec<GeneratedId>,
     /// Structures that change replay needs.
     replay: Vec<GeneratedId>,
+    replay_index: IdIndex,
     required_ready: bool,
     membership: (u64, u64, u64),
+    /// Changes when pending, content initialization, required, replay or required_ready changes.
+    pick_revision: u64,
     /// Road prototypes by biome that selected roads need.
     road_required: [bool; 3],
     /// Road prototypes by index that the stream has built.
@@ -221,16 +230,21 @@ impl RendererWorld {
             structures: Vec::new(),
             supplies: Vec::new(),
             startup: None,
+            surface_revision: 0,
             pending: Vec::new(),
+            pending_index: IdIndex::default(),
             initialized: Vec::new(),
             placements: HashMap::new(),
             contents: HashMap::new(),
             cables: Vec::new(),
             required_structures: Vec::new(),
+            required_index: IdIndex::default(),
             required_lights: Vec::new(),
             replay: Vec::new(),
+            replay_index: IdIndex::default(),
             required_ready: false,
             membership: (0, u64::MAX, u64::MAX),
+            pick_revision: 0,
             road_required: [false; 3],
             road_loaded: [false; 3],
             holds: HashSet::new(),
@@ -245,6 +259,7 @@ impl RendererWorld {
             request: self.request,
             origin: self.origin,
             surfaces: &self.surfaces,
+            surface_revision: self.surface_revision,
             lights: &self.lights,
             structures: &self.structures,
             supplies: &self.supplies,
@@ -260,19 +275,31 @@ impl RendererWorld {
     pub fn pending_structures(&self) -> &[Placement] {
         &self.pending
     }
+    fn pending_position(&self, id: &GeneratedId) -> Option<usize> {
+        self.pending_index.position(&self.pending, |p| &p.id, id)
+    }
     pub fn structure_required(&self, id: &GeneratedId) -> bool {
-        self.required_structures.contains(id)
+        self.required_index
+            .position(&self.required_structures, |id| id, id)
+            .is_some()
     }
     pub fn structure_replay_required(&self, id: &GeneratedId) -> bool {
-        self.replay.contains(id)
+        self.replay_index
+            .position(&self.replay, |id| id, id)
+            .is_some()
     }
     /// True while the stream still wants the structure.
     pub fn structure_wanted(&self, request: WorldRequest, id: &GeneratedId) -> bool {
-        request.session == self.request.session && self.pending.iter().any(|p| p.id == *id)
+        request.session == self.request.session && self.pending_position(id).is_some()
     }
     /// Session, published structure revision and pending structure revision.
     pub fn structure_membership(&self) -> (u64, u64, u64) {
         self.membership
+    }
+    /// Changes when an input of the renderer structure pick changes: pending structures,
+    /// content initialization, required and replay structures, or `required_ready`.
+    pub fn pick_revision(&self) -> u64 {
+        self.pick_revision
     }
     pub fn required_lights(&self) -> &[GeneratedId] {
         &self.required_lights
@@ -312,9 +339,7 @@ impl RendererWorld {
         self.staging_configured
     }
     pub fn contents_initialized(&self, id: &GeneratedId) -> bool {
-        self.pending
-            .iter()
-            .position(|p| p.id == *id)
+        self.pending_position(id)
             .is_none_or(|i| self.initialized[i])
     }
     /// The content of `id` spawned. Startup contents spawn after the renderer accepts the structure.
@@ -488,6 +513,7 @@ impl WorldStream {
             world
                 .surfaces
                 .extend(self.surfaces.iter().map(RendererSurface::of));
+            world.surface_revision = world.surface_revision.wrapping_add(1);
         }
         match self.prepared_surface() {
             None => {
@@ -546,8 +572,10 @@ impl WorldStream {
             delta.structures_changed = true;
             delta.structures.clone_from(&world.structures);
         }
+        let mut pick_changed = pending_changed;
         if pending_changed {
             world.pending.clone_from(&self.wanted_structures);
+            world.pending_index.rebuild(&world.pending, |p| &p.id);
             delta.pending_changed = true;
             delta.pending.clone_from(&world.pending);
         }
@@ -584,7 +612,9 @@ impl WorldStream {
         }
         world.initialized.resize(world.pending.len(), false);
         for (initialized, placement) in world.initialized.iter_mut().zip(&world.pending) {
-            *initialized = self.contents.initialized(&placement.id);
+            let value = self.contents.initialized(&placement.id);
+            pick_changed |= *initialized != value;
+            *initialized = value;
         }
         delta.initialized.clone_from(&world.initialized);
         self.sync_renderer_contents(world, delta);
@@ -636,25 +666,39 @@ impl WorldStream {
             delta.supplies_changed = true;
             delta.supplies.clone_from(&world.supplies);
         }
-        crate::world::required::select(
+        if crate::world::required::select(
             &mut world.required_structures,
             self.required.structures.iter(),
-        );
+        ) {
+            world
+                .required_index
+                .rebuild(&world.required_structures, |id| id);
+            pick_changed = true;
+        }
         crate::world::required::select(&mut world.required_lights, self.required.lights.iter());
-        crate::world::required::select(
+        if crate::world::required::select(
             &mut world.replay,
             self.replay_roots.iter().map(|root| &root.id).chain(
                 self.replay_indices
                     .iter()
                     .filter_map(|&index| self.changes.get_indexed(index).1.instance.as_ref()),
             ),
-        );
+        ) {
+            world.replay_index.rebuild(&world.replay, |id| id);
+            pick_changed = true;
+        }
         delta
             .required_structures
             .clone_from(&world.required_structures);
         delta.required_lights.clone_from(&world.required_lights);
         delta.replay.clone_from(&world.replay);
-        world.required_ready = self.required_ready();
+        let required_ready = self.required_ready();
+        pick_changed |= world.required_ready != required_ready;
+        world.required_ready = required_ready;
+        if pick_changed {
+            world.pick_revision = world.pick_revision.wrapping_add(1);
+        }
+        delta.pick_revision = world.pick_revision;
         world.road_required = [false; 3];
         for road in &self.selected_roads {
             if world.required_ready || self.required.roads.contains(&road.segment.index) {
@@ -743,6 +787,7 @@ impl RendererWorld {
         self.origin = delta.origin;
         self.failure.clone_from(&delta.failure);
         if delta.surfaces_changed {
+            self.surface_revision = self.surface_revision.wrapping_add(1);
             let old = std::mem::take(&mut self.surfaces);
             let prepared = self.prepared.as_ref().map(|(_, s)| s);
             self.surfaces.extend(delta.surface_keys.iter().map(|key| {
@@ -779,13 +824,23 @@ impl RendererWorld {
         }
         if delta.pending_changed {
             self.pending.clone_from(&delta.pending);
+            self.pending_index.rebuild(&self.pending, |p| &p.id);
         }
         if delta.structures_changed || delta.pending_changed {
-            let (pending, structures) = (&self.pending, &self.structures);
-            self.placements.retain(|id, _| {
-                pending.iter().any(|p| p.id == *id)
-                    || structures.iter().any(|s| s.placement.id == *id)
-            });
+            // Placement values of the new lists. Each list has a placement value.
+            self.mark += 1;
+            let mark = self.mark;
+            for id in self
+                .pending
+                .iter()
+                .map(|p| &p.id)
+                .chain(self.structures.iter().map(|s| &s.placement.id))
+            {
+                if let Some(values) = self.placements.get_mut(id) {
+                    values.mark = mark;
+                }
+            }
+            self.placements.retain(|_, values| values.mark == mark);
         }
         for (id, values) in &delta.placements {
             self.placements.insert(id.clone(), values.clone());
@@ -812,10 +867,16 @@ impl RendererWorld {
         if delta.supplies_changed {
             self.supplies.clone_from(&delta.supplies);
         }
-        self.required_structures
-            .clone_from(&delta.required_structures);
         self.required_lights.clone_from(&delta.required_lights);
-        self.replay.clone_from(&delta.replay);
+        if self.pick_revision != delta.pick_revision {
+            self.pick_revision = delta.pick_revision;
+            self.required_structures
+                .clone_from(&delta.required_structures);
+            self.required_index
+                .rebuild(&self.required_structures, |id| id);
+            self.replay.clone_from(&delta.replay);
+            self.replay_index.rebuild(&self.replay, |id| id);
+        }
         self.required_ready = delta.required_ready;
         self.road_required = delta.road_required;
         self.road_loaded = delta.road_loaded;
