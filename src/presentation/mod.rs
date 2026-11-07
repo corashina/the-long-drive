@@ -68,6 +68,7 @@ pub mod object_lighting;
 pub mod particles;
 pub mod plates;
 pub mod postprocessing;
+pub mod probe_publication;
 pub mod probes;
 pub mod prop_draws;
 pub mod quad_batches;

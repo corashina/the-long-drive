@@ -75,6 +75,10 @@ mod gpu_props_tests;
 mod upload_budget_tests;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "presentation/probe_publication.rs"]
+mod probe_publication_tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "presentation/materials/terrain_coverage.rs"]
 #[allow(dead_code)]
 mod terrain_coverage_tests;
