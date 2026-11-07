@@ -504,7 +504,6 @@ impl WorldPresentation<'_, '_> {
             &mut self.pipelines,
             &self.fixed,
             &mut self.commands,
-            view,
         )?;
         timer.next(crate::world::stream_profile::Stage::Lods);
         self.instances.select_lods(

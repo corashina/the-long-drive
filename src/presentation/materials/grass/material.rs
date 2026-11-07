@@ -13,13 +13,11 @@ use bevy::{
     render::{render_resource::*, renderer::RenderDevice},
     shader::ShaderRef,
 };
-use grass_mesh::GrassView;
 pub const BLADE_ATTRIBUTE: MeshVertexAttribute =
     MeshVertexAttribute::new("SourceGrassBlade", 984632517, VertexFormat::Float32x4);
 #[derive(Clone, Copy, Debug, ShaderType)]
 pub struct GrassUniform {
     pub lod: Vec4,
-    pub camera: Vec4,
     pub shape: Vec4,
     pub fade_lod: Vec4,
     pub wind: Vec4,
@@ -48,7 +46,6 @@ impl GrassMaterial {
     pub fn from_source(
         session: u64,
         record: &WorldSourceMaterial,
-        view: GrassView,
         receiver_mask: u32,
     ) -> Result<Self, ReferenceError> {
         if record.shader.name != "Stix Games/Grass" {
@@ -125,7 +122,6 @@ impl GrassMaterial {
             cull: cull as u8,
             uniform: GrassUniform {
                 lod: Vec4::X,
-                camera: view.position.extend(view.screen_height),
                 shape: Vec4::new(
                     get("_Width00")?,
                     get("_MinHeight00")?,

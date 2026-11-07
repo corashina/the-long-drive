@@ -29,7 +29,7 @@ use bevy::{
     mesh::{VertexAttributeValues, skinning::SkinnedMesh},
     prelude::*,
 };
-use grass_mesh::{GrassPatch, GrassSettings, GrassView};
+use grass_mesh::{GrassPatch, GrassSettings};
 use std::sync::Arc;
 /// The prototype node is a `wear.Renderers` node of a wearable item.
 fn worn_renderer(
@@ -537,7 +537,6 @@ impl SourceInstances {
         pipelines: &mut WorldPipelines,
         fixed: &crate::presentation::fixed_assets::SourceFixedAssets,
         commands: &mut Commands,
-        view: GrassView,
     ) -> Result<(), ReferenceError> {
         self.rebase(stream.origin, commands);
         let required_ready = stream.required_ready();
@@ -958,7 +957,6 @@ impl SourceInstances {
                                         receive,
                                         world.determinant() < 0.,
                                         source_position,
-                                        view,
                                         row,
                                     )?
                                     else {
@@ -1111,7 +1109,6 @@ impl SourceInstances {
                                             receive,
                                             world.determinant() < 0.,
                                             source_position,
-                                            view,
                                             false,
                                         )?
                                         else {
@@ -1705,7 +1702,6 @@ impl SourceInstances {
                                 rebind.receive,
                                 rebind.reflected,
                                 rebind.source_position,
-                                Default::default(),
                                 row,
                             )?
                         } else {
