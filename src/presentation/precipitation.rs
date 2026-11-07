@@ -19,8 +19,8 @@ use bevy::render::{
 use bevy::{ecs as bevy_ecs, prelude::*, render as bevy_render};
 use simulation::boundary::StateBlock;
 
-/// Side of the drop box in meters.
-const BOX: f32 = 40.;
+/// Side of the drop box in meters. The fade ends at half the side, where drops are sub-pixel.
+const BOX: f32 = 32.;
 /// Fall speed in meters per second.
 const FALL_SPEED: f32 = 9.;
 /// Share of `FALL_SPEED` that a full thunderstorm adds.
@@ -220,6 +220,7 @@ impl PrecipitationPass {
                 ..default()
             }),
             primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleStrip,
                 cull_mode: None,
                 ..default()
             },
@@ -296,5 +297,5 @@ fn draw(
         });
     render.set_pipeline(pipeline);
     render.set_bind_group(0, &rain.group, &[]);
-    render.draw(0..6, 0..rain.count);
+    render.draw(0..4, 0..rain.count);
 }

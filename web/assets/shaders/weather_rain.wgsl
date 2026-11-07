@@ -47,9 +47,9 @@ fn vertex(@builtin(vertex_index) corner: u32, @builtin(instance_index) id: u32) 
     var fade = 1.0 - smoothstep(0.3 * size, 0.5 * size, dist);
     let radius = rain.controls.y;
     fade *= mix(1.0, smoothstep(radius, radius + 1.0, dist), rain.controls.x);
-    // Two triangles: corners 0 1 2 and 0 2 3 of the quad.
-    let x = select(-1.0, 1.0, corner == 1u || corner == 2u || corner == 4u);
-    let y = select(0.0, 1.0, corner == 2u || corner == 4u || corner == 5u);
+    // Triangle strip of 4 corners: bit 0 is x, bit 1 is y.
+    let x = select(-1.0, 1.0, (corner & 1u) != 0u);
+    let y = select(0.0, 1.0, corner >= 2u);
     out.uv = vec2(x, y);
     out.fade = fade;
     if fade <= 0.0 {
@@ -79,5 +79,10 @@ fn fragment(in: Varyings) -> @location(0) vec4<f32> {
     let along = y * (1.0 - smoothstep(0.9, 1.0, y));
     let edge = smoothstep(0.65, 0.92, y);
     let light = 1.0 + EDGE * edge;
-    return vec4(rain.color.rgb * light, min(rain.color.a * light, 1.0) * in.fade * across * along);
+    let alpha = min(rain.color.a * light, 1.0) * in.fade * across * along;
+    // A fully faded pixel adds nothing. Skip its blend.
+    if alpha < 1.0 / 255.0 {
+        discard;
+    }
+    return vec4(rain.color.rgb * light, alpha);
 }
