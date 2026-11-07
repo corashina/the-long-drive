@@ -2,7 +2,11 @@ use super::*;
 use crate::world::{AttachmentSnapshot, GeneratedId, GeneratedKey, ObjectKey, SpawnContext};
 
 impl SaveSnapshot {
-    pub(super) fn validate_world(&self, reference: &ReferenceManifest) -> Result<(), SaveError> {
+    pub(super) fn validate_world(
+        &self,
+        reference: &ReferenceManifest,
+        ids: &IdentityMap,
+    ) -> Result<(), SaveError> {
         self.world
             .generation
             .validate_identity(&reference.content_base)
@@ -250,7 +254,6 @@ impl SaveSnapshot {
                 }
             }
         }
-        let ids = IdentityMap::new(reference)?;
         for item in &self.items {
             let key = ObjectKey::Imported(ids.item(&item.instance)?);
             match &item.location {

@@ -7,6 +7,7 @@ impl SaveSnapshot {
         &self,
         reference: &ReferenceManifest,
         expected: &SourceStamp,
+        ids: &IdentityMap,
     ) -> Result<(), SaveError> {
         if !schema_supported(self.schema_version) {
             return Err(SaveError::IncompatibleSources("Schema version".into()));
@@ -17,8 +18,7 @@ impl SaveSnapshot {
         )?;
         validate_source(&self.source, expected, reference)?;
         data(timestamp(&self.saved_at), "Save timestamp")?;
-        let ids = IdentityMap::new(reference)?;
-        self.validate_world(reference)?;
+        self.validate_world(reference, ids)?;
         identity::unsigned(&self.progress.start_attempts)?;
         data(
             self.progress.driven_km.is_finite() && self.progress.driven_km >= 0.,
@@ -118,14 +118,14 @@ impl SaveSnapshot {
             &self.cigarettes,
         )?;
         crate::starting_area::hose::validate_save(reference, &self.spawned)?;
-        self.validate_attachments(reference, &ids, &items)?;
-        self.validate_player(reference, &ids, &items)?;
+        self.validate_attachments(reference, ids, &items)?;
+        self.validate_player(reference, ids, &items)?;
         self.validate_needs(reference)?;
-        self.validate_inventory(reference, &ids, &items)?;
-        self.validate_worn(reference, &ids, &items)?;
-        self.validate_bodies(reference, &ids, &items)?;
-        self.validate_mechanisms(reference, &ids)?;
-        self.validate_lighting(reference, &ids)?;
+        self.validate_inventory(reference, ids, &items)?;
+        self.validate_worn(reference, ids, &items)?;
+        self.validate_bodies(reference, ids, &items)?;
+        self.validate_mechanisms(reference, ids)?;
+        self.validate_lighting(reference, ids)?;
         validate_weather(&reference.weather, &self.weather)?;
         let rabbit_bones = reference.creatures.rabbit.ragdoll.bodies.len();
         for rabbit in &self.rabbits {

@@ -84,10 +84,10 @@ impl MechanismState {
         let mut records = self
             .controls
             .iter()
-            .filter(|c| ids.mechanisms.values().any(|id| *id == c.reference.id))
+            .filter(|c| ids.mechanisms.contains(c.reference.id))
             .map(|c| {
                 Ok(crate::save::MechanismSnapshot {
-                    source: crate::save::identity::source_key(&ids.mechanisms, c.reference.id)?,
+                    source: ids.mechanisms.source(c.reference.id)?,
                     degrees: c.degrees,
                     slide: c.slide,
                     enabled: c.enabled,

@@ -786,7 +786,7 @@ impl StartingArea {
         for (saved, id) in slots.iter_mut().zip(self.inventory.slots) {
             *saved = id
                 .filter(saved_item)
-                .map(|id| ids.item_instance(id))
+                .map(|id| ids.item_instance(&self.items, id))
                 .transpose()?;
         }
         Ok(crate::save::InventorySnapshot {
@@ -797,7 +797,7 @@ impl StartingArea {
                 .equipment
                 .item()
                 .filter(saved_item)
-                .map(|id| ids.item_instance(id))
+                .map(|id| ids.item_instance(&self.items, id))
                 .transpose()?,
             worn: self.capture_worn(ids)?,
         })
@@ -815,7 +815,7 @@ impl StartingArea {
                     serial: spawned.serial,
                 },
                 None => WornSnapshot::Item {
-                    item: ids.item_instance(item.id)?,
+                    item: ids.item_instance(&self.items, item.id)?,
                 },
             });
         }

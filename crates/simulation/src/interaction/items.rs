@@ -191,6 +191,9 @@ impl ItemStore {
             .iter()
             .filter_map(|(key, id)| self.get(*id).map(|state| (key, state)))
     }
+    pub fn generated_key(&self, id: ItemId) -> Option<&GeneratedId> {
+        self.generated_keys.get(&id)
+    }
     pub fn generated_item_id(&self, id: &GeneratedId) -> Option<ItemId> {
         self.generated.get(id).copied()
     }
@@ -324,11 +327,9 @@ impl ItemStore {
         interaction: &crate::interaction::InteractionState,
         reference: &ReferenceManifest,
     ) -> Result<Vec<crate::save::ItemSnapshot>, crate::save::SaveError> {
-        use crate::save::{
-            AbsolutePose, ItemLocationSave, ItemSnapshot, LocalPose, identity::source_key,
-        };
+        use crate::save::{AbsolutePose, ItemLocationSave, ItemSnapshot, LocalPose};
         let mut records = Vec::with_capacity(ids.items.len());
-        for &id in ids.items.values() {
+        for id in ids.items.ids() {
             let item = self.get(id).ok_or_else(|| {
                 crate::save::SaveError::InvalidLinks("Missing source item".into())
             })?;
@@ -367,7 +368,7 @@ impl ItemStore {
                         crate::save::SaveError::InvalidLinks("Missing wheel slot identity".into())
                     })?,
                 },
-                ItemLocation::PartSlot(slot) if !ids.part_slots.values().any(|id| *id == slot) => {
+                ItemLocation::PartSlot(slot) if !ids.part_slots.contains(slot) => {
                     ItemLocationSave::GeneratedAttachment {
                         attachment: crate::world::changes::capture(
                             id,
@@ -387,7 +388,7 @@ impl ItemStore {
                 ItemLocation::Stored(slot) => ItemLocationSave::Stored { slot },
                 ItemLocation::Equipped => ItemLocationSave::Equipped,
                 ItemLocation::PartSlot(slot) => ItemLocationSave::PartSlot {
-                    slot: source_key(&ids.part_slots, slot)?,
+                    slot: ids.part_slots.source(slot)?,
                 },
                 ItemLocation::Attached(owner)
                     if matches!(
@@ -412,7 +413,7 @@ impl ItemStore {
                     }
                 }
                 ItemLocation::Attached(owner) => ItemLocationSave::Attached {
-                    owner: ids.item_instance(owner)?,
+                    owner: ids.item_instance(self, owner)?,
                 },
                 // Storage volumes belong to world owners. A lock saves with the generated owner.
                 ItemLocation::Locked { .. } => ItemLocationSave::GeneratedAttachment {
@@ -433,7 +434,7 @@ impl ItemStore {
             };
             let local_pose = self.saved_local_pose(id, &interaction.storage)?;
             records.push(ItemSnapshot {
-                instance: ids.item_instance(id)?,
+                instance: ids.item_instance(self, id)?,
                 pose: AbsolutePose { position, rotation },
                 local_pose: LocalPose {
                     position: local_pose.position,
