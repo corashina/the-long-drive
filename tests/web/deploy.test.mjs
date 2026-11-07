@@ -25,6 +25,7 @@ async function fixture(t) {
   const manifest = {content_base: 'assets/runtime/current/', file_catalog: {files: [{file: 'world/a.bc'}], packs: [{file: 'packs/start-0.gz'}], top_packs: []}};
   await put(web, 'assets/reference/catalog.json', JSON.stringify(manifest));
   await put(web, 'assets/reference/manifest.bin.gz', gzipSync(randomBytes(4096)));
+  await put(web, 'assets/reference/manifest.json.gz', gzipSync(randomBytes(64)));
   await put(web, 'index.html', '<html>');
   await put(web, 'main.js', "import('./pkg/the_long_slop.js');fetch('./pkg/the_long_slop_bg.wasm');");
   for (const path of WASM) {
@@ -55,7 +56,8 @@ test('stages the app and only the catalog files of the current package', async t
     assert.ok(await exists(join(site, path)), path);
   }
   for (const path of ['assets/runtime/current/world/unused.bc', 'assets/runtime/old', 'assets/runtime-tmp', 'assets/library',
-    'assets/reference/material-evidence.json', 'assets/reference/library-selection.json', 'assets/reference/catalog.json']) {
+    'assets/reference/material-evidence.json', 'assets/reference/library-selection.json', 'assets/reference/catalog.json',
+    'assets/reference/manifest.json.gz']) {
     assert.ok(!await exists(join(site, path)), path);
   }
   const headers = await readFile(join(site, '_headers'), 'utf8');
