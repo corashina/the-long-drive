@@ -294,7 +294,11 @@ impl Net {
                 .push((remote.slot, crate::vehicle::to_rapier(pose)));
             frame.remotes.push(RemoteRow {
                 slot: remote.slot as u32,
-                flags: RemoteRow::VISIBLE,
+                flags: if remote.smoothing.dead {
+                    0
+                } else {
+                    RemoteRow::VISIBLE
+                },
                 body_pose: PoseRow::new(pose, 0),
                 body_root: PoseRow::new(root, 0),
             });
@@ -487,6 +491,10 @@ impl Net {
                 duck: area.player.posture(),
                 flags: if area.player.seated() {
                     PoseMessage::SEATED
+                } else {
+                    0
+                } | if area.player.dead() {
+                    PoseMessage::DEAD
                 } else {
                     0
                 },

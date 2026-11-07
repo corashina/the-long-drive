@@ -97,6 +97,8 @@ impl PoseMessage {
     pub const SEATED: u32 = 1;
     /// The player sits in a car seat. `car` and `seat` name it.
     pub const IN_CAR: u32 = 2;
+    /// Port only. The player is dead. Peers hide the figure and turn off its colliders.
+    pub const DEAD: u32 = 4;
 }
 
 /// Source `SCarFloats`: the driver controls. Each peer adds them to its copy of the car.
