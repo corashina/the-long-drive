@@ -8,7 +8,7 @@ use super::message::{
 use super::objects::{NetKey, ObjectIndex};
 use crate::audio::{AudioAction, AudioKind, SurvivalAudioEvent};
 use crate::starting_area::GarageRuntime;
-use crate::weather::{MAX_CELLS, WeatherCell, WeatherKind, WeatherState, Wind};
+use crate::weather::{Forecast, MAX_CELLS, WeatherCell, WeatherKind, WeatherState, Wind};
 
 /// The wait of source `multiSyncTime` between clock sends.
 pub const TIME_SYNC: f32 = 10.;
@@ -128,6 +128,8 @@ fn weather_message(weather: &WeatherState) -> WeatherCellsMessage {
         wind_speed: weather.wind.speed,
         wetness: weather.wetness,
         locked: weather.cells.locked().into(),
+        forecast_next: weather.forecast.next as u32,
+        forecast_wait: weather.forecast.wait,
         ..Default::default()
     };
     for (wire, cell) in m.cells.iter_mut().zip(weather.cells.iter()) {
@@ -145,7 +147,12 @@ fn weather_message(weather: &WeatherState) -> WeatherCellsMessage {
 
 /// Applies a host message on a guest. Drops a message with a bad kind or value.
 fn apply_weather(m: &WeatherCellsMessage, weather: &mut WeatherState) {
-    if let Some(cells) = read_cells(m) {
+    if let Some(cells) = read_cells(m)
+        && let Some(&next) = WeatherKind::ALL.get(m.forecast_next as usize)
+        && Forecast::valid_wait(m.forecast_wait)
+    {
+        weather.forecast.next = next;
+        weather.forecast.wait = m.forecast_wait;
         weather
             .cells
             .set(cells.into_iter().flatten(), m.locked != 0);
@@ -173,6 +180,7 @@ fn read_cells(m: &WeatherCellsMessage) -> Option<[Option<WeatherCell>; MAX_CELLS
             radius: wire.radius,
             life: wire.life,
             age: wire.age,
+            aimed: false,
         };
         if !value.valid() {
             return None;
@@ -231,13 +239,14 @@ fn play(runtime: &mut GarageRuntime, slot: u8, sound: &SoundMessage) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::weather::tests::step;
 
     #[test]
     fn guest_applies_the_host_cells_and_wind() {
         let mut host = WeatherState::test(1);
         host.wetness = 0.5;
         for _ in 0..10 {
-            host.advance_cells(10., [0.; 3], false, |_| 2, |_| 0.);
+            host.advance_cells(step(10.), [0.; 3], false, |_| 2, |_| 0.);
         }
         assert!(!host.cells.is_empty());
         let mut out = Vec::new();
@@ -254,14 +263,25 @@ mod tests {
         bad.wind_speed = f32::INFINITY;
         assert_eq!(read_cells(&bad), None);
         let mut guest = WeatherState::test(2);
+        bad = m;
+        bad.forecast_wait = f32::NAN;
+        apply_weather(&bad, &mut guest);
+        assert!(guest.cells.is_empty());
         apply_weather(&m, &mut guest);
-        assert!(guest.cells.iter().eq(host.cells.iter()));
+        // A guest does not steer the forecast cell.
+        let free = host
+            .cells
+            .iter()
+            .map(|c| WeatherCell { aimed: false, ..*c });
+        assert!(guest.cells.iter().copied().eq(free));
+        assert_eq!(guest.forecast.next, host.forecast.next);
+        assert_eq!(guest.forecast.wait, host.forecast.wait);
         assert_eq!(guest.wind.dir, host.wind.dir);
         assert_eq!(guest.wetness, host.wetness);
         // A guest moves the cells with the host wind. It does not age them, spawn new ones or change the surface.
         let start: Vec<_> = guest.cells.iter().map(|c| c.center).collect();
         for _ in 0..100 {
-            guest.advance_cells(1., [0.; 3], true, |_| 2, |_| 0.);
+            guest.advance_cells(step(1.), [0.; 3], true, |_| 2, |_| 0.);
         }
         assert_eq!(guest.cells.len(), host.cells.len());
         assert!(

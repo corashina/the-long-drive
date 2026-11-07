@@ -141,7 +141,8 @@ fn root(
 
 impl GarageRuntime {
     /// Runs once before physics, with normal simulation time. Sleep does not speed storms up.
-    pub(super) fn advance_weather(&mut self, reference: &ReferenceManifest, dt: f32) {
+    /// `skip` is the extra cycle time of a sleep. It moves the forecast and the cells.
+    pub(super) fn advance_weather(&mut self, reference: &ReferenceManifest, dt: f32, skip: f32) {
         let bindings = &mut self.weather_bindings;
         bindings.sync(&self.area.items, &self.physics, &self.stream);
         self.weather
@@ -170,8 +171,14 @@ impl GarageRuntime {
             .and(self.area.player.seat_body());
         self.weather.shelter = Shelter::new(roof, || bindings.inside(&self.physics, local, open));
         let stream = &mut self.stream;
-        self.weather.advance_cells(
+        let cycle = self.lighting.cycle.output();
+        let time = crate::weather::WeatherTime {
             dt,
+            skip,
+            part: crate::weather::DayPart::new(cycle.phase, cycle.progress),
+        };
+        self.weather.advance_cells(
+            time,
             player,
             self.net_guest,
             |xz| stream.biome_at(xz),

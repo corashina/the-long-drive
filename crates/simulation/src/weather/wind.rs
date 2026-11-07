@@ -16,8 +16,10 @@ const SPEED_SECONDS: f32 = 15.;
 const GUST_PERIODS: [f32; 2] = [6., 1.5];
 /// Extra gust range at full thunderstorm weight: the noise exponent scales by 1 plus this.
 const STORM_GUST: f32 = 0.5;
-/// Cells drift at this share of the wind speed.
+/// Cells drift at this share of the wind speed, but at `MIN_DRIFT` at least.
 const DRIFT_SHARE: f32 = 0.6;
+/// The lowest cell drift in meters per second.
+pub const MIN_DRIFT: f32 = 4.;
 
 /// Smoothed value noise: random keys in -1..1 at a fixed period.
 #[derive(Debug)]
@@ -86,10 +88,8 @@ impl Wind {
 
     /// Cell drift in meters per second along world `x`, `z`.
     pub fn drift(&self) -> [f32; 2] {
-        [
-            self.dir[0] * self.speed * DRIFT_SHARE,
-            self.dir[1] * self.speed * DRIFT_SHARE,
-        ]
+        let speed = (self.speed * DRIFT_SHARE).max(MIN_DRIFT);
+        [self.dir[0] * speed, self.dir[1] * speed]
     }
 
     /// Wind velocity with the gust, in meters per second along world `x`, `z`.

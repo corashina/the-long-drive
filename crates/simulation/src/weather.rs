@@ -8,6 +8,7 @@ use rapier3d::prelude::{Ball, Collider, ColliderHandle, QueryFilter, RigidBodyHa
 
 mod cells;
 mod condition;
+mod forecast;
 mod lightning;
 mod shelter;
 mod spray;
@@ -15,11 +16,22 @@ mod tumbleweeds;
 mod wind;
 pub use cells::{ADD_RADIUS, CellSample, LOCK_RADIUS, MAX_CELLS, WeatherCell, WeatherCells};
 pub use condition::*;
+pub use forecast::{DayPart, Forecast, ForecastSnapshot};
 pub use lightning::{BOLT_SECONDS, Bolt, CLOSE_DISTANCE, Lightning, STRIKE_DISTANCE, Thunder};
 pub use shelter::{Shelter, vehicle_roof};
 pub use spray::{MAX_SPRAY, SPRAY_DISTANCE, spray_amount};
 pub use tumbleweeds::{ImportantObject, Tumbleweeds};
-pub use wind::Wind;
+pub use wind::{MIN_DRIFT, Wind};
+
+/// The game time of one weather step.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WeatherTime {
+    /// Normal simulation seconds.
+    pub dt: f32,
+    /// Extra game seconds of a sleep or a time skip.
+    pub skip: f32,
+    pub part: DayPart,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StormId(pub u32);
@@ -87,6 +99,8 @@ pub struct WeatherState {
     body_capacity: usize,
     pub tumbleweeds: Tumbleweeds,
     pub cells: WeatherCells,
+    /// The next kind at the player. The host picks it. A guest gets it from the host.
+    pub forecast: Forecast,
     pub wind: Wind,
     pub lightning: Lightning,
     /// The cell sample at the player.
@@ -118,6 +132,7 @@ impl WeatherState {
             body_capacity: 0,
             tumbleweeds: Tumbleweeds::new(seed),
             cells: WeatherCells::new(seed),
+            forecast: Forecast::new(seed),
             wind: Wind::new(seed),
             lightning: Lightning::new(seed),
             sample: CellSample::default(),
@@ -140,8 +155,12 @@ impl WeatherState {
         self.sample.dominant()
     }
 
-    /// `Some` holds the kind at the player. `None` lets the cells change it again.
+    /// `Some` holds the kind at the player and pauses the forecast.
+    /// `None` keeps the kind and starts the forecast again with a new wait.
     pub fn lock(&mut self, kind: Option<WeatherKind>, player: [f64; 3]) {
+        if kind.is_none() && self.cells.locked() {
+            self.forecast.resume(self.kind());
+        }
         self.cells.lock(kind, [player[0], player[2]]);
         self.sample = self.cells.sample([player[0], player[2]]);
         self.mix = WeatherMix {
@@ -151,32 +170,53 @@ impl WeatherState {
         };
     }
 
-    /// Advances the wind, the cells, the wetness and the lightning. Call it before `advance`.
-    /// A `guest` does not age or spawn cells, does not draw strikes and keeps the host wetness.
+    /// Advances the wind, the forecast, the cells, the wetness and the lightning. Call it before `advance`.
+    /// The forecast, the cells and the wetness also get the skip time, up to the next change.
+    /// A `guest` does not pick kinds, age or spawn cells, draw strikes or change the wetness.
     /// A guest wind keeps the host direction and speed. The host sends them.
     /// `biome_at` gives the biome and `height_at` the ground height at absolute `x`, `z`.
     pub fn advance_cells(
         &mut self,
-        dt: f32,
+        time: WeatherTime,
         player: [f64; 3],
         guest: bool,
-        biome_at: impl FnOnce([f64; 2]) -> u8,
+        biome_at: impl Fn([f64; 2]) -> u8,
         height_at: impl FnOnce([f64; 2]) -> f32,
     ) {
-        if !dt.is_finite() || dt <= 0. || !player.iter().all(|v| v.is_finite()) {
+        let WeatherTime { dt, skip, part } = time;
+        if !dt.is_finite()
+            || dt <= 0.
+            || !skip.is_finite()
+            || skip < 0.
+            || !player.iter().all(|v| v.is_finite())
+        {
             return;
         }
         self.wind.advance(dt, &self.sample, guest);
         let xz = [player[0], player[2]];
+        let total = dt + skip.min(self.forecast.wait.max(0.));
         self.cells
-            .advance(dt, self.wind.drift(), xz, guest, biome_at);
+            .advance(total, self.wind.drift(), xz, guest, |at| {
+                forecast::weights(part, biome_at(at))
+            });
+        if guest {
+            self.forecast.wait = (self.forecast.wait - total).max(0.);
+        } else if !self.cells.locked() {
+            if self.forecast.advance(total, part, biome_at(xz)).is_some() {
+                self.cells.release();
+            }
+            if !self.cells.aimed() {
+                self.cells.aim(self.forecast.next);
+            }
+            self.cells.steer(xz, self.wind.dir, self.forecast.wait);
+        }
         self.sample = self.cells.sample(xz);
         let mix = self.sample.mix();
         if !guest {
             self.wetness = if mix.rain > 0. {
-                (self.wetness + mix.rain * WET_RATE * dt).min(1.)
+                (self.wetness + mix.rain * WET_RATE * total).min(1.)
             } else {
-                (self.wetness - DRY_RATE * dt).max(0.)
+                (self.wetness - DRY_RATE * total).max(0.)
             };
         }
         let storm = self.sample.weight(WeatherKind::Thunderstorm);
@@ -219,6 +259,7 @@ impl WeatherState {
                 .collect(),
             cells: self.cells.iter().copied().collect(),
             locked: self.cells.locked(),
+            forecast: self.forecast.snapshot(),
             wetness: self.wetness,
             wind: WindSnapshot {
                 dir: self.wind.dir,
@@ -238,6 +279,7 @@ impl WeatherState {
             self.push_storm(reference, storm);
         }
         self.cells.set(saved.cells.iter().copied(), saved.locked);
+        self.forecast.restore(&saved.forecast);
         self.wetness = saved.wetness;
         self.wind.follow(saved.wind.dir, saved.wind.speed);
         self.wind.speed = saved.wind.speed;
@@ -630,6 +672,7 @@ impl WeatherState {
             body_capacity: 0,
             tumbleweeds: Tumbleweeds::new(seed),
             cells: WeatherCells::new(seed),
+            forecast: Forecast::new(seed),
             wind: Wind::new(seed),
             lightning: Lightning::new(seed),
             sample: CellSample::default(),
@@ -642,11 +685,82 @@ impl WeatherState {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn state() -> WeatherState {
         WeatherState::test(1)
+    }
+
+    pub(crate) fn step(dt: f32) -> WeatherTime {
+        WeatherTime {
+            dt,
+            ..WeatherTime::default()
+        }
+    }
+
+    /// Runs `seconds` of 1 s steps plus `skip` each step. Gives each change of the forecast.
+    fn run(state: &mut WeatherState, seconds: usize, skip: f32) -> Vec<WeatherKind> {
+        let mut changes = Vec::new();
+        for _ in 0..seconds {
+            let wait = state.forecast.wait;
+            let time = WeatherTime { skip, ..step(1.) };
+            state.advance_cells(time, [0.; 3], false, |_| 2, |_| 0.);
+            if state.forecast.wait > wait {
+                // The kind that is now full is the kind at the player.
+                assert_eq!(state.kind(), state.forecast.current);
+                changes.push(state.forecast.current);
+            }
+        }
+        changes
+    }
+
+    #[test]
+    fn the_forecast_changes_the_kind_at_the_player() {
+        let mut state = state();
+        let mut last = state.kind();
+        let mut kinds = 0;
+        let mut changes = Vec::new();
+        for _ in 0..7200 {
+            changes.extend(run(&mut state, 1, 0.));
+            if state.kind() != last {
+                last = state.kind();
+                kinds += 1;
+            }
+        }
+        assert!(changes.len() >= 4, "{changes:?}");
+        assert!(kinds >= 4);
+        assert!(changes.windows(2).all(|w| w[0] != w[1]), "{changes:?}");
+    }
+
+    #[test]
+    fn a_change_blends_in_2_to_8_minutes() {
+        for seed in 1..=6 {
+            let mut state = WeatherState::test(seed);
+            state.forecast.next = WeatherKind::Rain;
+            state.forecast.wait = 900.;
+            let [mut start, mut end] = [None; 2];
+            for t in 0..1200 {
+                run(&mut state, 1, 0.);
+                let w = state.sample().weight(WeatherKind::Rain);
+                if w >= 0.1 && start.is_none() {
+                    start = Some(t);
+                }
+                if w >= 0.9 && end.is_none() {
+                    end = Some(t);
+                }
+            }
+            let blend = end.unwrap() - start.unwrap();
+            assert!((120..=480).contains(&blend), "{blend}");
+        }
+    }
+
+    #[test]
+    fn sleep_advances_the_forecast() {
+        let mut state = state();
+        // 4 h of sleep: one 50 Hz step adds about 58 game seconds.
+        let changes = run(&mut state, 250, 58.);
+        assert!(changes.len() >= 9, "{changes:?}");
     }
 
     #[test]
@@ -667,12 +781,15 @@ mod tests {
             radius: 2000.,
             life: 1e6,
             age: 0.,
+            aimed: false,
         };
         state.cells.set([cell], false);
+        // No forecast change and no fade in this test.
+        state.forecast.wait = 1e5;
         let start = state.wind.dir;
         for _ in 0..6000 {
             let before = state.cells.iter().next().unwrap().center;
-            state.advance_cells(0.1, [0.; 3], false, |_| 2, |_| 0.);
+            state.advance_cells(step(0.1), [0.; 3], false, |_| 2, |_| 0.);
             let after = state.cells.iter().next().unwrap().center;
             let [dx, dz] = [(after[0] - before[0]) as f32, (after[1] - before[1]) as f32];
             let [wx, wz] = state.wind.dir;

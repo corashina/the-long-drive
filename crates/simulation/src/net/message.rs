@@ -196,6 +196,10 @@ pub struct WeatherCellsMessage {
     pub count: u32,
     pub wetness: f32,
     pub locked: u32,
+    /// `Forecast::next` as a `WeatherKind` value.
+    pub forecast_next: u32,
+    /// `Forecast::wait`.
+    pub forecast_wait: f32,
 }
 
 /// One host lightning strike at an absolute position.

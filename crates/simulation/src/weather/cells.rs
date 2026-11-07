@@ -5,20 +5,27 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_CELLS: usize = 8;
 const KINDS: usize = WeatherKind::ALL.len();
-/// The cells near the player: spawn at once below the first value, spawn on a timer below the second.
-const NEAR: [usize; 2] = [2, 4];
+/// The free cells near the player: spawn at once below the first value, spawn on a timer below the second.
+const NEAR: [usize; 2] = [1, 3];
 /// Meters from the player to the center of a near cell.
-const NEAR_DISTANCE: f64 = 6000.;
-/// A cell farther than this from the player is removed.
+const NEAR_DISTANCE: f64 = 8000.;
+/// A free cell farther than this from the player is removed.
 const RETIRE_DISTANCE: f64 = 12_000.;
-/// Meters from the player to a new cell, upwind.
-const SPAWN_DISTANCE: [f32; 2] = [3000., 6000.];
-/// Radians to each side of upwind for a new cell.
-const SPAWN_SPREAD: f32 = 1.;
-/// Seconds between timer spawns.
-const SPAWN_WAIT: [f32; 2] = [180., 600.];
+/// Meters upwind of the player to a free cell.
+const SPAWN_UPWIND: [f32; 2] = [0., 6000.];
+/// Meters to the side of the wind line through the player, past the free cell radius. The cell misses the player.
+const SPAWN_SIDE: [f32; 2] = [1500., 4000.];
+/// Game seconds between timer spawns.
+const SPAWN_WAIT: [f32; 2] = [900., 1800.];
 const RADIUS: [f32; 2] = [1500., 5000.];
 const STORM_RADIUS: [f32; 2] = [1000., 2500.];
+/// The radius of the forecast cell. The edge band crosses the player in 3 to 6 minutes at `AIM_SPEED`.
+const AIM_RADIUS: [f32; 2] = [4000., 8000.];
+const AIM_STORM_RADIUS: [f32; 2] = [2000., 3500.];
+/// Meters per second of the forecast cell toward the player.
+const AIM_SPEED: f32 = super::wind::MIN_DRIFT;
+/// Game seconds of the forecast cell life. The next forecast cell ends it first.
+const AIM_LIFE: f32 = 7200.;
 /// Game seconds of one cell life.
 const LIFE: [f32; 2] = [1200., 3600.];
 /// The default radius of an F4 cell.
@@ -30,13 +37,6 @@ const GROW: f32 = 0.2;
 const DECAY: f32 = 0.3;
 /// The radius share at full weight. The weight falls to 0 at the radius.
 const EDGE: f32 = 0.7;
-/// Spawn weights by the biome under the spawn point, in `WeatherKind` order.
-/// Rows: desert, snow, grass (`terrain::biome`).
-const BIOME_WEIGHTS: [[f32; KINDS]; 3] = [
-    [0.5, 0.4, 0.1, 0., 0.],
-    [0.3, 0.35, 0.15, 0., 0.2],
-    [0.35, 0.25, 0.18, 0.1, 0.12],
-];
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -48,6 +48,8 @@ pub struct WeatherCell {
     /// Game seconds.
     pub life: f32,
     pub age: f32,
+    /// The forecast cell: it moves on a path through the player and does not age.
+    pub aimed: bool,
 }
 
 impl WeatherCell {
@@ -210,15 +212,15 @@ impl WeatherCells {
         sample
     }
 
-    /// Moves the cells by `drift` in meters per second. The host also ages, removes and spawns cells.
-    /// A `guest` only moves them: the host sends the list. `biome_at` gives the biome at absolute `x`, `z`.
+    /// Moves the cells by `drift` in meters per second. The host also ages, removes and spawns free cells.
+    /// A `guest` only moves them: the host sends the list. `weights_at` gives the kind weights at absolute `x`, `z`.
     pub fn advance(
         &mut self,
         dt: f32,
         drift: [f32; 2],
         player: [f64; 2],
         guest: bool,
-        biome_at: impl FnOnce([f64; 2]) -> u8,
+        weights_at: impl FnOnce([f64; 2]) -> [f32; KINDS],
     ) {
         if self.locked {
             // The lock cell stays at the player at full strength.
@@ -230,8 +232,8 @@ impl WeatherCells {
         for cell in self.cells.iter_mut().flatten() {
             cell.center[0] += f64::from(drift[0] * dt);
             cell.center[1] += f64::from(drift[1] * dt);
-            if !guest {
-                cell.age += dt;
+            if !guest && !cell.aimed {
+                cell.age = (cell.age + dt).min(cell.life);
             }
         }
         if guest {
@@ -239,70 +241,133 @@ impl WeatherCells {
         }
         let distance = |c: &WeatherCell| (c.center[0] - player[0]).hypot(c.center[1] - player[1]);
         for slot in &mut self.cells {
-            if slot.is_some_and(|c| c.age >= c.life || distance(&c) > RETIRE_DISTANCE) {
+            if slot.is_some_and(|c| !c.aimed && (c.age >= c.life || distance(&c) > RETIRE_DISTANCE))
+            {
                 *slot = None;
             }
         }
-        let near = self.iter().filter(|c| distance(c) <= NEAR_DISTANCE).count();
+        let near = self
+            .iter()
+            .filter(|c| !c.aimed && distance(c) <= NEAR_DISTANCE)
+            .count();
         self.wait -= dt;
         if near < NEAR[0] || (near < NEAR[1] && self.wait <= 0.) {
-            self.spawn(drift, player, biome_at);
+            self.spawn(drift, player, weights_at);
         }
     }
 
-    /// One new cell upwind of the player, if a slot is free.
-    fn spawn(&mut self, drift: [f32; 2], player: [f64; 2], biome_at: impl FnOnce([f64; 2]) -> u8) {
+    /// One new free cell upwind of the player, if a slot is free. Its path misses the player.
+    fn spawn(
+        &mut self,
+        drift: [f32; 2],
+        player: [f64; 2],
+        weights_at: impl FnOnce([f64; 2]) -> [f32; KINDS],
+    ) {
         let Some(index) = self.cells.iter().position(Option::is_none) else {
             return;
         };
         self.wait = self.random.range(SPAWN_WAIT[0], SPAWN_WAIT[1]);
-        let upwind = if drift == [0.; 2] {
+        let angle = if drift == [0.; 2] {
             self.random.range(0., std::f32::consts::TAU)
         } else {
             (-drift[1]).atan2(-drift[0])
         };
-        let angle = upwind + self.random.range(-SPAWN_SPREAD, SPAWN_SPREAD);
-        let distance = self.random.range(SPAWN_DISTANCE[0], SPAWN_DISTANCE[1]);
-        let center = [
-            player[0] + f64::from(angle.cos() * distance),
-            player[1] + f64::from(angle.sin() * distance),
-        ];
-        let kind = self.pick(biome_at(center));
+        let (up, side) = ([angle.cos(), angle.sin()], [-angle.sin(), angle.cos()]);
+        // The kind and the radius come first: the side offset is past the radius.
+        let kind = super::forecast::pick(&mut self.random, &weights_at(player), None);
         let radius = if kind == WeatherKind::Thunderstorm {
             STORM_RADIUS
         } else {
             RADIUS
         };
+        let radius = self.random.range(radius[0], radius[1]);
+        let along = self.random.range(SPAWN_UPWIND[0], SPAWN_UPWIND[1]);
+        let sign = if self.random.unit() < 0.5 { -1. } else { 1. };
+        let across = sign * (radius + self.random.range(SPAWN_SIDE[0], SPAWN_SIDE[1]));
+        let center = [
+            player[0] + f64::from(up[0] * along + side[0] * across),
+            player[1] + f64::from(up[1] * along + side[1] * across),
+        ];
         self.cells[index] = Some(WeatherCell {
             kind,
             center,
-            radius: self.random.range(radius[0], radius[1]),
+            radius,
             life: self.random.range(LIFE[0], LIFE[1]),
             age: 0.,
+            aimed: false,
         });
     }
 
-    /// A weighted kind for `biome`.
-    fn pick(&mut self, biome: u8) -> WeatherKind {
-        let weights = &BIOME_WEIGHTS[usize::from(biome.min(2))];
-        let mut draw = self.random.unit() * weights.iter().sum::<f32>();
-        for (kind, &w) in WeatherKind::ALL.iter().zip(weights) {
-            if draw < w {
-                return *kind;
-            }
-            draw -= w;
+    /// True while a forecast cell is on its way.
+    pub fn aimed(&self) -> bool {
+        self.iter().any(|c| c.aimed)
+    }
+
+    /// Adds the forecast cell of `kind` at full strength. `steer` puts it on its path.
+    /// With no free slot, it replaces the weakest free cell.
+    pub fn aim(&mut self, kind: WeatherKind) {
+        let radius = if kind == WeatherKind::Thunderstorm {
+            AIM_STORM_RADIUS
+        } else {
+            AIM_RADIUS
+        };
+        let radius = self.random.range(radius[0], radius[1]);
+        let index = self.free_slot();
+        self.cells[index] = Some(WeatherCell {
+            kind,
+            center: [0.; 2],
+            radius,
+            life: AIM_LIFE,
+            age: AIM_LIFE * GROW,
+            aimed: true,
+        });
+    }
+
+    /// The forecast cell becomes a free cell that drifts on.
+    pub fn release(&mut self) {
+        for cell in self.cells.iter_mut().flatten() {
+            cell.aimed = false;
         }
-        WeatherKind::ALL[weights
-            .iter()
-            .rposition(|&w| w > 0.)
-            .expect("one kind has weight")]
+    }
+
+    /// Puts the forecast cell upwind of the player on the wind line `dir`, a unit vector.
+    /// Its weight at the player is 1 after `wait` game seconds.
+    /// In its edge band, the free cells over the player fade out at the same time.
+    pub fn steer(&mut self, player: [f64; 2], dir: [f32; 2], wait: f32) {
+        let Some(aimed) = self.cells.iter().flatten().find(|c| c.aimed).copied() else {
+            return;
+        };
+        let distance = EDGE * aimed.radius + AIM_SPEED * wait.max(0.);
+        let center = [
+            player[0] - f64::from(dir[0] * distance),
+            player[1] - f64::from(dir[1] * distance),
+        ];
+        let band = (1. - EDGE) * aimed.radius / AIM_SPEED;
+        for cell in self.cells.iter_mut().flatten() {
+            if cell.aimed {
+                cell.center = center;
+            } else if wait < band && cell.weight(player) > 0. {
+                fade(cell, wait);
+            }
+        }
     }
 
     /// `Some` removes every cell, adds a lock cell of the kind at the player and stops spawns.
-    /// `None` removes the lock cell and starts spawns again.
+    /// `None` makes the lock cell a free cell, so the kind stays until the next forecast cell.
     pub fn lock(&mut self, kind: Option<WeatherKind>, player: [f64; 2]) {
+        if kind.is_none() {
+            if !self.locked {
+                return;
+            }
+            self.locked = false;
+            for cell in self.cells.iter_mut().flatten() {
+                cell.life = AIM_LIFE;
+                cell.age = AIM_LIFE * GROW;
+            }
+            return;
+        }
         self.cells = [None; MAX_CELLS];
-        self.locked = kind.is_some();
+        self.locked = true;
         if let Some(kind) = kind {
             // The middle of the life is at full strength. A locked cell does not age.
             self.cells[0] = Some(WeatherCell {
@@ -311,25 +376,17 @@ impl WeatherCells {
                 radius: LOCK_RADIUS,
                 life: LIFE[1],
                 age: LIFE[1] * 0.5,
+                aimed: false,
             });
         }
     }
 
-    /// Adds a cell at full strength, for F4. It removes the lock. With no free slot, it replaces the weakest cell.
+    /// Adds a cell at full strength, for F4. It removes the lock. With no free slot, it replaces the weakest free cell.
     pub fn add(&mut self, kind: WeatherKind, center: [f64; 2], radius: f32) {
         if self.locked {
             self.lock(None, center);
         }
-        let index = self
-            .cells
-            .iter()
-            .position(Option::is_none)
-            .unwrap_or_else(|| {
-                let strength = |i: usize| self.cells[i].map_or(0., |c| c.strength());
-                (0..MAX_CELLS)
-                    .min_by(|&a, &b| strength(a).total_cmp(&strength(b)))
-                    .expect("MAX_CELLS is not 0")
-            });
+        let index = self.free_slot();
         // The full strength starts at the end of the growth.
         self.cells[index] = Some(WeatherCell {
             kind,
@@ -337,7 +394,23 @@ impl WeatherCells {
             radius,
             life: LIFE[1],
             age: LIFE[1] * GROW,
+            aimed: false,
         });
+    }
+
+    /// An empty slot, else the slot of the weakest free cell.
+    fn free_slot(&self) -> usize {
+        self.cells
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or_else(|| {
+                let strength = |i: usize| {
+                    self.cells[i].map_or(0., |c| if c.aimed { 2. } else { c.strength() })
+                };
+                (0..MAX_CELLS)
+                    .min_by(|&a, &b| strength(a).total_cmp(&strength(b)))
+                    .expect("MAX_CELLS is not 0")
+            })
     }
 
     /// Replaces the cells, for a load or a host message. Cells after `MAX_CELLS` are dropped.
@@ -348,6 +421,22 @@ impl WeatherCells {
         }
         self.locked = locked;
     }
+}
+
+/// Sets the life so the strength falls in a line to 0 after `seconds`. The strength now stays.
+/// A cell that ends sooner keeps its life.
+fn fade(cell: &mut WeatherCell, seconds: f32) {
+    if cell.life - cell.age <= seconds && cell.age >= (1. - DECAY) * cell.life {
+        return;
+    }
+    let strength = cell.strength().max(1e-3);
+    if seconds <= 0. {
+        cell.age = cell.life;
+        return;
+    }
+    // In the decay, strength = (life - age) / (DECAY * life).
+    cell.life = seconds / (strength * DECAY);
+    cell.age = cell.life - seconds;
 }
 
 /// The grey shade from its grey-weighted sum. No grey gives 1.
@@ -362,9 +451,13 @@ mod tests {
     fn run(seed: u64, biome: u8, steps: usize) -> WeatherCells {
         let mut cells = WeatherCells::new(seed);
         for _ in 0..steps {
-            cells.advance(10., [3., 1.], [0.; 2], false, |_| biome);
+            cells.advance(10., [3., 1.], [0.; 2], false, |_| weights(biome));
         }
         cells
+    }
+
+    fn weights(biome: u8) -> [f32; KINDS] {
+        super::super::forecast::weights(Default::default(), biome)
     }
 
     #[test]
@@ -386,26 +479,21 @@ mod tests {
     }
 
     #[test]
-    fn the_desert_spawns_no_thunderstorm() {
-        let mut cells = WeatherCells::new(5);
-        assert!((0..1000).all(|_| cells.pick(0) != WeatherKind::Thunderstorm));
-        assert!((0..1000).any(|_| cells.pick(2) == WeatherKind::Thunderstorm));
-    }
-
-    #[test]
     fn lock_gives_the_full_kind_at_the_player() {
         let mut cells = run(3, 2, 100);
         cells.lock(Some(WeatherKind::Thunderstorm), [0.; 2]);
         let player = [5000., -8000.];
         for _ in 0..1000 {
-            cells.advance(10., [3., 1.], player, false, |_| 2);
+            cells.advance(10., [3., 1.], player, false, |_| weights(2));
         }
         let sample = cells.sample(player);
         assert_eq!(sample.dominant(), WeatherKind::Thunderstorm);
         assert_eq!(sample.mix(), WeatherKind::Thunderstorm.target());
         assert_eq!(cells.len(), 1);
+        // Auto keeps the kind as a free cell until the next forecast cell.
         cells.lock(None, player);
-        assert!(cells.is_empty() && !cells.locked());
+        assert!(!cells.locked());
+        assert_eq!(cells.sample(player).dominant(), WeatherKind::Thunderstorm);
     }
 
     #[test]

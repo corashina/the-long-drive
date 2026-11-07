@@ -1,8 +1,8 @@
 use super::{InstanceId, SaveError, SourceKey};
 use serde::{Deserialize, Serialize};
 
-pub const SAVE_SCHEMA_VERSION: u32 = 49;
-pub const OLDEST_SAVE_SCHEMA_VERSION: u32 = 49;
+pub const SAVE_SCHEMA_VERSION: u32 = 50;
+pub const OLDEST_SAVE_SCHEMA_VERSION: u32 = 50;
 pub fn schema_supported(version: u32) -> bool {
     (OLDEST_SAVE_SCHEMA_VERSION..=SAVE_SCHEMA_VERSION).contains(&version)
 }
@@ -119,6 +119,8 @@ pub struct WeatherSnapshot {
     pub cells: Vec<crate::weather::WeatherCell>,
     /// The F4 lock. The only cell is then the lock cell.
     pub locked: bool,
+    /// The next kind at the player.
+    pub forecast: crate::weather::ForecastSnapshot,
     pub wetness: f32,
     pub wind: WindSnapshot,
 }
@@ -521,7 +523,7 @@ mod g04_ordered_state {
     fn older_schemas_are_rejected_before_payload_reconstruction() {
         for version in [
             6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-            31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 50,
+            31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51,
         ] {
             let payload = format!(r#"{{"schema_version":{version}}}"#);
             assert!(matches!(
@@ -533,15 +535,15 @@ mod g04_ordered_state {
 
     #[test]
     fn current_schema_passes_the_version_gate() {
-        // Schema 49 reaches payload parsing. The empty payload then fails as corrupt data.
+        // Schema 50 reaches payload parsing. The empty payload then fails as corrupt data.
         assert!(matches!(
-            SaveSnapshot::from_json(br#"{"schema_version":49}"#),
+            SaveSnapshot::from_json(br#"{"schema_version":50}"#),
             Err(SaveError::CorruptData(_))
         ));
     }
 
     #[test]
-    fn weather_cells_and_wind_round_trip() {
+    fn weather_cells_wind_and_forecast_round_trip() {
         let weather = WeatherSnapshot {
             since_spawn: 1.,
             wait: 2.,
@@ -552,8 +554,15 @@ mod g04_ordered_state {
                 radius: 1500.,
                 life: 1800.,
                 age: 300.,
+                aimed: true,
             }],
             locked: false,
+            forecast: crate::weather::ForecastSnapshot {
+                current: crate::weather::WeatherKind::Rain,
+                next: crate::weather::WeatherKind::Fog,
+                wait: 420.,
+                random: u64::MAX - 3,
+            },
             wetness: 0.8,
             wind: WindSnapshot {
                 dir: [0.6, -0.8],
