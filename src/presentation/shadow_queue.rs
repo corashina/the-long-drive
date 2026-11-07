@@ -69,6 +69,8 @@ pub struct ShadowQueues {
     /// The animated part of `instances`.
     pub animated: [[u32; TILE_BITS]; WORLD_VIEWS],
     pub ready: [bool; WORLD_VIEWS],
+    /// Why a view queue is not ready, for F3.
+    pub held: [&'static str; WORLD_VIEWS],
     pub frame: u32,
 }
 impl FromWorld for ShadowQueues {
@@ -83,6 +85,7 @@ impl FromWorld for ShadowQueues {
             instances: [[0; TILE_BITS]; WORLD_VIEWS],
             animated: [[0; TILE_BITS]; WORLD_VIEWS],
             ready: [false; WORLD_VIEWS],
+            held: [""; WORLD_VIEWS],
             frame: 0,
         }
     }
@@ -284,7 +287,7 @@ pub fn queue(world: &mut World) {
                         }
                         let queued = &mut state.queued[index];
                         queued.reserve(scene.capacity().saturating_sub(queued.len()));
-                        let mut ready = true;
+                        let mut held = None;
                         // Rows outside the marked list have a zero mask.
                         for &item in &scene.marked[index] {
                             let mask = scene.masks[index][item as usize];
@@ -308,7 +311,7 @@ pub fn queue(world: &mut World) {
                             ) {
                                 Ok(Some(v)) => v,
                                 Ok(None) => {
-                                    ready = false;
+                                    held.get_or_insert("shadow caster base pipeline");
                                     continue;
                                 }
                                 Err(e) => {
@@ -318,7 +321,7 @@ pub fn queue(world: &mut World) {
                             };
                             let casters = world.resource::<CasterPasses>();
                             let Some(pipeline) = casters.pipeline(base.0) else {
-                                ready = false;
+                                held.get_or_insert("shadow caster pipeline missing");
                                 continue;
                             };
                             if world
@@ -326,11 +329,11 @@ pub fn queue(world: &mut World) {
                                 .get_render_pipeline(pipeline)
                                 .is_none()
                             {
-                                ready = false;
+                                held.get_or_insert("shadow caster pipeline compiling");
                             }
                             let instances = world.resource::<RenderMeshInstances>();
                             let Some(instance) = instances.render_mesh_queue_data(main) else {
-                                ready = false;
+                                held.get_or_insert("shadow caster mesh instance");
                                 continue;
                             };
                             let mesh = instance.mesh_asset_id();
@@ -403,7 +406,8 @@ pub fn queue(world: &mut World) {
                             }
                             false
                         });
-                        state.ready[index] = ready;
+                        state.ready[index] = held.is_none();
+                        state.held[index] = held.unwrap_or("");
                     }
                 },
             );
@@ -574,18 +578,37 @@ pub(crate) fn graph_ready(
 ) -> bool {
     let view = view.into_inner();
     // Every view samples the world view shadows, so every view waits for their queue.
-    frame.frame != 0
-        && frame.views[view.index].is_some()
-        && queues.frame == frame.frame
-        && queues.ready.iter().all(|ready| *ready)
-        && props.frame == frame.frame
-        && props.ready[view.index]
-        && loading.is_ready()
-        && surface.ready(&cache)
-        && caster.ready(&cache)
-        && resolve.ready(&cache)
-        && sun.prepared_frame == frame.frame
-        && status.failure().is_none()
+    let casters = (queues.ready.iter().zip(queues.held))
+        .find(|(ready, _)| !**ready)
+        .map(|(_, held)| {
+            if held.is_empty() {
+                "shadow casters"
+            } else {
+                held
+            }
+        });
+    let gate = [
+        (frame.frame != 0, "no frame"),
+        (frame.views[view.index].is_some(), "no view"),
+        (queues.frame == frame.frame, "shadow queue frame"),
+        (casters.is_none(), casters.unwrap_or_default()),
+        (props.frame == frame.frame, "prop frame"),
+        (props.ready[view.index], "props"),
+        (loading.is_ready(), "material loading"),
+        (surface.ready(&cache), "surface pipelines"),
+        (caster.ready(&cache), "caster pipelines"),
+        (resolve.ready(&cache), "depth resolve"),
+        (sun.prepared_frame == frame.frame, "sun shadow prepare"),
+        (status.failure().is_none(), "failure"),
+    ]
+    .into_iter()
+    .find_map(|(ready, gate)| (!ready).then_some(gate));
+    if view.index == 0
+        && let Some(gate) = gate
+    {
+        status.lock().audit.hold_world(frame.frame, gate);
+    }
+    gate.is_none()
 }
 /// The world view encodes the sun atlas before any other view draws its surfaces.
 pub fn collector_encoded(
