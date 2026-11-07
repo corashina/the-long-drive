@@ -132,7 +132,7 @@ pub(crate) fn prepare_pass_order(
     loading: Res<MaterialLoading>,
     functions: Res<DrawFunctions<Transparent3d>>,
     status: Res<RendererStateHandle>,
-    particles: Res<super::particles::ExtractedParticles>,
+    particles: Res<super::quad_batches::ExtractedQuadBatches<super::particles::ParticleUniform>>,
     lighting: Res<super::lighting::ExtractedLighting>,
 ) {
     if !loading.is_ready() || status.failure().is_some() {
@@ -153,7 +153,7 @@ pub(crate) fn prepare_pass_order(
         }
         // One named grab capture precedes the first distortion particle.
         let capacity = loading.transparent_pass_capacity().unwrap_or(0)
-            + particles.uniforms.len()
+            + particles.len
             + crate::reference::GUN_DECALS
             + 1;
         if order.entries.capacity() < capacity {
