@@ -57,6 +57,7 @@ pub struct HumanAiReference {
 }
 
 impl HumanAiReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self) -> Result<(), ReferenceError> {
         let range = |r: &[f32; 2]| finite(r) && 0. <= r[0] && r[0] <= r[1];
         require(

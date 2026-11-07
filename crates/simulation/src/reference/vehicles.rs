@@ -144,6 +144,7 @@ pub struct BalanceReference {
 }
 
 impl BalanceReference {
+    #[cfg(feature = "validate")]
     fn valid(&self) -> bool {
         finite(&[
             self.lean_min_speed,
@@ -200,6 +201,7 @@ pub struct PedalsReference {
 }
 
 impl PedalsReference {
+    #[cfg(feature = "validate")]
     fn valid(&self, b: PrototypeBounds, wheels: usize, seats: usize) -> bool {
         finite(&[
             self.ratio,
@@ -383,6 +385,7 @@ pub struct VehicleReach {
 }
 
 impl VehicleReach {
+    #[cfg(feature = "validate")]
     fn nodes(&self) -> [Option<u32>; 10] {
         [
             self.horn,
@@ -670,6 +673,7 @@ pub struct RadiatorPartReference {
 
 /// Local id ranges of one world prototype.
 #[derive(Clone, Copy)]
+#[cfg(feature = "validate")]
 pub(super) struct PrototypeBounds<'a> {
     pub nodes: usize,
     pub bodies: usize,
@@ -677,22 +681,28 @@ pub(super) struct PrototypeBounds<'a> {
     pub asset: &'a AssetRecord,
 }
 
+#[cfg(feature = "validate")]
 impl PrototypeBounds<'_> {
+    #[cfg(feature = "validate")]
     fn node(&self, id: u32) -> bool {
         (id as usize) < self.nodes
     }
+    #[cfg(feature = "validate")]
     fn nodes<'b>(&self, ids: impl IntoIterator<Item = &'b u32>) -> bool {
         ids.into_iter().all(|id| self.node(*id))
     }
+    #[cfg(feature = "validate")]
     fn material(&self, m: &MaterialLink) -> bool {
         m.asset == self.asset.id && m.gltf_material < self.asset.material_count
     }
 }
 
+#[cfg(feature = "validate")]
 fn check(source: &SourceId, name: &str, ok: bool) -> Result<(), ReferenceError> {
     require(ok, &field(source, name))
 }
 
+#[cfg(feature = "validate")]
 fn curve_valid(c: &TorqueCurve) -> bool {
     !c.keys.is_empty()
         && c.keys.iter().all(|k| {
@@ -747,6 +757,7 @@ impl WorldVehicleReference {
             .map(|m| &m.material);
         lights.chain(instruments).chain(mirrors)
     }
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self, b: PrototypeBounds) -> Result<(), ReferenceError> {
         let s = &self.source;
         check(
@@ -969,6 +980,7 @@ impl WorldVehicleReference {
     }
 }
 
+#[cfg(feature = "validate")]
 fn instruments_valid(r: &InstrumentReference, b: PrototypeBounds) -> bool {
     // Gauge state keeps lamp bits in one u32.
     r.lamps.len() <= 32
@@ -1001,6 +1013,7 @@ fn instruments_valid(r: &InstrumentReference, b: PrototypeBounds) -> bool {
             .is_none_or(|o| finite(&[o.initial_value, o.multiplier]))
 }
 
+#[cfg(feature = "validate")]
 fn switch_valid(m: &MaterialSwitchReference, b: &PrototypeBounds) -> bool {
     match m {
         MaterialSwitchReference::Absent => true,
@@ -1011,6 +1024,7 @@ fn switch_valid(m: &MaterialSwitchReference, b: &PrototypeBounds) -> bool {
 }
 
 impl GaugePartReference {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self, b: PrototypeBounds) -> Result<(), ReferenceError> {
         check(
             &self.source,
@@ -1041,6 +1055,7 @@ impl GaugePartReference {
 }
 
 impl EnginePartReference {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self, nodes: usize) -> Result<(), ReferenceError> {
         let s = &self.source;
         check(
@@ -1101,6 +1116,7 @@ impl EnginePartReference {
 }
 
 impl RadiatorPartReference {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self, nodes: usize) -> Result<(), ReferenceError> {
         let s = &self.source;
         check(
@@ -1129,6 +1145,7 @@ impl RadiatorPartReference {
 
 impl EngineGlobals {
     /// Shared `mainscript` engine values. The world record holds them once.
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self) -> Result<(), ReferenceError> {
         check(
             &self.source,

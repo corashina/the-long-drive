@@ -31,9 +31,7 @@ impl super::GarageRuntime {
         if self.hum.humming() && !lmb {
             input.mouse = [0.; 2];
         }
-        let Some(audio) = &mut self.audio else {
-            return;
-        };
+        let audio = &mut self.audio;
         let Some(sound) = self.hum.sound() else {
             audio.stop_survival_loop(AudioKind::Hum, 0);
             return;

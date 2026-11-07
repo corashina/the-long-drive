@@ -1,5 +1,7 @@
 //! Checked source `mountStuff` storage volumes, policy, and item flags.
-use super::{ItemId, ReferenceError, ReferenceManifest, SourceId, finite, require};
+use super::{ItemId, SourceId};
+#[cfg(feature = "validate")]
+use super::{ReferenceError, ReferenceManifest, finite, require};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -67,6 +69,7 @@ pub fn stores(storage_type: u8) -> bool {
     !matches!(storage_type, 5 | 7)
 }
 
+#[cfg(feature = "validate")]
 fn positive(half_extents: &[f32; 3]) -> bool {
     half_extents
         .iter()
@@ -74,6 +77,7 @@ fn positive(half_extents: &[f32; 3]) -> bool {
 }
 
 impl StorageRecord {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self, manifest: &ReferenceManifest) -> Result<(), ReferenceError> {
         let policy = &self.policy;
         require(

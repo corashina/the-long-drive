@@ -439,12 +439,14 @@ pub struct HumanReference {
 }
 
 impl HumanReference {
+    #[cfg(feature = "validate")]
     fn local(&self, m: &ReferenceManifest, node: NodeId) -> bool {
         m.nodes
             .iter()
             .any(|n| n.id == node && n.asset == self.asset)
     }
 
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             m.assets.iter().any(|a| {
@@ -497,7 +499,7 @@ impl HumanReference {
             "human animator nodes",
         )?;
         let v = &self.voice;
-        let audio = &m.audio.gameplay;
+        let audio = &m.audio;
         let clip = |c: &HumanVoiceClip| c.seconds > 0. && audio.has_clip(c.clip);
         require(
             [&v.idle, &v.chase, &v.notice, &v.attack, &v.death]
@@ -514,6 +516,7 @@ impl HumanReference {
     }
 }
 
+#[cfg(feature = "validate")]
 fn validate_ragdoll(
     r: &CreatureRagdoll,
     local: impl Fn(NodeId) -> bool,
@@ -540,6 +543,7 @@ fn validate_ragdoll(
     )
 }
 
+#[cfg(feature = "validate")]
 fn range(r: &[f32; 2]) -> bool {
     finite(r) && 0. <= r[0] && r[0] <= r[1]
 }
@@ -548,6 +552,7 @@ impl CreaturesReference {
     pub fn stimulus(&self, source: &SourceId) -> Option<&StimulusSource> {
         self.stimuli.iter().find(|s| &s.source == source)
     }
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         self.rabbit.validate(m)?;
         self.human.validate(m)?;
@@ -583,6 +588,7 @@ impl RabbitReference {
             .any(|n| n.id == node && n.asset == self.asset)
     }
 
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             m.assets.iter().any(|a| {
@@ -745,7 +751,7 @@ impl RabbitReference {
             "rabbit actions",
         )?;
         let e = &self.evil;
-        let audio = &m.audio.gameplay;
+        let audio = &m.audio;
         let clip = |id: &u32| audio.has_clip(*id);
         require(
             finite(&[

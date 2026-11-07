@@ -124,9 +124,7 @@ impl GarageRuntime {
     /// Music mode notes: one loop per held note. Orphaned notes of an earlier music
     /// command keep their sound and get no pitch change.
     pub(super) fn play_computer_notes(&mut self, reference: &ComputerReference) {
-        let Some(audio) = &mut self.audio else {
-            return;
-        };
+        let audio = &mut self.audio;
         audio.stop_survival_loops(AudioKind::ComputerNote);
         let detune = (
             reference.pitch_difference,
@@ -161,19 +159,18 @@ impl GarageRuntime {
     /// mainscript.PlayClipAtPoint with a random pitch for the display switch.
     pub(super) fn play_computer_sounds(&mut self) {
         for (clip, gain, position) in self.stream.computers.sounds.drain(..) {
-            if let Some(audio) = &mut self.audio {
-                let pitch = audio.random_pitch();
-                audio.survival_event(crate::audio::SurvivalAudioEvent {
-                    session: audio.session,
-                    emitter: 0,
-                    kind: crate::audio::AudioKind::ItemHit,
-                    action: crate::audio::AudioAction::Start,
-                    clip,
-                    gain,
-                    pitch,
-                    position,
-                });
-            }
+            let audio = &mut self.audio;
+            let pitch = audio.random_pitch();
+            audio.survival_event(crate::audio::SurvivalAudioEvent {
+                session: audio.session,
+                emitter: 0,
+                kind: crate::audio::AudioKind::ItemHit,
+                action: crate::audio::AudioAction::Start,
+                clip,
+                gain,
+                pitch,
+                position,
+            });
         }
     }
 }

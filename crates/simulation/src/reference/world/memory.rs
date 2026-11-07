@@ -115,7 +115,7 @@ impl WorldReference {
         size_of::<Self>() + 2 * size_of::<usize>() + self.heap_bytes()
     }
 }
-fields!(WorldReference:mechanisms,library,spawn_context,initialization,generation_frame,draw_distance,source_hashes,road,terrain,buildings,catalog,part_scope_slots,generators,startup,startup_holes,collision_rules,grass_displacement,lod,initial_materials,painting_materials,biome_material_sets,prototypes,records,receipts,exclusions,material_textures);
+fields!(WorldReference:mechanisms,library,spawn_context,initialization,generation_frame,draw_distance,source_hashes,road,terrain,buildings,catalog,part_scope_slots,generators,startup,startup_holes,collision_rules,grass_displacement,lod,initial_materials,painting_materials,biome_material_sets,prototypes,records,exclusions,material_textures);
 fields!(DrawDistanceReference:source);
 fields!(WorldPrototypeReference:source,role,asset,nodes,controls,excluded_actions,deferred_materials,skins,bodies,colliders,prefab_pose);
 fields!(WorldPrototypeNode:source,name,parent,active,renderer_enabled,layer,transform,gltf_node,biome_materials);

@@ -289,7 +289,6 @@ fn new_spray(t: &SprayTool, root: Pose, nozzle: Pose) -> Spray {
 impl CleaningTools {
     pub fn new(reference: &ReferenceManifest) -> Result<Self, ReferenceError> {
         let c = &reference.conditions;
-        c.validate(reference)?;
         let pose = |n: NodeId| super::items::node_pose(reference, n).map(to_rapier);
         let poses = |n: &BrushNodes<NodeId>, root: NodeId| -> Result<BrushPoses, ReferenceError> {
             Ok(BrushPoses {

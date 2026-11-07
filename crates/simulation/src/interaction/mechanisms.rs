@@ -285,11 +285,10 @@ impl MechanismState {
             })
             .collect();
         let order = (0..frames.len()).collect();
-        let audio = reference.audio.playback().ok();
         let mut state = Self {
             radio_seconds: 0.,
             last_radio_tune: 0.,
-            radio_repeat: audio.as_ref().map_or(0., |a| a.radio.tuning_repeat_seconds),
+            radio_repeat: reference.audio.radio.tuning_repeat_seconds,
             order,
             controls,
             items,

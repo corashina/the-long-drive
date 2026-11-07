@@ -7,12 +7,15 @@ mod initialization;
 mod lod;
 mod memory;
 use super::{
-    AssetId, AssetRecord, AssetUsage, ColliderGeometry, EngineGlobals, EnginePartReference,
-    GaugePartReference, LibraryProvenance, NodeId, PrototypeBounds, RadiatorPartReference,
-    ReferenceError, ReferenceManifest, SourceHash, SourceId, Transform, WorldFollowersReference,
-    WorldHitchReference, WorldTrailerReference, WorldVehicleReference, field, finite, hash,
-    require, source_valid, transform,
+    AssetId, AssetUsage, ColliderGeometry, EngineGlobals, EnginePartReference, GaugePartReference,
+    LibraryProvenance, NodeId, RadiatorPartReference, ReferenceManifest, SourceHash, SourceId,
+    Transform, WorldFollowersReference, WorldHitchReference, WorldTrailerReference,
+    WorldVehicleReference,
 };
+#[cfg(feature = "validate")]
+use super::{AssetRecord, PrototypeBounds, field, finite, hash, source_valid, transform};
+#[cfg(feature = "validate")]
+use super::{ReferenceError, require};
 pub use grass::*;
 pub use initial_materials::*;
 pub use initialization::*;
@@ -22,7 +25,9 @@ pub use draw_distance::*;
 mod mirrors;
 pub use mirrors::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
+#[cfg(feature = "validate")]
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,6 +66,8 @@ pub struct WorldReference {
     pub prototypes: WorldPrototypes,
     #[serde(skip)]
     pub records: WorldRecords,
+    /// Only the manifest checks read the receipts.
+    #[cfg(feature = "validate")]
     #[serde(skip)]
     pub receipts: Vec<SourceId>,
     pub exclusions: Vec<WorldExclusion>,
@@ -190,6 +197,7 @@ pub struct WorldPushReference {
     pub grip: Option<super::PushGripReference<u32, u32>>,
 }
 impl WorldPushReference {
+    #[cfg(feature = "validate")]
     fn valid(&self, p: &WorldPrototypeReference) -> bool {
         let node = |n: u32| (n as usize) < p.nodes.len();
         // Grip colliders must be on the push body, below the push node, as the binder needs.
@@ -307,6 +315,7 @@ pub struct SledWheelReference {
 }
 
 impl SledReference {
+    #[cfg(feature = "validate")]
     fn valid(&self, p: &WorldPrototypeReference) -> bool {
         finite(&[
             self.slide_above_mass,
@@ -451,11 +460,13 @@ pub enum TriggerRole {
     },
 }
 impl WorldColliderReference {
+    #[cfg(feature = "validate")]
     fn role_valid(&self) -> bool {
         self.role.is_none_or(|r| self.trigger && r.valid())
     }
 }
 impl TriggerRole {
+    #[cfg(feature = "validate")]
     fn valid(&self) -> bool {
         match *self {
             Self::Ladder { speed, up } => {
@@ -798,6 +809,7 @@ impl WorldReference {
         self.startup_row(id).is_some_and(|row| row.start_car)
     }
     /// Every set material binds as a world prototype material. Desert materials are unique.
+    #[cfg(feature = "validate")]
     fn validate_biome_material_sets(
         &self,
         manifest: &ReferenceManifest,
@@ -827,6 +839,7 @@ impl WorldReference {
         Ok(())
     }
 }
+#[cfg(feature = "validate")]
 fn values_valid(value: &WorldValue, receipts: &HashSet<&SourceId>) -> bool {
     match value {
         WorldValue::Number(n) => n.is_finite(),
@@ -836,12 +849,14 @@ fn values_valid(value: &WorldValue, receipts: &HashSet<&SourceId>) -> bool {
         _ => true,
     }
 }
+#[cfg(feature = "validate")]
 fn record_link<'a>(record: &'a WorldSourceRecord, name: &str) -> Option<&'a SourceId> {
     match record.fields.get(name) {
         Some(WorldValue::Link(source)) => Some(source),
         _ => None,
     }
 }
+#[cfg(feature = "validate")]
 fn checked_record<'a>(
     records: &'a WorldRecords,
     source: &SourceId,
@@ -856,9 +871,11 @@ fn checked_record<'a>(
     )?;
     Ok(record)
 }
+#[cfg(feature = "validate")]
 fn component_listed(record: &WorldSourceRecord, source: &SourceId) -> bool {
     record.components().any(|component| component == source)
 }
+#[cfg(feature = "validate")]
 fn node_links_match(
     record: &WorldSourceRecord,
     name: &str,
@@ -869,6 +886,7 @@ fn node_links_match(
         && values.iter().zip(indices).all(|(value, index)| matches!(value, WorldValue::Link(source) if nodes.get(*index as usize).is_some_and(|node| &node.source == source))))
 }
 impl WorldReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, manifest: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(transform(&self.generation_frame), "world source frame")?;
         validate_world_library(&self.library, &manifest.library)?;
@@ -1589,6 +1607,7 @@ impl WorldReference {
         Ok(())
     }
 
+    #[cfg(feature = "validate")]
     fn validate_prototype(
         &self,
         p: &WorldPrototypeReference,
@@ -1896,6 +1915,7 @@ impl WorldReference {
     }
 }
 /// Vehicle, engine and radiator records resolve inside the prototype.
+#[cfg(feature = "validate")]
 fn vehicle_valid(p: &WorldPrototypeReference, asset: &AssetRecord) -> Result<(), ReferenceError> {
     if let Some(v) = &p.vehicle {
         v.validate(PrototypeBounds {
@@ -1922,6 +1942,7 @@ fn vehicle_valid(p: &WorldPrototypeReference, asset: &AssetRecord) -> Result<(),
     Ok(())
 }
 /// Interior colliders, doors and parents resolve inside the prototype.
+#[cfg(feature = "validate")]
 fn interiors_valid(p: &WorldPrototypeReference, doors: &[&SourceId]) -> Result<(), ReferenceError> {
     let door = |s: &SourceId| doors.contains(&s);
     // Parent cycles are valid. Source `GetValue(p)` skips the parent that called it.
@@ -1944,6 +1965,7 @@ fn interiors_valid(p: &WorldPrototypeReference, doors: &[&SourceId]) -> Result<(
     }
     Ok(())
 }
+#[cfg(feature = "validate")]
 fn collider_valid(g: &ColliderGeometry) -> bool {
     match g {
         ColliderGeometry::Box {
@@ -2135,9 +2157,17 @@ impl WorldReference {
     /// Sets the world tables from all of `bytes`.
     pub fn decode_tables(&mut self, bytes: &[u8]) -> Result<(), super::ReferenceError> {
         let error = |e: postcard::Error| super::ReferenceError(format!("World tables: {e}"));
-        let (tables, rest) = postcard::take_from_bytes::<WorldTables>(bytes).map_err(error)?;
-        super::require(rest.is_empty(), "world tables end")?;
-        (self.records, self.prototypes, self.receipts) = tables;
+        #[cfg(feature = "validate")]
+        {
+            let (tables, rest) = postcard::take_from_bytes::<WorldTables>(bytes).map_err(error)?;
+            super::require(rest.is_empty(), "world tables end")?;
+            (self.records, self.prototypes, self.receipts) = tables;
+        }
+        // The receipts are last. Postcard tuples have no framing, so the decode stops before them.
+        #[cfg(not(feature = "validate"))]
+        {
+            (self.records, self.prototypes) = postcard::take_from_bytes(bytes).map_err(error)?.0;
+        }
         Ok(())
     }
 }
@@ -2154,6 +2184,7 @@ impl<'de, T: Sourced + Deserialize<'de>> Deserialize<'de> for SourceTable<T> {
 
 impl<Node, Bone: Eq + std::hash::Hash> SkinnedMeshReference<Node, Bone> {
     /// Unique bones with finite bind poses, complete vertex streams, unit weights, and indexed triangles.
+    #[cfg(feature = "validate")]
     pub fn valid_streams(&self) -> bool {
         let count = self.positions.len();
         !self.bones.is_empty()
@@ -2184,6 +2215,7 @@ impl<Node, Bone: Eq + std::hash::Hash> SkinnedMeshReference<Node, Bone> {
     }
 }
 
+#[cfg(feature = "validate")]
 fn validate_world_library(
     current: &LibraryProvenance,
     accepted: &LibraryProvenance,

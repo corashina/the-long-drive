@@ -627,7 +627,6 @@ fn absolute(origin: [f64; 3], local: Vector) -> [f64; 3] {
 /// Exported audio clips: source, id and source length.
 pub(crate) fn clip_table(r: &ReferenceManifest) -> Vec<(SourceId, u32, f32)> {
     r.audio
-        .gameplay
         .clips
         .iter()
         .map(|c| (c.source.clone(), c.id, c.source_duration_seconds as f32))

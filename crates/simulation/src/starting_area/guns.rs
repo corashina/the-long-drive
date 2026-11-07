@@ -94,27 +94,26 @@ impl GarageRuntime {
                     pitch: sound.pitch,
                 });
             }
-            if let Some(audio) = &mut self.audio {
-                // `PlayClipAtPoint` destroys the copy after the clip length.
-                let seconds = audio
-                    .reference
-                    .clips
-                    .iter()
-                    .find(|c| c.id == sound.clip)
-                    .map_or(0., |c| c.source_duration_seconds as f32);
-                self.creatures
-                    .sound(sound.position, sound.gain, self.simulation_seconds, seconds);
-                audio.survival_event(crate::audio::SurvivalAudioEvent {
-                    session: audio.session,
-                    emitter: 0,
-                    kind: crate::audio::AudioKind::ItemHit,
-                    action: crate::audio::AudioAction::Start,
-                    clip: sound.clip,
-                    gain: sound.gain,
-                    pitch: sound.pitch,
-                    position: sound.position,
-                });
-            }
+            let audio = &mut self.audio;
+            // `PlayClipAtPoint` destroys the copy after the clip length.
+            let seconds = audio
+                .reference
+                .clips
+                .iter()
+                .find(|c| c.id == sound.clip)
+                .map_or(0., |c| c.source_duration_seconds as f32);
+            self.creatures
+                .sound(sound.position, sound.gain, self.simulation_seconds, seconds);
+            audio.survival_event(crate::audio::SurvivalAudioEvent {
+                session: audio.session,
+                emitter: 0,
+                kind: crate::audio::AudioKind::ItemHit,
+                action: crate::audio::AudioAction::Start,
+                clip: sound.clip,
+                gain: sound.gain,
+                pitch: sound.pitch,
+                position: sound.position,
+            });
         }
         while let Some(item) = self.area.interaction.guns.take_food() {
             if self.cut_food(reference, item, false).is_err() {

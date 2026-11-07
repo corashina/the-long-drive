@@ -26,9 +26,6 @@ impl GarageRuntime {
             audio_motion_revision,
             ..
         } = self;
-        let Some(audio) = audio else {
-            return;
-        };
         out.push(AudioCall::Begin {
             session: audio.session,
             started: *started,

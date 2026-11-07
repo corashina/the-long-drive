@@ -138,6 +138,7 @@ pub struct HumanVoiceReference {
 }
 
 impl HumanoidReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, nodes: &[NodeRecord]) -> Result<(), ReferenceError> {
         let fail = |text: &str| Err(ReferenceError(format!("Human monster Animator: {text}")));
         let known = |id: NodeId| nodes.iter().any(|n| n.id == id);

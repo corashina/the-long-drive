@@ -61,6 +61,7 @@ Run a release build only when requested or at an agreed milestone:
 ```
 
 The build script writes the browser package to `web/pkg`.
+It first runs `validate-reference` natively on `web/assets/reference/manifest.bin.gz`. The game does not check the manifest, so a manifest that fails a new rule stops the build.
 To iterate on a bug, use `./scripts/build.ps1 -Fast`. It skips LTO, wasm-opt and Brotli, so a rebuild takes about 1 minute.
 Fast packages are larger and slower. Do not use them for F3 numbers or test passes.
 The build script also prepares Brotli downloads in `.cache/http-compression`. Keep that directory with the server deployment.

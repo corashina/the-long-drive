@@ -63,6 +63,7 @@ pub struct PreviewJoint {
 
 impl PreviewReference {
     /// `joint_names` are the skin joint names of each player character.
+    #[cfg(feature = "validate")]
     pub fn validate(&self, joint_names: &[HashSet<&str>]) -> Result<(), ReferenceError> {
         let c = &self.camera;
         require(

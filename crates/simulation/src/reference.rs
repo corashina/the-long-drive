@@ -47,8 +47,10 @@ pub mod view_math;
 pub use rendering::*;
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "validate")]
+use std::collections::HashSet;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     fmt,
 };
 
@@ -814,6 +816,7 @@ pub struct WheelColliderReference {
 }
 
 impl WheelColliderReference {
+    #[cfg(feature = "validate")]
     pub fn valid(&self) -> bool {
         finite(&[
             self.radius,
@@ -1106,9 +1109,11 @@ fn finite(v: &[f32]) -> bool {
     v.iter().all(|x| x.is_finite())
 }
 /// Returns true for a finite quaternion with a length within 0.002 of one.
+#[cfg(feature = "validate")]
 fn unit_quaternion(q: &[f32; 4]) -> bool {
     finite(q) && (q.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 0.002
 }
+#[cfg(feature = "validate")]
 fn transform(t: &Transform) -> bool {
     finite(&t.translation)
         && finite(&t.scale)
@@ -1116,9 +1121,11 @@ fn transform(t: &Transform) -> bool {
         && unit_quaternion(&t.rotation)
 }
 /// Returns true when the IDs are 1, 2, 3, ... in record order.
+#[cfg(feature = "validate")]
 fn dense(ids: impl Iterator<Item = u32>) -> bool {
     ids.zip(1..).all(|(id, i)| id == i)
 }
+#[cfg(feature = "validate")]
 fn ids<T: Eq + std::hash::Hash>(
     values: impl Iterator<Item = T>,
     field: &str,
@@ -1129,14 +1136,17 @@ fn ids<T: Eq + std::hash::Hash>(
     }
     Ok(result)
 }
+#[cfg(feature = "validate")]
 fn hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 /// Returns the error field name, prefixed by its source ID.
+#[cfg(feature = "validate")]
 fn field(source: &SourceId, name: &str) -> String {
     format!("{}:{} {name}", source.file, source.path_id)
 }
 /// The source has a nonzero path ID in a hashed source file.
+#[cfg(feature = "validate")]
 fn source_valid(source: &SourceId, hashes: &[SourceHash]) -> bool {
     source.path_id != 0 && hashes.iter().any(|h| h.file == source.file)
 }
@@ -1147,10 +1157,12 @@ fn lowercase_hash(value: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+#[cfg(feature = "validate")]
 fn valid_tune_icon(can_tune: bool, icon: &Option<SourceId>, ui: &UiReference) -> bool {
     icon.as_ref()
         .is_none_or(|icon| can_tune && ui.sprite(icon).is_some())
 }
+#[cfg(feature = "validate")]
 fn valid_tuning(valve: f32, can_tune: bool, tune_rate: f32) -> bool {
     valve.is_finite()
         && (0.0..=1.0).contains(&valve)
@@ -1158,6 +1170,7 @@ fn valid_tuning(valve: f32, can_tune: bool, tune_rate: f32) -> bool {
         && tune_rate >= 0.0
         && (!can_tune || tune_rate > 0.0)
 }
+#[cfg(feature = "validate")]
 fn validate_cap_visuals(
     visuals: &CapVisualReference,
     node: impl Fn(NodeId) -> bool,
@@ -1182,6 +1195,7 @@ fn validate_cap_visuals(
         "cap visual control",
     )
 }
+#[cfg(feature = "validate")]
 fn valid_flow(
     flow: f32,
     tilt_degrees: f32,
@@ -1276,27 +1290,15 @@ impl ReferenceManifest {
             .filter(|a| a.usage == AssetUsage::UniqueScene)
             .count()
     }
+    #[cfg(feature = "validate")]
     pub fn from_manifest(bytes: &[u8]) -> Result<Self, ReferenceError> {
-        let manifest = Self::parse(bytes)?;
+        let manifest = Self::from_runtime(bytes)?;
         manifest.validate()?;
         Ok(manifest)
     }
 
+    /// Parses the shipped manifest. The build checks the same file with `validate-reference`.
     pub fn from_runtime(bytes: &[u8]) -> Result<Self, ReferenceError> {
-        let manifest = Self::from_checked_runtime(bytes)?;
-        manifest.validate_gameplay()?;
-        Ok(manifest)
-    }
-
-    /// Parses runtime bytes that `from_runtime` checks in another place.
-    /// The renderer uses it. The simulation worker checks the same bytes.
-    pub fn from_checked_runtime(bytes: &[u8]) -> Result<Self, ReferenceError> {
-        let mut manifest = Self::parse(bytes)?;
-        AudioRecord::check_playback(&mut manifest);
-        Ok(manifest)
-    }
-
-    fn parse(bytes: &[u8]) -> Result<Self, ReferenceError> {
         require(bytes.len() <= MAX_MANIFEST_BYTES, "manifest size")?;
         let (json, tables) = split_manifest(bytes)?;
         let mut manifest: Self =
@@ -1324,12 +1326,9 @@ impl ReferenceManifest {
         }
     }
 
+    #[cfg(feature = "validate")]
     pub fn validate(&self) -> Result<(), ReferenceError> {
-        self.audio.playback()?.validate(self)?;
-        self.validate_gameplay()
-    }
-
-    fn validate_gameplay(&self) -> Result<(), ReferenceError> {
+        self.audio.validate(self)?;
         for texture in self
             .lighting
             .textures

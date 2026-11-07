@@ -58,6 +58,7 @@ pub struct LampReference {
     pub clamp: Option<[f32; 2]>,
 }
 impl LampReference {
+    #[cfg(feature = "validate")]
     pub fn values_valid(&self) -> bool {
         [
             self.min_value,

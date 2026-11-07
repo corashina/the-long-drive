@@ -147,18 +147,17 @@ impl GarageRuntime {
         let origin = self.area.origin;
         let at = std::array::from_fn(|i| origin[i] + f64::from(blast.position[i]));
         let (clip, gain) = self.area.interaction.explosions.effect(blast, at);
-        if let Some(audio) = &mut self.audio {
-            audio.survival_event(crate::audio::SurvivalAudioEvent {
-                session: audio.session,
-                emitter: 0,
-                kind: crate::audio::AudioKind::ItemHit,
-                action: crate::audio::AudioAction::Start,
-                clip,
-                gain,
-                pitch: 1.,
-                position: at,
-            });
-        }
+        let audio = &mut self.audio;
+        audio.survival_event(crate::audio::SurvivalAudioEvent {
+            session: audio.session,
+            emitter: 0,
+            kind: crate::audio::AudioKind::ItemHit,
+            action: crate::audio::AudioAction::Start,
+            clip,
+            gain,
+            pitch: 1.,
+            position: at,
+        });
         let player = self.area.interaction.player_body();
         let mut heard: Option<f32> = None;
         self.area.interaction.explosions.query(&self.physics, blast);

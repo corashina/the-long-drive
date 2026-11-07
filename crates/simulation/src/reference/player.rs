@@ -150,10 +150,12 @@ pub struct MapViewReference {
     pub look_time: f32,
 }
 
+#[cfg(feature = "validate")]
 fn same(actual: f32, expected: f32) -> bool {
     actual.is_finite() && (actual - expected).abs() <= 0.00001
 }
 
+#[cfg(feature = "validate")]
 fn sphere(
     value: &PlayerSphereReference,
     file: &str,
@@ -171,6 +173,7 @@ fn sphere(
 }
 
 impl PlayerReference {
+    #[cfg(feature = "validate")]
     pub(super) fn validate_movement(&self) -> Result<(), ReferenceError> {
         let p = &self.posture;
         require(

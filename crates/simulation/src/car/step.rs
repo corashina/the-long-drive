@@ -25,7 +25,7 @@ pub struct CarWorld<'a> {
     /// The player body. Car controls send reach moves to it.
     pub body: &'a mut BodyState,
     pub powertrain: &'a mut PowertrainParts,
-    pub audio: &'a mut Option<crate::audio::AudioState>,
+    pub audio: &'a mut crate::audio::AudioState,
     pub origin: &'a WorldOrigin,
     pub assists: DrivingAssists,
     /// Engine input without car controls: ambient temperature and clock rate.
@@ -174,11 +174,8 @@ fn advance_wheel_effects(
             grounded,
         }
     };
-    // Footsteps own the source sand layer list. Without audio, every hit is road.
-    let sand_layers = world
-        .audio
-        .as_ref()
-        .map_or(&[][..], |a| &a.reference.footsteps.sand_layers);
+    // Footsteps own the source sand layer list.
+    let sand_layers = &world.audio.reference.footsteps.sand_layers[..];
     vehicle.wheel_effects.advance(
         FIXED_DT,
         &crate::wheel_effects::WheelEffectsInput {

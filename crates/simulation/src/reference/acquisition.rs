@@ -176,6 +176,7 @@ fn pack_start_car(pack: i64) -> &'static str {
 pub(super) fn source_is(s: &SourceId, file: &str, id: i64) -> bool {
     s.file == file && s.path_id == id
 }
+#[cfg(feature = "validate")]
 fn valid_source(s: &SourceId) -> bool {
     s.path_id > 0
         && [
@@ -186,6 +187,7 @@ fn valid_source(s: &SourceId) -> bool {
         ]
         .contains(&s.file.as_str())
 }
+#[cfg(feature = "validate")]
 fn valid_pose(p: &AcquisitionPose) -> bool {
     valid_source(&p.source)
         && p.parent.as_ref().is_none_or(valid_source)
@@ -193,6 +195,7 @@ fn valid_pose(p: &AcquisitionPose) -> bool {
         && transform(&p.transform)
         && checked_pose(p)
 }
+#[cfg(feature = "validate")]
 fn valid_marker(p: &AcquisitionMarker, asset: AssetId, m: &ReferenceManifest) -> bool {
     valid_source(&p.source)
         && transform(&p.transform)
@@ -203,6 +206,7 @@ fn valid_marker(p: &AcquisitionMarker, asset: AssetId, m: &ReferenceManifest) ->
             .and_then(|v| v.nodes.get(p.node.0 as usize))
             .is_some_and(|n| n.source == p.source && n.transform == p.transform)
 }
+#[cfg(feature = "validate")]
 fn prototype<'a>(
     id: &PrototypeId,
     item: Option<u32>,
@@ -215,6 +219,7 @@ fn prototype<'a>(
 }
 
 impl AcquisitionReference {
+    #[cfg(feature = "validate")]
     fn selection(
         &self,
         s: &AcquisitionSelection,
@@ -264,6 +269,7 @@ impl AcquisitionReference {
             }
         }
     }
+    #[cfg(feature = "validate")]
     fn table(
         &self,
         entries: &[AcquisitionTableEntry],
@@ -284,6 +290,7 @@ impl AcquisitionReference {
         }
         Ok(())
     }
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         self.rules.validate()?;
         require(
@@ -507,6 +514,7 @@ impl AcquisitionReference {
 }
 
 impl AcquisitionReference {
+    #[cfg(feature = "validate")]
     fn validate_objects(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let b = &self.r#box;
         let p = prototype(&b.prototype, Some(62), m)?;
@@ -668,6 +676,7 @@ impl AcquisitionReference {
         Ok(())
     }
 }
+#[cfg(feature = "validate")]
 fn validate_ammo(v: &AcquisitionAmmo, file: &str, id: i64) -> Result<(), ReferenceError> {
     require(
         source_is(&v.source, file, id)
@@ -681,12 +690,14 @@ fn validate_ammo(v: &AcquisitionAmmo, file: &str, id: i64) -> Result<(), Referen
     )
 }
 
+#[cfg(feature = "validate")]
 const CATEGORY_IDS: &[u32] = &[
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26,
     27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
     53, 54, 55, 56, 57, 58, 59, 60, 61, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77,
     78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89,
 ];
+#[cfg(feature = "validate")]
 fn prefab_root(source: &SourceId) -> Option<i64> {
     if source.file != "sharedassets1.assets" {
         return None;
@@ -707,6 +718,7 @@ fn prefab_root(source: &SourceId) -> Option<i64> {
         _ => None,
     }
 }
+#[cfg(feature = "validate")]
 fn category_contract(c: &CategoryReference) -> bool {
     !c.children.is_empty()
         && c.children.len() == c.weights.len()
@@ -723,6 +735,7 @@ fn category_contract(c: &CategoryReference) -> bool {
         })
         && hash(&c.constructor_sha256)
 }
+#[cfg(feature = "validate")]
 const DISABLED_BOXES: &[(i64, i64)] = &[
     (79792, 1904),
     (79793, 1902),
@@ -733,6 +746,7 @@ const DISABLED_BOXES: &[(i64, i64)] = &[
     (79798, 1908),
     (79799, 1907),
 ];
+#[cfg(feature = "validate")]
 const CONTENT_COUNTS: &[(i64, i64, u32)] = &[
     (75443, 132605, 10),
     (51722, 136544, 0),
@@ -746,12 +760,14 @@ const CONTENT_COUNTS: &[(i64, i64, u32)] = &[
     (51557, 137709, 0),
     (51878, 132739, 0),
 ];
+#[cfg(feature = "validate")]
 const STARTUP_PACKS: &[[i64; 8]] = &[
     [14079, 72692, 50432, 75069, 298, 69517, 70704, 70998],
     [14082, 72693, 50434, 75072, 206, 77839, 70705, 70999],
 ];
 record!(AcquisitionRules {integer_upper_exclusive:bool,float_upper_inclusive:bool,car_type_to_item_index:Vec<u32>});
 impl AcquisitionRules {
+    #[cfg(feature = "validate")]
     fn validate(&self) -> Result<(), ReferenceError> {
         require(
             self.integer_upper_exclusive
@@ -766,6 +782,7 @@ impl AcquisitionRules {
     }
 }
 
+#[cfg(feature = "validate")]
 fn prefab_identity(id: i64) -> Option<(&'static str, Option<u32>)> {
     match id {
         32825 => Some(("", Some(74))),
@@ -796,6 +813,7 @@ fn prefab_identity(id: i64) -> Option<(&'static str, Option<u32>)> {
     }
 }
 
+#[cfg(feature = "validate")]
 fn checked_pose(p: &AcquisitionPose) -> bool {
     match (p.source.file.as_str(), p.source.path_id) {
         ("sharedassets1.assets", 51722) => {

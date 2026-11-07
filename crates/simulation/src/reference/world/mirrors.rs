@@ -1,5 +1,7 @@
 //! Source live mirror globals: `mainscript` ranges, `defMirrorTexture` and the Mirror draw distance slider.
-use super::{ReferenceError, SourceId, require};
+use super::SourceId;
+#[cfg(feature = "validate")]
+use super::{ReferenceError, require};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -33,6 +35,7 @@ pub struct MirrorDrawDistance {
 }
 
 impl MirrorsReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self) -> Result<(), ReferenceError> {
         let d = &self.draw_distance;
         require(

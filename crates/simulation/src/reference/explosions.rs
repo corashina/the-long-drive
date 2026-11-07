@@ -81,9 +81,9 @@ pub struct ExplosionPlayer {
 }
 
 impl ExplosionsReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
-        let sound =
-            |s: &ExplosionSound| s.volume.is_finite() && m.audio.gameplay.clip(&s.clip).is_some();
+        let sound = |s: &ExplosionSound| s.volume.is_finite() && m.audio.clip(&s.clip).is_some();
         for (i, t) in self.types.iter().enumerate() {
             require(
                 finite(&[t.explosion_force, t.multiplier, t.explosion_dist])

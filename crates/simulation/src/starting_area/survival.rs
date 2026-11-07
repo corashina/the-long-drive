@@ -693,26 +693,18 @@ impl GarageRuntime {
         super::start_sample(super::DEFAULT_SEED, self.survival_draw)
     }
     fn select_survival_audio(&mut self, kind: crate::audio::AudioKind) -> (u32, f32, f32, f32) {
-        let b = self.audio_gameplay.binding(kind as u32).clone();
+        let audio = self.audio.reference.clone();
+        let b = audio.survival_row(kind as u32);
         let clip = b.clips
             [((self.draw_survival() * b.clips.len() as f32) as usize).min(b.clips.len() - 1)];
         let gain_draw = self.draw_survival();
-        // Keep source draw order and gate timing when playback is disabled.
-        let gain = self.audio.as_ref().map_or(0., |p| {
-            let b = p
-                .reference
-                .survival
-                .iter()
-                .find(|b| b.kind == kind as u32)
-                .unwrap();
-            b.gain[0] + (b.gain[1] - b.gain[0]) * gain_draw
-        });
+        let gain = b.gain[0] + (b.gain[1] - b.gain[0]) * gain_draw;
         let pitch = b.pitch[0] + (b.pitch[1] - b.pitch[0]) * self.draw_survival();
         (
             clip,
             gain,
             pitch,
-            self.audio_gameplay
+            audio
                 .clips
                 .iter()
                 .find(|c| c.id == clip)
@@ -726,9 +718,7 @@ impl GarageRuntime {
         kind: crate::audio::AudioKind,
         selection: (u32, f32, f32, f32),
     ) {
-        let Some(playback) = &mut self.audio else {
-            return;
-        };
+        let playback = &mut self.audio;
         let b = playback
             .reference
             .survival
@@ -991,9 +981,7 @@ impl GarageRuntime {
 
     fn sleep_audio(&mut self, action: crate::audio::AudioAction, gain: f32) {
         let kind = crate::audio::AudioKind::Sleep;
-        let Some(playback) = &mut self.audio else {
-            return;
-        };
+        let playback = &mut self.audio;
         let position = self.sleep_camera.map_or_else(
             || {
                 self.stream

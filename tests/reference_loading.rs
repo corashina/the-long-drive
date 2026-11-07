@@ -6,7 +6,7 @@ fn installed_startup_selects_only_garage_lada() {
     let bytes =
         the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
             .unwrap();
-    ReferenceManifest::from_runtime(&bytes).unwrap();
+    ReferenceManifest::from_manifest(&bytes).unwrap();
     let (json, tables) = the_long_slop::reference::split_manifest(&bytes).unwrap();
     let mut manifest: serde_json::Value = serde_json::from_slice(json).unwrap();
     assert!(
@@ -25,7 +25,7 @@ fn installed_startup_selects_only_garage_lada() {
     let bytes =
         the_long_slop::reference::join_manifest(&serde_json::to_vec(&manifest).unwrap(), tables);
     assert!(
-        ReferenceManifest::from_runtime(&bytes)
+        ReferenceManifest::from_manifest(&bytes)
             .unwrap_err()
             .to_string()
             .contains("selected packs")
@@ -38,7 +38,7 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
     let bytes =
         the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
             .unwrap();
-    let mut reference = ReferenceManifest::from_runtime(&bytes).unwrap();
+    let mut reference = ReferenceManifest::from_manifest(&bytes).unwrap();
     let index = reference
         .world
         .records
@@ -255,7 +255,7 @@ fn installed_manifest_shell_matches_the_manifest_text() {
     let bytes =
         the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
             .unwrap();
-    let reference = ReferenceManifest::from_checked_runtime(&bytes).unwrap();
+    let reference = ReferenceManifest::from_runtime(&bytes).unwrap();
     let mut shell: Value =
         serde_json::from_str(&the_long_slop::manifest_shell::shell(&reference).unwrap()).unwrap();
     assert!(

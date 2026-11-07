@@ -449,8 +449,9 @@ fn tp_mp_m04a_guest_takes_host_clock_stations_and_burp() {
     let mut guest_run = save_load(&host_run, &reference);
     host_run.lighting.cycle.set_cycle_seconds(123.);
     let clip = host_run
-        .audio_gameplay
-        .binding(AudioKind::Burp as u32)
+        .audio
+        .reference
+        .survival_row(AudioKind::Burp as u32)
         .clips[0];
     let at = [1e5, 20., -3e4];
     host_run
@@ -480,10 +481,7 @@ fn tp_mp_m04a_guest_takes_host_clock_stations_and_burp() {
         123.,
         "the host clock"
     );
-    let (h, g) = (
-        host_run.audio.as_ref().unwrap(),
-        guest_run.audio.as_ref().unwrap(),
-    );
+    let (h, g) = (&host_run.audio, &guest_run.audio);
     let host_channels: Vec<_> = h.broadcasts.host_channels(h.game_seconds).collect();
     let guest_channels: Vec<_> = g.broadcasts.host_channels(g.game_seconds).collect();
     assert_eq!(

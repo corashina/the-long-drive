@@ -45,8 +45,10 @@ winit = { version = "=0.30.13", default-features = false }
 gltf = { version = "=1.4.1", default-features = false, features = ["utils", "names", "extras"] }
 console_error_panic_hook = "=0.1.7"
 
-# The export crunch check of `validate-reference`.
+# `validate-reference` and native tests run the manifest checks. WASM builds leave them out.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+simulation = { path = "crates/simulation", features = ["validate"] }
+# The export crunch check of `validate-reference`.
 sha2 = "=0.10.9"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

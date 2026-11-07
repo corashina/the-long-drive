@@ -1,9 +1,16 @@
 //! Complete fixed-startup lighting contract and runtime resource links.
 use super::postprocessing::{CameraStage, PostprocessingRecord};
-use super::render_lighting::{LightKind, LightRecord, ProbeRecord, valid_pose};
-use super::rendering::{SamplerRecord, TextureColorSpace, safe_path};
-use super::{FileReceipt, NodeRecord, ReferenceError, SourceId, Transform, finite, hash, require};
+#[cfg(feature = "validate")]
+use super::render_lighting::{LightKind, valid_pose};
+use super::render_lighting::{LightRecord, ProbeRecord};
+#[cfg(feature = "validate")]
+use super::rendering::safe_path;
+use super::rendering::{SamplerRecord, TextureColorSpace};
+use super::{FileReceipt, SourceId, Transform};
+#[cfg(feature = "validate")]
+use super::{NodeRecord, ReferenceError, finite, hash, require};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "validate")]
 use std::collections::HashSet;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -135,6 +142,7 @@ pub struct CloudTexture {
     pub offset: [f32; 2],
 }
 impl LightingRecord {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, nodes: &[NodeRecord]) -> Result<(), ReferenceError> {
         require(
             self.project_color_space == "linear"
