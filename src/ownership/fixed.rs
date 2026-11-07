@@ -5,12 +5,8 @@ use crate::reference::ReferenceError;
 fn overflow() -> ReferenceError {
     ReferenceError("Fixed Bevy reservation overflow".into())
 }
-fn require(ok: bool, field: &str) -> Result<(), ReferenceError> {
-    if ok {
-        Ok(())
-    } else {
-        Err(ReferenceError(format!("Invalid reference field: {field}")))
-    }
+fn invalid(field: &str) -> ReferenceError {
+    ReferenceError(format!("Invalid reference field: {field}"))
 }
 
 /// Per-stream snapshot of global fixed ownership in the existing presentation ledger.
@@ -60,17 +56,30 @@ pub fn admit_control<T>(
     Ok((fixed, allocate()))
 }
 
+/// Phase of one fixed image. Rows load one at a time, then the image is assembled and uploaded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FixedImage {
+    Idle,
+    RowLive,
+    /// At least one row finished and no row is live.
+    RowDone,
+    Assembled,
+    Complete,
+    /// Cancelled after a row started. A live row still holds scratch until `finish_row` ends it.
+    Cancelled {
+        row_live: bool,
+    },
+    /// Cancelled and retired. It holds no bytes.
+    Discarded,
+}
+
 /// Production lifetime of one fixed assembled image and its bounded row scratch.
 #[derive(Clone, Copy, Debug)]
 pub struct FixedImageOwnership {
     pixels: usize,
     main_world: bool,
     scratch: usize,
-    started: bool,
-    row_live: bool,
-    assembled: bool,
-    complete: bool,
-    cancelled: bool,
+    phase: FixedImage,
 }
 impl FixedImageOwnership {
     pub fn new(pixels: usize, main_world: bool, scratch: usize) -> Result<Self, ReferenceError> {
@@ -82,76 +91,97 @@ impl FixedImageOwnership {
             pixels,
             main_world,
             scratch,
-            started: false,
-            row_live: false,
-            assembled: false,
-            complete: false,
-            cancelled: false,
+            phase: FixedImage::Idle,
         })
     }
     pub fn begin_row(&mut self) -> Result<bool, ReferenceError> {
-        if self.cancelled {
-            return Ok(false);
+        match self.phase {
+            FixedImage::Cancelled { .. } | FixedImage::Discarded => Ok(false),
+            FixedImage::Idle | FixedImage::RowDone => {
+                self.phase = FixedImage::RowLive;
+                Ok(true)
+            }
+            _ => Err(invalid("fixed row admission state")),
         }
-        require(
-            !self.row_live && !self.assembled,
-            "fixed row admission state",
-        )?;
-        self.started = true;
-        self.row_live = true;
-        Ok(true)
     }
     pub fn finish_row(&mut self, terminal: bool) -> bool {
         if terminal {
-            self.row_live = false;
+            self.phase = match self.phase {
+                FixedImage::RowLive => FixedImage::RowDone,
+                FixedImage::Cancelled { .. } => FixedImage::Cancelled { row_live: false },
+                phase => phase,
+            };
         }
         terminal
     }
     pub fn assemble(&mut self) -> Result<(), ReferenceError> {
-        require(
-            self.started && !self.row_live && !self.cancelled,
-            "fixed row assembly state",
-        )?;
-        self.assembled = true;
+        if self.phase != FixedImage::RowDone {
+            return Err(invalid("fixed row assembly state"));
+        }
+        self.phase = FixedImage::Assembled;
         Ok(())
     }
     pub fn uploaded(&mut self) -> Result<(), ReferenceError> {
-        require(self.assembled && !self.row_live, "fixed image upload state")?;
-        self.complete = true;
-        Ok(())
+        match self.phase {
+            FixedImage::Assembled | FixedImage::Complete => {
+                self.phase = FixedImage::Complete;
+                Ok(())
+            }
+            _ => Err(invalid("fixed image upload state")),
+        }
     }
+    /// Stops row loads. An assembled image belongs to its upload, so cancel leaves it.
     pub fn cancel(&mut self) {
-        self.cancelled = true;
+        self.phase = match self.phase {
+            FixedImage::Idle => FixedImage::Discarded,
+            FixedImage::RowLive => FixedImage::Cancelled { row_live: true },
+            FixedImage::RowDone => FixedImage::Cancelled { row_live: false },
+            phase => phase,
+        };
     }
     pub fn discard(&mut self) -> Result<(), ReferenceError> {
-        require(
-            self.cancelled && !self.row_live && !self.assembled,
-            "fixed row physical retirement",
-        )?;
-        self.started = false;
-        Ok(())
+        match self.phase {
+            FixedImage::Cancelled { row_live: false } | FixedImage::Discarded => {
+                self.phase = FixedImage::Discarded;
+                Ok(())
+            }
+            _ => Err(invalid("fixed row physical retirement")),
+        }
+    }
+    fn row_live(&self) -> bool {
+        matches!(
+            self.phase,
+            FixedImage::RowLive | FixedImage::Cancelled { row_live: true }
+        )
     }
     pub fn bytes(&self) -> (usize, usize) {
-        if !self.started {
-            return (0, 0);
-        }
-        let cpu = if self.complete {
-            if self.main_world { self.pixels } else { 0 }
-        } else if self.cancelled && !self.assembled {
-            self.pixels
-        } else {
-            3 * self.pixels
+        let cpu = match self.phase {
+            FixedImage::Idle | FixedImage::Discarded => return (0, 0),
+            FixedImage::Complete => {
+                if self.main_world {
+                    self.pixels
+                } else {
+                    0
+                }
+            }
+            FixedImage::Cancelled { .. } => self.pixels,
+            FixedImage::RowLive | FixedImage::RowDone | FixedImage::Assembled => 3 * self.pixels,
         };
         (
-            cpu + if self.row_live { self.scratch } else { 0 },
+            cpu + if self.row_live() { self.scratch } else { 0 },
             self.pixels,
         )
     }
     pub fn io(&self) -> (usize, usize, usize) {
+        let held = !matches!(
+            self.phase,
+            FixedImage::Idle | FixedImage::Complete | FixedImage::Discarded
+        );
+        let live = self.row_live();
         (
-            usize::from(self.row_live),
-            usize::from(self.started && !self.complete),
-            if self.row_live { self.scratch } else { 0 },
+            usize::from(live),
+            usize::from(held),
+            if live { self.scratch } else { 0 },
         )
     }
 }
@@ -172,4 +202,24 @@ pub fn fixed_room(
     let staging = ledger.request_staging(staging);
     let prototype = ledger.request_prototype(cpu, gpu);
     Ok(jobs && pending && staging && prototype)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FixedImageOwnership;
+
+    #[test]
+    fn assemble_while_row_live_errors() {
+        let mut image = FixedImageOwnership::new(4, false, 2).unwrap();
+        assert!(image.begin_row().unwrap());
+        assert!(image.assemble().is_err());
+    }
+
+    #[test]
+    fn upload_before_assemble_errors() {
+        let mut image = FixedImageOwnership::new(4, false, 2).unwrap();
+        assert!(image.begin_row().unwrap());
+        image.finish_row(true);
+        assert!(image.uploaded().is_err());
+    }
 }
