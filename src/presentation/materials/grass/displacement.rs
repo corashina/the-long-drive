@@ -13,6 +13,8 @@ pub struct GrassFrameUniform {
     pub origin_time: Vec4,
     pub area: Vec4,
     pub clip_from_world: Mat4,
+    /// Source camera position of this frame. The color pass measures blade distance and facing from it.
+    pub camera: Vec4,
     /// xy: the bend rotation from the sim wind.
     pub wind: Vec4,
 }
@@ -63,13 +65,11 @@ impl GrassCamera {
         let input = &reference.grass_displacement;
         let camera = reference
             .records
-            .iter()
-            .find(|r| r.source == input.camera)
+            .find(&input.camera)
             .ok_or_else(|| ReferenceError("Missing Grass camera record".into()))?;
         let target = reference
             .records
-            .iter()
-            .find(|r| r.source == input.target)
+            .find(&input.target)
             .ok_or_else(|| ReferenceError("Missing Grass target record".into()))?;
         let number = |record: &crate::reference::WorldSourceRecord, name: &str| match record
             .fields
@@ -134,6 +134,7 @@ impl GrassCamera {
             clip_from_world: Mat4::from_scale(Vec3::new(1., -1., 1.))
                 * projection
                 * world_from_view.inverse(),
+            camera: source_camera.extend(1.),
             wind,
         }
     }

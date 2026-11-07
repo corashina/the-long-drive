@@ -56,6 +56,9 @@ def derive_reference(snapshot: Snapshot, library: LibraryReceipt, output: Path) 
     for protected in (snapshot.manifest_path.parent.resolve(), reader.root):
         if target.is_relative_to(protected) or protected.is_relative_to(target):
             raise ValueError('Runtime output overlaps accepted library storage')
+    import shutil
+    # A new derivation replaces the kept runtime of a failed one.
+    shutil.rmtree(target.parent / FAILED_RUNTIME, ignore_errors=True)
     from .library.storage import RUNTIME_BYTES, check_space, tree_bytes
     audio_bound = sum(f['bytes'] for entry in reader.exports.values()
         if entry['details']['type'] == 'AudioClip' for f in entry['files'])
@@ -66,16 +69,43 @@ def derive_reference(snapshot: Snapshot, library: LibraryReceipt, output: Path) 
     try:
         with timed('Runtime derivation'):
             _export_selected(LibrarySource(reader), staged, reader, snapshot)
+    except BaseException:
+        shutil.rmtree(staged)
+        raise
+    package_reference(staged, library, output)
+
+
+# A derived runtime whose package or verification failed. `--retry-package` repeats those steps on it.
+FAILED_RUNTIME = 'runtime-failed'
+
+
+def package_reference(staged: Path, library, output: Path) -> None:
+    """Make the game manifest file, verify the runtime, publish its package and promote it."""
+    from .runtime_package import publish_package, write_runtime_manifest
+    try:
+        with timed('Runtime manifest'):
+            write_runtime_manifest(staged)
         with timed('Runtime verification'):
             verify_reference(staged, library)
-        from .runtime_package import publish_package
         with timed('Runtime package'):
             publish_package(staged, output.parent)
     except BaseException:
-        import shutil
-        shutil.rmtree(staged)
+        failed = output.parent / FAILED_RUNTIME
+        if staged != failed:
+            import shutil
+            shutil.rmtree(failed, ignore_errors=True)
+            staged.rename(failed)
+        print(f'Kept the derived runtime in {failed}. `--retry-package` repeats the package and verification.', flush=True)
         raise
     promote_reference(staged, output)
+
+
+def retry_package(library, output: Path) -> None:
+    from .runtime_package import MANIFEST
+    failed = output.parent / FAILED_RUNTIME
+    if not (failed / MANIFEST).is_file():
+        raise ValueError(f'No derived runtime to retry in {failed}')
+    package_reference(failed, library, output)
 
 
 def promote_reference(staged: Path, accepted: Path) -> None:
@@ -146,16 +176,16 @@ def validate_runtime_paths(manifest):
                 if item['sha256'] != resources[name]:
                     raise ValueError('Runtime dependency hash differs from typed resource')
                 continue
-            if not name.startswith('reference/') or len(Path(name).parts) != 2 or Path(name).suffix not in ('.gltf','.bin','.png','.bc'):
+            if not name.startswith('reference/') or len(Path(name).parts) != 2 or Path(name).suffix not in ('.gltf','.bin','.rgba','.bc','.crn'):
                 raise ValueError('Invalid selected runtime dependency')
     for item in runtime_resources(manifest):
         name = item['path']
         valid_prefix=name.startswith(('reference/lighting-','reference/texture-','reference/source-cloud.','reference/source-caster-dither-' ))
-        if not valid_prefix or len(Path(name).parts) != 2 or Path(name).suffix not in ('.gltf','.bin','.png','.smip','.txt','.json'):
+        if not valid_prefix or len(Path(name).parts) != 2 or Path(name).suffix not in ('.gltf','.bin','.rgba','.smip','.txt','.json'):
             raise ValueError('Invalid selected runtime lighting resource')
     for item in plate_resources(manifest['plates']):
         name=item['path']
-        if not name.startswith('reference/plate-') or len(Path(name).parts)!=2 or Path(name).suffix not in ('.bin','.png','.json'):
+        if not name.startswith('reference/plate-') or len(Path(name).parts)!=2 or Path(name).suffix not in ('.bin','.rgba','.json'):
             raise ValueError('Invalid selected runtime plate resource')
     sprites = manifest.get('ui', {}).get('sprites', [])
     paths = set()
@@ -209,12 +239,40 @@ def encode_runtime_manifest(content: bytes) -> bytes:
     return result.stdout
 
 
+def verify_crunch(output: Path, manifest) -> None:
+    """Check the game unpacker on every stored crunch texture: its BC blocks match the exporter's."""
+    import struct
+    evidence = json.loads((output/'crunch-evidence.json').read_bytes())
+    stored = {r['file'] for r in manifest['file_catalog']['files'] if r['file'].endswith('.crn')}
+    checked = [e for e in evidence if e['input'] in stored]
+    if stored != {e['input'] for e in checked} | {e['top'] for e in checked if e['top']}:
+        raise ValueError('Crunch evidence differs from the stored crunch files')
+    payload = bytearray()
+    for entry in checked:
+        for name in (entry['input'], entry['top']):
+            data = (output/name.removeprefix('reference/')).read_bytes() if name else b''
+            payload += struct.pack('<I', len(data)) + data
+        payload += bytes.fromhex(entry['sha256'])
+    try:
+        result = subprocess.run(contract_command('run', '--crunch'), input=bytes(payload), capture_output=True, check=False)
+    except OSError as error:
+        raise ValueError('Crunch check needs Docker and the project toolchain image') from error
+    if result.returncode:
+        detail = result.stderr.decode('utf-8', errors='replace').strip()
+        index = re.search(r'Crunch texture (\d+):', detail)
+        name = checked[int(index[1])]['input'] if index and int(index[1]) < len(checked) else 'unknown texture'
+        raise ValueError(f'Crunch check failed on {name}: {detail}')
+    print(f'Checked {len(checked)} crunch textures against the exporter BC blocks', flush=True)
+
+
 def verify_reference(output: Path, library) -> None:
     from .library.reader import checked
     from .gltf import check_gltf
-    from .runtime_package import MANIFEST, RUNTIME_MANIFEST, manifest_bytes, runtime_manifest_bytes
+    from .runtime_package import CATALOG, MANIFEST, RUNTIME_MANIFEST, manifest_bytes, read_catalog, runtime_manifest_bytes
     content = manifest_bytes(output)
     manifest = json.loads(content)
+    if read_catalog(output) != {k: manifest[k] for k in ('content_base', 'file_catalog')}:
+        raise ValueError('Runtime catalog differs from the exporter manifest')
     if library is None or manifest.get('library') != provenance(library):
         raise ValueError('Missing or mismatched runtime library provenance')
     if manifest['library']['schema_version'] != 1 or any(not re.fullmatch('[0-9a-f]{64}', manifest['library'][k]) for k in ('manifest_sha256','catalog_sha256','source_manifest_sha256')):
@@ -226,6 +284,7 @@ def verify_reference(output: Path, library) -> None:
     validate_acquisition(manifest['acquisition'], manifest)
     if encode_runtime_manifest(content) != runtime_manifest_bytes(output):
         raise ValueError('Runtime manifest file differs from the exporter manifest')
+    verify_crunch(output, manifest)
     validate_runtime_paths(manifest)
     selection=json.loads((output/'library-selection.json').read_bytes())
     evidence_receipts=selection.get('evidence',[])
@@ -234,7 +293,7 @@ def verify_reference(output: Path, library) -> None:
     for record in evidence_receipts:checked(output,record)
     if json.loads((output/'conditions-evidence.json').read_bytes())['conditions']!=manifest['conditions']:
         raise ValueError('Condition evidence differs from runtime records')
-    names = {MANIFEST,RUNTIME_MANIFEST,'geometry-evidence.json','parameter-evidence.json','library-selection.json','lighting-evidence.json','material-evidence.json','plate-evidence.json','flashlights-evidence.json','storage-evidence.json','driving-evidence.json','conditions-evidence.json'}
+    names = {MANIFEST,CATALOG,RUNTIME_MANIFEST,'geometry-evidence.json','parameter-evidence.json','library-selection.json','lighting-evidence.json','material-evidence.json','plate-evidence.json','flashlights-evidence.json','storage-evidence.json','driving-evidence.json','conditions-evidence.json','crunch-evidence.json'}
     for asset in manifest['assets']:
         for record in [asset, *asset['dependencies']]:
             name = record.get('file', record.get('path')).removeprefix('reference/')
@@ -278,7 +337,7 @@ def verify_reference(output: Path, library) -> None:
         if file_receipt(output / name, receipt['file']) != receipt:
             raise ValueError('Runtime file receipt differs')
         names.add(name)
-    for pack in manifest['file_catalog']['packs']:
+    for pack in manifest['file_catalog']['packs'] + manifest['file_catalog']['top_packs']:
         receipt = file_receipt(output / pack['file'], pack['file'])
         if (receipt['bytes'], receipt['sha256']) != (pack['bytes'], pack['sha256']):
             raise ValueError('Runtime pack receipt differs')
@@ -454,6 +513,8 @@ def _export_selected(source, output: Path, library, snapshot) -> None:
     }
     parameters['player_markers']=[{'source':{'file':'level1','path_id':pid},'fields':source.read(source.get('level1',pid))} for pid in (39823,23339)]
     (output/'parameter-evidence.json').write_text(json.dumps(parameters,indent=2,allow_nan=False),encoding='utf-8')
+    crunch=sorted(getattr(source,'crunch_evidence',{}).values(),key=lambda e:e['input'])
+    (output/'crunch-evidence.json').write_text(json.dumps(crunch,indent=2),encoding='utf-8')
     from .runtime_package import prepare_package, write_manifest
     # Package preparation also checks and catalogs texture batch descriptors.
     prepare_package(manifest, output)
@@ -671,6 +732,8 @@ def main(argv=None):
     parser.add_argument('--output', type=Path, default=Path('web/assets/reference'))
     parser.add_argument('--stage', choices=('runtime', 'source', 'catalog', 'library'), default='runtime')
     parser.add_argument('--verify', action='store_true')
+    parser.add_argument('--retry-package', action='store_true',
+        help=f'Repeat the runtime package and verification on the kept {FAILED_RUNTIME} output')
     arguments = parser.parse_args(argv)
     if arguments.stage in ('library', 'runtime') and arguments.steam_root:
         steam = arguments.steam_root.resolve()
@@ -679,6 +742,8 @@ def main(argv=None):
             parser.error('Keep runtime and library output separate from the Steam installation')
     if arguments.library_root and arguments.stage != 'runtime':
         parser.error('--library-root requires --stage runtime')
+    if arguments.retry_package and (arguments.stage != 'runtime' or arguments.verify):
+        parser.error('--retry-package requires --stage runtime and no --verify')
     if arguments.stage == 'source':
         stage_source(arguments.steam_root, verify=arguments.verify)
     elif arguments.stage == 'catalog':
@@ -705,9 +770,11 @@ def main(argv=None):
                 receipt = stage_library(arguments.steam_root, arguments.output)
         if arguments.verify:
             verify_reference(arguments.output, receipt)
-            from .runtime_package import verify_package, package_id, read_manifest
-            manifest = read_manifest(arguments.output)
-            verify_package(manifest, arguments.output.parent / 'runtime' / package_id(manifest))
+            from .runtime_package import verify_package, package_dir, read_catalog
+            catalog = read_catalog(arguments.output)
+            verify_package(catalog, arguments.output.parent / 'runtime' / package_dir(catalog))
+        elif arguments.retry_package:
+            retry_package(receipt, arguments.output)
         else:
             from .library.archive import load_snapshot
             with timed('Runtime export'), contract_build():

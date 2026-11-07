@@ -46,6 +46,7 @@ pub struct ParticleReference {
     pub limits: Vec<ParticleLimit>,
 }
 impl ParticleReference {
+    #[cfg(feature = "validate")]
     pub fn validate_motion(&self) -> Result<(), ReferenceError> {
         let invalid = |field: &str| {
             ReferenceError(format!(
@@ -181,6 +182,7 @@ impl ParticleReference {
         Ok(())
     }
 }
+#[cfg(feature = "validate")]
 pub(super) fn valid_geometry(g: &ColliderGeometry) -> bool {
     match g {
         ColliderGeometry::Box {
@@ -213,6 +215,7 @@ pub(super) fn valid_geometry(g: &ColliderGeometry) -> bool {
         }
     }
 }
+#[cfg(feature = "validate")]
 pub(super) fn gradient_valid(g: &GradientReference) -> bool {
     g.mode <= 1
         && !g.colors.is_empty()
@@ -226,6 +229,7 @@ pub(super) fn gradient_valid(g: &GradientReference) -> bool {
         && g.colors.windows(2).all(|w| w[0].time <= w[1].time)
         && g.alphas.windows(2).all(|w| w[0].time <= w[1].time)
 }
+#[cfg(feature = "validate")]
 pub(super) fn curve_valid(c: &TorqueCurve) -> bool {
     c.keys.iter().all(|k| {
         finite(&[
@@ -238,6 +242,7 @@ pub(super) fn curve_valid(c: &TorqueCurve) -> bool {
         ]) && k.weighted_mode <= 3
     }) && c.keys.windows(2).all(|w| w[0].time < w[1].time)
 }
+#[cfg(feature = "validate")]
 pub(super) fn validate_particles(m: &ReferenceManifest) -> Result<(), ReferenceError> {
     require(
         m.particles.len() == 2 + 2 * m.openings.len(),
@@ -269,6 +274,7 @@ pub(super) fn validate_particles(m: &ReferenceManifest) -> Result<(), ReferenceE
     Ok(())
 }
 /// Checks that each material texture of `p` is a lighting texture record.
+#[cfg(feature = "validate")]
 pub(super) fn validate_textures(
     p: &ParticleReference,
     m: &ReferenceManifest,
@@ -282,6 +288,7 @@ pub(super) fn validate_textures(
     )
 }
 /// Checks one particle record that the runtime simulates in `simulation_space`.
+#[cfg(feature = "validate")]
 pub(super) fn validate_particle(
     p: &ParticleReference,
     simulation_space: u8,
@@ -424,6 +431,7 @@ pub(super) fn validate_particle(
     p.validate_data(simulation_space)
 }
 /// Checks the fields of an enabled shape module.
+#[cfg(feature = "validate")]
 fn validate_shape(
     p: &ParticleReference,
     check: &impl Fn(bool, &str) -> Result<(), ReferenceError>,
@@ -460,6 +468,7 @@ fn validate_shape(
     )
 }
 impl ParticleReference {
+    #[cfg(feature = "validate")]
     pub fn validate_data(&self, simulation_space: u8) -> Result<(), ReferenceError> {
         let p = self;
         let check =

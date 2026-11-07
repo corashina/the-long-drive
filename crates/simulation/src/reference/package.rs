@@ -19,7 +19,7 @@ pub struct PlanReceipt {
     pub input: FileReceipt,
 }
 
-/// A gzip start pack: the plain concatenation of `files`. Only the browser reads packs.
+/// A gzip pack: the plain concatenation of `files`. Only the browser reads packs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackReceipt {
@@ -39,6 +39,8 @@ pub struct FileCatalog {
     pub plans: Vec<PlanReceipt>,
     pub dependency_staging_reserve: u32,
     pub packs: Vec<PackReceipt>,
+    /// Top mips of start textures. The browser reads them after the game starts.
+    pub top_packs: Vec<PackReceipt>,
     #[serde(skip)]
     paths: HashMap<String, usize>,
     #[serde(skip)]
@@ -115,9 +117,15 @@ impl FileCatalog {
             )?;
         }
         let mut packed = std::collections::HashSet::new();
-        for (index, pack) in self.packs.iter().enumerate() {
+        let packs = self.packs.iter().enumerate().map(|(i, p)| ("start", i, p));
+        let tops = self
+            .top_packs
+            .iter()
+            .enumerate()
+            .map(|(i, p)| ("top", i, p));
+        for (kind, index, pack) in packs.chain(tops) {
             require(
-                pack.file == format!("packs/start-{index}.gz")
+                pack.file == format!("packs/{kind}-{index}.gz")
                     && lowercase_hash(&pack.sha256)
                     && !pack.files.is_empty(),
                 "pack receipt",
@@ -156,6 +164,7 @@ mod tests {
             "plans": [],
             "dependency_staging_reserve": 1,
             "packs": packs,
+            "top_packs": [],
         }))
         .unwrap();
         catalog.admit()

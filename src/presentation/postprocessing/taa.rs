@@ -1,5 +1,6 @@
 //! Source TAA. It reads the resolved scene and stops NaNs itself. Histogram, bloom and Uber read its output.
 //! Below 100% scene scale it upscales: the output and history have the native extent.
+use crate::presentation::fullscreen::{self, FullscreenPass, Samplers};
 use crate::presentation::render_targets::HDR_FORMAT;
 use crate::reference::postprocessing::TaaSettings;
 use bevy::prelude::*;
@@ -35,6 +36,7 @@ impl TaaPass {
         device: &RenderDevice,
         queue: &RenderQueue,
         cache: &PipelineCache,
+        samplers: &Samplers,
         shader: Handle<Shader>,
         source: &TextureView,
         depth: &TextureView,
@@ -82,34 +84,17 @@ impl TaaPass {
                 } else {
                     ("source_taa_resolve", &layout, "resolve", 2)
                 };
-                cache.queue_render_pipeline(RenderPipelineDescriptor {
-                    label: Some(label.into()),
-                    layout: vec![group.clone()],
-                    vertex: VertexState {
-                        shader: shader.clone(),
-                        entry_point: Some("vertex".into()),
-                        ..default()
-                    },
-                    fragment: Some(FragmentState {
-                        shader: shader.clone(),
-                        entry_point: Some(entry.into()),
-                        shader_defs: if stop_nan {
-                            vec!["STOP_NAN".into()]
-                        } else {
-                            vec![]
-                        },
-                        targets: vec![
-                            Some(ColorTargetState {
-                                format: HDR_FORMAT,
-                                blend: None,
-                                write_mask: ColorWrites::ALL,
-                            });
-                            targets
-                        ],
-                        ..default()
-                    }),
-                    ..default()
-                })
+                let mut descriptor = fullscreen::descriptor(
+                    label,
+                    group,
+                    &shader,
+                    entry,
+                    vec![fullscreen::target(HDR_FORMAT, ColorWrites::ALL); targets],
+                );
+                if stop_nan {
+                    descriptor.fragment.as_mut().unwrap().shader_defs = vec!["STOP_NAN".into()];
+                }
+                cache.queue_render_pipeline(descriptor)
             })
         });
         let textures = std::array::from_fn(|index| {
@@ -134,11 +119,7 @@ impl TaaPass {
         });
         let views: [TextureView; 3] =
             std::array::from_fn(|index| textures[index].create_view(&default()));
-        let linear = device.create_sampler(&SamplerDescriptor {
-            mag_filter: FilterMode::Linear,
-            min_filter: FilterMode::Linear,
-            ..default()
-        });
+        let linear = &samplers.linear;
         let texel = |[w, h]: [u32; 2]| Vec4::new(w as f32, h as f32, 1. / w as f32, 1. / h as f32);
         let mut uniform = UniformBuffer::from(TaaParams {
             extent: texel(extent),
@@ -163,7 +144,7 @@ impl TaaPass {
                     &views[index],
                     depth,
                     motion,
-                    &linear,
+                    linear,
                 )),
             )
         });
@@ -173,7 +154,7 @@ impl TaaPass {
             &BindGroupEntries::with_indices((
                 (0, uniform.binding().unwrap()),
                 (1, source),
-                (5, &linear),
+                (5, linear),
             )),
         );
         Ok(Self {
@@ -208,14 +189,6 @@ impl TaaPass {
             self.pending = false;
         }
     }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        super::pipeline_failure(cache, &self.pipelines)
-    }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        self.pipelines
-            .iter()
-            .all(|id| cache.get_render_pipeline(*id).is_some())
-    }
     pub fn encode(
         &mut self,
         encoder: &mut CommandEncoder,
@@ -235,49 +208,32 @@ impl TaaPass {
         self.uniform.write_buffer(device, queue);
         let history = 1 - self.next_output;
         if self.reset {
-            draw(
+            fullscreen::draw(
                 encoder,
+                "source_taa",
                 cache.get_render_pipeline(self.pipelines[0]).unwrap(),
                 &self.seed,
                 &[&self.views[history]],
+                fullscreen::CLEAR,
             );
         }
-        draw(
+        fullscreen::draw(
             encoder,
+            "source_taa",
             cache.get_render_pipeline(self.pipelines[1]).unwrap(),
             &self.bindings[history],
             &[
                 output.unwrap_or(&self.views[2]),
                 &self.views[self.next_output],
             ],
+            fullscreen::CLEAR,
         );
         self.pending = true;
         Ok(())
     }
 }
-fn draw(
-    encoder: &mut CommandEncoder,
-    pipeline: &RenderPipeline,
-    group: &BindGroup,
-    outputs: &[&TextureView],
-) {
-    let attachments: [Option<RenderPassColorAttachment>; 2] = std::array::from_fn(|index| {
-        outputs.get(index).map(|view| RenderPassColorAttachment {
-            view,
-            depth_slice: None,
-            resolve_target: None,
-            ops: Operations {
-                load: LoadOp::Clear(LinearRgba::NONE.into()),
-                store: StoreOp::Store,
-            },
-        })
-    });
-    let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-        label: Some("source_taa"),
-        color_attachments: &attachments[..outputs.len()],
-        ..default()
-    });
-    pass.set_pipeline(pipeline);
-    pass.set_bind_group(0, group, &[]);
-    pass.draw(0..3, 0..1);
+impl FullscreenPass for TaaPass {
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        &self.pipelines
+    }
 }

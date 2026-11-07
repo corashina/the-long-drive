@@ -19,11 +19,13 @@ function operationError(error){
  return message;
 }
 export class MenuState {
- constructor(){this.state='loading';this.readyFlag=false;this.started=false;this.actions=0;this.error='';this.status='';this.generation=0;this.pending=false;this.operation='';this.origin='start-menu';this.dead=false;this.deathComplete=false;this.deathHint='';}
- ready(){if(this.state==='error')return;this.readyFlag=true;this.state=this.started?'pause-menu':'start-menu';}
- loading(){if(this.state==='error')return;if(!this.operation)this.generation++;this.pending=Boolean(this.operation);this.readyFlag=false;this.actions=0;this.state='loading';this.error='';this.status=this.operation?pendingText[this.operation]:'';}
- fail(message){this.generation++;this.pending=false;this.operation='';this.readyFlag=false;this.state='error';this.error=message;this.status='';this.actions=this.started?ACTIONS.PAUSE:0;}
- pause(saveSession){if(this.operation&&this.operation!=='save'&&saveSession?.cancel()){this.generation++;this.pending=false;this.operation='';this.status='';this.error='';}if(!this.operation)this.generation++;this.pending=Boolean(this.operation);this.actions=this.started?ACTIONS.PAUSE:0;if(this.state==='error')return;if(SUBSCREENS.includes(this.state)){this.origin=this.started?'pause-menu':'start-menu';return;}this.state=this.readyFlag?(this.started?'pause-menu':'start-menu'):'loading';}
+ constructor(){this.state='loading';this.started=false;this.actions=0;this.error='';this.status='';this.generation=0;this.pending=false;this.operation='';this.origin='start-menu';this.dead=false;this.deathComplete=false;this.deathHint='';}
+ // The menus show only when the world is ready: not while it loads or after a failure.
+ isReady(){return this.state!=='loading'&&this.state!=='error';}
+ ready(){if(this.state==='error')return;this.state=this.started?'pause-menu':'start-menu';}
+ loading(){if(this.state==='error')return;if(!this.operation)this.generation++;this.pending=Boolean(this.operation);this.actions=0;this.state='loading';this.error='';this.status=this.operation?pendingText[this.operation]:'';}
+ fail(message){this.generation++;this.pending=false;this.operation='';this.state='error';this.error=message;this.status='';this.actions=this.started?ACTIONS.PAUSE:0;}
+ pause(saveSession){if(this.operation&&this.operation!=='save'&&saveSession?.cancel()){this.generation++;this.pending=false;this.operation='';this.status='';this.error='';}if(!this.operation)this.generation++;this.pending=Boolean(this.operation);this.actions=this.started?ACTIONS.PAUSE:0;if(this.state==='error')return;if(SUBSCREENS.includes(this.state)){this.origin=this.started?'pause-menu':'start-menu';return;}this.state=this.isReady()?(this.started?'pause-menu':'start-menu'):'loading';}
  settings(){if(this.pending)return;if(this.state!=='start-menu' && this.state!=='pause-menu')return;this.origin=this.state;this.state='settings';}
  gameMode(){if(this.pending||!['start-menu','pause-menu'].includes(this.state))return;this.origin=this.state;this.state='game-mode';}
  saves(){if(this.pending||!['start-menu','pause-menu'].includes(this.state))return;this.origin=this.state;this.state='saves';}
@@ -35,17 +37,17 @@ export class MenuState {
  respawn(){if(this.state!=='pause-menu'||this.pending||!this.dead)return false;this.dead=false;this.deathComplete=false;return true;}
  takeActions(){const a=this.actions;this.actions=0;return a;}
  async run(operation,saveSession,...args){
-  if(!this.readyFlag||this.pending||!['start-menu','pause-menu','saves','multiplayer'].includes(this.state)||(operation==='save'&&!this.started))return;
+  if(!this.isReady()||this.pending||!['start-menu','pause-menu','saves','multiplayer'].includes(this.state)||(operation==='save'&&!this.started))return;
   const token=++this.generation;this.pending=true;this.operation=operation;this.error='';this.status=pendingText[operation];
   try {
    await saveSession[operation](...args);if(token!==this.generation)return;
-   if(operation!=='save'&&operation!=='remove'){this.started=true;this.state=this.readyFlag?'pause-menu':'loading';this.dead=false;this.deathComplete=false;}
+   if(operation!=='save'&&operation!=='remove'){this.started=true;this.state=this.isReady()?'pause-menu':'loading';this.dead=false;this.deathComplete=false;}
    this.status=resultText[operation];return true;
   } catch(error){if(token===this.generation){this.error=operationError(error);this.status='';}}
   finally {if(token===this.generation){this.pending=false;this.operation='';}}
  }
  async capture(action,request,unlock){
-  if(this.deathComplete || !this.readyFlag || !this.started || this.pending || this.state!=='pause-menu')return false;
+  if(this.deathComplete || !this.isReady() || !this.started || this.pending || this.state!=='pause-menu')return false;
   const token=++this.generation;this.pending=true;this.error='';
   try {try{unlock?.();}catch{}await request();if(token!==this.generation)return false;this.actions=action;this.state='playing';this.status='';return true;}
   catch(error){if(token===this.generation){this.error='Mouse capture failed. '+error.message+' Select Continue to try again.';this.state='pause-menu';}return false;}
@@ -76,7 +78,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
  const assistReset=()=>{clutch.checked=defaultAssists.automatic_clutch;gears.checked=defaultAssists.automatic_gears;requestDriving();};
  settings.listen(()=>{if(model.state==='saves')paint();});
  const applyDistance=document.querySelector('#draw-distance-apply');
- const canApply=()=>model.started&&model.readyFlag&&!model.pending&&!model.dead&&!online()&&model.state==='settings'&&model.origin==='pause-menu';
+ const canApply=()=>model.started&&model.isReady()&&!model.pending&&!model.dead&&!online()&&model.state==='settings'&&model.origin==='pause-menu';
  const settingsScreen=createSettingsScreen(settingsNode,settings,language,()=>!model.started,{...resets,controls:[assistReset,...resets.controls??[]]});
  const controlsScreen=createControlsScreen(document.querySelector('#key-bindings'),document.querySelector('#key-bindings-reset'),settings,language,bindings);
  language.listen(()=>{lastTravel=-1;});
@@ -90,7 +92,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
   slider.lock(model.pending||(model.started?!canApply():!(state==='start-menu'||state==='settings'&&model.origin==='start-menu')));
   applyDistance.hidden=!canApply()||slider.value()===worldDrawDistance();
   if(state==='settings')settingsScreen.paint();else controlsScreen.cancel();
-  for(const selector of actionNodes)document.querySelector(selector).disabled=!model.readyFlag||model.pending;
+  for(const selector of actionNodes)document.querySelector(selector).disabled=!model.isReady()||model.pending;
   document.querySelector('#recover').disabled ||= model.dead;
   // After death the card above the buttons says what happened. Continue and Recover cannot help, so they go.
   for(const id of ['#resume','#recover'])document.querySelector(id).hidden=model.deathComplete;
@@ -102,7 +104,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
   // In a multiplayer session a dead player respawns at once, also before the death card. The world goes on.
   document.querySelector('#pause-respawn').hidden=!online()||!model.dead;
   startLast.hidden=!canLast;
-  if(state==='saves')screen.paint(!model.readyFlag||model.pending);
+  if(state==='saves')screen.paint(!model.isReady()||model.pending);
   error.hidden=!model.error;if(lastError!==model.error){error.textContent=model.error;lastError=model.error;}
   // A status text shows as a toast. A text that ends in '…' waits for its result. Other texts fade after `TOAST_MS`.
   if(lastStatus!==model.status){
@@ -129,7 +131,7 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
   catch(error){if(model.state==='saves'&&!model.pending)model.error=error?.message??String(error);}
   paint();
  }
- async function operate(operation,...args){if(operation==='newGame'&&model.readyFlag&&!model.pending&&reloadNewGame(model.started)){model.status=pendingText.newGame;paint();return;}audio?.pause();clearInput();const pending=model.run(operation,saveSession,...args);paint();if(await pending&&operation==='newGame')onNewGame?.();flush();if(operation==='save'||operation==='remove')await refresh();paint();}
+ async function operate(operation,...args){if(operation==='newGame'&&model.isReady()&&!model.pending&&reloadNewGame(model.started)){model.status=pendingText.newGame;paint();return;}audio?.pause();clearInput();const pending=model.run(operation,saveSession,...args);paint();if(await pending&&operation==='newGame')onNewGame?.();flush();if(operation==='save'||operation==='remove')await refresh();paint();}
  function openSaves(){model.saves();if(model.state!=='saves')return;screen.open({inMenu:!model.started,dead:model.dead,sleeping:sleeping(),seated:seated()});paint();refresh();}
  // Continue enters fullscreen, where Keyboard Lock keeps Ctrl+W (crouch + forward) in the game. Request pointer lock first, because fullscreen takes the click.
  // The settings Exit button keeps the game in a window for this page load.

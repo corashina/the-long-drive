@@ -246,10 +246,8 @@ impl GarageRuntime {
             *blend += (target - *blend).clamp(-step, step);
         }
         use crate::audio::{AudioAction, AudioKind, SurvivalAudioEvent};
+        let audio = &mut self.audio;
         while let Some(thunder) = self.weather.lightning.pop_thunder() {
-            let Some(audio) = &mut self.audio else {
-                continue;
-            };
             // A close strike plays the sharp crack.
             let kind = if thunder.distance < crate::weather::CLOSE_DISTANCE {
                 AudioKind::ThunderClose
@@ -279,9 +277,6 @@ impl GarageRuntime {
                 position: player,
             });
         }
-        let Some(audio) = &mut self.audio else {
-            return;
-        };
         let rain = self.weather.mix().rain;
         let shelter = bindings.shelter;
         for (kind, blend) in [AudioKind::Rain, AudioKind::RainInside, AudioKind::RainCar]

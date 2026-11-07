@@ -50,6 +50,7 @@ pub struct WorldGripReference {
 }
 
 impl WorldHitchReference {
+    #[cfg(feature = "validate")]
     pub(super) fn valid(&self, p: &WorldPrototypeReference) -> bool {
         (self.node as usize) < p.nodes.len()
             && (self.target as usize) < p.nodes.len()
@@ -61,6 +62,7 @@ impl WorldHitchReference {
 }
 
 impl WorldTrailerReference {
+    #[cfg(feature = "validate")]
     pub(super) fn valid(&self, p: &WorldPrototypeReference) -> bool {
         finite(&self.center_of_mass)
             && finite(&self.center_of_mass_hitched)

@@ -1,11 +1,12 @@
-//! Enums with a `kind` tag in JSON and a binary (postcard) form.
-//! Postcard cannot read internal tags, so the binary form tags externally.
+//! Enums with an internal tag or no tag in JSON, and a binary (postcard) form.
+//! Postcard cannot read internal tags or untagged enums, so the binary form tags externally.
 
 /// Defines the enum once. `$name_text` is the enum name as a string.
+/// `#[json(...)]` holds the serde attributes of the JSON form only, such as `tag = "kind"`.
 macro_rules! tagged_enum {
-    ($name_text:literal, $(#[$attr:meta])* $vis:vis enum $name:ident { $($body:tt)* }) => {
+    ($name_text:literal, #[json($($json:meta),*)] $(#[$attr:meta])* $vis:vis enum $name:ident { $($body:tt)* }) => {
         #[derive(serde::Serialize, serde::Deserialize)]
-        #[serde(remote = "Self", tag = "kind")]
+        #[serde(remote = "Self", $($json),*)]
         $(#[$attr])*
         $vis enum $name { $($body)* }
         const _: () = {

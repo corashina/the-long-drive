@@ -1,5 +1,5 @@
 //! Browser audio calls of one rendered frame.
-use super::GarageRuntime;
+use super::{GarageRuntime, SessionPhase};
 use crate::boundary::{AudioCall, RenderInput};
 use crate::reference::ReferenceManifest;
 
@@ -21,18 +21,14 @@ impl GarageRuntime {
             survival,
             hearing,
             vehicles,
-            started,
-            menu,
+            phase,
             audio_motion_revision,
             ..
         } = self;
-        let Some(audio) = audio else {
-            return;
-        };
         out.push(AudioCall::Begin {
             session: audio.session,
-            started: *started,
-            paused: *menu,
+            started: *phase != SessionPhase::Unstarted,
+            paused: *phase == SessionPhase::Paused,
             seconds: audio.game_seconds,
         });
         let needs = survival.output();
@@ -92,7 +88,7 @@ impl GarageRuntime {
                 alive,
             });
         }
-        if *started && !*menu {
+        if *phase == SessionPhase::Playing {
             audio.update_mixers(area, stream, input.real_dt);
         }
         for (id, db) in audio.mixer_outputs() {

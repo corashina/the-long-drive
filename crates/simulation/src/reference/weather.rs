@@ -77,6 +77,7 @@ pub struct TumbleweedReference {
     pub evidence: ManagedEvidence,
 }
 impl TumbleweedReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let ranges = [
             self.wind_force_range,
@@ -132,6 +133,7 @@ pub struct WeatherReference {
     pub tumbleweeds: TumbleweedReference,
 }
 impl WeatherReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             self.evidence.valid()

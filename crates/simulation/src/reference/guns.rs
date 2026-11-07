@@ -96,8 +96,11 @@ pub struct GunReference {
     pub hithole: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+tagged_enum! {
+"GunKind",
+#[json(tag = "type")]
+#[derive(Clone, Debug)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum GunKind {
     None,
     /// revolverScript.
@@ -131,6 +134,7 @@ pub enum GunKind {
         /// weaponscript.hasMag at start.
         has_mag: bool,
     },
+}
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -286,6 +290,7 @@ pub struct GunCrosshair {
 }
 
 impl GunsReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             self.source.file == "level1" && finite(&self.ammo_mass) && finite(&self.ammo_velocity),
@@ -322,6 +327,7 @@ impl GunsReference {
 }
 
 impl GunReference {
+    #[cfg(feature = "validate")]
     fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let error = |field: &str| {
             ReferenceError(format!(
@@ -336,7 +342,7 @@ impl GunReference {
             .find(&self.prototype.0)
             .ok_or_else(|| error("world prototype"))?;
         let node = |s: &SourceId| prototype.nodes.find(s).is_some();
-        let clip = |s: &SourceId| m.audio.gameplay.clip(s).is_some();
+        let clip = |s: &SourceId| m.audio.clip(s).is_some();
 
         check((self.ammo.r#type as usize) < AMMO_TYPES, "ammo type")?;
         let mut nodes = vec![&self.muzzle];

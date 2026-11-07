@@ -3,7 +3,11 @@
     "family": "Liberation Sans",
     "version": "2.1.5",
     "origin": "https://github.com/liberationfonts/liberation-fonts/releases/tag/2.1.5",
-    "sha256": "76d04c18ea243f426b7de1f3ad208e927008f961dc5945e5aad352d0dfde8ee8"
+    "sha256_ttf": "76d04c18ea243f426b7de1f3ad208e927008f961dc5945e5aad352d0dfde8ee8",
+    "files": {
+      "LiberationSans-Regular.woff2": "398df9003a17ef2ffc5859e5a83be693accc40c1732c48f2d9356ebcc7607040"
+    },
+    "note": "WOFF2 made losslessly from the release TTF (sha256_ttf) with fontTools."
   },
   {
     "family": "Overpass",

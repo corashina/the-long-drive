@@ -1,4 +1,4 @@
-use super::{TerrainPoll, TerrainWorker};
+use super::{TerrainPoll, TerrainWorker, TileInput};
 use crate::reference::ReferenceError;
 use crate::world::{SurfaceKey, TerrainTile, WorldRequest, WorldSurface};
 
@@ -17,6 +17,8 @@ struct PendingTerrain {
 enum Submission {
     Queued,
     Submitted(JobId),
+    /// The finished result, held until the stream takes it.
+    Completed(WorldSurface),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -26,8 +28,7 @@ pub(in crate::world) struct TerrainMetadata {
     pub request: WorldRequest,
     pub key: SurfaceKey,
     pub tile: TerrainTile,
-    /// Hash of the encoded job input. Equal inputs build equal tiles.
-    pub input: u64,
+    pub input: TileInput,
 }
 
 pub(in crate::world) struct CompletedTerrain {
@@ -44,9 +45,17 @@ impl TerrainExecution {
         self.pending.is_some()
     }
 
-    /// Hash of the running job input.
-    pub(in crate::world) fn input(&self) -> Option<u64> {
-        self.pending.as_ref().map(|pending| pending.metadata.input)
+    /// Key and input of the running or held job.
+    pub(in crate::world) fn input(&self) -> Option<(SurfaceKey, TileInput)> {
+        self.pending
+            .as_ref()
+            .map(|pending| (pending.metadata.key, pending.metadata.input))
+    }
+
+    pub(in crate::world) fn set_input(&mut self, input: TileInput) {
+        if let Some(pending) = &mut self.pending {
+            pending.metadata.input = input;
+        }
     }
 
     /// Keeps the job for the new request if `retain`. Otherwise drops it.
@@ -74,9 +83,12 @@ impl TerrainExecution {
         });
     }
 
+    /// Polls the worker and submits a queued job. Returns the finished result if `take`.
+    /// Otherwise holds it, so the worker can finish while the stream's surface slot is full.
     pub(in crate::world) fn advance(
         &mut self,
         request: WorldRequest,
+        take: bool,
         should_yield: impl FnMut() -> bool,
     ) -> Result<Option<CompletedTerrain>, ReferenceError> {
         let mut poll = self.worker.poll(should_yield)?;
@@ -90,24 +102,37 @@ impl TerrainExecution {
             return Ok(None);
         }
         if let TerrainPoll::Ready(id) = poll {
-            let owner = self.pending.as_ref().is_some_and(|pending| {
-                matches!(&pending.submission, Submission::Submitted(job) if *job == JobId(id))
-            });
-            if owner {
-                let pending = self.pending.take().unwrap();
-                let mut surface = WorldSurface::default();
-                self.worker.read(
-                    pending.metadata.key.unit,
-                    pending.metadata.tile,
-                    &mut surface,
-                );
-                return Ok(Some(CompletedTerrain {
-                    metadata: pending.metadata,
-                    surface,
-                }));
+            match &mut self.pending {
+                Some(pending) if matches!(&pending.submission, Submission::Submitted(job) if *job == JobId(id)) =>
+                {
+                    let mut surface = WorldSurface::default();
+                    self.worker.read(
+                        pending.metadata.key.unit,
+                        pending.metadata.tile,
+                        &mut surface,
+                    );
+                    pending.submission = Submission::Completed(surface);
+                }
+                _ => {
+                    self.worker.discard();
+                    poll = TerrainPoll::Idle;
+                }
             }
-            self.worker.discard();
-            poll = TerrainPoll::Idle;
+        }
+        if take
+            && self
+                .pending
+                .as_ref()
+                .is_some_and(|pending| matches!(pending.submission, Submission::Completed(_)))
+        {
+            let pending = self.pending.take().unwrap();
+            let Submission::Completed(surface) = pending.submission else {
+                unreachable!()
+            };
+            return Ok(Some(CompletedTerrain {
+                metadata: pending.metadata,
+                surface,
+            }));
         }
         if poll == TerrainPoll::Idle
             && let Some(pending) = &mut self.pending

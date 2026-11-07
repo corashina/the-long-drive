@@ -170,6 +170,14 @@ impl SeatValues {
     }
 }
 
+/// Standing, seated and dead exclude each other.
+enum Stance {
+    Standing,
+    Seated(Box<Occupancy>),
+    /// `Death2` turned the colliders off. The ragdoll moves the player.
+    Dead,
+}
+
 struct Occupancy {
     /// The item that holds the seat. The player cannot take its part while sitting on it.
     item: ItemId,
@@ -206,7 +214,7 @@ pub struct PlayerState {
     feet: ColliderHandle,
     clearance_shapes: [rapier3d::parry::shape::Ball; 10],
     pose: Pose,
-    occupancy: Option<Occupancy>,
+    stance: Stance,
     collisions: Vec<CharacterCollision>,
     /// World points that blocked the last move. Each step reuses the list.
     step_contacts: Vec<Vector>,
@@ -229,8 +237,6 @@ pub struct PlayerState {
     /// Source `GetDir` `forward` and `backward`.
     walk_keys: [bool; 2],
     point: point::PointState,
-    /// `Death2` turned the colliders off. The ragdoll moves the player.
-    dead: bool,
 }
 
 impl PlayerState {
@@ -253,10 +259,7 @@ impl PlayerState {
         self.momentum.restore(Vector::from_array(saved.momentum));
         self.running = saved.running;
         // A world item or world car seat waits for its binding. See `restore_item_seat`.
-        self.occupancy = None;
-        if let Some(seat) = &self.occupancy {
-            self.pose = *physics.rapier().bodies[seat.body].position() * seat.local_pose;
-        }
+        self.leave_seat();
         self.cancel_view_input();
         self.clear_triggers();
         self.push_gripping = false;
@@ -347,7 +350,7 @@ impl PlayerState {
                 rapier3d::parry::shape::Ball::new(reference.posture.clearance[i].sphere.radius)
             }),
             pose,
-            occupancy: None,
+            stance: Stance::Standing,
             collisions: Vec::with_capacity(20),
             step_contacts: Vec::with_capacity(20),
             edge_step_velocity: Vector::ZERO,
@@ -365,7 +368,6 @@ impl PlayerState {
             hazard_damage: 0.0,
             walk_keys: [false; 2],
             point: point::PointState::default(),
-            dead: false,
         }
     }
 
@@ -375,7 +377,7 @@ impl PlayerState {
         physics: &PhysicsWorld,
         carry: Option<crate::save::CarrySnapshot>,
     ) -> Result<crate::save::PlayerSnapshot, crate::save::SaveError> {
-        let (position, rotation) = if let Some(seat) = &self.occupancy {
+        let (position, rotation) = if let Stance::Seated(seat) = &self.stance {
             let chassis = physics.rapier().bodies[seat.body].position();
             let absolute = origin.absolute(chassis.translation.to_array());
             let offset = chassis.rotation * seat.local_pose.translation;
@@ -393,8 +395,7 @@ impl PlayerState {
             pitch: self.pitch,
             // The source does not save the UFO, so the port does not save its seat.
             seat: self
-                .occupancy
-                .as_ref()
+                .seat()
                 .filter(|seat| !matches!(seat.owner, SeatOwner::Ufo(_)))
                 .map(|seat| {
                     let (owner, source) = match &seat.owner {
@@ -445,16 +446,15 @@ impl PlayerState {
         if !dt.is_finite() || dt <= 0.0 {
             return;
         }
-        let seated = self.occupancy.is_some();
+        let seated = self.seat().is_some();
         let mut input = input;
         if let Some(mouse) = self.view_state.key_look(&input, seated) {
             input.mouse = mouse;
         }
         let look_mode = self
-            .occupancy
-            .as_ref()
+            .seat()
             .is_some_and(|seat| seat.values.look_instead_of_lean);
-        if let Some(seat) = &self.occupancy
+        if let Stance::Seated(seat) = &self.stance
             && !seat.values.look_instead_of_lean
             && !context.recenter_consumed
             && input.held & keys::RECENTER != 0
@@ -490,7 +490,7 @@ impl PlayerState {
             self.scrub = [0.; 2];
         }
         self.pitch = self.pitch.clamp(-89.0, 89.0);
-        if let Some(seat) = &self.occupancy {
+        if let Stance::Seated(seat) = &self.stance {
             let [pitch_min, pitch_max] = seat.values.pitch_limits_degrees;
             self.yaw = seat.values.clamp_yaw(self.yaw);
             self.pitch = self.pitch.clamp(pitch_min, pitch_max);
@@ -510,7 +510,7 @@ impl PlayerState {
             return;
         }
         self.edge_step_velocity = Vector::ZERO;
-        if let Some(seat) = &self.occupancy {
+        if let Stance::Seated(seat) = &self.stance {
             self.pose = *physics.rapier().bodies[seat.body].position() * seat.local_pose;
             physics.edit_body(self.body, |body| {
                 body.set_next_kinematic_position(self.pose)
@@ -743,7 +743,7 @@ impl PlayerState {
         if roles.is_empty() {
             return;
         }
-        let seated = self.occupancy.is_some();
+        let seated = self.seat().is_some();
         let filter = QueryFilter::default()
             .exclude_solids()
             .exclude_rigid_body(self.body)
@@ -915,7 +915,7 @@ impl PlayerState {
                 .as_capsule_mut()
                 .expect("Owned player capsule") = *self.sweep.capsule();
             collider.set_position_wrt_parent(self.sweep.capsule_pose());
-            crate::vehicle::set_collider_enabled(collider, self.occupancy.is_none() && !self.dead);
+            crate::vehicle::set_collider_enabled(collider, matches!(self.stance, Stance::Standing));
         });
         physics.edit_collider(self.feet, |collider| {
             *collider
@@ -924,7 +924,7 @@ impl PlayerState {
                 .expect("Owned player foot sphere") = self.sweep.feet();
             crate::vehicle::set_collider_enabled(
                 collider,
-                self.occupancy.is_none() && !self.dead && self.sweep.feet_enabled(),
+                matches!(self.stance, Stance::Standing) && self.sweep.feet_enabled(),
             );
         });
         physics.refresh_queries();
@@ -936,7 +936,7 @@ impl PlayerState {
         seat: &crate::world::stream::content_seats::ItemSeat,
         physics: &mut PhysicsWorld,
     ) -> bool {
-        if self.occupancy.is_some() {
+        if !matches!(self.stance, Stance::Standing) {
             return false;
         }
         let occupancy = self.item_occupancy(seat, seat.pose);
@@ -944,7 +944,7 @@ impl PlayerState {
     }
     /// True when `seat` is another seat of the occupied owner.
     pub fn can_switch_to(&self, seat: &crate::world::stream::content_seats::ItemSeat) -> bool {
-        self.occupancy.as_ref().is_some_and(|occupied| {
+        self.seat().is_some_and(|occupied| {
             occupied.owner == seat.owner && occupied.source.as_ref() != Some(&seat.seat.source)
         })
     }
@@ -969,7 +969,7 @@ impl PlayerState {
     ) {
         let occupancy = self.item_occupancy(seat, local_pose);
         self.pose = *physics.rapier().bodies[seat.body].position() * occupancy.local_pose;
-        self.occupancy = Some(occupancy);
+        self.stance = Stance::Seated(Box::new(occupancy));
         self.update_geometry(physics);
         physics.edit_body(self.body, |body| {
             body.set_position(self.pose, false);
@@ -1001,7 +1001,7 @@ impl PlayerState {
         self.yaw = occupancy
             .values
             .clamp_yaw(yaw_from_rotation(head_in_seat.rotation));
-        self.occupancy = Some(occupancy);
+        self.stance = Stance::Seated(Box::new(occupancy));
         self.pose = seated_pose;
         self.posture.restore(1.0);
         self.clear_triggers();
@@ -1017,7 +1017,7 @@ impl PlayerState {
     }
 
     fn exit_pose(&self, physics: &PhysicsWorld) -> Option<Pose> {
-        let limits = &self.occupancy.as_ref()?.values.exit;
+        let limits = &self.seat()?.values.exit;
         let resolved = self.view(physics);
         let view = to_rapier(resolved.head_pose);
         let camera = to_rapier(resolved.camera_pose);
@@ -1067,7 +1067,7 @@ impl PlayerState {
         let Some(candidate) = self.exit_pose(physics) else {
             return false;
         };
-        let Some(seat) = self.occupancy.take() else {
+        let Some(seat) = self.leave_seat() else {
             return false;
         };
         self.pose = candidate;
@@ -1093,18 +1093,34 @@ impl PlayerState {
         &self.reference
     }
     pub fn seated(&self) -> bool {
-        self.occupancy.is_some()
+        self.seat().is_some()
     }
     /// `Death2` ran and no respawn followed.
     pub fn dead(&self) -> bool {
-        self.dead
+        matches!(self.stance, Stance::Dead)
+    }
+    fn seat(&self) -> Option<&Occupancy> {
+        match &self.stance {
+            Stance::Seated(seat) => Some(seat),
+            Stance::Standing | Stance::Dead => None,
+        }
+    }
+    /// A seat ends and the player stands. A dead player stays dead.
+    fn leave_seat(&mut self) -> Option<Box<Occupancy>> {
+        if !matches!(self.stance, Stance::Seated(_)) {
+            return None;
+        }
+        match std::mem::replace(&mut self.stance, Stance::Standing) {
+            Stance::Seated(seat) => Some(seat),
+            Stance::Standing | Stance::Dead => None,
+        }
     }
     /// The item that holds the occupied seat.
     pub fn seat_item(&self) -> Option<ItemId> {
-        self.occupancy.as_ref().map(|seat| seat.item)
+        self.seat().map(|seat| seat.item)
     }
     pub fn seat_owner(&self) -> Option<&SeatOwner> {
-        self.occupancy.as_ref().map(|seat| &seat.owner)
+        self.seat().map(|seat| &seat.owner)
     }
     /// Returns the vehicle that owns the occupied seat. Item seats return `None`.
     pub fn seat_vehicle(&self) -> Option<&crate::world::ObjectKey> {
@@ -1116,7 +1132,7 @@ impl PlayerState {
     /// Source `CarCamParent` anchors of the occupied seat: `seat.transform.position + up` (or the root
     /// with `rootOrigin`), the seat position, the seat body velocity and the player root.
     pub fn camera_seat(&self, physics: &PhysicsWorld) -> Option<crate::car_camera::CameraSeat> {
-        let seat = self.occupancy.as_ref()?;
+        let seat = self.seat()?;
         let body = &physics.rapier().bodies[seat.body];
         let node = *body.position() * seat.node_pose;
         let origin = if seat.values.root_origin {
@@ -1137,61 +1153,49 @@ impl PlayerState {
     }
     /// The body of the seat owner: car chassis or item body.
     pub fn seat_body(&self) -> Option<RigidBodyHandle> {
-        self.occupancy.as_ref().map(|seat| seat.body)
+        self.seat().map(|seat| seat.body)
     }
     /// The body of the occupied item seat. Car seats return `None`.
     pub fn item_seat_body(&self) -> Option<RigidBodyHandle> {
-        self.occupancy
-            .as_ref()
+        self.seat()
             .filter(|seat| matches!(seat.owner, SeatOwner::Item(_) | SeatOwner::Ufo(_)))
             .map(|seat| seat.body)
     }
     /// The main seatscript of the occupied seat.
     pub fn seat_source(&self) -> Option<&crate::reference::SourceId> {
-        self.occupancy
-            .as_ref()
-            .and_then(|seat| seat.source.as_ref())
+        self.seat().and_then(|seat| seat.source.as_ref())
     }
     /// The main seatscript of the occupied item seat. Car seats return `None`.
     pub fn item_seat_source(&self) -> Option<&crate::reference::SourceId> {
-        self.occupancy
-            .as_ref()
-            .and_then(|seat| seat.source.as_ref())
+        self.seat().and_then(|seat| seat.source.as_ref())
     }
     /// Body frames of the occupied seat, relative to the seat body.
     pub fn seat_frames(&self) -> Option<&body::SeatFrames> {
-        self.occupancy.as_ref().map(|seat| &seat.frames)
+        self.seat().map(|seat| &seat.frames)
     }
     /// seatscript.showSleepText of the occupied seat.
     pub fn show_sleep_text(&self) -> bool {
-        self.occupancy
-            .as_ref()
-            .is_some_and(|seat| seat.values.show_sleep_text)
+        self.seat().is_some_and(|seat| seat.values.show_sleep_text)
     }
     /// The seat push force modifier, or `None` when the player does not sit or the seat
     /// has `cantPushFromSeat`.
     pub fn seat_push_modifier(&self) -> Option<f32> {
-        self.occupancy
-            .as_ref()
+        self.seat()
             .filter(|seat| !seat.values.cant_push_from_seat)
             .map(|seat| seat.values.push_force_modifier)
     }
     pub fn mode(&self) -> PlayerMode {
-        if self.occupancy.is_some() {
+        if self.seat().is_some() {
             PlayerMode::Seated
         } else {
             PlayerMode::Walking
         }
     }
     pub fn driving(&self) -> bool {
-        self.occupancy
-            .as_ref()
-            .is_some_and(|seat| seat.values.driver)
+        self.seat().is_some_and(|seat| seat.values.driver)
     }
     pub fn driving2(&self) -> bool {
-        self.occupancy
-            .as_ref()
-            .is_some_and(|seat| seat.values.driving2)
+        self.seat().is_some_and(|seat| seat.values.driving2)
     }
     pub fn posture(&self) -> f32 {
         self.posture.value()
@@ -1212,7 +1216,7 @@ impl PlayerState {
         }
         let bodies = &physics.rapier().bodies;
         let held = |key| input.held & key != 0;
-        self.walk_keys = if self.occupancy.is_some() {
+        self.walk_keys = if self.seat().is_some() {
             [false; 2]
         } else if self.push_gripping {
             [held(keys::FORWARD), held(keys::BACK)]
@@ -1222,7 +1226,7 @@ impl PlayerState {
                 held(keys::BACK),
             ]
         };
-        if let Some(seat) = &self.occupancy {
+        if let Stance::Seated(seat) = &self.stance {
             let head = to_rapier(self.view(physics).head_pose).rotation;
             let velocity = bodies[seat.body].linvel();
             self.view_state.step_car_bob(dt, velocity, dead, head);
@@ -1330,14 +1334,14 @@ impl PlayerState {
     pub fn look_at(&mut self, target: [f32; 3], physics: &PhysicsWorld) {
         let camera = Vector::from_array(self.view(physics).camera_pose.position);
         // While seated, yaw and pitch are in the seat frame. On foot, the body carries the yaw.
-        let parent = match self.occupancy {
+        let parent = match self.seat() {
             Some(_) => Rotation::from_array(self.body_pose(physics).rotation),
             None => Rotation::IDENTITY,
         };
         let d = parent.inverse() * (Vector::from_array(target) - camera);
         let yaw = d.x.atan2(-d.z).to_degrees();
         self.pitch = (-d.y.atan2(d.x.hypot(d.z)).to_degrees()).clamp(-89.0, 89.0);
-        if let Some(seat) = &self.occupancy {
+        if let Stance::Seated(seat) = &self.stance {
             let [pitch_min, pitch_max] = seat.values.pitch_limits_degrees;
             self.yaw = seat.values.clamp_yaw(yaw);
             self.pitch = self.pitch.clamp(pitch_min, pitch_max);
@@ -1374,13 +1378,13 @@ impl PlayerState {
         if self.push_gripping {
             walking_pose.translation = physics.rapier().bodies[self.body].position().translation;
         }
-        let pose = self.occupancy.as_ref().map_or(walking_pose, |seat| {
+        let pose = self.seat().map_or(walking_pose, |seat| {
             *physics.rapier().bodies[seat.body].position() * seat.local_pose
         });
         from_rapier(pose)
     }
     fn head_rotation(&self) -> Rotation {
-        let yaw = if self.occupancy.is_some() {
+        let yaw = if self.seat().is_some() {
             Rotation::from_rotation_y(-self.yaw.to_radians())
         } else {
             Rotation::IDENTITY
@@ -1395,13 +1399,13 @@ impl PlayerState {
             + body.rotation
                 * self
                     .view_state
-                    .source_anchor_midpoint(self.posture.value(), self.occupancy.is_some())
+                    .source_anchor_midpoint(self.posture.value(), self.seat().is_some())
     }
     pub fn neutral_view_at(&self, body_pose: VehiclePose) -> PlayerView {
         self.view_state.resolve(
             to_rapier(body_pose),
             self.head_rotation(),
-            self.occupancy.is_some(),
+            self.seat().is_some(),
             Some(self.posture.value()),
         )
     }
@@ -1409,7 +1413,7 @@ impl PlayerState {
         self.view_state.resolve(
             to_rapier(self.body_pose(physics)),
             self.head_rotation(),
-            self.occupancy.is_some(),
+            self.seat().is_some(),
             None,
         )
     }
@@ -1436,7 +1440,7 @@ impl PlayerState {
             pitch_limits: [-89., 89.],
             ..LookBlock::default()
         };
-        let parent = match (&self.occupancy, entry) {
+        let parent = match (self.seat(), entry) {
             (Some(seat), None) => {
                 if !seat.values.yaw_unlimited {
                     look.yaw_limits = seat.values.yaw_limits_degrees;
@@ -1469,7 +1473,7 @@ impl PlayerState {
     }
     /// Place the player on foot. An item seat ends here.
     pub fn recover(&mut self, pose: VehiclePose, physics: &mut PhysicsWorld) {
-        self.occupancy = None;
+        self.leave_seat();
         self.pose = to_rapier(pose);
         self.yaw = yaw_from_rotation(self.pose.rotation);
         self.posture.restore(self.posture.value());
@@ -1489,13 +1493,13 @@ impl PlayerState {
     }
     /// Respawn: the player lives again on foot at `pose`, with the colliders on.
     pub fn revive(&mut self, pose: VehiclePose, physics: &mut PhysicsWorld) {
-        self.dead = false;
+        self.stance = Stance::Standing;
         self.recover(pose, physics);
     }
     /// `Death2` turns the colliders off. A seat ends and keeps the world look, so the ragdoll can
     /// move the player.
     pub fn die(&mut self, physics: &mut PhysicsWorld) {
-        if let Some(seat) = self.occupancy.take() {
+        if let Some(seat) = self.leave_seat() {
             let pose = *physics.rapier().bodies[seat.body].position() * seat.local_pose;
             self.yaw = yaw_from_rotation(
                 pose.rotation * Rotation::from_rotation_y(-self.yaw.to_radians()),
@@ -1505,7 +1509,7 @@ impl PlayerState {
                 Rotation::from_rotation_y(-self.yaw.to_radians()),
             );
         }
-        self.dead = true;
+        self.stance = Stance::Dead;
         self.push_gripping = false;
         self.reset_motion();
         self.vertical_velocity = 0.0;

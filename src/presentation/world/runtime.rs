@@ -117,7 +117,7 @@ impl WorldPresentation<'_, '_> {
     /// One renderer step on the copy.
     /// Adds the facts and the admitted lamps of the step to `out`.
     #[allow(clippy::too_many_arguments)]
-    pub fn prepare_frame(
+    pub(crate) fn prepare_frame(
         &mut self,
         reference: &ReferenceManifest,
         poses: &crate::presentation::sim_frame::SimFrameResource,
@@ -473,7 +473,6 @@ impl WorldPresentation<'_, '_> {
             &mut self.pipelines,
             &self.fixed,
             &mut self.commands,
-            view,
         )?;
         timer.next(crate::world::stream_profile::Stage::Lods);
         self.instances.select_lods(

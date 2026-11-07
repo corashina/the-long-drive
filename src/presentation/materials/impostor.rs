@@ -27,7 +27,6 @@ pub struct ImpostorUniform {
 }
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct ImpostorMaterial {
-    pub preparation: crate::presentation::gpu_prepare::GpuPreparation,
     pub source: SourceId,
     pub uniform: ImpostorUniform,
     arrays: [Handle<Image>; 4],
@@ -126,7 +125,6 @@ impl ImpostorMaterial {
         let array_count = banks.len() as u8;
         let arrays = std::array::from_fn(|i| banks.get(i).unwrap_or(&banks[0]).1.clone());
         Ok(Self {
-            preparation: default(),
             source: record.source.clone(),
             arrays,
             array_count,
@@ -245,32 +243,13 @@ impl AsBindGroup for ImpostorMaterial {
     fn bind_group_data(&self) -> (bool, bool) {
         (self.reflected, self.gpu_props)
     }
-    fn as_bind_group(
-        &self,
-        descriptor: &BindGroupLayoutDescriptor,
-        device: &RenderDevice,
-        cache: &PipelineCache,
-        param: &mut SystemParamItem<Self::Param>,
-    ) -> Result<PreparedBindGroup, AsBindGroupError> {
-        crate::presentation::gpu_prepare::bind_group(
-            self,
-            &self.preparation,
-            descriptor,
-            device,
-            cache,
-            param,
-        )
-    }
     fn unprepared_bind_group(
         &self,
         layout: &BindGroupLayout,
         device: &RenderDevice,
         params: &mut SystemParamItem<Self::Param>,
-        direct: bool,
+        _: bool,
     ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
-        if self.preparation.isolated() && !direct {
-            return Err(AsBindGroupError::CreateBindGroupDirectly);
-        }
         let extension = SourceReceiver {
             receiver_mask: self.receiver_mask,
         };

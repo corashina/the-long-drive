@@ -51,8 +51,6 @@ extern "C" {
     /// Pending `DisplaySettings` JSON, or none.
     #[wasm_bindgen(js_namespace = window, js_name = gameDisplaySettings)]
     pub fn game_display_settings() -> Option<String>;
-    #[wasm_bindgen(js_name = gameAudioError)]
-    pub fn game_audio_error(message: &str);
     /// One frame of audio calls, encoded by `src/app/audio.rs`.
     #[wasm_bindgen(js_namespace = window, js_name = gameAudioFrame)]
     pub fn game_audio_frame(batch: &[f64]);
@@ -60,8 +58,9 @@ extern "C" {
     pub fn game_has_save_request() -> bool;
     #[wasm_bindgen(js_namespace = window, js_name = gameSaveRequest)]
     pub fn game_save_request() -> String;
+    /// `save` is a view of WASM memory. JavaScript copies it before it yields.
     #[wasm_bindgen(js_namespace = window, js_name = gameSaveResult)]
-    pub fn game_save_result(id: u32, kind: &str, payload: &str, error: &str);
+    pub fn game_save_result(id: u32, kind: &str, payload: &str, save: &[u8], error: &str);
 
     #[wasm_bindgen(js_namespace = window, js_name = gameLoadingProgress)]
     pub fn game_loading_progress(

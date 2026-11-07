@@ -462,10 +462,7 @@ impl RoadIndex {
         if (self.buffer_first..self.buffer_first + self.buffer.len() as u32).contains(&index) {
             return Ok(Some(self.buffer[(index - self.buffer_first) as usize]));
         }
-        #[cfg(target_arch = "wasm32")]
-        let replay_started = crate::host::game_now();
-        #[cfg(not(target_arch = "wasm32"))]
-        let replay_started = std::time::Instant::now();
+        let replay_started = super::Deadline::unbounded();
         let block = self.blocks[(index / ROAD_CHECKPOINT_INTERVAL) as usize];
         if self.buffer_first != block.first || self.replay_end == 0 {
             self.replay
@@ -497,14 +494,7 @@ impl RoadIndex {
             self.replay_end += 1;
             self.replay_work += 1;
         }
-        #[cfg(target_arch = "wasm32")]
-        {
-            self.replay_ms = crate::host::game_now() - replay_started;
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.replay_ms = replay_started.elapsed().as_secs_f64() * 1000.;
-        }
+        self.replay_ms = replay_started.elapsed_ms();
         self.peak_replay_ms = self.peak_replay_ms.max(self.replay_ms);
         if self.replay_end == block.end {
             let expected = self

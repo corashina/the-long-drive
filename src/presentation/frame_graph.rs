@@ -5,9 +5,10 @@ use super::surface_views::{
 };
 use super::{
     frame_copy::FrameCopy,
+    fullscreen::{FullscreenPass, Samplers},
     lighting_assets::LightingRenderAssets,
     materials::RenderingState,
-    probes::{ProbeFilter, ProbePublication},
+    probes::ProbeFilter,
     readiness::{RendererState, RendererStateHandle, SourceExecutionGate},
     source_lighting::SourceViewCamera,
     source_sky::SkyPass,
@@ -15,6 +16,7 @@ use super::{
     surface_views::{SourceSurfaceView, SurfaceResources},
     view_frame::{SourceSubmissionAcks, SourceViewFrame},
 };
+use crate::presentation_logic::probe_publication::ProbePublication;
 use crate::presentation_logic::view_gate::{FrameFacts, ViewFacts, view_may_draw};
 use crate::reference::reflections::ProbeJob;
 use bevy::camera::{RenderTarget, visibility::RenderLayers};
@@ -164,7 +166,7 @@ impl HeldImage {
         cache: &PipelineCache,
         output: &WgpuTextureView,
     ) -> bool {
-        self.copy.encode(encoder, cache, output)
+        self.copy.encode(encoder, cache, output, 0, None)
     }
 }
 
@@ -328,6 +330,10 @@ impl Plugin for SourceFramePlugin {
                     .chain()
                     .in_set(RenderGraphSystems::Finish),
             );
+    }
+    // The render device exists from here on.
+    fn finish(&self, app: &mut App) {
+        app.sub_app_mut(RenderApp).init_resource::<Samplers>();
     }
 }
 
@@ -549,6 +555,7 @@ fn prepare_frame(
     sky_views: Query<&ExtractedView, With<SourceSkyCamera>>,
     frame: Res<SourceViewFrame>,
     antialiasing: Res<super::antialiasing::Antialiasing>,
+    samplers: Res<Samplers>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
@@ -660,10 +667,11 @@ fn prepare_frame(
         copy: FrameCopy::new(
             &device,
             &cache,
+            &samplers,
             assets.shaders.copy.clone(),
             &held_view,
             format,
-            "present",
+            &["present"],
         ),
         texture: held_texture,
         view: held_view,
@@ -687,6 +695,7 @@ fn prepare_mirror_copy(
     resources: Option<Res<SurfaceResources>>,
     assets: Option<Res<LightingRenderAssets>>,
     existing: Option<Res<MirrorCopy>>,
+    samplers: Res<Samplers>,
     device: Res<RenderDevice>,
     cache: Res<PipelineCache>,
     status: Res<RendererStateHandle>,
@@ -705,10 +714,11 @@ fn prepare_mirror_copy(
         copy: FrameCopy::new(
             &device,
             &cache,
+            &samplers,
             assets.shaders.copy.clone(),
             resources.targets.mirror.resolved.sampled.as_ref().unwrap(),
             TextureFormat::Rgba8Unorm,
-            "copy",
+            &["copy"],
         ),
     });
 }
@@ -1028,9 +1038,13 @@ fn finish_surface(
         ) else {
             return;
         };
-        mirrors
-            .copy
-            .encode(context.command_encoder(), &cache, &image.texture_view);
+        mirrors.copy.encode(
+            context.command_encoder(),
+            &cache,
+            &image.texture_view,
+            0,
+            None,
+        );
         return;
     }
     if source.index >= PROBE_START {
@@ -1349,7 +1363,6 @@ struct GpuBoundary {
     shadow_scene_frame: u32,
     shadow_candidates: [usize; super::surface_views::WORLD_VIEWS],
     shadow_split_counts: [[usize; 4]; super::surface_views::WORLD_VIEWS],
-    shadow_offscreen_casters: usize,
     shadow_queue_frame: u32,
     shadow_specializations: usize,
     shadow_ready_mask: u16,
@@ -1428,7 +1441,6 @@ struct PassInputs<'w> {
     caster: Option<Res<'w, super::caster::CasterPasses>>,
     sky: Option<Res<'w, SkyPass>>,
     cloud: Option<Res<'w, super::clouds::CloudPass>>,
-    owners: Res<'w, super::pipeline_ownership::PipelineOwners>,
     cache: Res<'w, PipelineCache>,
 }
 /// Lighting texture counts change only when lighting assets or GPU images change.
@@ -1446,12 +1458,8 @@ fn pass_readiness(
     let mut passes = PassReadiness {
         targets: inputs.targets.is_some(),
         camera: inputs.camera.is_some_and(|c| c.ready()),
-        surface: inputs
-            .surface
-            .is_some_and(|p| p.ready(cache, &inputs.owners)),
-        caster: inputs
-            .caster
-            .is_some_and(|p| p.ready(cache, &inputs.owners)),
+        surface: inputs.surface.is_some_and(|p| p.ready(cache)),
+        caster: inputs.caster.is_some_and(|p| p.ready(cache)),
         sky: inputs.sky.is_some_and(|p| p.ready(cache)),
         cloud: inputs.cloud.is_some_and(|p| p.ready(cache)),
         ..default()
@@ -1483,7 +1491,7 @@ static AUDIT_WATCHED: AtomicBool = AtomicBool::new(false);
 pub fn watch_render_audit(on: bool) {
     AUDIT_WATCHED.store(on, Ordering::Relaxed);
 }
-fn audit_watched() -> bool {
+pub(crate) fn audit_watched() -> bool {
     AUDIT_WATCHED.load(Ordering::Relaxed)
 }
 #[derive(Default)]
@@ -1592,7 +1600,6 @@ fn gpu_boundaries(
     if let Some(scene) = world.get_resource::<super::shadow_scene::ShadowScene>() {
         boundary.shadow_candidates = scene.candidates;
         boundary.shadow_split_counts = scene.split_counts;
-        boundary.shadow_offscreen_casters = scene.shadow_only;
     }
     boundary.shadow_scene_frame = world
         .get_resource::<super::shadow_scene::ShadowScene>()
@@ -1631,6 +1638,7 @@ fn prepare_probe(
     assets: Option<Res<LightingRenderAssets>>,
     existing: Option<ResMut<ProbeFrame>>,
     frame: Res<SourceViewFrame>,
+    samplers: Res<Samplers>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
@@ -1677,6 +1685,7 @@ fn prepare_probe(
             &device,
             &queue,
             &cache,
+            &samplers,
             assets.shaders.probe.clone(),
             &surfaces.probes[index],
             surfaces.targets.capture.resolved.sampled.as_ref().unwrap(),
@@ -1811,12 +1820,13 @@ fn filter_probe(
             return;
         };
         let result = probe.publication.validated(token, true).and_then(|()| {
-            probe.publication.encode_publication(
-                context.command_encoder(),
-                &surfaces.probes[frame.probe_index],
-                &probe.filter,
-                &cache,
-            )
+            probe.publication.encode_publication(|| {
+                probe.filter.publish(
+                    context.command_encoder(),
+                    &cache,
+                    &surfaces.probes[frame.probe_index],
+                )
+            })
         });
         match result {
             Ok(token) => {

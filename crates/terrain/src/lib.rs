@@ -8,7 +8,7 @@ pub use job::{TerrainJob, TerrainTask, evaluate};
 pub use noise::{TerrainEvaluator, TerrainSettings, source_perlin};
 pub use random::{RandomState, SourceRandom};
 pub use surface::{
-    ROAD_HALF_WIDTH, TerrainContext, TerrainFoundation, TerrainMesh, TerrainRoadPoint,
-    TerrainSurfaceJob, TerrainTile, biome, forced_color, grid_coordinate, regular_grid, surface,
-    surface_origin,
+    ROAD_HALF_WIDTH, TerrainContext, TerrainFoundation, TerrainMesh, TerrainRoadGrid,
+    TerrainRoadPoint, TerrainSurfaceJob, TerrainTile, biome, forced_color, grid_coordinate,
+    grid_triangle_count, grid_triangles, grid_uv, regular_grid, surface, surface_origin,
 };

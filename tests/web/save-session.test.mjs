@@ -1,13 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {webcrypto as crypto} from 'node:crypto';
 import {canLoadLast,createSaveSession,startSave} from '../../web/save-session.js';
 const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-async function record(payload){const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(payload)));return {version:1,payload,checksum:Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('')};}
 function setup(overrides={}){
  const calls={commit:[],discard:[],write:[],status:[],read:[],remove:[],reload:[]};const runtime={capture:async()=>({save:{schema_version:4},summary:{seed:1,driven_km:0,build_id:1}}),prepare:async()=>7,commit:async(token,onDispatch)=>{onDispatch();calls.commit.push(token);},discard:token=>calls.discard.push(token),prepareNewGame:async()=>8,...overrides.runtime};
- const storage={list:async()=>({saves:[],autosave:null,last:'a'}),read:async name=>{calls.read.push(name);return await record({schema_version:4});},remove:async name=>{calls.remove.push(name);},write:async(name,save,entry)=>{calls.write.push({name,save,entry});},...overrides.storage};
+ const storage={list:async()=>({saves:[],autosave:null,last:'a'}),read:async name=>{calls.read.push(name);return new TextEncoder().encode('{"schema_version":4}');},remove:async name=>{calls.remove.push(name);},write:async(name,save,entry)=>{calls.write.push({name,save,entry});},...overrides.storage};
  const session=createSaveSession({runtime,storage,drawDistance:()=>2500,reload:async name=>{calls.reload.push(name);},onStatus:status=>calls.status.push(status)});return {calls,session};
 }
 test('canceled_preparation_discards_stale_candidate_without_commit',async()=>{
@@ -21,7 +19,7 @@ test('delayed_canceled_write_cannot_overwrite_a_later_save',async()=>{
  const first=session.save('a',null);await tick();session.cancel();assert.equal(signal.aborted,true);const second=session.save('a',null);await tick();assert.equal(stored,undefined);delayed.resolve();await Promise.all([first,second]);assert.deepEqual(stored,{value:2});assert.equal(session.pending,false);
 });
 test('failed_load_keeps_runtime_and_reports_error',async()=>{
- const {session,calls}=setup({storage:{read:async()=>({version:1,payload:{},checksum:'bad'})}});await assert.rejects(session.load('a'),/checksum/i);assert.equal(calls.commit.length,0);assert.equal(session.pending,false);assert.equal(calls.status.at(-1).state,'error');
+ const {session,calls}=setup({storage:{read:async()=>{throw new Error('Invalid save record.');}}});await assert.rejects(session.load('a'),/record/i);assert.equal(calls.commit.length,0);assert.equal(session.pending,false);assert.equal(calls.status.at(-1).state,'error');
 });
 test('cancel_after_commit_preserves_committed_candidate',async()=>{
  const committed=deferred();const {session,calls}=setup({runtime:{commit:async(token,onDispatch)=>{onDispatch();calls.commit.push(token);await committed.promise;}}});const operation=session.newGame();await tick();session.cancel();assert.equal(session.pending,true);committed.resolve();await operation;assert.deepEqual(calls.commit,[8]);assert.deepEqual(calls.discard,[]);assert.equal(calls.status.at(-1).state,'success');

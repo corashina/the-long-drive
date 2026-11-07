@@ -388,7 +388,7 @@ impl GarageRuntime {
             equipment_input::EquipAction,
         };
         let dead = self.needs_output().dead;
-        if !self.started
+        if !self.started()
             || self.paused()
             || self.recovering
             || !self.world_supported()
@@ -477,7 +477,7 @@ impl GarageRuntime {
                 &mut self.physics,
             );
         }
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
         self.physics.refresh_queries();
         let frame = ToolFrame {
             lmb: input.held & keys::PRIMARY != 0,
@@ -522,7 +522,7 @@ impl GarageRuntime {
             self.area.interaction.equipment_input.record_released();
         }
         self.area.sync_equipment(reference, &mut self.physics);
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
         self.physics.refresh_queries();
         if let Some(id) = self.area.interaction.held() {
             self.advance_owned_tool(
@@ -733,18 +733,17 @@ impl GarageRuntime {
         );
         self.area.pose.set_hand(interaction.melee.hand());
         for sound in interaction.melee.take_sounds() {
-            if let Some(audio) = &mut self.audio {
-                audio.survival_event(crate::audio::SurvivalAudioEvent {
-                    session: audio.session,
-                    emitter: 0,
-                    kind: crate::audio::AudioKind::MeleeHit,
-                    action: crate::audio::AudioAction::Start,
-                    clip: sound.clip,
-                    gain: sound.gain,
-                    pitch: 1.,
-                    position: sound.position,
-                });
-            }
+            let audio = &mut self.audio;
+            audio.survival_event(crate::audio::SurvivalAudioEvent {
+                session: audio.session,
+                emitter: 0,
+                kind: crate::audio::AudioKind::MeleeHit,
+                action: crate::audio::AudioAction::Start,
+                clip: sound.clip,
+                gain: sound.gain,
+                pitch: 1.,
+                position: sound.position,
+            });
         }
         while let Some(item) = self.area.interaction.melee.take_cut() {
             if self.cut_food(reference, item, true).is_err() {
@@ -759,18 +758,17 @@ impl GarageRuntime {
     /// mainscript.PlayClipAtPoint for spray bottle clips.
     fn play_small_item_sounds(&mut self) {
         for (clip, gain, position) in self.stream.take_small_item_sounds() {
-            if let Some(audio) = &mut self.audio {
-                audio.survival_event(crate::audio::SurvivalAudioEvent {
-                    session: audio.session,
-                    emitter: 0,
-                    kind: crate::audio::AudioKind::ItemHit,
-                    action: crate::audio::AudioAction::Start,
-                    clip,
-                    gain,
-                    pitch: 1.,
-                    position,
-                });
-            }
+            let audio = &mut self.audio;
+            audio.survival_event(crate::audio::SurvivalAudioEvent {
+                session: audio.session,
+                emitter: 0,
+                kind: crate::audio::AudioKind::ItemHit,
+                action: crate::audio::AudioAction::Start,
+                clip,
+                gain,
+                pitch: 1.,
+                position,
+            });
         }
     }
 }
@@ -786,7 +784,7 @@ impl StartingArea {
         for (saved, id) in slots.iter_mut().zip(self.inventory.slots) {
             *saved = id
                 .filter(saved_item)
-                .map(|id| ids.item_instance(id))
+                .map(|id| ids.item_instance(&self.items, id))
                 .transpose()?;
         }
         Ok(crate::save::InventorySnapshot {
@@ -797,7 +795,7 @@ impl StartingArea {
                 .equipment
                 .item()
                 .filter(saved_item)
-                .map(|id| ids.item_instance(id))
+                .map(|id| ids.item_instance(&self.items, id))
                 .transpose()?,
             worn: self.capture_worn(ids)?,
         })
@@ -815,7 +813,7 @@ impl StartingArea {
                     serial: spawned.serial,
                 },
                 None => WornSnapshot::Item {
-                    item: ids.item_instance(item.id)?,
+                    item: ids.item_instance(&self.items, item.id)?,
                 },
             });
         }

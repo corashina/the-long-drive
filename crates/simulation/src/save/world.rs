@@ -1,12 +1,9 @@
 use super::*;
-use crate::interaction::{
-    items::{ItemBodyIndex, ItemLocation},
-    wheels::WheelAssemblies,
-};
+use crate::interaction::{items::ItemLocation, wheels::WheelAssemblies};
 use crate::reference::{BodyId, ItemId, ReferenceManifest};
 use crate::starting_area::StartingArea;
 use crate::vehicle::{PhysicsWorld, VehiclePose, from_rapier, to_rapier};
-use crate::world::{REBASE_LIMIT, WorldOrigin, WorldStream};
+use crate::world::{REBASE_LIMIT, SupportKey, WorldBounds, WorldOrigin, WorldStream};
 use bevy_platform::collections::{HashMap, HashSet};
 use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{RigidBodyHandle, RigidBodyType};
@@ -32,6 +29,24 @@ struct Record {
     /// Collider reach from the body origin and whether the body is not dynamic. `sync` sets them.
     extent: f64,
     fixed: bool,
+    /// Rotation and `PhysicsWorld::shape_revision` of `extent`.
+    extent_key: Option<([f32; 4], u64)>,
+    /// The last `WorldStream::supports` answer, its stream key and bounds.
+    support: Option<(SupportKey, WorldBounds, bool)>,
+}
+impl Record {
+    fn new(key: Key) -> Self {
+        Self {
+            key,
+            root: None,
+            handle: None,
+            state: None,
+            extent: 0.,
+            fixed: false,
+            extent_key: None,
+            support: None,
+        }
+    }
 }
 
 /// Inactive poses use absolute coordinates. Runtime handles never enter a save.
@@ -40,7 +55,9 @@ pub struct PersistentWorld {
     processed: HashSet<RigidBodyHandle>,
     order: Vec<usize>,
     reference_items: HashMap<BodyId, Vec<ItemId>>,
-    item_bodies: ItemBodyIndex,
+    /// `(handle, record index)` of each record with a handle, sorted. `reindex` rebuilds it.
+    handles: Vec<((u32, u32), usize)>,
+    handles_changed: bool,
     pending_items: Vec<(ItemId, AbsolutePose)>,
     /// Loose bodies made kinematic by distance, as source `itemPlaceRemoveScript`.
     frozen: HashSet<RigidBodyHandle>,
@@ -62,21 +79,13 @@ impl PersistentWorld {
                     .map(|part| Key::Assembly(part.item)),
             )
             .chain(reference.bodies.iter().map(|body| Key::Source(body.id)));
-        let records: Vec<_> = keys
-            .map(|key| Record {
-                key,
-                root: None,
-                handle: None,
-                state: None,
-                extent: 0.,
-                fixed: false,
-            })
-            .collect();
+        let records: Vec<_> = keys.map(Record::new).collect();
         let mut result = Self {
             processed: HashSet::with_capacity(records.len()),
             order: Vec::with_capacity(records.len()),
             reference_items: HashMap::new(),
-            item_bodies: ItemBodyIndex::default(),
+            handles: Vec::new(),
+            handles_changed: false,
             records,
             pending_items: Vec::new(),
             frozen: HashSet::new(),
@@ -91,25 +100,11 @@ impl PersistentWorld {
         let mut records = Vec::with_capacity(identities.bodies.len() + identities.items.len());
         for body in &snapshot.bodies {
             if let BodyIdentity::Assembly { root } = &body.identity {
-                records.push(Record {
-                    key: Key::Assembly(identities.item(root)?),
-                    root: None,
-                    handle: None,
-                    state: None,
-                    extent: 0.,
-                    fixed: false,
-                });
+                records.push(Record::new(Key::Assembly(identities.item(root)?)));
             }
         }
-        for &id in identities.bodies.values() {
-            records.push(Record {
-                key: Key::Source(id),
-                root: None,
-                handle: None,
-                state: None,
-                extent: 0.,
-                fixed: false,
-            });
+        for id in identities.bodies.ids() {
+            records.push(Record::new(Key::Source(id)));
         }
         for body in &snapshot.bodies {
             let key = match &body.identity {
@@ -137,7 +132,8 @@ impl PersistentWorld {
             processed: HashSet::with_capacity(records.len()),
             order: Vec::with_capacity(records.len()),
             reference_items: HashMap::new(),
-            item_bodies: ItemBodyIndex::default(),
+            handles: Vec::new(),
+            handles_changed: false,
             records,
             pending_items: snapshot
                 .items
@@ -172,9 +168,8 @@ impl PersistentWorld {
         identity: BodyIdentity,
     ) -> Option<BodySnapshot> {
         let state = self
-            .records
-            .iter()
-            .find(|r| r.handle == Some(handle) && r.state.is_some())?
+            .with_handle(handle)
+            .find(|r| r.state.is_some())?
             .state?;
         Some(BodySnapshot {
             identity,
@@ -191,18 +186,13 @@ impl PersistentWorld {
         vehicle: &crate::world::ObjectKey,
     ) -> Option<VehiclePose> {
         let Some(car) = self
-            .records
-            .iter()
-            .find(|r| r.handle == Some(physics.chassis_handle(vehicle)))
+            .with_handle(physics.chassis_handle(vehicle))
+            .next()
             .and_then(|r| r.state)
         else {
             return Some(from_rapier(physics.rapier().bodies[handle].position()));
         };
-        let state = self
-            .records
-            .iter()
-            .find(|r| r.handle == Some(handle))?
-            .state?;
+        let state = self.with_handle(handle).next()?.state?;
         let delta =
             std::array::from_fn::<_, 3, _>(|i| state.pose.position[i] - car.pose.position[i]);
         if delta.iter().any(|v| v.abs() > f64::from(REBASE_LIMIT)) {
@@ -220,12 +210,7 @@ impl PersistentWorld {
         vehicle: &crate::world::ObjectKey,
         bounds: &crate::reference::Bounds,
     ) -> bool {
-        let Some(state) = self
-            .records
-            .iter()
-            .find(|r| r.handle == Some(handle))
-            .and_then(|r| r.state)
-        else {
+        let Some(state) = self.with_handle(handle).next().and_then(|r| r.state) else {
             return false;
         };
         let Some(car) = self.recovery_body_pose(physics, physics.chassis_handle(vehicle), vehicle)
@@ -257,9 +242,8 @@ impl PersistentWorld {
                 continue;
             };
             let enabled = self
-                .records
-                .iter()
-                .find(|r| r.handle == Some(handle))
+                .with_handle(handle)
+                .next()
                 .and_then(|r| r.state)
                 .is_some_and(|s| s.enabled);
             physics.edit_body(handle, |body| {
@@ -267,15 +251,13 @@ impl PersistentWorld {
                 body.set_enabled(enabled);
             });
         }
-        self.item_bodies.refresh(&area.items);
         for &handle in bodies {
-            for record in self.records.iter_mut().filter(|r| r.handle == Some(handle)) {
-                record.state = None;
+            for index in self.handle_range(handle) {
+                self.records[self.handles[index].1].state = None;
             }
             physics.inactive_bodies.remove(&handle);
-            for &id in self.item_bodies.items(handle) {
-                area.items.get_mut(id).unwrap().inactive_pose = None;
-            }
+            area.items
+                .on_body_mut(handle, |item| item.inactive_pose = None);
         }
     }
 
@@ -285,9 +267,8 @@ impl PersistentWorld {
         origin: &WorldOrigin,
         vehicle: &crate::world::ObjectKey,
     ) -> [f64; 3] {
-        self.records
-            .iter()
-            .find(|r| r.handle == Some(physics.chassis_handle(vehicle)) && r.state.is_some())
+        self.with_handle(physics.chassis_handle(vehicle))
+            .find(|r| r.state.is_some())
             .and_then(|r| r.state)
             .map_or_else(
                 || origin.absolute(physics.snapshot(vehicle).pose.position),
@@ -315,20 +296,14 @@ impl PersistentWorld {
             });
             for item in area.spawned.iter() {
                 if self.spawned.insert(item.id) {
-                    self.records.push(Record {
-                        key: Key::Assembly(item.id),
-                        root: None,
-                        handle: None,
-                        state: None,
-                        extent: 0.,
-                        fixed: false,
-                    });
+                    self.records.push(Record::new(Key::Assembly(item.id)));
                     changed = true;
                 }
             }
         }
         if changed {
             order_roots(&self.records, &mut self.order);
+            self.handles_changed = true;
         }
     }
     pub fn sync(
@@ -347,18 +322,12 @@ impl PersistentWorld {
                 .chain(reference.wheel_parts.iter().map(|p| Key::Assembly(p.item)))
             {
                 if !self.records.iter().any(|r| r.key == key) {
-                    self.records.push(Record {
-                        key,
-                        root: None,
-                        handle: None,
-                        state: None,
-                        extent: 0.,
-                        fixed: false,
-                    });
+                    self.records.push(Record::new(key));
                 }
             }
             self.records
                 .sort_by_key(|r| matches!(r.key, Key::Source(_)));
+            self.handles_changed = true;
             for record in &mut self.records {
                 // Attachment owners disable source bodies whose shapes moved to another root.
                 if let Key::Source(id) = record.key
@@ -370,11 +339,7 @@ impl PersistentWorld {
                     continue;
                 }
                 if let Key::Source(id) = record.key {
-                    let source = reference
-                        .bodies
-                        .iter()
-                        .find(|body| body.id == id)
-                        .expect("source body identity");
+                    let source = reference.body(id).expect("source body identity");
                     if source.parent_body.is_none() {
                         record.state = Some(BodyState {
                             pose: AbsolutePose {
@@ -393,7 +358,6 @@ impl PersistentWorld {
             self.configured = true;
         }
         self.track_spawned(area, physics);
-        self.item_bodies.refresh(&area.items);
         for record in &mut self.records {
             match record.key {
                 Key::Assembly(id)
@@ -402,7 +366,7 @@ impl PersistentWorld {
                     }) =>
                 {
                     record.state = None;
-                    record.handle = None;
+                    self.handles_changed |= record.handle.take().is_some();
                 }
                 Key::Source(id) => {
                     // A destroyed imported item (an exploded tank) has no body.
@@ -427,8 +391,10 @@ impl PersistentWorld {
                 _ => (),
             }
         }
+        self.reindex();
         let mut changed = false;
         self.processed.clear();
+        let support_key = stream.support_key();
         let freeze = stream.distances.item_freeze_dist.powi(2) as f64;
         let unfreeze = stream.distances.item_unfreeze_dist.powi(2) as f64;
         // Source important objects: the player and every car.
@@ -469,7 +435,11 @@ impl PersistentWorld {
             if !self.processed.insert(handle) {
                 continue;
             }
-            self.records[index].handle = Some(handle);
+            if self.records[index].handle.replace(handle) != Some(handle) {
+                self.handles_changed = true;
+                self.records[index].extent_key = None;
+                self.records[index].support = None;
+            }
             let body = &physics.rapier().bodies[handle];
             let absolute = self.records[index].state.map_or_else(
                 || stream.origin.absolute(body.translation().to_array()),
@@ -479,19 +449,23 @@ impl PersistentWorld {
                 || *body.rotation(),
                 |state| Rotation::from_array(state.pose.rotation),
             );
-            let body_rotation = Pose::from_parts(Vector::ZERO, rotation);
-            let extent = body
-                .colliders()
-                .iter()
-                .map(|h| {
-                    let collider = &physics.rapier().colliders[*h];
-                    let pose =
-                        body_rotation * *collider.position_wrt_parent().expect("body collider");
-                    let bounds = collider.shape().compute_aabb(&pose);
-                    bounds.mins.abs().max(bounds.maxs.abs()).max_element()
-                })
-                .fold(0_f32, f32::max) as f64;
-            self.records[index].extent = extent;
+            let extent_key = Some((rotation.to_array(), physics.shape_revision(handle)));
+            if self.records[index].extent_key != extent_key {
+                let body_rotation = Pose::from_parts(Vector::ZERO, rotation);
+                self.records[index].extent = body
+                    .colliders()
+                    .iter()
+                    .map(|h| {
+                        let collider = &physics.rapier().colliders[*h];
+                        let pose =
+                            body_rotation * *collider.position_wrt_parent().expect("body collider");
+                        let bounds = collider.shape().compute_aabb(&pose);
+                        bounds.mins.abs().max(bounds.maxs.abs()).max_element()
+                    })
+                    .fold(0_f32, f32::max) as f64;
+                self.records[index].extent_key = extent_key;
+            }
+            let extent = self.records[index].extent;
             self.records[index].fixed = !body.is_dynamic();
             let bounded = [0, 1, 2].iter().all(|&axis| {
                 // The focus can lie up to the rebase limit from the origin, so a body near it
@@ -501,7 +475,7 @@ impl PersistentWorld {
             }) && [0, 2].iter().all(|&axis| {
                 (absolute[axis] - stream.focus()[axis]).abs() + extent <= REBASE_LIMIT as f64
             });
-            let pending_attachment = self.item_bodies.items(handle).iter().any(|id| {
+            let pending_attachment = area.items.on_body(handle).iter().any(|id| {
                 area.items
                     .get(*id)
                     .is_some_and(|item| item.pending_attachment)
@@ -522,11 +496,23 @@ impl PersistentWorld {
             } else {
                 Some(handle) == held
                     || area.player.seat_body() == Some(handle)
-                    || (bounded
-                        && stream.supports(crate::world::WorldBounds {
+                    || (bounded && {
+                        let bounds = WorldBounds {
                             min: absolute.map(|v| v - extent - 2.),
                             max: absolute.map(|v| v + extent + 2.),
-                        }))
+                        };
+                        let record = &mut self.records[index];
+                        match record.support {
+                            Some((key, last, answer)) if key == support_key && last == bounds => {
+                                answer
+                            }
+                            _ => {
+                                let answer = stream.supports(bounds);
+                                record.support = Some((support_key, bounds, answer));
+                                answer
+                            }
+                        }
+                    })
             };
             if active {
                 if let Some(state) = self.records[index].state.take() {
@@ -548,9 +534,8 @@ impl PersistentWorld {
                         }
                     });
                     physics.inactive_bodies.remove(&handle);
-                    for &id in self.item_bodies.items(handle) {
-                        area.items.get_mut(id).unwrap().inactive_pose = None;
-                    }
+                    area.items
+                        .on_body_mut(handle, |item| item.inactive_pose = None);
                 }
                 if stored {
                     physics.edit_body(handle, |body| body.set_enabled(false));
@@ -560,7 +545,7 @@ impl PersistentWorld {
                     && inventory.is_none()
                     && Some(handle) != held
                     && physics.vehicle_of(handle).is_none()
-                    && !self.item_bodies.items(handle).is_empty();
+                    && !area.items.on_body(handle).is_empty();
                 let distance = important
                     .iter()
                     .map(|p| (p[0] - absolute[0]).powi(2) + (p[2] - absolute[2]).powi(2))
@@ -589,27 +574,24 @@ impl PersistentWorld {
                     sleeping: body.is_sleeping(),
                     enabled: body.is_enabled(),
                 });
-                for &id in self.item_bodies.items(handle) {
-                    let item = area.items.get_mut(id).unwrap();
+                let pending_items = &self.pending_items;
+                area.items.on_body_mut(handle, |item| {
                     let offset = Rotation::from_array(state.pose.rotation)
                         * Vector::from_array(item.local_pose.position);
                     item.inactive_pose = Some(
-                        self.pending_items
-                            .iter()
-                            .find(|(id, _)| *id == item.id)
-                            .map_or(
-                                AbsolutePose {
-                                    position: std::array::from_fn(|axis| {
-                                        absolute[axis] + offset[axis] as f64
-                                    }),
-                                    rotation: (Rotation::from_array(state.pose.rotation)
-                                        * Rotation::from_array(item.local_pose.rotation))
-                                    .to_array(),
-                                },
-                                |(_, pose)| *pose,
-                            ),
+                        pending_items.iter().find(|(id, _)| *id == item.id).map_or(
+                            AbsolutePose {
+                                position: std::array::from_fn(|axis| {
+                                    absolute[axis] + offset[axis] as f64
+                                }),
+                                rotation: (Rotation::from_array(state.pose.rotation)
+                                    * Rotation::from_array(item.local_pose.rotation))
+                                .to_array(),
+                            },
+                            |(_, pose)| *pose,
+                        ),
                     );
-                }
+                });
                 self.records[index].state = Some(state);
                 physics.inactive_bodies.insert(handle);
                 physics.edit_body(handle, |body| {
@@ -620,6 +602,7 @@ impl PersistentWorld {
                 });
             }
         }
+        self.reindex();
         self.important = important;
         self.pending_items.clear();
         if changed {
@@ -631,6 +614,31 @@ impl PersistentWorld {
             physics.refresh_queries();
         }
         Ok(())
+    }
+    /// Rebuilds `handles` after a record handle or the record order changed.
+    fn reindex(&mut self) {
+        if !std::mem::take(&mut self.handles_changed) {
+            return;
+        }
+        self.handles.clear();
+        self.handles.extend(
+            self.records
+                .iter()
+                .enumerate()
+                .filter_map(|(index, r)| Some((r.handle?.into_raw_parts(), index))),
+        );
+        self.handles.sort_unstable();
+    }
+    /// Positions in `handles` of the records with `handle`, in record order.
+    fn handle_range(&self, handle: RigidBodyHandle) -> std::ops::Range<usize> {
+        let key = handle.into_raw_parts();
+        let start = self.handles.partition_point(|(h, _)| *h < key);
+        start..start + self.handles[start..].partition_point(|(h, _)| *h == key)
+    }
+    /// The records with `handle`, in record order.
+    fn with_handle(&self, handle: RigidBodyHandle) -> impl Iterator<Item = &Record> {
+        self.handle_range(handle)
+            .map(|index| &self.records[self.handles[index].1])
     }
     /// True when an inactive fixed or kinematic body reaches into `bounds` on X and Z.
     /// Such a body is ground that `sync` has not restored yet, such as the garage after a far move.
@@ -688,12 +696,8 @@ mod world_sync_tests {
 
     fn record(key: Key, handle: RigidBodyHandle) -> Record {
         Record {
-            key,
-            root: None,
             handle: Some(handle),
-            state: None,
-            extent: 0.,
-            fixed: false,
+            ..Record::new(key)
         }
     }
 
@@ -722,7 +726,8 @@ mod world_sync_tests {
             processed: HashSet::new(),
             order: Vec::new(),
             reference_items: HashMap::new(),
-            item_bodies: ItemBodyIndex::default(),
+            handles: Vec::new(),
+            handles_changed: false,
             pending_items: Vec::new(),
             frozen: HashSet::new(),
             spawned: HashSet::new(),

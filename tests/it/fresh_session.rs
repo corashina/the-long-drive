@@ -20,7 +20,7 @@ fn first_permit_retains_runtime_and_commits_once_paused() {
     let bytes =
         the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
             .unwrap();
-    let reference = ReferenceManifest::from_runtime(&bytes).unwrap();
+    let reference = ReferenceManifest::from_manifest(&bytes).unwrap();
     let mut runtime = GarageRuntime::new(
         &reference,
         the_long_slop::world::GameMode::default(),
@@ -41,13 +41,16 @@ fn first_permit_retains_runtime_and_commits_once_paused() {
     )
     .unwrap();
     assert!(retry.commit(8, &mut changed_session, 3).is_err());
-    assert!(!changed_session.started);
-    assert!(!runtime.started);
+    assert!(!changed_session.started());
+    assert!(!runtime.started());
     assert_eq!(runtime.stream.frame().request.session, session);
     assert_eq!(runtime.area.player.body_pose(&runtime.physics), pose);
     assert_eq!(runtime.physics.rapier().bodies.len(), bodies);
     retry.commit(8, &mut runtime, 3).unwrap();
-    assert!(runtime.started && runtime.menu);
+    assert_eq!(
+        runtime.phase,
+        the_long_slop::starting_area::SessionPhase::Paused
+    );
     assert_eq!(runtime.simulation_seconds, 0.);
     assert_eq!(runtime.stream.frame().request.session, session);
     assert_eq!(runtime.area.player.body_pose(&runtime.physics), pose);

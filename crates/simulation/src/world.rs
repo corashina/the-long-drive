@@ -17,6 +17,8 @@ mod lamps;
 mod source_lights;
 pub use source_lights::{BodyLight, WorldLight, required_world_lights};
 mod id_index;
+mod list_delta;
+pub use id_index::IdIndex;
 mod placement;
 mod prop_layers;
 mod props;
@@ -44,8 +46,10 @@ pub mod metrics;
 pub use metrics::WorldMetrics;
 pub mod renderer_facts;
 pub use renderer_facts::{RendererFact, RendererFacts};
+mod deadline;
 pub mod stream;
 mod stream_limits;
+use deadline::Deadline;
 pub use stream::content_boxes::BoxRelease;
 pub use stream::content_explosives::{Explosive, TankExplosion};
 pub use stream::content_index::ContentIndex;
@@ -53,8 +57,8 @@ pub use stream::renderer_world::{
     RendererFrame, RendererStructure, RendererSupply, RendererSurface, RendererWorld, WorldDelta,
 };
 pub use stream::{
-    PresentationGrant, PublishedSupply, PublishedSurface, SurfaceKey, WorldFrame, WorldRequest,
-    WorldStream, ahead_point, collision_window,
+    PresentationGrant, PublishedSupply, PublishedSurface, SupportKey, SurfaceKey, WorldFrame,
+    WorldRequest, WorldStream, ahead_point, collision_window,
 };
 pub use stream_limits::StreamLimits;
 mod random_starts;

@@ -1,6 +1,7 @@
 //! Installed grading LUT with the Neutral or no tonemap. Bake into persistent 33-cubed RGBA16F storage on change.
 //! Each slice renders to a 2D texture, then copies into the 3D texture.
 //! wgpu 29 on WebGPU drops `depth_slice`, so the bake does not render into the 3D texture.
+use crate::presentation::fullscreen::{self, FullscreenPass, Samplers};
 use crate::reference::postprocessing::{GradingSettings, Tonemapper};
 use bevy::prelude::*;
 use bevy::render::{
@@ -104,6 +105,7 @@ impl LutPass {
         device: &RenderDevice,
         queue: &RenderQueue,
         cache: &PipelineCache,
+        samplers: &Samplers,
         shader: Handle<Shader>,
         settings: &GradingSettings,
     ) -> Result<Self, String> {
@@ -189,12 +191,6 @@ impl LutPass {
             },
         );
         let curve_view = curves.create_view(&default());
-        let curve_sampler = device.create_sampler(&SamplerDescriptor {
-            label: Some("source_grading_curve_linear_clamp"),
-            min_filter: FilterMode::Linear,
-            mag_filter: FilterMode::Linear,
-            ..default()
-        });
         let layout = BindGroupLayoutDescriptor::new(
             "source_neutral_lut",
             &BindGroupLayoutEntries::sequential(
@@ -211,26 +207,14 @@ impl LutPass {
             ("source_none_lut", "bake_none"),
         ]
         .map(|(label, entry)| {
-            cache.queue_render_pipeline(RenderPipelineDescriptor {
-                label: Some(label.into()),
-                layout: vec![layout.clone()],
-                vertex: VertexState {
-                    shader: shader.clone(),
-                    entry_point: Some("vertex".into()),
-                    ..default()
-                },
-                fragment: Some(FragmentState {
-                    shader: shader.clone(),
-                    entry_point: Some(entry.into()),
-                    targets: vec![Some(ColorTargetState {
-                        format: TextureFormat::Rgba16Float,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    ..default()
-                }),
-                ..default()
-            })
+            fullscreen::queue(
+                cache,
+                label,
+                &layout,
+                &shader,
+                entry,
+                TextureFormat::Rgba16Float,
+            )
         });
         let params = Params::new(settings);
         let bindings = std::array::from_fn(|i| {
@@ -244,7 +228,7 @@ impl LutPass {
                 &BindGroupEntries::sequential((
                     uniform.binding().unwrap(),
                     &curve_view,
-                    &curve_sampler,
+                    &samplers.linear,
                 )),
             );
             Binding { uniform, group }
@@ -282,14 +266,6 @@ impl LutPass {
     pub fn output(&self) -> &TextureView {
         &self.view
     }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        self.pipelines
-            .iter()
-            .all(|p| cache.get_render_pipeline(*p).is_some())
-    }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        super::named_pipeline_failure(cache, &self.pipelines, "Source LUT pipeline")
-    }
     pub fn encode(&self, encoder: &mut CommandEncoder, cache: &PipelineCache) -> bool {
         let index = match self.tonemapper {
             Tonemapper::Neutral => 0,
@@ -299,24 +275,14 @@ impl LutPass {
             return false;
         };
         for (slice, binding) in self.bindings.iter().enumerate() {
-            let colors = [Some(RenderPassColorAttachment {
-                view: &self.slice_view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations {
-                    load: LoadOp::Clear(default()),
-                    store: StoreOp::Store,
-                },
-            })];
-            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("source_neutral_lut_slice"),
-                color_attachments: &colors,
-                ..default()
-            });
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, &binding.group, &[]);
-            pass.draw(0..3, 0..1);
-            drop(pass);
+            fullscreen::draw(
+                encoder,
+                "source_neutral_lut_slice",
+                pipeline,
+                &binding.group,
+                &[&self.slice_view],
+                fullscreen::CLEAR,
+            );
             encoder.copy_texture_to_texture(
                 self.slice.as_image_copy(),
                 TexelCopyTextureInfo {
@@ -337,5 +303,11 @@ impl LutPass {
             );
         }
         true
+    }
+}
+impl FullscreenPass for LutPass {
+    const NAME: &'static str = "Source LUT pipeline";
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        &self.pipelines
     }
 }

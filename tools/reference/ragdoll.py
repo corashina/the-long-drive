@@ -5,7 +5,7 @@ Joint axes are axial. A positive source angle about the source axis stays positi
 Joint limits are in degrees.
 """
 import math
-from .source import key, source_id, vector
+from .source import continuous, key, source_id, vector
 from .collision import world_pose, bake_points, quaternion_product, geometry, step_surface, collider_tag
 from .survival import component, managed_evidence
 
@@ -143,7 +143,7 @@ def recover_rig(source, root, by_node, parents, rigid, collider, sensor):
         # SpawnRagdol and SetRagdol make every Rigidbody dynamic.
         bodies.append({'id': len(bodies) + 1, 'source': source_id(rigid_bodies[0]), 'node': n, 'dynamic': True,
             'mass_kg': d['m_Mass'], 'linear_damping': d['m_Drag'], 'angular_damping': d['m_AngularDrag'],
-            'pose': {'translation': bake_points([(0., 0., 0.)], source.chain(record['reader']), root_pose)[0],
+            'ccd': continuous(d), 'pose': {'translation': bake_points([(0., 0., 0.)], source.chain(record['reader']), root_pose)[0],
                      'rotation': list(quaternion_product(inverse, pose['rotation'])), 'scale': [1., 1., 1.]},
             'parent_body': None})
         body_nodes[n] = bodies[-1]['id']

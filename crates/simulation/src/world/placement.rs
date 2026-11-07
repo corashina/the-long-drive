@@ -1,11 +1,12 @@
 //! Source building selection, spatial replay, and physical supply locations.
 use super::{
-    AbsolutePose, GeneratedId, GeneratedKey, Placement, RandomState, RoadCurve, SourceRandom,
-    TerrainEvaluator, WorldBounds, WorldLayer,
+    AbsolutePose, GeneratedKey, Placement, RandomState, RoadCurve, SourceRandom, TerrainEvaluator,
+    WorldBounds, WorldLayer,
 };
 use crate::reference::{
     ColliderGeometry, ReferenceError, SourceId, Transform, WorldBuildingGroup,
-    WorldBuildingReference, WorldPrototypeReference, WorldReference, WorldSourceRecord, WorldValue,
+    WorldBuildingReference, WorldPrototypeReference, WorldRecords, WorldReference,
+    WorldSourceRecord, WorldValue,
 };
 use bevy_platform::collections::HashMap;
 use std::sync::Arc;
@@ -651,13 +652,12 @@ impl Inputs {
                 );
             }
         }
-        let records: HashMap<_, _> = reference.records.iter().map(|r| (&r.source, r)).collect();
         let prototypes = rules
             .types
             .iter()
             .map(|kind| {
                 let prototype = reference.prototypes.find(&kind.prototype).unwrap();
-                copy_prototype(prototype, kind.type_id, &records)
+                copy_prototype(prototype, kind.type_id, &reference.records)
             })
             .collect();
         let minimum = building_spacing(&rules);
@@ -721,11 +721,9 @@ pub fn building_offset(rules: &WorldBuildingReference) -> f64 {
     offset
 }
 
-type Records<'a> = HashMap<&'a SourceId, &'a WorldSourceRecord>;
-fn record<'a>(records: &Records<'a>, id: &SourceId) -> &'a WorldSourceRecord {
+fn record<'a>(records: &'a WorldRecords, id: &SourceId) -> &'a WorldSourceRecord {
     records
-        .get(id)
-        .copied()
+        .find(id)
         .unwrap_or_else(|| panic!("missing checked source {}:{}", id.file, id.path_id))
 }
 fn link(value: &WorldValue) -> &SourceId {
@@ -834,7 +832,7 @@ pub fn node_point(
 fn copy_prototype(
     prototype: &WorldPrototypeReference,
     type_id: i32,
-    records: &Records<'_>,
+    records: &WorldRecords,
 ) -> Prototype {
     let mut helpers = Vec::new();
     let mut supplies = Vec::new();
@@ -1013,20 +1011,18 @@ fn geometry_radius(geometry: &ColliderGeometry) -> f64 {
 }
 
 pub fn prototype_radius(reference: &WorldReference, prototype: &WorldPrototypeReference) -> f64 {
-    let records = reference.records.iter().map(|r| (&r.source, r)).collect();
-    bound_prototype(prototype, &records)
+    bound_prototype(prototype, &reference.records)
 }
 
 pub fn prototype_radii(reference: &WorldReference) -> HashMap<SourceId, f64> {
-    let records = reference.records.iter().map(|r| (&r.source, r)).collect();
     reference
         .prototypes
         .iter()
-        .map(|p| (p.source.clone(), bound_prototype(p, &records)))
+        .map(|p| (p.source.clone(), bound_prototype(p, &reference.records)))
         .collect()
 }
 
-fn bound_prototype(prototype: &WorldPrototypeReference, records: &Records<'_>) -> f64 {
+fn bound_prototype(prototype: &WorldPrototypeReference, records: &WorldRecords) -> f64 {
     let mut radius = 0.0f64;
     for collider in &prototype.colliders {
         if let Some(geometry) = &collider.geometry {

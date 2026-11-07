@@ -107,13 +107,22 @@ pub fn lighting_asset_readiness(
         if assets.textures[index].image.is_some() {
             continue;
         }
-        if let Some(handle) = materials.texture(&assets.record.textures[index].mips[0].file) {
+        let texture = &assets.record.textures[index];
+        if let Some(handle) = materials.texture(&texture.file) {
+            // Half texture quality skips the RGBA8 top mip, as `TextureRecord::levels`.
+            let (width, height, mips) =
+                if crate::display_settings::half_textures() && texture.sampler.mip_count > 1 {
+                    (
+                        (texture.width >> 1).max(1),
+                        (texture.height >> 1).max(1),
+                        texture.sampler.mip_count - 1,
+                    )
+                } else {
+                    (texture.width, texture.height, texture.sampler.mip_count)
+                };
+            added +=
+                crate::reference::fixed_reservation::rgba_payload(width, height, mips).unwrap_or(0);
             assets.textures[index].image = Some(handle);
-            added += assets.record.textures[index]
-                .mips
-                .iter()
-                .map(|m| m.width as usize * m.height as usize * 4)
-                .sum::<usize>();
         }
     }
     assets.texture_bytes += added;

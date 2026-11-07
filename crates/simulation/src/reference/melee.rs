@@ -75,6 +75,7 @@ impl MeleeReference {
     pub fn motion(&self, w: &MeleeWeaponReference) -> Option<&MeleeMotion> {
         self.motions.iter().find(|m| m.controller == w.controller)
     }
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             self.source.file == "level1"
@@ -134,16 +135,14 @@ impl MeleeReference {
             .flat_map(|w| &w.attack_clips)
             .chain(self.hit_clips.iter().flatten())
         {
-            require(
-                m.audio.gameplay.clip(clip).is_some(),
-                "melee audio resource",
-            )?;
+            require(m.audio.clip(clip).is_some(), "melee audio resource")?;
         }
         Ok(())
     }
 }
 
 impl MeleeWeaponReference {
+    #[cfg(feature = "validate")]
     fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let prototype = m.world.prototype(&self.prototype.0)?;
         require(
@@ -174,6 +173,7 @@ impl MeleeWeaponReference {
         )
     }
     /// Checked source values of the shovel and its links to the item 216 prototype.
+    #[cfg(feature = "validate")]
     fn validate_shovel(
         &self,
         melee: &MeleeReference,

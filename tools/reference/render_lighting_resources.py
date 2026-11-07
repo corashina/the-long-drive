@@ -1,9 +1,7 @@
 """Hashed source resources for sky, lighting, and active effects."""
 import hashlib
 import math
-from PIL import Image
 from .source import source_id, vector
-from .materials import source_mip_images
 from .render_lighting import NATIVE_DLL_SHA256
 
 DITHER_SHA256 = '609ff1d7287e09600b6aff7ce87202b6207cb66b644e7be9f1ea158c4cd0a2c6'
@@ -44,25 +42,14 @@ def export_texture(source, reader, output):
     if min(texture.m_Width,texture.m_Height,texture.m_MipCount) < 1:
         raise ValueError(f'{source_id(reader)} missing source texture mip')
     color_space = 'srgb' if texture.m_ColorSpace else 'linear'
-    stem = f'texture-{reader.assets_file.name}-{reader.path_id}-{color_space}'
-    levels=[]; dependencies=[]
-    for level,image in enumerate(source_mip_images(texture)):
-        if level >= texture.m_MipCount:
-            raise ValueError(f'{source_id(reader)} excess source texture mip')
-        extent = (max(1,texture.m_Width>>level),max(1,texture.m_Height>>level))
-        if image.size != extent:
-            raise ValueError(f'{source_id(reader)} wrong source texture mip extent')
-        name = stem + (f'-mip-{level}' if level else '') + '.png'
-        path = output/name
-        image.convert('RGBA').transpose(Image.Transpose.FLIP_TOP_BOTTOM).save(path)
-        levels.append({'file':'reference/'+name,'width':extent[0],'height':extent[1]})
-        dependencies.append(dependency(path,output))
-    if len(levels) != texture.m_MipCount:
-        raise ValueError(f'{source_id(reader)} missing source texture mip')
+    from .materials import rgba_levels
+    # The same file name and bytes as a non-normal material texture of this source.
+    path = output/f'texture-{reader.assets_file.name}-{reader.path_id}-{color_space}.rgba'
+    path.write_bytes(rgba_levels(texture, {'slot': ''}))
     return {'source':source_id(reader),'color_space':color_space,
             'sampler':{'filter':settings.m_FilterMode,'wrap_u':settings.m_WrapU,'wrap_v':settings.m_WrapV,
                        'aniso':settings.m_Aniso,'mip_bias':settings.m_MipBias,'mip_count':texture.m_MipCount},
-            'mips':levels}, dependencies
+            'width':texture.m_Width,'height':texture.m_Height,'file':'reference/'+path.name}, [dependency(path,output)]
 
 
 def export_caster_dither(source, output):

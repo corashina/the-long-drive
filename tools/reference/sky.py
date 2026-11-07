@@ -1,5 +1,5 @@
 """Recover the sky traffic spawner and its prefabs from checked records."""
-from .source import source_id,key,vector
+from .source import continuous,source_id,key,vector
 from .survival import managed_evidence,component
 from .small_items import animation_curve
 from .acquisition_motion import motion_clips
@@ -137,7 +137,7 @@ def ufo_body(source,root,fedo,f):
         if source.resolve(seat,d[link]) is not None:raise ValueError('UFO seat link is not audited')
     if d['BcantSitAngle']:raise ValueError('UFO seat angle is not audited')
     seat_t=source.transform_for(source.resolve(seat,d['m_GameObject']));sit=source.resolve(seat,d['sitPos']) or seat_t
-    return {'mass':r['m_Mass'],'speed_lerp':f['speedlerp'],'colliders':colliders,'stimulus':stimulus,
+    return {'mass':r['m_Mass'],'ccd':continuous(r),'speed_lerp':f['speedlerp'],'colliders':colliders,'stimulus':stimulus,
         'seat':{'source':source_id(seat),'node':world_pose(source,seat_t)['translation'],'sit':world_pose(source,sit)['translation'],
             'rot_limit':d['rotLimit'],'yaw_unlimited':bool(d['limitLessRot']),'look_instead_of_lean':bool(d['lookInsteadOfLean']),
             'root_origin':bool(d['rootOrigin']),'default_pitch':d['defYrot'],'min_exit_angle':d['minGetUpAnlge'],'exit_height':d['getOutHeight'],

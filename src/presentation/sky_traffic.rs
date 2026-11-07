@@ -1,4 +1,5 @@
 //! Scene instances of the sky traffic planes. Planes have no bodies.
+use super::bind_state::BindState;
 use super::materials::SourceMaterial;
 use super::reference::ReferenceVisuals;
 use super::scene_nodes::SceneGraph;
@@ -17,11 +18,7 @@ pub(crate) struct SkyScene;
 struct SkyInstance {
     root: Entity,
     prefab: usize,
-    ready: bool,
-    bound: bool,
-    /// Binding failed. The plane stays hidden and binding does not run again.
-    failed: bool,
-    shown: bool,
+    state: BindState,
     nodes: Vec<(NodeId, Entity)>,
     primitives: Vec<Entity>,
     /// The spin node and its glTF rotation.
@@ -93,8 +90,9 @@ pub(crate) fn sync(
                         }
                         if let Some(instance) = sky.instances.get_mut(&id)
                             && instance.root == event.entity
+                            && instance.state == BindState::Loading
                         {
-                            instance.ready = true;
+                            instance.state = BindState::Loaded;
                         }
                     },
                 )
@@ -104,10 +102,7 @@ pub(crate) fn sync(
                 SkyInstance {
                     root,
                     prefab: plane.prefab as usize,
-                    ready: false,
-                    bound: false,
-                    failed: false,
-                    shown: false,
+                    state: BindState::Loading,
                     nodes: Vec::new(),
                     primitives: Vec::new(),
                     spin: None,
@@ -116,17 +111,14 @@ pub(crate) fn sync(
             );
             continue;
         };
-        if !instance.ready {
+        if matches!(instance.state, BindState::Loading | BindState::Failed) {
             continue;
         }
-        if instance.failed {
-            continue;
-        }
-        if !instance.bound {
+        if instance.state == BindState::Loaded {
             let binding = graph.bind_instance(&mut commands, manifest, instance.root, prefab.asset);
             if !binding.complete() {
                 error!("Sky plane {}: {}", plane.id, binding.failure());
-                instance.failed = true;
+                instance.state = BindState::Failed;
                 continue;
             }
             instance.nodes = binding.nodes;
@@ -139,7 +131,7 @@ pub(crate) fn sync(
                 let (_, entity) = instance.nodes.iter().find(|(id, _)| *id == node)?;
                 Some((*entity, true))
             });
-            instance.bound = true;
+            instance.state = BindState::Bound;
         }
         // Source fedoscript: `seatedObj.SetActive(seat.inUse)`.
         if let Some((entity, shown)) = &mut instance.seated {
@@ -155,7 +147,7 @@ pub(crate) fn sync(
                 *shown = seated;
             }
         }
-        if !instance.shown {
+        if instance.state == BindState::Bound {
             // Show the plane once its meshes use source materials, as other source meshes do.
             if instance.primitives.is_empty()
                 || !instance
@@ -168,7 +160,7 @@ pub(crate) fn sync(
             if let Ok(mut v) = visibility.get_mut(instance.root) {
                 *v = Visibility::Inherited;
             }
-            instance.shown = true;
+            instance.state = BindState::Shown;
         }
         if let Ok(mut transform) = transforms.get_mut(instance.root) {
             transform.set_if_neq(

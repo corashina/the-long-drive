@@ -3,6 +3,7 @@ use crate::reference::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -57,32 +58,84 @@ impl InstanceId {
     }
 }
 
+/// Source keys of one reference type, with O(1) lookups both ways. One copy of each key.
+pub struct Keys<T> {
+    ids: HashMap<Arc<SourceKey>, T>,
+    keys: HashMap<T, Arc<SourceKey>>,
+}
+impl<T: Copy + Eq + Hash> Keys<T> {
+    fn new<'a>(records: impl Iterator<Item = (&'a SourceId, T)>) -> Result<Self, SaveError> {
+        let mut result = Self {
+            ids: HashMap::new(),
+            keys: HashMap::new(),
+        };
+        for (source, id) in records {
+            let key = Arc::new(SourceKey::from(source));
+            key.source_id()?;
+            if result.ids.insert(key.clone(), id).is_some() || result.keys.insert(id, key).is_some()
+            {
+                return Err(SaveError::InvalidLinks(
+                    "Duplicate source identity or runtime ID".into(),
+                ));
+            }
+        }
+        Ok(result)
+    }
+    pub fn get(&self, key: &SourceKey) -> Option<&T> {
+        self.ids.get(key)
+    }
+    pub fn contains(&self, id: T) -> bool {
+        self.keys.contains_key(&id)
+    }
+    /// The source key of a runtime ID.
+    pub fn source(&self, id: T) -> Result<SourceKey, SaveError> {
+        self.keys
+            .get(&id)
+            .map(|key| SourceKey::clone(key))
+            .ok_or_else(|| SaveError::InvalidLinks("Missing runtime source identity".into()))
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (&SourceKey, &T)> + '_ {
+        self.ids.iter().map(|(key, id)| (&**key, id))
+    }
+    pub fn ids(&self) -> impl Iterator<Item = T> + '_ {
+        self.keys.keys().copied()
+    }
+    pub(crate) fn len(&self) -> usize {
+        self.keys.len()
+    }
+}
+impl<T> std::ops::Index<&SourceKey> for Keys<T> {
+    type Output = T;
+    fn index(&self, key: &SourceKey) -> &T {
+        &self.ids[key]
+    }
+}
+
+/// Source identities of the reference. The runtime builds it once per session.
 /// Reference types have separate maps because source objects can have several roles.
 pub struct IdentityMap {
-    pub items: HashMap<SourceKey, ItemId>,
-    pub generated: HashMap<crate::world::GeneratedId, ItemId>,
-    pub bodies: HashMap<SourceKey, BodyId>,
-    pub nodes: HashMap<SourceKey, NodeId>,
-    pub anchors: HashMap<SourceKey, AnchorId>,
-    pub part_slots: HashMap<SourceKey, PartSlotId>,
-    pub mechanisms: HashMap<SourceKey, MechanismId>,
-    pub openings: HashMap<SourceKey, OpeningId>,
-    pub lights: HashMap<SourceKey, LightId>,
-    pub controllers: HashMap<SourceKey, LightControlId>,
+    pub items: Keys<ItemId>,
+    pub bodies: Keys<BodyId>,
+    pub nodes: Keys<NodeId>,
+    pub anchors: Keys<AnchorId>,
+    pub part_slots: Keys<PartSlotId>,
+    pub mechanisms: Keys<MechanismId>,
+    pub openings: Keys<OpeningId>,
+    pub lights: Keys<LightId>,
+    pub controllers: Keys<LightControlId>,
 }
 impl IdentityMap {
     pub fn new(reference: &ReferenceManifest) -> Result<Self, SaveError> {
         Ok(Self {
-            generated: HashMap::new(),
-            items: index(reference.items.iter().map(|r| (&r.source, r.id)))?,
-            bodies: index(reference.bodies.iter().map(|r| (&r.source, r.id)))?,
-            nodes: index(reference.nodes.iter().map(|r| (&r.source, r.id)))?,
-            anchors: index(reference.anchors.iter().map(|r| (&r.source, r.id)))?,
-            part_slots: index(reference.part_slots.iter().map(|r| (&r.source, r.id)))?,
-            mechanisms: index(reference.mechanisms.iter().map(|r| (&r.source, r.id)))?,
-            openings: index(reference.openings.iter().map(|r| (&r.source, r.id)))?,
-            lights: index(reference.lighting.lights.iter().map(|r| (&r.source, r.id)))?,
-            controllers: index(
+            items: Keys::new(reference.items.iter().map(|r| (&r.source, r.id)))?,
+            bodies: Keys::new(reference.bodies.iter().map(|r| (&r.source, r.id)))?,
+            nodes: Keys::new(reference.nodes.iter().map(|r| (&r.source, r.id)))?,
+            anchors: Keys::new(reference.anchors.iter().map(|r| (&r.source, r.id)))?,
+            part_slots: Keys::new(reference.part_slots.iter().map(|r| (&r.source, r.id)))?,
+            mechanisms: Keys::new(reference.mechanisms.iter().map(|r| (&r.source, r.id)))?,
+            openings: Keys::new(reference.openings.iter().map(|r| (&r.source, r.id)))?,
+            lights: Keys::new(reference.lighting.lights.iter().map(|r| (&r.source, r.id)))?,
+            controllers: Keys::new(
                 reference
                     .lighting
                     .controllers
@@ -91,22 +144,20 @@ impl IdentityMap {
             )?,
         })
     }
-    pub fn bind_generated(&mut self, items: &crate::interaction::items::ItemStore) {
-        self.generated.clear();
-        self.generated.extend(
-            items
-                .generated_bindings()
-                .map(|(key, item)| (key.clone(), item.id)),
-        );
-    }
-    pub fn item_instance(&self, id: ItemId) -> Result<InstanceId, SaveError> {
-        if let Some((key, _)) = self.generated.iter().find(|(_, value)| **value == id) {
+    /// The save identity of an item. `items` holds the generated item bindings.
+    pub fn item_instance(
+        &self,
+        items: &crate::interaction::items::ItemStore,
+        id: ItemId,
+    ) -> Result<InstanceId, SaveError> {
+        if let Some(key) = items.generated_key(id) {
             return Ok(InstanceId::Generated { id: key.clone() });
         }
         Ok(InstanceId::Initial {
-            source: source_key(&self.items, id)?,
+            source: self.items.source(id)?,
         })
     }
+    /// An imported item. A generated item is an error: use `bound_item`.
     pub fn item(&self, instance: &InstanceId) -> Result<ItemId, SaveError> {
         match instance {
             InstanceId::Initial { source } => self
@@ -114,38 +165,25 @@ impl IdentityMap {
                 .get(source)
                 .copied()
                 .ok_or_else(|| SaveError::InvalidLinks(format!("Unknown item {source:?}"))),
-            InstanceId::Generated { id } => {
-                self.generated.get(id).copied().ok_or_else(|| {
-                    SaveError::InvalidLinks("Generated item binding is pending".into())
-                })
-            }
+            InstanceId::Generated { .. } => Err(SaveError::InvalidLinks(
+                "Generated item binding is pending".into(),
+            )),
         }
     }
-}
-pub fn source_key<T: Copy + Eq>(
-    map: &HashMap<SourceKey, T>,
-    id: T,
-) -> Result<SourceKey, SaveError> {
-    map.iter()
-        .find(|(_, value)| **value == id)
-        .map(|(key, _)| key.clone())
-        .ok_or_else(|| SaveError::InvalidLinks("Missing runtime source identity".into()))
-}
-fn index<'a, T: Copy + Eq + Hash>(
-    records: impl Iterator<Item = (&'a SourceId, T)>,
-) -> Result<HashMap<SourceKey, T>, SaveError> {
-    let mut result = HashMap::new();
-    let mut ids = std::collections::HashSet::new();
-    for (source, id) in records {
-        let key = SourceKey::from(source);
-        key.source_id()?;
-        if result.insert(key, id).is_some() || !ids.insert(id) {
-            return Err(SaveError::InvalidLinks(
-                "Duplicate source identity or runtime ID".into(),
-            ));
+    /// An imported item, or a generated item that the world stream has bound.
+    pub fn bound_item(
+        &self,
+        items: &crate::interaction::items::ItemStore,
+        instance: &InstanceId,
+    ) -> Result<ItemId, SaveError> {
+        match instance {
+            InstanceId::Generated { id } => items
+                .generated_item_id(id)
+                .filter(|id| items.get(*id).is_some())
+                .ok_or_else(|| SaveError::InvalidLinks("Generated item binding is pending".into())),
+            InstanceId::Initial { .. } => self.item(instance),
         }
     }
-    Ok(result)
 }
 pub(super) fn signed(value: &str) -> Result<i64, SaveError> {
     value

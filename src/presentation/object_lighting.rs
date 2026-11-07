@@ -1,5 +1,6 @@
-//! Lamp mask and probe pair of each source surface entity, once per object and frame.
+//! Lamp mask and probe pair of each source surface entity.
 //! The vertex stage reads the value by the entity `MeshTag`. Lamps and probes are the same in every view.
+//! A value changes only when its object, a lamp or a probe changes. A lamp change tests only that lamp.
 use super::lighting::{GpuLight, LightingUniform, SourceLighting};
 use super::lighting_scene::{PROBE_COUNT, SourceSceneLighting};
 use super::materials::{
@@ -9,6 +10,7 @@ use super::renderer_visibility::SourceRenderer;
 use bevy::camera::visibility::{ViewVisibility, VisibilitySystems};
 use bevy::ecs as bevy_ecs;
 use bevy::mesh::{MeshTag, morph::MeshMorphWeights, skinning::SkinnedMesh};
+use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use bevy::render::{
     Extract, ExtractSchedule, RenderApp,
@@ -31,19 +33,135 @@ const NO_SLOT: u32 = 0xff;
 pub struct LodFade(pub f32);
 
 /// Values by slot. A slot belongs to one entity `MeshTag` until the tag goes.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct ObjectLighting {
     values: Vec<ObjectValue>,
+    /// Inputs of each value, by slot.
+    inputs: Vec<SlotInputs>,
     free: Vec<u32>,
     /// Slots written in this frame, as one range.
     dirty: std::ops::Range<usize>,
+    /// Count of `update_values` runs with lighting.
+    frame: u32,
+    /// Last frame with a lamp or probe change.
+    changed_at: u32,
+    /// Every value must be computed in full: a run had no lighting, so it lost changes.
+    stale: bool,
+    lamps: Vec<LampKey>,
+    probes: Option<Probes>,
+}
+impl Default for ObjectLighting {
+    fn default() -> Self {
+        Self {
+            values: Vec::new(),
+            inputs: Vec::new(),
+            free: Vec::new(),
+            dirty: 0..0,
+            frame: 0,
+            changed_at: 0,
+            stale: true,
+            lamps: Vec::with_capacity(super::lighting::MAX_LIGHTS),
+            probes: None,
+        }
+    }
 }
 impl ObjectLighting {
     fn allocate(&mut self) -> u32 {
-        self.free.pop().unwrap_or_else(|| {
-            self.values.push([0, 0, 0, 0]);
-            self.values.len() as u32 - 1
-        })
+        if let Some(slot) = self.free.pop() {
+            self.inputs[slot as usize] = SlotInputs::STALE;
+            return slot;
+        }
+        self.values.push([0, 0, 0, 0]);
+        self.inputs.push(SlotInputs::STALE);
+        self.values.len() as u32 - 1
+    }
+    /// Lamps and probes that changed since the last call. It keeps the new state.
+    fn light_changes(&mut self, lighting: &LightingUniform, probes: &Probes) -> LightChanges {
+        let count = (lighting.counts.x as usize).min(lighting.lights.len());
+        let mut lamps = [0u32; 2];
+        for i in 0..count.max(self.lamps.len()) {
+            let next = (i < count).then(|| LampKey::new(&lighting.lights[i]));
+            if self.lamps.get(i) != next.as_ref() {
+                lamps[i >> 5] |= 1 << (i & 31);
+            }
+        }
+        self.lamps.clear();
+        self.lamps
+            .extend(lighting.lights[..count].iter().map(LampKey::new));
+        let probes = self.probes.replace(*probes).as_ref() != Some(probes);
+        LightChanges { lamps, probes }
+    }
+}
+
+/// The lamp fields that a lamp mask reads. NaN never compares equal, so it always counts as a change.
+#[derive(Clone, Copy, PartialEq)]
+struct LampKey {
+    position_range: Vec4,
+    kind: f32,
+    mask: u32,
+    lit: bool,
+}
+impl LampKey {
+    fn new(lamp: &GpuLight) -> Self {
+        Self {
+            position_range: lamp.position_range,
+            kind: lamp.direction_kind.w,
+            mask: lamp.mask.x,
+            lit: lamp.color.x.max(lamp.color.y.max(lamp.color.z)) > 0.,
+        }
+    }
+}
+
+struct LightChanges {
+    /// One bit per lamp slot.
+    lamps: [u32; 2],
+    probes: bool,
+}
+impl LightChanges {
+    fn any(&self) -> bool {
+        self.lamps != [0, 0] || self.probes
+    }
+}
+
+/// What the value of one slot was computed from.
+#[derive(Clone, Copy)]
+struct SlotInputs {
+    /// Frame of the last computation. 0: compute the value in full.
+    stamp: u32,
+    receiver: u32,
+    bounds: WorldBounds,
+    usage: bool,
+    bounded: bool,
+    fade: f32,
+    flags: u32,
+    probe: ProbeBlend,
+}
+impl SlotInputs {
+    const STALE: Self = Self {
+        stamp: 0,
+        receiver: 0,
+        bounds: WorldBounds::EMPTY,
+        usage: false,
+        bounded: false,
+        fade: 1.,
+        flags: 0,
+        probe: NO_PROBE,
+    };
+}
+
+/// Material assets modified in this frame. Their receiver masks can be new.
+#[derive(Default)]
+struct ModifiedMaterials {
+    standard: HashSet<AssetId<SourceMaterial>>,
+    specular: HashSet<AssetId<SpecularMaterial>>,
+    grass: HashSet<AssetId<GrassMaterial>>,
+}
+fn modified<A: Asset>(set: &mut HashSet<AssetId<A>>, events: &mut MessageReader<AssetEvent<A>>) {
+    set.clear();
+    for event in events.read() {
+        if let AssetEvent::Modified { id } = event {
+            set.insert(*id);
+        }
     }
 }
 
@@ -119,11 +237,11 @@ fn release_slot(
 
 type ObjectQuery = (
     &'static MeshTag,
-    &'static SourceRenderer,
-    &'static GlobalTransform,
+    Ref<'static, SourceRenderer>,
+    Ref<'static, GlobalTransform>,
     &'static ViewVisibility,
-    Option<&'static MeshMaterial3d<SourceMaterial>>,
-    Option<&'static MeshMaterial3d<SpecularMaterial>>,
+    Option<Ref<'static, MeshMaterial3d<SourceMaterial>>>,
+    Option<Ref<'static, MeshMaterial3d<SpecularMaterial>>>,
     Has<SkinnedMesh>,
     Has<MeshMorphWeights>,
     Option<&'static LodFade>,
@@ -131,13 +249,15 @@ type ObjectQuery = (
 
 type GrassQuery = (
     &'static MeshTag,
-    &'static GlobalTransform,
+    Ref<'static, GlobalTransform>,
     &'static ViewVisibility,
-    &'static MeshMaterial3d<GrassMaterial>,
-    &'static bevy::camera::primitives::Aabb,
+    Ref<'static, MeshMaterial3d<GrassMaterial>>,
+    Ref<'static, bevy::camera::primitives::Aabb>,
 );
 
 /// Values of the objects that a view draws in this frame. Hidden objects keep their old value.
+/// A value is computed in full when its object changed or it missed a lamp or probe change.
+/// Otherwise a lamp or probe change of this frame updates only those parts.
 /// A grass entity value holds only its lamp mask.
 #[allow(clippy::too_many_arguments)]
 fn update_values(
@@ -147,6 +267,10 @@ fn update_values(
     standard: Res<Assets<SourceMaterial>>,
     specular: Res<Assets<SpecularMaterial>>,
     grass_materials: Res<Assets<GrassMaterial>>,
+    mut standard_events: MessageReader<AssetEvent<SourceMaterial>>,
+    mut specular_events: MessageReader<AssetEvent<SpecularMaterial>>,
+    mut grass_events: MessageReader<AssetEvent<GrassMaterial>>,
+    mut materials: Local<ModifiedMaterials>,
     grass: Query<GrassQuery>,
     objects: Query<
         ObjectQuery,
@@ -157,64 +281,157 @@ fn update_values(
     >,
 ) {
     lighting.dirty = 0..0;
+    modified(&mut materials.standard, &mut standard_events);
+    modified(&mut materials.specular, &mut specular_events);
+    modified(&mut materials.grass, &mut grass_events);
     let (Some(master), Some(scene)) = (master, scene.0) else {
+        lighting.stale = true;
         return;
     };
     let probes = Probes {
         center: scene.probe_center,
         extents: scene.probe_extents,
     };
-    let ObjectLighting { values, dirty, .. } = &mut *lighting;
-    for (tag, renderer, transform, visibility, source, spec, skinned, morphed, fade) in &objects {
-        if !visibility.get() {
-            continue;
-        }
-        let receiver = match (source, spec) {
-            (Some(handle), _) => standard.get(&handle.0).map(|m| m.extension.receiver_mask),
-            (_, Some(handle)) => specular.get(&handle.0).map(SpecularMaterial::receiver_mask),
-            _ => None,
-        };
-        let Some(receiver) = receiver else { continue };
-        let record = &renderer.0;
-        let model = transform.to_matrix();
-        let center = Vec3::from_array(record.bounds_center);
-        let extents = Vec3::from_array(record.bounds_extents);
-        let mask = object_light_mask(
-            &master.uniform,
-            receiver,
-            &model,
-            center,
-            extents,
-            !skinned && !morphed,
-        );
-        let probe = probe_blend(
-            &probes,
-            &model,
-            center,
-            extents,
-            record.reflection_probe_usage != 0,
-        );
-        let slot = tag.0 as usize;
-        let lod = lod_code(fade.map_or(1., |f| f.0));
-        values[slot] = pack(mask, probe, record.shader_flags(), lod);
-        mark(dirty, slot);
+    let lights = &master.uniform;
+    let lighting = &mut *lighting;
+    lighting.frame += 1;
+    let frame = lighting.frame;
+    let changes = lighting.light_changes(lights, &probes);
+    // A value computed before this frame is current when no change came after it.
+    let current_from = if std::mem::take(&mut lighting.stale) {
+        frame
+    } else {
+        lighting.changed_at
+    };
+    if changes.any() {
+        lighting.changed_at = frame;
     }
-    for (tag, transform, visibility, material, bounds) in &grass {
+    let ObjectLighting {
+        values,
+        inputs,
+        dirty,
+        ..
+    } = lighting;
+    for (tag, renderer, transform, visibility, source, spec, skinned, morphed, fade) in &objects {
+        let slot = tag.0 as usize;
+        let input = &mut inputs[slot];
+        let fade = fade.map_or(1., |f| f.0);
+        let bounded = !skinned && !morphed;
+        let changed = transform.is_changed()
+            || renderer.is_changed()
+            || fade != input.fade
+            || bounded != input.bounded
+            || source
+                .as_ref()
+                .is_some_and(|m| m.is_changed() || materials.standard.contains(&m.id()))
+            || spec
+                .as_ref()
+                .is_some_and(|m| m.is_changed() || materials.specular.contains(&m.id()));
         if !visibility.get() {
+            if changed {
+                input.stamp = 0;
+            }
             continue;
         }
-        let Some(material) = grass_materials.get(&material.0) else {
+        let mask = if changed || input.stamp == 0 || input.stamp < current_from {
+            let receiver = match (&source, &spec) {
+                (Some(handle), _) => standard.get(&handle.0).map(|m| m.extension.receiver_mask),
+                (_, Some(handle)) => specular.get(&handle.0).map(SpecularMaterial::receiver_mask),
+                _ => None,
+            };
+            let Some(receiver) = receiver else {
+                input.stamp = 0;
+                continue;
+            };
+            let record = &renderer.0;
+            let bounds = WorldBounds::new(
+                &transform.to_matrix(),
+                Vec3::from_array(record.bounds_center),
+                Vec3::from_array(record.bounds_extents),
+                bounded,
+            );
+            let usage = record.reflection_probe_usage != 0;
+            *input = SlotInputs {
+                stamp: frame,
+                receiver,
+                bounds,
+                usage,
+                bounded,
+                fade,
+                flags: record.shader_flags(),
+                probe: probe_blend(&probes, &bounds, usage),
+            };
+            light_mask(lights, |lamp| lamp_reaches(lamp, receiver, &bounds))
+        } else if changes.any() {
+            input.stamp = frame;
+            if changes.probes {
+                input.probe = probe_blend(&probes, &input.bounds, input.usage);
+            }
+            let (receiver, bounds) = (input.receiver, &input.bounds);
+            refresh_mask(values[slot], changes.lamps, lights, |lamp| {
+                lamp_reaches(lamp, receiver, bounds)
+            })
+        } else {
             continue;
         };
-        let mask = grass_light_mask(
-            &master.uniform,
-            material.receiver_mask,
-            &transform.to_matrix(),
-            Vec3::from(bounds.center),
-            Vec3::from(bounds.half_extents),
-        );
+        let value = pack(mask, input.probe, input.flags, lod_code(input.fade));
+        write(values, dirty, slot, value);
+    }
+    for (tag, transform, visibility, material, aabb) in &grass {
         let slot = tag.0 as usize;
-        values[slot] = pack(mask, NO_PROBE, 0, lod_code(1.));
+        let input = &mut inputs[slot];
+        let changed = transform.is_changed()
+            || material.is_changed()
+            || aabb.is_changed()
+            || materials.grass.contains(&material.id());
+        if !visibility.get() {
+            if changed {
+                input.stamp = 0;
+            }
+            continue;
+        }
+        let mask = if changed || input.stamp == 0 || input.stamp < current_from {
+            let Some(material) = grass_materials.get(&material.0) else {
+                input.stamp = 0;
+                continue;
+            };
+            let receiver = material.receiver_mask;
+            let bounds = WorldBounds::new(
+                &transform.to_matrix(),
+                Vec3::from(aabb.center),
+                Vec3::from(aabb.half_extents),
+                true,
+            );
+            *input = SlotInputs {
+                stamp: frame,
+                receiver,
+                bounds,
+                ..SlotInputs::STALE
+            };
+            light_mask(lights, |lamp| grass_lamp_reaches(lamp, receiver, &bounds))
+        } else if changes.lamps != [0, 0] {
+            input.stamp = frame;
+            let (receiver, bounds) = (input.receiver, &input.bounds);
+            refresh_mask(values[slot], changes.lamps, lights, |lamp| {
+                grass_lamp_reaches(lamp, receiver, bounds)
+            })
+        } else {
+            input.stamp = frame;
+            continue;
+        };
+        write(values, dirty, slot, pack(mask, NO_PROBE, 0, lod_code(1.)));
+    }
+}
+
+/// Writes `value` to `slot` and marks the slot for upload when the value is new.
+fn write(
+    values: &mut [ObjectValue],
+    dirty: &mut std::ops::Range<usize>,
+    slot: usize,
+    value: ObjectValue,
+) {
+    if values[slot] != value {
+        values[slot] = value;
         mark(dirty, slot);
     }
 }
@@ -274,6 +491,7 @@ pub fn lod_code(fade: f32) -> u32 {
     kept | u32::from(fade > 0.) << 5
 }
 
+#[derive(Clone, Copy, PartialEq)]
 pub struct Probes {
     pub center: [Vec4; PROBE_COUNT],
     /// w=1 when the slot is enabled and published.
@@ -292,21 +510,12 @@ const NO_PROBE: ProbeBlend = ProbeBlend {
 
 /// It uses the same f32 operations and order as `probe_blend` in source_props_cull.wgsl.
 /// Unity BlendProbes with equal importance. Renderer extents keep the native Vector3f::epsilon clamp.
-pub fn probe_blend(
-    probes: &Probes,
-    model: &Mat4,
-    center: Vec3,
-    extents: Vec3,
-    usage: bool,
-) -> ProbeBlend {
+fn probe_blend(probes: &Probes, bounds: &WorldBounds, usage: bool) -> ProbeBlend {
     if !usage {
         return NO_PROBE;
     }
-    let center = model.mul_vec4(center.extend(1.)).truncate();
-    let extents = (model.x_axis.truncate().abs() * extents.x
-        + model.y_axis.truncate().abs() * extents.y
-        + model.z_axis.truncate().abs() * extents.z)
-        .max(Vec3::splat(9.999999747378752e-06));
+    let center = bounds.center;
+    let extents = bounds.extents.max(Vec3::splat(9.999999747378752e-06));
     let mut volumes = [0f32; 2];
     let mut slots = [None; 2];
     for slot in 0..PROBE_COUNT {
@@ -343,52 +552,51 @@ pub fn probe_blend(
 fn finite(value: Vec3) -> bool {
     value.is_finite()
 }
-/// Lamps that can reach the object bounds. It uses the same f32 operations and order as `object_light_mask`
-/// in source_props_cull.wgsl.
-pub fn object_light_mask(
-    lighting: &LightingUniform,
-    receiver: u32,
-    model: &Mat4,
-    local_center: Vec3,
-    local_extents: Vec3,
-    bounded: bool,
-) -> [u32; 2] {
+/// Lamps for which `reaches` is true, one bit per lamp slot.
+fn light_mask(lighting: &LightingUniform, reaches: impl Fn(&GpuLight) -> bool) -> [u32; 2] {
     let mut selected = [0u32; 2];
-    let bounds = WorldBounds::new(model, local_center, local_extents, bounded);
     let count = (lighting.counts.x as usize).min(lighting.lights.len());
     for (i, lamp) in lighting.lights[..count].iter().enumerate() {
-        if !lamp_reaches(lamp, receiver, &bounds) {
-            continue;
+        if reaches(lamp) {
+            selected[i >> 5] |= 1 << (i & 31);
         }
-        selected[i >> 5] |= 1 << (i & 31);
     }
     selected
 }
 
-/// Lamps that the grass fragment loop of source_grass.wgsl can add to the bounds: every lamp of the
-/// receiver mask, less the point and spot lamps whose range ends before the bounds.
-pub fn grass_light_mask(
+/// `value` mask with the bits of the `changed` lamps tested again. Other bits stay.
+fn refresh_mask(
+    value: ObjectValue,
+    changed: [u32; 2],
     lighting: &LightingUniform,
-    receiver: u32,
-    model: &Mat4,
-    local_center: Vec3,
-    local_extents: Vec3,
+    reaches: impl Fn(&GpuLight) -> bool,
 ) -> [u32; 2] {
-    let mut selected = [0u32; 2];
-    let bounds = WorldBounds::new(model, local_center, local_extents, true);
+    let mut selected = [value[0], value[1]];
     let count = (lighting.counts.x as usize).min(lighting.lights.len());
-    for (i, lamp) in lighting.lights[..count].iter().enumerate() {
-        if receiver & lamp.mask.x == 0
-            || lamp.direction_kind.w != 0. && bounds.valid && bounds.beyond(lamp)
-        {
-            continue;
+    for (word, mut bits) in changed.into_iter().enumerate() {
+        while bits != 0 {
+            let bit = bits.trailing_zeros() as usize;
+            bits &= bits - 1;
+            let i = word * 32 + bit;
+            if i < count && reaches(&lighting.lights[i]) {
+                selected[word] |= 1 << bit;
+            } else {
+                selected[word] &= !(1 << bit);
+            }
         }
-        selected[i >> 5] |= 1 << (i & 31);
     }
     selected
+}
+
+/// A lamp that the grass fragment loop of source_grass.wgsl can add to the bounds: a lamp of the
+/// receiver mask, but not a point or spot lamp whose range ends before the bounds.
+fn grass_lamp_reaches(lamp: &GpuLight, receiver: u32, bounds: &WorldBounds) -> bool {
+    receiver & lamp.mask.x != 0
+        && !(lamp.direction_kind.w != 0. && bounds.valid && bounds.beyond(lamp))
 }
 
 /// World AABB of local bounds, with the magnitudes of its terms for rounding padding.
+#[derive(Clone, Copy)]
 struct WorldBounds {
     center: Vec3,
     extents: Vec3,
@@ -397,6 +605,12 @@ struct WorldBounds {
     valid: bool,
 }
 impl WorldBounds {
+    const EMPTY: Self = Self {
+        center: Vec3::ZERO,
+        extents: Vec3::ZERO,
+        magnitude: Vec3::ZERO,
+        valid: false,
+    };
     fn new(model: &Mat4, local_center: Vec3, local_extents: Vec3, bounded: bool) -> Self {
         let axes = [
             model.x_axis.truncate().abs(),
@@ -439,6 +653,8 @@ impl WorldBounds {
     }
 }
 
+/// A lamp that can reach the object bounds. It uses the same f32 operations and order as
+/// `object_light_mask` in source_props_cull.wgsl.
 fn lamp_reaches(lamp: &GpuLight, receiver: u32, bounds: &WorldBounds) -> bool {
     if lamp.direction_kind.w == 0. || receiver & lamp.mask.x == 0 {
         return false;

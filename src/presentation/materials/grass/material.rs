@@ -13,13 +13,11 @@ use bevy::{
     render::{render_resource::*, renderer::RenderDevice},
     shader::ShaderRef,
 };
-use grass_mesh::GrassView;
 pub const BLADE_ATTRIBUTE: MeshVertexAttribute =
     MeshVertexAttribute::new("SourceGrassBlade", 984632517, VertexFormat::Float32x4);
 #[derive(Clone, Copy, Debug, ShaderType)]
 pub struct GrassUniform {
     pub lod: Vec4,
-    pub camera: Vec4,
     pub shape: Vec4,
     pub fade_lod: Vec4,
     pub wind: Vec4,
@@ -32,7 +30,6 @@ pub struct GrassUniform {
 }
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct GrassMaterial {
-    pub preparation: crate::presentation::gpu_prepare::GpuPreparation,
     pub session: u64,
     pub source: SourceId,
     pub uniform: GrassUniform,
@@ -49,7 +46,6 @@ impl GrassMaterial {
     pub fn from_source(
         session: u64,
         record: &WorldSourceMaterial,
-        view: GrassView,
         receiver_mask: u32,
     ) -> Result<Self, ReferenceError> {
         if record.shader.name != "Stix Games/Grass" {
@@ -120,14 +116,12 @@ impl GrassMaterial {
             return Err(ReferenceError("Unsupported Grass culling state".into()));
         }
         Ok(Self {
-            preparation: default(),
             session,
             source: record.source.clone(),
             receiver_mask,
             cull: cull as u8,
             uniform: GrassUniform {
                 lod: Vec4::X,
-                camera: view.position.extend(view.screen_height),
                 shape: Vec4::new(
                     get("_Width00")?,
                     get("_MinHeight00")?,
@@ -235,32 +229,13 @@ impl AsBindGroup for GrassMaterial {
     fn bind_group_data(&self) -> u8 {
         self.cull
     }
-    fn as_bind_group(
-        &self,
-        descriptor: &BindGroupLayoutDescriptor,
-        device: &RenderDevice,
-        cache: &PipelineCache,
-        param: &mut SystemParamItem<Self::Param>,
-    ) -> Result<PreparedBindGroup, AsBindGroupError> {
-        crate::presentation::gpu_prepare::bind_group(
-            self,
-            &self.preparation,
-            descriptor,
-            device,
-            cache,
-            param,
-        )
-    }
     fn unprepared_bind_group(
         &self,
         layout: &BindGroupLayout,
         device: &RenderDevice,
         params: &mut SystemParamItem<Self::Param>,
-        direct: bool,
+        _: bool,
     ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
-        if self.preparation.isolated() && !direct {
-            return Err(AsBindGroupError::CreateBindGroupDirectly);
-        }
         let gpu = params
             .1
             .0

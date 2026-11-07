@@ -1,5 +1,5 @@
 #define_import_path source_lut
-#import source_float_store::{half4, source_max, source_min, source_sat}
+#import source_float_store::{half4, positive, sat3, source_max, source_min, source_sat}
 struct Params {
     size: vec4<f32>, balance: vec4<f32>, color_filter: vec4<f32>, hue_sat_con: vec4<f32>,
     mixer_r: vec4<f32>, mixer_g: vec4<f32>, mixer_b: vec4<f32>,
@@ -10,10 +10,6 @@ struct Params {
 @group(0) @binding(1) var curves: texture_2d<f32>;
 @group(0) @binding(2) var curve_sampler: sampler;
 fn f(bits: u32) -> f32 { return bitcast<f32>(bits); }
-fn positive(v: vec3<f32>) -> vec3<f32> {
-    return vec3(source_max(v.x, 0.), source_max(v.y, 0.), source_max(v.z, 0.));
-}
-fn sat3(v: vec3<f32>) -> vec3<f32> { return vec3(source_sat(v.x),source_sat(v.y),source_sat(v.z)); }
 fn luminance(v: vec3<f32>) -> f32 {
     return dot(v, vec3(f(0x3e59c6edu), f(0x3f371437u), f(0x3d93d07du)));
 }

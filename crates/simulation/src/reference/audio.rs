@@ -1,11 +1,19 @@
-//! Selected source audio. Validation has a separate gameplay failure boundary.
+//! Selected source audio.
+#[cfg(feature = "validate")]
+use super::hash;
+#[cfg(feature = "validate")]
 use super::{
-    CarAudioReference, CarShotReference, CarSoundReference, ColliderId, CurveKey,
-    EngineAudioReference, ItemId, LightControlId, MechanismId, NodeId, PartSlotId, ReferenceError,
-    ReferenceManifest, SourceId, Transform, finite, hash, ids, require,
+    CarAudioReference, CarShotReference, CarSoundReference, EngineAudioReference, ReferenceError,
+    ReferenceManifest, finite, ids, require,
+};
+use super::{
+    ColliderId, CurveKey, ItemId, LightControlId, MechanismId, NodeId, PartSlotId, SourceId,
+    Transform,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
+#[cfg(feature = "validate")]
+use std::collections::HashSet;
 use std::sync::Arc;
 
 macro_rules! record {
@@ -204,6 +212,7 @@ record!(AmbienceZoneReference {
     method: AudioMethod
 });
 /// Zones play through the one looped 2D survival row of kind 19.
+#[cfg(feature = "validate")]
 fn validate_zones(
     zones: &[AmbienceZoneReference],
     survival: &[SurvivalAudioReference],
@@ -240,9 +249,11 @@ fn validate_zones(
     Ok(())
 }
 
+#[cfg(feature = "validate")]
 fn values(v: impl IntoIterator<Item = f32>) -> bool {
     v.into_iter().all(f32::is_finite)
 }
+#[cfg(feature = "validate")]
 pub(super) fn method(m: &AudioMethod) -> bool {
     !m.class.is_empty()
         && !m.method.is_empty()
@@ -252,12 +263,14 @@ pub(super) fn method(m: &AudioMethod) -> bool {
         && hash(&m.sha256)
 }
 impl AudioReference {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self, game: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             self.schema_version == 1 && !self.clips.is_empty(),
             "audio schema",
         )?;
         let clips = ids(self.clips.iter().map(|v| v.id), "audio clip IDs")?;
+        self.validate_roles(&clips)?;
         let emitters = ids(self.emitters.iter().map(|v| v.id), "audio emitter IDs")?;
         let voices = ids(self.voices.iter().map(|v| v.id), "audio voice IDs")?;
         let mixers = ids(self.mixers.iter().map(|v| v.id), "audio mixer IDs")?;
@@ -299,7 +312,7 @@ impl AudioReference {
         for e in &self.emitters {
             require(
                 game.nodes.iter().any(|n| n.id == e.node)
-                    && e.item.is_none_or(|i| game.items.iter().any(|v| v.id == i)),
+                    && e.item.is_none_or(|i| game.item(i).is_some()),
                 "audio emitter owner",
             )?;
         }
@@ -927,104 +940,49 @@ record!(SurvivalAudioReference {
     clips: Vec<u32>, gain: [f32; 2], pitch: [f32; 2], offset: [f32; 3],
     settings: AudioSourceSettings, mixer: u32, doppler: f32, pan: f32, method: AudioMethod
 });
-/// The manifest `audio` record, parsed once when the manifest loads.
-#[derive(Clone, Debug)]
-pub struct AudioRecord {
-    /// Clips, voices and survival rows that gameplay needs. The manifest fails without them.
-    pub gameplay: AudioGameplayReference,
-    /// The full playback reference. An error keeps the game running without audio.
-    playback: Result<Arc<AudioReference>, ReferenceError>,
-    /// The manifest text of the record. The browser audio reads it.
-    json: Arc<serde_json::value::RawValue>,
-}
+/// The manifest `audio` record. The renderer and the worker share one copy of each.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AudioRecord(Arc<AudioReference>);
 impl AudioRecord {
-    pub fn json(&self) -> &serde_json::value::RawValue {
-        &self.json
-    }
-    pub fn playback(&self) -> Result<&Arc<AudioReference>, ReferenceError> {
-        self.playback.as_ref().map_err(Clone::clone)
-    }
-    /// Checks the playback reference against the manifest. A failure disables playback.
-    pub(super) fn check_playback(game: &mut ReferenceManifest) {
-        let error = match &game.audio.playback {
-            Ok(r) => r.validate(game).err(),
-            Err(_) => None,
-        };
-        if let Some(error) = error {
-            game.audio.playback = Err(error);
-        }
+    pub fn shared(&self) -> &Arc<AudioReference> {
+        &self.0
     }
 }
-impl<'de> Deserialize<'de> for AudioRecord {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let json = Arc::<serde_json::value::RawValue>::deserialize(d)?;
-        let raw: serde_json::Value =
-            serde_json::from_str(json.get()).map_err(serde::de::Error::custom)?;
-        let gameplay = AudioGameplayReference::parse(&raw).map_err(serde::de::Error::custom)?;
-        let playback = AudioReference::deserialize(&raw)
-            .map(Arc::new)
-            .map_err(|e| ReferenceError(format!("Audio: {e}")));
-        Ok(Self {
-            gameplay,
-            playback,
-            json,
-        })
+impl std::ops::Deref for AudioRecord {
+    type Target = AudioReference;
+    fn deref(&self) -> &AudioReference {
+        &self.0
     }
 }
-#[derive(Clone, Debug, Deserialize)]
-pub struct AudioGateBinding {
-    pub role: String,
-    pub kind: u32,
-    pub clips: Vec<u32>,
-    pub pitch: [f32; 2],
-}
-#[derive(Clone, Debug, Deserialize)]
-pub struct AudioGateClip {
-    pub id: u32,
-    pub source: SourceId,
-    pub frames: u64,
-    pub frequency: u32,
-    pub duration_seconds: f64,
-    pub source_duration_seconds: f64,
-}
-#[derive(Clone, Debug, Deserialize)]
-pub struct AudioGateVoice {
-    pub id: u32,
-    pub source: SourceId,
-}
-#[derive(Clone, Debug, Deserialize)]
-pub struct AudioGateCarVoice {
-    pub id: u32,
-    pub one_shot: bool,
-}
-/// The audio rows that gameplay reads. The parser ignores unknown fields, so this record parses when playback does not.
-#[derive(Clone, Debug, Deserialize)]
-pub struct AudioGameplayReference {
-    #[serde(rename = "survival")]
-    pub bindings: Vec<AudioGateBinding>,
-    pub clips: Vec<AudioGateClip>,
-    #[serde(default)]
-    pub voices: Vec<AudioGateVoice>,
-    #[serde(default)]
-    pub car_voices: Vec<AudioGateCarVoice>,
-}
-impl AudioGameplayReference {
-    fn parse(raw: &serde_json::Value) -> Result<Self, ReferenceError> {
-        let r = Self::deserialize(raw)
-            .map_err(|e| ReferenceError(format!("Required audio timing: {e}")))?;
-        let clips = ids(r.clips.iter().map(|c| c.id), "required audio clip IDs")?;
-        for c in &r.clips {
-            require(
-                c.id > 0
-                    && c.source.path_id != 0
-                    && c.frames > 0
-                    && c.frequency > 0
-                    && c.duration_seconds.is_finite()
-                    && c.duration_seconds > 0.
-                    && (c.duration_seconds - c.frames as f64 / f64::from(c.frequency)).abs() < 1e-6,
-                "required source audio duration",
-            )?;
-        }
+impl AudioReference {
+    /// The survival row of `kind`.
+    pub fn survival_row(&self, kind: u32) -> &SurvivalAudioReference {
+        self.survival
+            .iter()
+            .find(|b| b.kind == kind)
+            .expect("validated survival playback")
+    }
+    /// Exported audio clip of a source clip.
+    pub fn clip(&self, source: &SourceId) -> Option<&AudioClipReference> {
+        self.clips.iter().find(|c| c.source == *source)
+    }
+    /// Exported audio clip id of a source clip.
+    pub fn clip_id(&self, source: &SourceId) -> Option<u32> {
+        self.clip(source).map(|c| c.id)
+    }
+    pub fn has_clip(&self, id: u32) -> bool {
+        self.clips.iter().any(|c| c.id == id)
+    }
+    pub fn voice(&self, id: u32) -> Option<&AudioVoiceReference> {
+        self.voices.iter().find(|v| v.id == id)
+    }
+    pub fn car_voice(&self, id: u32) -> Option<&CarVoiceReference> {
+        self.car_voices.iter().find(|v| v.id == id)
+    }
+    /// Each survival role that gameplay plays has one row with known clips.
+    #[cfg(feature = "validate")]
+    fn validate_roles(&self, clips: &HashSet<u32>) -> Result<(), ReferenceError> {
         let required = [
             (0, "eat"),
             (1, "burp"),
@@ -1058,14 +1016,14 @@ impl AudioGameplayReference {
         ];
         for (kind, role) in required {
             require(
-                r.bindings
+                self.survival
                     .iter()
                     .filter(|b| b.kind == kind && b.role == role)
                     .count()
                     == 1,
                 "required audio role",
             )?;
-            let b = r.binding(kind);
+            let b = self.survival_row(kind);
             // Hit and ambience records take clips from their own sources.
             require(
                 (matches!(kind, 11..=13) || !b.clips.is_empty())
@@ -1078,7 +1036,7 @@ impl AudioGameplayReference {
         }
         // The ambience zone, sled and fluid fill rows exist only when the world has them.
         let optional = |kind: u32, role: &str| {
-            r.bindings
+            self.survival
                 .iter()
                 .filter(|b| b.kind == kind && b.role == role && !b.clips.is_empty())
                 .count()
@@ -1092,33 +1050,9 @@ impl AudioGameplayReference {
             zones <= 1
                 && sleds <= 1
                 && fills <= 1
-                && r.bindings.len() == required.len() + zones + sleds + fills,
+                && self.survival.len() == required.len() + zones + sleds + fills,
             "required audio roles",
-        )?;
-        Ok(r)
-    }
-    pub fn binding(&self, kind: u32) -> &AudioGateBinding {
-        self.bindings
-            .iter()
-            .find(|b| b.kind == kind)
-            .expect("validated audio timing")
-    }
-    /// Exported audio clip of a source clip.
-    pub fn clip(&self, source: &SourceId) -> Option<&AudioGateClip> {
-        self.clips.iter().find(|c| c.source == *source)
-    }
-    /// Exported audio clip id of a source clip.
-    pub fn clip_id(&self, source: &SourceId) -> Option<u32> {
-        self.clip(source).map(|c| c.id)
-    }
-    pub fn has_clip(&self, id: u32) -> bool {
-        self.clips.iter().any(|c| c.id == id)
-    }
-    pub fn voice(&self, id: u32) -> Option<&AudioGateVoice> {
-        self.voices.iter().find(|v| v.id == id)
-    }
-    pub fn car_voice(&self, id: u32) -> Option<&AudioGateCarVoice> {
-        self.car_voices.iter().find(|v| v.id == id)
+        )
     }
 }
 
@@ -1144,6 +1078,7 @@ pub struct PlayerElectronicsReference {
     pub layer: u32,
 }
 impl AmbientReference {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self) -> Result<(), ReferenceError> {
         let ambient = self;
         require(

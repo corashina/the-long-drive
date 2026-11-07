@@ -216,10 +216,11 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
     };
     let vehicle = guest.vehicles.get_mut(&key).unwrap();
     vehicle.handbrake = !vehicle.handbrake;
-    vehicle.ignition.ignition = !vehicle.ignition.ignition;
+    let on = vehicle.ignition.on();
+    vehicle.ignition.set_on(!on);
     let gear = (vehicle.drivetrain.gear() + 1) % vehicle.record(&reference).gear_ratios.len();
     vehicle.drivetrain.restore_gear(gear);
-    let want = (vehicle.handbrake, vehicle.ignition.ignition);
+    let want = (vehicle.handbrake, vehicle.ignition.on());
     for _ in 0..3 {
         exchange(
             &reference,
@@ -231,7 +232,7 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
         );
     }
     let car = &host.vehicles[&key];
-    assert_eq!((car.handbrake, car.ignition.ignition), want);
+    assert_eq!((car.handbrake, car.ignition.on()), want);
     assert_eq!(car.drivetrain.gear(), gear, "the host copy shifts");
     // There is no echo. The host sends no reliable car state back.
     let mut packets = Vec::new();
@@ -448,8 +449,9 @@ fn tp_mp_m04a_guest_takes_host_clock_stations_and_burp() {
     let mut guest_run = save_load(&host_run, &reference);
     host_run.lighting.cycle.set_cycle_seconds(123.);
     let clip = host_run
-        .audio_gameplay
-        .binding(AudioKind::Burp as u32)
+        .audio
+        .reference
+        .survival_row(AudioKind::Burp as u32)
         .clips[0];
     let at = [1e5, 20., -3e4];
     host_run
@@ -479,10 +481,7 @@ fn tp_mp_m04a_guest_takes_host_clock_stations_and_burp() {
         123.,
         "the host clock"
     );
-    let (h, g) = (
-        host_run.audio.as_ref().unwrap(),
-        guest_run.audio.as_ref().unwrap(),
-    );
+    let (h, g) = (&host_run.audio, &guest_run.audio);
     let host_channels: Vec<_> = h.broadcasts.host_channels(h.game_seconds).collect();
     let guest_channels: Vec<_> = g.broadcasts.host_channels(g.game_seconds).collect();
     assert_eq!(
@@ -1003,8 +1002,7 @@ fn tp_mp2_the_guest_starts_before_the_host_car_spawns() {
         !guest.vehicles.contains_key(&key),
         "the car is not spawned yet"
     );
-    guest.started = true;
-    guest.menu = false;
+    guest.phase = crate::starting_area::SessionPhase::Playing;
     let mut out = SimFrame::default();
     for _ in 0..600 {
         frame(&mut guest, &reference);

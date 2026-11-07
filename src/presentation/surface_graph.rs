@@ -126,15 +126,14 @@ fn opaque(
     masked: Res<ViewBinnedRenderPhases<AlphaMask3d>>,
     pipelines: Res<SurfacePasses>,
     casters: Res<super::caster::CasterPasses>,
-    owners: Res<super::pipeline_ownership::PipelineOwners>,
     cache: Res<PipelineCache>,
     status: Res<RendererStateHandle>,
     loading: Res<MaterialLoading>,
     mut context: RenderContext,
 ) {
     if !loading.is_ready()
-        || !pipelines.ready(&cache, &owners)
-        || !casters.ready(&cache, &owners)
+        || !pipelines.ready(&cache)
+        || !casters.ready(&cache)
         || status.failure().is_some()
     {
         return;
@@ -159,9 +158,10 @@ fn opaque(
         stencil_ops: None,
     };
     // The world view writes opaque depth first. Then each opaque pixel shades once.
-    // Probe faces and mirrors keep one pass.
-    let world_view = source.index < super::surface_views::WORLD_VIEWS;
-    if world_view {
+    // Probe faces and mirrors keep one pass. The bench can turn the prepass off.
+    let prepass = source.index < super::surface_views::WORLD_VIEWS
+        && super::surface_pass::depth_prepass_enabled();
+    if prepass {
         let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("source_opaque_depth"),
             color_attachments: &[],
@@ -198,7 +198,7 @@ fn opaque(
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("source_opaque"),
         color_attachments: &colors,
-        depth_stencil_attachment: Some(depth_attachment(if world_view {
+        depth_stencil_attachment: Some(depth_attachment(if prepass {
             LoadOp::Load
         } else {
             LoadOp::Clear(0.)
@@ -216,7 +216,7 @@ fn opaque(
         bundle,
         Some(super::render_targets::HDR_FORMAT),
         targets.colors.samples,
-        if world_view {
+        if prepass {
             OpaqueDraw::Equal
         } else {
             OpaqueDraw::Single
@@ -333,15 +333,14 @@ fn transparent(
     phases: Res<ViewSortedRenderPhases<Transparent3d>>,
     pipelines: Res<SurfacePasses>,
     casters: Res<super::caster::CasterPasses>,
-    owners: Res<super::pipeline_ownership::PipelineOwners>,
     cache: Res<PipelineCache>,
     status: Res<RendererStateHandle>,
     loading: Res<MaterialLoading>,
     mut context: RenderContext,
 ) {
     if !loading.is_ready()
-        || !pipelines.ready(&cache, &owners)
-        || !casters.ready(&cache, &owners)
+        || !pipelines.ready(&cache)
+        || !casters.ready(&cache)
         || status.failure().is_some()
     {
         return;

@@ -18,6 +18,25 @@ pub struct GrassView {
     pub screen_height: f32,
     pub clip_planes: [Vec4; 4],
 }
+/// Camera move, in meters, that starts a new expansion.
+const REBUILD_STEP: f32 = 0.25;
+/// Clip plane normal change that starts a new expansion (about 2 degrees, a small share of the margin).
+const REBUILD_TURN: f32 = VIEW_MARGIN / 8.0;
+impl GrassView {
+    /// Whether an expansion for this view can still draw for `current`.
+    /// Head bob and small turns keep the old blades. The color pass reads the live camera.
+    pub fn covers(&self, current: &GrassView) -> bool {
+        self.screen_height == current.screen_height
+            && self.position.distance_squared(current.position) <= REBUILD_STEP * REBUILD_STEP
+            && self
+                .clip_planes
+                .iter()
+                .zip(&current.clip_planes)
+                .all(|(a, b)| {
+                    a.truncate().distance_squared(b.truncate()) <= REBUILD_TURN * REBUILD_TURN
+                })
+    }
+}
 #[derive(Clone, Copy, PartialEq)]
 pub struct GrassSettings {
     pub edge_length: f32,

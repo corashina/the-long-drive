@@ -16,7 +16,10 @@ use bevy::{
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 pub struct SurfaceMaterial {
     pub renderer: crate::reference::render_lighting::RendererRecord,
@@ -46,6 +49,11 @@ pub struct SourceWorldVisuals {
     session: Option<u64>,
     pending: Option<SurfacePreparation>,
     surfaces: Vec<SurfaceVisual>,
+    /// Position of each key in `surfaces`, and the keys of the last synced frame.
+    surface_index: HashMap<SurfaceKey, usize>,
+    frame_keys: HashSet<SurfaceKey>,
+    /// Session, surface revision and origin of the last complete sync.
+    synced: Option<(u64, u64, [f64; 3])>,
     pub(super) road_materials: HashMap<SourceId, Vec<SurfaceMaterial>>,
     pub(super) terrain: [Option<Handle<TerrainMaterial>>; 3],
     terrain_layers: [u8; 3],
@@ -288,6 +296,15 @@ impl SourceWorldVisuals {
         meshes: &mut Assets<Mesh>,
         roots: &mut super::runtime::WorldRoots,
     ) -> Result<(), ReferenceError> {
+        // Same surfaces in the same origin: every visual and root transform is current.
+        let synced = (
+            frame.request.session,
+            frame.surface_revision,
+            frame.origin.offset,
+        );
+        if self.synced == Some(synced) {
+            return Ok(());
+        }
         if self.session != Some(frame.request.session) {
             for old in self.surfaces.drain(..) {
                 commands.entity(old.root).despawn();
@@ -295,11 +312,12 @@ impl SourceWorldVisuals {
                     meshes.remove(mesh.id());
                 }
             }
+            self.surface_index.clear();
             self.session = Some(frame.request.session);
         }
         // Check every new binding before retiring any accepted visual.
         for published in frame.surfaces {
-            if self.surfaces.iter().any(|old| old.key == published.key) {
+            if self.surface_index.contains_key(&published.key) {
                 continue;
             }
             if let Some(prototype) = &published.prototype {
@@ -327,8 +345,8 @@ impl SourceWorldVisuals {
             let transform = Transform::from_translation(Vec3::from_array(
                 frame.origin.local(published.surface.origin),
             ));
-            if let Some(old) = self.surfaces.iter().find(|old| old.key == published.key) {
-                if let Ok(mut current) = roots.get_mut(old.root) {
+            if let Some(&old) = self.surface_index.get(&published.key) {
+                if let Ok(mut current) = roots.get_mut(self.surfaces[old].root) {
                     current.set_if_neq(transform);
                 }
                 continue;
@@ -379,6 +397,8 @@ impl SourceWorldVisuals {
                     }
                 }
             }
+            self.surface_index
+                .insert(published.key, self.surfaces.len());
             self.surfaces.push(SurfaceVisual {
                 key: published.key,
                 root,
@@ -386,8 +406,12 @@ impl SourceWorldVisuals {
                 _tickets: pending.tickets,
             });
         }
+        self.frame_keys.clear();
+        self.frame_keys
+            .extend(frame.surfaces.iter().map(|surface| surface.key));
+        let count = self.surfaces.len();
         self.surfaces.retain(|old| {
-            if frame.surfaces.iter().any(|surface| surface.key == old.key) {
+            if self.frame_keys.contains(&old.key) {
                 return true;
             }
             commands.entity(old.root).despawn();
@@ -396,6 +420,13 @@ impl SourceWorldVisuals {
             }
             false
         });
+        if self.surfaces.len() != count {
+            self.surface_index.clear();
+            for (i, surface) in self.surfaces.iter().enumerate() {
+                self.surface_index.entry(surface.key).or_insert(i);
+            }
+        }
+        self.synced = Some(synced);
         Ok(())
     }
 }
@@ -416,9 +447,23 @@ fn surface_mesh(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::RENDER_WORLD,
     );
+    // A grid tile comes without UV and triangles. Rebuild them from its size and resolution.
+    let (uv, triangles) = match surface.grid {
+        Some(size) => {
+            let resolution = surface.vertices.len().isqrt() as u32;
+            (
+                ::terrain::grid_uv(size, resolution),
+                std::borrow::Cow::Owned(::terrain::grid_triangles(resolution)),
+            )
+        }
+        None => (
+            surface.uv.clone(),
+            std::borrow::Cow::Borrowed(surface.triangles.as_slice()),
+        ),
+    };
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, surface.vertices.clone());
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, surface.normals.clone());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, surface.uv.clone());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
     if !surface.colors.is_empty() {
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, surface.colors.clone());
     }
@@ -426,7 +471,7 @@ fn surface_mesh(
         mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, surface.tangents.clone());
     }
     mesh.insert_indices(Indices::U32(
-        surface.triangles[range].iter().flatten().copied().collect(),
+        triangles[range].iter().flatten().copied().collect(),
     ));
     let mut record = record.clone();
     let mut min = Vec3::splat(f32::MAX);

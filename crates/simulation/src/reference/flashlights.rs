@@ -1,8 +1,7 @@
 //! Checked portable item bindings.
-use super::{
-    ColliderId, ItemId, LightControlId, LightControllerKind, NodeId, ReferenceError,
-    ReferenceManifest, SourceId, require,
-};
+use super::{ColliderId, ItemId, LightControlId, NodeId, SourceId};
+#[cfg(feature = "validate")]
+use super::{LightControllerKind, ReferenceError, ReferenceManifest, require};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -38,6 +37,7 @@ pub struct FlashlightInstanceReference {
 }
 
 impl FlashlightRecord {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self, manifest: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             self.models.len() == 2
@@ -60,10 +60,9 @@ impl FlashlightRecord {
                     && !model.lights.is_empty(),
                 "flashlight model binding",
             )?;
-            let item = manifest.items.iter().find(|item| item.id == instance.item);
-            let node = manifest.nodes.iter().find(|node| node.id == instance.node);
-            let body =
-                item.and_then(|item| manifest.bodies.iter().find(|body| body.id == item.body));
+            let item = manifest.item(instance.item);
+            let node = manifest.node(instance.node);
+            let body = item.and_then(|item| manifest.body(item.body));
             let control = manifest
                 .lighting
                 .controllers

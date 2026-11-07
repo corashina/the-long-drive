@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use simulation::world::metrics::BUDGET_LABELS;
 
 pub(super) fn publish(
-    drive: Res<Drive>,
+    mut drive: ResMut<Drive>,
     sim: Res<SimFrameResource>,
     archetypes: &bevy::ecs::archetype::Archetypes,
 ) {
@@ -20,6 +20,7 @@ pub(super) fn publish(
     ) {
         return;
     }
+    drive.body_counters = true;
     for (index, (budget, (name, unit))) in sim.frame.budgets.iter().zip(BUDGET_LABELS).enumerate() {
         game_performance_budget(index as u32, name, budget.used, budget.limit, unit);
     }

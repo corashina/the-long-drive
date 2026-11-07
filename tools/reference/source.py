@@ -8,6 +8,13 @@ def source_id(reader):
     return {'file': reader.assets_file.source_container_path, 'path_id': reader.path_id}
 
 
+def continuous(rigidbody):
+    """Unity `Rigidbody.collisionDetectionMode`: 0 Discrete, 1 Continuous, 2 ContinuousDynamic, 3 ContinuousSpeculative."""
+    mode=rigidbody['m_CollisionDetection']
+    if mode not in (0,1,2,3):raise ValueError(f'Unknown collision detection mode {mode}')
+    return mode!=0
+
+
 def key(reader):
     return reader.assets_file.source_container_path, reader.path_id
 

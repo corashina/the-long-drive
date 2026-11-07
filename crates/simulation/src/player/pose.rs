@@ -23,9 +23,7 @@ impl PlayerPoseState {
     pub fn new(r: &ReferenceManifest) -> Result<Self, ReferenceError> {
         let anchors = &r.clothing.pose.anchors;
         let head = r
-            .nodes
-            .iter()
-            .find(|n| n.id == anchors["RH"].node)
+            .node(anchors["RH"].node)
             .and_then(|n| n.parent)
             .ok_or_else(|| ReferenceError("Missing source hand parent".into()))?;
         let camera = to_rapier(node_pose(r, anchors["CamParent"].node)?).inverse();
@@ -50,7 +48,7 @@ impl PlayerPoseState {
                     head_relative = true;
                     break;
                 }
-                parent = r.nodes.iter().find(|n| n.id == node).and_then(|n| n.parent);
+                parent = r.node(node).and_then(|n| n.parent);
             }
             let local = from_rapier(
                 &((if head_relative { camera } else { body }) * to_rapier(node_pose(r, id)?)),

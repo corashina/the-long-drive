@@ -220,6 +220,7 @@ pub struct FocusControl {
     pub ray: [f32; 2],
 }
 impl Lens {
+    #[cfg(feature = "validate")]
     fn validate(&self) -> bool {
         self.aperture.is_finite()
             && self.aperture > 0.
@@ -294,6 +295,7 @@ pub struct GradingSettings {
     pub trackballs: [[f32; 4]; 3],
 }
 impl PostprocessingRecord {
+    #[cfg(feature = "validate")]
     pub fn validate(
         &self,
         textures: &std::collections::HashSet<super::SourceId>,
@@ -468,6 +470,7 @@ pub struct CameraStage {
     pub postprocessing: Option<CameraEffects>,
 }
 impl CameraStage {
+    #[cfg(feature = "validate")]
     pub fn validate_stack(stages: &[Self]) -> bool {
         stages.len() == 4
             && stages.iter().map(|s| s.role).eq([
@@ -619,14 +622,18 @@ pub struct GlassesGradingParameters {
     #[serde(rename = "tonemapper")]
     pub tonemapper: SourceParameter<u32>,
 }
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+tagged_enum! {
+"GlassesEffect",
+#[json(tag = "kind")]
+#[derive(Clone, Debug)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum GlassesEffect {
     ColorGrading {
         source: super::SourceId,
         active: bool,
         parameters: GlassesGradingParameters,
     },
+}
 }
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -635,6 +642,7 @@ pub struct GlassesProfile {
     pub effects: Vec<GlassesEffect>,
 }
 impl SourceGradingSpline {
+    #[cfg(feature = "validate")]
     fn valid(&self) -> bool {
         super::particles::curve_valid(&self.curve)
             && super::finite(&self.cached_data)
@@ -644,6 +652,7 @@ impl SourceGradingSpline {
     }
 }
 impl GlassesGradingParameters {
+    #[cfg(feature = "validate")]
     fn finite(&self) -> bool {
         self.blue_curve.value.valid()
             && self.brightness.value.is_finite()
@@ -683,6 +692,7 @@ impl GlassesGradingParameters {
     }
 }
 impl GlassesProfile {
+    #[cfg(feature = "validate")]
     pub fn validate(
         &self,
         index: usize,
@@ -835,8 +845,10 @@ pub struct VolumeEffect {
     pub parameters: std::collections::BTreeMap<String, VolumeParameter>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
+tagged_enum! {
+"VolumeParameter",
+#[json(untagged)]
+#[derive(Clone, Debug)]
 pub enum VolumeParameter {
     Texture(SourceTextureParameter),
     Spline(SourceParameter<SourceGradingSpline>),
@@ -844,6 +856,7 @@ pub enum VolumeParameter {
     Number(SourceParameter<f32>),
     /// Color (rgba) or vector (xy, xyz or xyzw).
     Vector(SourceParameter<Vec<f32>>),
+}
 }
 
 impl VolumeParameter {
@@ -859,6 +872,7 @@ impl VolumeParameter {
 }
 
 impl DeadProfile {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &super::ReferenceManifest) -> Result<(), super::ReferenceError> {
         use super::{finite, ids, require};
         require(

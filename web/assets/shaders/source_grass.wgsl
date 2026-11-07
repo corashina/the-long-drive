@@ -13,7 +13,6 @@
 #endif
 struct GrassUniform {
     lod: vec4<f32>,
-    camera: vec4<f32>,
     shape: vec4<f32>,
     fade_lod: vec4<f32>,
     wind: vec4<f32>,
@@ -27,7 +26,7 @@ struct GrassUniform {
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> grass: GrassUniform;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var displacement: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var displacement_sampler: sampler;
-struct GrassFrameUniform {origin_time:vec4<f32>,area:vec4<f32>,clip_from_world:mat4x4<f32>,wind:vec4<f32>}
+struct GrassFrameUniform {origin_time:vec4<f32>,area:vec4<f32>,clip_from_world:mat4x4<f32>,camera:vec4<f32>,wind:vec4<f32>}
 @group(#{MATERIAL_BIND_GROUP}) @binding(3) var<uniform> grass_frame:GrassFrameUniform;
 struct GrassVertex {
     @location(0) anchor: vec3<f32>,
@@ -67,10 +66,10 @@ fn source_wind(p:vec2<f32>)->vec2<f32> {
 @vertex
 fn vertex(input:GrassVertex)->GrassOutput {
     let anchor=input.anchor;
-    let distance=length(anchor-grass.camera.xyz);
+    let distance=length(anchor-grass_frame.camera.xyz);
     let encoded=textureSampleLevel(displacement,displacement_sampler,(anchor.xz-grass_frame.area.xy)/grass_frame.area.zw,0.);
     let alpha=clamp(encoded.a,0.,1.);
-    var facing=grass.camera.xyz;
+    var facing=grass_frame.camera.xyz;
 #ifdef PREPASS_PIPELINE
     facing=vec3(view.world_position.xy+grass_frame.origin_time.xy,-view.world_position.z-grass_frame.origin_time.z);
 #endif

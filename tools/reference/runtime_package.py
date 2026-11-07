@@ -11,22 +11,33 @@ MAX_U32 = 2**32 - 1
 MAX_STAGING = 32 * 1024 * 1024
 # The exporter manifest JSON. The tools read it. Gzip at rest.
 MANIFEST = 'manifest.json.gz'
+# `content_base` and `file_catalog` of the manifest. Deploy reads them here.
+CATALOG = 'catalog.json'
 # A start pack holds at most this many entry bytes. Its gzip file stays under the Pages 25 MiB limit.
 PACK_BYTES = 16 * 1024 * 1024
 # Usages that load as fixed scene roots at startup. Same list as `scene_root` in src/presentation/fixed_assets.rs.
 SCENE_ROOTS = {'unique_scene', 'road_lamp_prototype', 'sky_prototype', 'food_prototype', 'item_prototype',
                'player_prototype', 'ragdoll_prototype', 'sky_traffic', 'creature_prototype'}
-# The game manifest file: the JSON with the world tables as postcard. The game contract makes it.
+# The game manifest file: the manifest as postcard. The game contract makes it from the exporter JSON.
 RUNTIME_MANIFEST = 'manifest.bin.gz'
 
 
 def write_manifest(output: Path, manifest: dict) -> None:
-    from .export import encode_runtime_manifest
+    """Write the exporter JSON. `write_runtime_manifest` makes the game files from it."""
     content = json.dumps(manifest, separators=(',', ':'), allow_nan=False).encode()
     # mtime 0 keeps the file bytes the same for the same manifest.
     (output / MANIFEST).write_bytes(gzip.compress(content, compresslevel=9, mtime=0))
+
+
+def write_runtime_manifest(output: Path) -> None:
+    """Make the game manifest file and `catalog.json` from the exporter JSON file."""
+    from .export import encode_runtime_manifest
+    content = manifest_bytes(output)
     runtime = encode_runtime_manifest(content)
     (output / RUNTIME_MANIFEST).write_bytes(gzip.compress(runtime, compresslevel=9, mtime=0))
+    manifest = json.loads(content)
+    catalog = {'content_base': manifest['content_base'], 'file_catalog': manifest['file_catalog']}
+    (output / CATALOG).write_text(json.dumps(catalog, separators=(',', ':'), allow_nan=False), encoding='utf-8')
 
 
 def runtime_manifest_bytes(output: Path) -> bytes:
@@ -37,8 +48,8 @@ def manifest_bytes(output: Path) -> bytes:
     return gzip.decompress((output / MANIFEST).read_bytes())
 
 
-def read_manifest(output: Path) -> dict:
-    return json.loads(manifest_bytes(output))
+def read_catalog(output: Path) -> dict:
+    return json.loads((output / CATALOG).read_bytes())
 
 
 def checked(value):
@@ -125,7 +136,7 @@ def build_prototype_plan(document: dict, receipts: dict) -> dict:
 
 
 def build_file_catalog(manifest: dict, output: Path) -> dict:
-    excluded = {MANIFEST, RUNTIME_MANIFEST, 'library-selection.json'}
+    excluded = {MANIFEST, CATALOG, RUNTIME_MANIFEST, 'library-selection.json'}
     files = {f'reference/{path.name}': file_receipt(path, f'reference/{path.name}')
              for path in sorted(output.iterdir()) if path.is_file()
              and path.name not in excluded and not path.name.endswith('-evidence.json')
@@ -144,25 +155,30 @@ def build_file_catalog(manifest: dict, output: Path) -> dict:
             plans.append({'asset_file': name, 'input': plan_receipt})
             reserve = max(reserve, checked(2 * (plan['json_bytes'] + plan['buffer_bytes'])),
                           checked(2 * plan_receipt['bytes']))
-        if receipt['image_size']:
-            reserve = max(reserve, checked(3 * receipt['bytes'] + 2 * 1024 * 1024
-                                          + 128 * receipt['image_size'][0]))
-    from .native_bc import validate_storage
+        # The game reads a primary texture input whole. Only crunch input is decoded (primary_staging).
+        if name.endswith(('.rgba', '.bc')):
+            reserve = max(reserve, receipt['bytes'])
+    from .native_bc import crunch_staging, validate_storage
+    tops = set()
     for material in manifest.get('rendering', {}).get('materials', []):
         for texture in material['properties']['textures']:
             validate_storage(texture, files)
-            storage = texture['storage']
-            if storage['kind'] == 'native_bc':
-                reserve = max(reserve, checked(3 * storage['input']['bytes'] + 2 * 1024 * 1024 + 128 * storage['width']))
+            if texture['storage']['kind'] == 'native_bc' and texture['storage']['top']:
+                tops.add(texture['storage']['top']['file'])
+            reserve = max(reserve, crunch_staging(texture['storage']))
     if reserve >= MAX_STAGING:
         raise ValueError('World input overlap leaves no generation capacity')
     for asset in manifest['assets']:
         asset['dependencies'] = [files[entry['file']] for entry in asset['dependencies']]
     if 'render_lighting' in manifest:
         manifest['render_lighting']['dependencies'] = [files[entry['file']] for entry in manifest['render_lighting']['dependencies']]
-    packs = build_start_packs(start_files(manifest, {p['asset_file']: p['input']['file'] for p in plans}), files, output)
+    names = start_files(manifest, {p['asset_file']: p['input']['file'] for p in plans})
+    shutil.rmtree(output / 'packs', ignore_errors=True)
+    # Top mips of start textures load after the game starts, from their own packs.
+    packs = build_packs([n for n in names if n not in tops], files, output, 'start')
+    top_packs = build_packs([n for n in names if n in tops], files, output, 'top')
     return {'files': [files[name] for name in sorted(files)], 'plans': plans,
-            'dependency_staging_reserve': reserve, 'packs': packs}
+            'dependency_staging_reserve': reserve, 'packs': packs, 'top_packs': top_packs}
 
 
 def start_files(manifest, plans):
@@ -176,10 +192,9 @@ def start_files(manifest, plans):
     return list(dict.fromkeys(names))
 
 
-def build_start_packs(names, files, output):
-    """Write gzip packs of the start files. A pack is the plain concatenation of its entries."""
+def build_packs(names, files, output, kind):
+    """Write gzip packs `packs/{kind}-N.gz` of the files. A pack is the plain concatenation of its entries."""
     root = output / 'packs'
-    shutil.rmtree(root, ignore_errors=True)
     groups, size = [], PACK_BYTES
     for name in names:
         bytes_ = files[name]['bytes']
@@ -193,13 +208,18 @@ def build_start_packs(names, files, output):
     packs = []
     for index, group in enumerate(groups):
         root.mkdir(exist_ok=True)
-        path = root / f'start-{index}.gz'
+        path = root / f'{kind}-{index}.gz'
         content = b''.join((output / name.removeprefix('reference/')).read_bytes() for name in group)
         # mtime 0 keeps the file bytes the same for the same entries.
         path.write_bytes(gzip.compress(content, compresslevel=9, mtime=0))
         receipt = file_receipt(path, f'packs/{path.name}')
         packs.append({'file': receipt['file'], 'bytes': receipt['bytes'], 'sha256': receipt['sha256'], 'files': group})
     return packs
+
+
+def package_dir(catalog):
+    """The package directory name in `content_base`."""
+    return catalog['content_base'].removeprefix('assets/runtime/').removesuffix('/')
 
 
 def package_id(manifest):
@@ -218,13 +238,13 @@ def prepare_package(manifest, output):
 
 def publish_package(output, assets_root):
     """Publish a complete package before replacing the mutable root manifest."""
-    manifest = read_manifest(output)
-    destination = assets_root / 'runtime' / package_id(manifest)
+    catalog = read_catalog(output)
+    destination = assets_root / 'runtime' / package_dir(catalog)
     destination.parent.mkdir(exist_ok=True)
     if destination.exists():
-        verify_package(manifest, destination)
+        verify_package(catalog, destination)
     else:
-        _write_package(manifest, output, destination)
+        _write_package(catalog, output, destination)
     prune_packages(destination)
 
 
@@ -248,7 +268,7 @@ def _write_package(manifest, output, destination):
             target.parent.mkdir(parents=True, exist_ok=True)
             # Staging and the package share one volume. Exports never change a written file.
             target.hardlink_to(source)
-        for pack in manifest['file_catalog']['packs']:
+        for pack in manifest['file_catalog']['packs'] + manifest['file_catalog']['top_packs']:
             target = pending / pack['file']
             target.parent.mkdir(parents=True, exist_ok=True)
             target.hardlink_to(output / pack['file'])
@@ -260,9 +280,8 @@ def _write_package(manifest, output, destination):
 
 
 def verify_package(manifest, root):
-    if manifest['content_base'] != f'assets/runtime/{package_id(manifest)}/':
-        raise ValueError('Runtime package identity differs')
-    packs = manifest['file_catalog']['packs']
+    """Check the package files against the `file_catalog` of `manifest` (the manifest or its catalog)."""
+    packs = manifest['file_catalog']['packs'] + manifest['file_catalog']['top_packs']
     expected = {receipt['file'] for receipt in manifest['file_catalog']['files']} | {pack['file'] for pack in packs}
     if {path.relative_to(root).as_posix() for path in root.rglob('*') if path.is_file()} != expected:
         raise ValueError('Runtime package file set differs')

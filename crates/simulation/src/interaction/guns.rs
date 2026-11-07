@@ -1189,10 +1189,7 @@ impl GunState {
             let item = ((collider.user_data & 0xffff_ffff) as u32)
                 .checked_sub(1)
                 .map(ItemId)
-                .or_else(|| {
-                    parent
-                        .and_then(|b| world.items.iter().find(|i| i.body == Some(b)).map(|i| i.id))
-                });
+                .or_else(|| parent.and_then(|b| world.items.on_body(b).first().copied()));
             if skips(tag, layer) {
                 continue;
             }

@@ -69,9 +69,8 @@ impl WorldSync {
             message::push(slot, &time, out);
             message::push(slot, &weather_message(&runtime.weather), out);
         }
-        if let Some(audio) = &mut runtime.audio
-            && (audio.broadcasts.take_changed() || joined)
-        {
+        let audio = &mut runtime.audio;
+        if audio.broadcasts.take_changed() || joined {
             let channels = audio.broadcasts.host_channels(audio.game_seconds);
             message::push_with(true, HEADER + 4 + channels.len() * 8, out, |bytes| {
                 RadioChannelMessage::encode(slot, channels, bytes)
@@ -100,8 +99,8 @@ impl WorldSync {
         } else if packet.first() == Some(&RADIO_CHANNEL) {
             if let Ok((slot, channels)) = RadioChannelMessage::decode(packet)
                 && from_host(slot)
-                && let Some(audio) = &mut runtime.audio
             {
+                let audio = &mut runtime.audio;
                 audio.broadcasts.apply_host(channels, audio.game_seconds);
             }
         } else if let Ok((_, m)) = RadioMessage::decode(packet) {
@@ -202,14 +201,12 @@ fn play(runtime: &mut GarageRuntime, slot: u8, sound: &SoundMessage) {
     };
     // The clip must be one of this sound's clips. The browser plays only known clips.
     let known = if kind == AudioKind::ItemHit {
-        runtime
-            .audio
-            .as_ref()
-            .is_some_and(|a| a.reference.clips.iter().any(|c| c.id == sound.clip))
+        runtime.audio.reference.has_clip(sound.clip)
     } else {
         runtime
-            .audio_gameplay
-            .binding(kind as u32)
+            .audio
+            .reference
+            .survival_row(kind as u32)
             .clips
             .contains(&sound.clip)
     };
@@ -220,9 +217,7 @@ fn play(runtime: &mut GarageRuntime, slot: u8, sound: &SoundMessage) {
     {
         return;
     }
-    let Some(audio) = &mut runtime.audio else {
-        return;
-    };
+    let audio = &mut runtime.audio;
     audio.survival_event(SurvivalAudioEvent {
         session: 0,
         // A non-zero emitter plays at the event position, not at the local player.

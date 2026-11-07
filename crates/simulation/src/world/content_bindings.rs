@@ -31,6 +31,8 @@ impl WorldStream {
                     crate::world::changes::capture(item.id, items, interaction, physics, reference)
                         .map(|s| (item.id, s))
                 }));
+            // `capture_changes` finds a baseline by binary search.
+            self.imported_baselines.sort_by_key(|(id, _)| *id);
         }
     }
     /// The live state of `id`, with the values its bindings hold.
@@ -109,19 +111,32 @@ impl WorldStream {
         interaction: &InteractionState,
         physics: &PhysicsWorld,
     ) {
+        // A moving car marks each of its parts dirty every step. Most dirty items are not
+        // content items, so one set of content items replaces a content scan per item.
+        let mut bound = std::mem::take(&mut self.contents.bound_items);
+        bound.clear();
+        if items.has_dirty() {
+            for content in self.contents.active().iter().chain(&self.static_controls) {
+                bound.extend(content.item);
+                bound.extend(content.bindings.iter().map(|b| b.item));
+            }
+        }
         while let Some(id) = items.take_dirty() {
             if removed_child(id, items) {
                 self.changes.forget(&items.object_key(id));
                 continue;
             }
-            if self
-                .contents
-                .active()
-                .iter()
-                .chain(&self.static_controls)
-                .any(|c| {
-                    !c.restored && (c.item == Some(id) || c.bindings.iter().any(|b| b.item == id))
-                })
+            let content_item = bound.contains(&id);
+            if content_item
+                && self
+                    .contents
+                    .active()
+                    .iter()
+                    .chain(&self.static_controls)
+                    .any(|c| {
+                        !c.restored
+                            && (c.item == Some(id) || c.bindings.iter().any(|b| b.item == id))
+                    })
             {
                 continue;
             }
@@ -133,24 +148,27 @@ impl WorldStream {
             let baseline = match &key {
                 crate::world::ObjectKey::Imported(_) => self
                     .imported_baselines
-                    .iter()
-                    .find(|(i, _)| *i == id)
-                    .map(|(_, s)| s),
-                crate::world::ObjectKey::Generated(_) => self
-                    .contents
-                    .active()
-                    .iter()
-                    .chain(&self.static_controls)
-                    .find_map(|c| {
-                        if c.item == Some(id) {
-                            c.baseline.as_ref()
-                        } else {
-                            c.bindings
-                                .iter()
-                                .find(|b| b.item == id)
-                                .map(|b| &b.baseline)
-                        }
+                    .binary_search_by_key(&id, |(i, _)| *i)
+                    .ok()
+                    .map(|i| &self.imported_baselines[i].1),
+                crate::world::ObjectKey::Generated(_) => content_item
+                    .then(|| {
+                        self.contents
+                            .active()
+                            .iter()
+                            .chain(&self.static_controls)
+                            .find_map(|c| {
+                                if c.item == Some(id) {
+                                    c.baseline.as_ref()
+                                } else {
+                                    c.bindings
+                                        .iter()
+                                        .find(|b| b.item == id)
+                                        .map(|b| &b.baseline)
+                                }
+                            })
                     })
+                    .flatten()
                     .or_else(|| {
                         self.supplies.iter().find_map(|s| {
                             s.items
@@ -177,12 +195,15 @@ impl WorldStream {
             }
             self.retain_storage_owner(&key, reference, items, interaction, physics);
             if let crate::world::ObjectKey::Generated(_) = &key {
-                if let Some(owner) = self
-                    .contents
-                    .active()
-                    .iter()
-                    .chain(&self.static_controls)
-                    .find(|c| c.item == Some(id) || c.bindings.iter().any(|b| b.item == id))
+                if let Some(owner) = content_item
+                    .then(|| {
+                        self.contents
+                            .active()
+                            .iter()
+                            .chain(&self.static_controls)
+                            .find(|c| c.item == Some(id) || c.bindings.iter().any(|b| b.item == id))
+                    })
+                    .flatten()
                 {
                     self.changes
                         .set_replay(&key, &owner.origin, &owner.content.placement.id);
@@ -200,6 +221,7 @@ impl WorldStream {
                 }
             }
         }
+        self.contents.bound_items = bound;
         // Deletion compacts records. Refresh indices before any replay consumer runs.
         if self.change_revision != self.changes.revision() {
             self.select_changed_destinations();
@@ -1064,34 +1086,19 @@ impl WorldStream {
             let local_item = |item| {
                 content.item == Some(item) || content.bindings.iter().any(|b| b.item == item)
             };
+            let child = &content.content.placement.id;
             let local_slot = |slot| {
-                content.slots.iter().any(|s| s.slot == slot)
-                    || self.contents.active().iter().any(|owner| {
-                        let parent = &owner.content.placement.id;
-                        let child = &content.content.placement.id;
-                        parent.layer == child.layer
-                            && parent.generator == child.generator
-                            && parent.unit == child.unit
-                            && parent.ordinal == child.ordinal
-                            && child.children.len() > parent.children.len()
-                            && child.children.starts_with(&parent.children)
-                            && owner.slots.iter().any(|s| s.slot == slot)
-                    })
+                let owns = |owner: &crate::world::contents::ContentInstance| {
+                    owner.slots.iter().any(|s| s.slot == slot)
+                };
+                owns(content) || self.contents.any_ancestor(child, owns)
             };
             // A world car slot rim may leave with its car or the car content that spawned it.
             let local_owner = |item| {
                 local_item(item)
-                    || self.contents.active().iter().any(|owner| {
-                        let parent = &owner.content.placement.id;
-                        let child = &content.content.placement.id;
-                        parent.layer == child.layer
-                            && parent.generator == child.generator
-                            && parent.unit == child.unit
-                            && parent.ordinal == child.ordinal
-                            && child.children.len() > parent.children.len()
-                            && child.children.starts_with(&parent.children)
-                            && owner.item == Some(item)
-                    })
+                    || self
+                        .contents
+                        .any_ancestor(child, |owner| owner.item == Some(item))
             };
             let protected_location = |location| match location {
                 crate::interaction::items::ItemLocation::World => false,

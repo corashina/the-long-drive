@@ -26,9 +26,10 @@ pub struct WorldGrassWriter {
     pub enabled: bool,
 }
 impl WorldGrassDisplacement {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(
         &self,
-        records: &HashMap<&SourceId, &WorldSourceRecord>,
+        records: &WorldRecords,
         receipts: &HashSet<&SourceId>,
     ) -> Result<(), ReferenceError> {
         let camera = checked_record(records, &self.camera, &["Camera"])?;
@@ -85,6 +86,7 @@ impl WorldGrassDisplacement {
         Ok(())
     }
 }
+#[cfg(feature = "validate")]
 fn number(record: &WorldSourceRecord, name: &str) -> Option<f32> {
     match record.fields.get(name) {
         Some(WorldValue::Number(value)) => Some(*value as f32),

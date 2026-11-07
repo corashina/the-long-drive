@@ -47,10 +47,9 @@ pub mod view_math;
 pub use rendering::*;
 
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    fmt,
-};
+#[cfg(feature = "validate")]
+use std::collections::{HashMap, HashSet};
+use std::{collections::BTreeMap, fmt};
 
 pub mod conditions;
 pub use conditions::*;
@@ -232,12 +231,15 @@ pub struct BodyRecord {
     pub mass_kg: f32,
     pub linear_damping: f32,
     pub angular_damping: f32,
+    /// Unity `collisionDetectionMode` is not Discrete. The body uses CCD.
+    pub ccd: bool,
     pub pose: Transform,
     pub parent_body: Option<BodyId>,
 }
 
 tagged_enum! {
 "ColliderGeometry",
+#[json(tag = "kind")]
 #[derive(Clone, Debug)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ColliderGeometry {
@@ -394,6 +396,7 @@ pub struct TurnReference {
 }
 tagged_enum! {
 "EndpointReactionReference",
+#[json(tag = "kind")]
 #[derive(Clone, Debug)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum EndpointReactionReference {
@@ -411,6 +414,7 @@ pub enum EndpointReactionReference {
 }
 tagged_enum! {
 "TurnAction",
+#[json(tag = "kind")]
 #[derive(Clone, Debug)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TurnAction {
@@ -812,6 +816,7 @@ pub struct WheelColliderReference {
 }
 
 impl WheelColliderReference {
+    #[cfg(feature = "validate")]
     pub fn valid(&self) -> bool {
         finite(&[
             self.radius,
@@ -961,57 +966,43 @@ pub fn read_manifest(path: impl AsRef<std::path::Path>) -> std::io::Result<Vec<u
     Ok(bytes)
 }
 
-/// Splits the unpacked manifest file into its JSON and its world tables.
-/// The file is a u32 LE JSON length, the JSON, then the postcard world tables.
-pub fn split_manifest(bytes: &[u8]) -> Result<(&[u8], &[u8]), ReferenceError> {
-    let (length, rest) = bytes
-        .split_first_chunk::<4>()
-        .ok_or_else(|| ReferenceError("Manifest has no JSON length".into()))?;
-    let length = u32::from_le_bytes(*length) as usize;
-    require(length <= rest.len(), "manifest JSON length")?;
-    Ok(rest.split_at(length))
+/// Serde form of a field that only the JSON form holds. The binary form is a unit: no bytes.
+#[cfg(feature = "validate")]
+pub(crate) mod json_only {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    pub fn serialize<T: Serialize, S: Serializer>(
+        value: &T,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            value.serialize(serializer)
+        } else {
+            serializer.serialize_unit()
+        }
+    }
+    pub fn deserialize<'de, T: Deserialize<'de> + Default, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<T, D::Error> {
+        if deserializer.is_human_readable() {
+            T::deserialize(deserializer)
+        } else {
+            <()>::deserialize(deserializer).map(|()| T::default())
+        }
+    }
 }
 
-/// Joins manifest JSON and world tables into the manifest file.
-pub fn join_manifest(json: &[u8], tables: &[u8]) -> Vec<u8> {
-    let length = u32::try_from(json.len()).expect("manifest JSON under 4 GiB");
-    let mut bytes = Vec::with_capacity(4 + json.len() + tables.len());
-    bytes.extend_from_slice(&length.to_le_bytes());
-    bytes.extend_from_slice(json);
-    bytes.extend_from_slice(tables);
-    bytes
-}
-
-/// Makes the manifest file from the exporter JSON, which holds the world tables.
+/// Makes the manifest file from the exporter JSON.
+/// The file is the postcard manifest, then the postcard world receipts. Only the checks read the receipts.
+#[cfg(feature = "validate")]
 pub fn encode_manifest(json: &[u8]) -> Result<Vec<u8>, ReferenceError> {
-    use serde_json::value::RawValue;
-    use std::collections::BTreeMap;
-    let error = |e: serde_json::Error| ReferenceError(e.to_string());
-    let mut top: BTreeMap<&str, &RawValue> = serde_json::from_slice(json).map_err(error)?;
-    let world_json = top
-        .get("world")
-        .ok_or_else(|| ReferenceError("Manifest has no world".into()))?;
-    let mut world: BTreeMap<&str, &RawValue> =
-        serde_json::from_str(world_json.get()).map_err(error)?;
-    let mut table = |name: &str| {
-        world
-            .remove(name)
-            .ok_or_else(|| ReferenceError(format!("World has no {name}")))
-    };
-    let tables: WorldTables = (
-        serde_json::from_str(table("records")?.get()).map_err(error)?,
-        serde_json::from_str(table("prototypes")?.get()).map_err(error)?,
-        serde_json::from_str(table("receipts")?.get()).map_err(error)?,
-    );
-    let tables = postcard::to_stdvec(&tables).map_err(|e| ReferenceError(e.to_string()))?;
-    let world =
-        RawValue::from_string(serde_json::to_string(&world).map_err(error)?).map_err(error)?;
-    top.insert("world", &world);
-    let json = serde_json::to_vec(&top).map_err(error)?;
-    Ok(join_manifest(&json, &tables))
+    let manifest: ReferenceManifest =
+        serde_json::from_slice(json).map_err(|e| ReferenceError(e.to_string()))?;
+    let error = |e: postcard::Error| ReferenceError(e.to_string());
+    let bytes = postcard::to_stdvec(&manifest).map_err(error)?;
+    postcard::to_extend(&manifest.world.receipts, bytes).map_err(error)
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReferenceManifest {
     pub content_base: String,
@@ -1072,6 +1063,16 @@ pub struct ReferenceManifest {
     pub fluid_rules: FluidRulesReference,
     pub player: PlayerReference,
     pub area: StartingAreaReference,
+    /// Tank, mechanism and part row of each item, by item index. Built at load.
+    #[serde(skip)]
+    item_rows: Vec<ItemRows>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ItemRows {
+    tank: Option<u32>,
+    mechanism: Option<u32>,
+    part: Option<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -1094,9 +1095,11 @@ fn finite(v: &[f32]) -> bool {
     v.iter().all(|x| x.is_finite())
 }
 /// Returns true for a finite quaternion with a length within 0.002 of one.
+#[cfg(feature = "validate")]
 fn unit_quaternion(q: &[f32; 4]) -> bool {
     finite(q) && (q.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 0.002
 }
+#[cfg(feature = "validate")]
 fn transform(t: &Transform) -> bool {
     finite(&t.translation)
         && finite(&t.scale)
@@ -1104,9 +1107,11 @@ fn transform(t: &Transform) -> bool {
         && unit_quaternion(&t.rotation)
 }
 /// Returns true when the IDs are 1, 2, 3, ... in record order.
+#[cfg(feature = "validate")]
 fn dense(ids: impl Iterator<Item = u32>) -> bool {
     ids.zip(1..).all(|(id, i)| id == i)
 }
+#[cfg(feature = "validate")]
 fn ids<T: Eq + std::hash::Hash>(
     values: impl Iterator<Item = T>,
     field: &str,
@@ -1117,14 +1122,17 @@ fn ids<T: Eq + std::hash::Hash>(
     }
     Ok(result)
 }
+#[cfg(feature = "validate")]
 fn hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 /// Returns the error field name, prefixed by its source ID.
+#[cfg(feature = "validate")]
 fn field(source: &SourceId, name: &str) -> String {
     format!("{}:{} {name}", source.file, source.path_id)
 }
 /// The source has a nonzero path ID in a hashed source file.
+#[cfg(feature = "validate")]
 fn source_valid(source: &SourceId, hashes: &[SourceHash]) -> bool {
     source.path_id != 0 && hashes.iter().any(|h| h.file == source.file)
 }
@@ -1135,10 +1143,12 @@ fn lowercase_hash(value: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+#[cfg(feature = "validate")]
 fn valid_tune_icon(can_tune: bool, icon: &Option<SourceId>, ui: &UiReference) -> bool {
     icon.as_ref()
         .is_none_or(|icon| can_tune && ui.sprite(icon).is_some())
 }
+#[cfg(feature = "validate")]
 fn valid_tuning(valve: f32, can_tune: bool, tune_rate: f32) -> bool {
     valve.is_finite()
         && (0.0..=1.0).contains(&valve)
@@ -1146,6 +1156,7 @@ fn valid_tuning(valve: f32, can_tune: bool, tune_rate: f32) -> bool {
         && tune_rate >= 0.0
         && (!can_tune || tune_rate > 0.0)
 }
+#[cfg(feature = "validate")]
 fn validate_cap_visuals(
     visuals: &CapVisualReference,
     node: impl Fn(NodeId) -> bool,
@@ -1170,6 +1181,7 @@ fn validate_cap_visuals(
         "cap visual control",
     )
 }
+#[cfg(feature = "validate")]
 fn valid_flow(
     flow: f32,
     tilt_degrees: f32,
@@ -1208,51 +1220,105 @@ fn valid_flow(
         && p.collision_mask != 0
 }
 
+/// The row of a dense ID (1, 2, 3, ... in row order). None if `id` has no row.
+fn dense_row<T>(rows: &[T], id: u32, row_id: impl Fn(&T) -> u32) -> Option<&T> {
+    rows.get(id.checked_sub(1)? as usize)
+        .filter(|row| row_id(row) == id)
+}
+
 impl ReferenceManifest {
+    pub fn item(&self, id: ItemId) -> Option<&ItemRecord> {
+        dense_row(&self.items, id.0, |r| r.id.0)
+    }
+    pub fn node(&self, id: NodeId) -> Option<&NodeRecord> {
+        dense_row(&self.nodes, id.0, |r| r.id.0)
+    }
+    pub fn body(&self, id: BodyId) -> Option<&BodyRecord> {
+        dense_row(&self.bodies, id.0, |r| r.id.0)
+    }
+    pub fn anchor(&self, id: AnchorId) -> Option<&AnchorRecord> {
+        dense_row(&self.anchors, id.0, |r| r.id.0)
+    }
+    pub fn item_tank(&self, item: ItemId) -> Option<&TankReference> {
+        Some(&self.tanks[self.item_rows(item)?.tank? as usize])
+    }
+    pub fn item_mechanism(&self, item: ItemId) -> Option<&MechanismReference> {
+        Some(&self.mechanisms[self.item_rows(item)?.mechanism? as usize])
+    }
+    pub fn item_part(&self, item: ItemId) -> Option<&PartReference> {
+        Some(&self.parts[self.item_rows(item)?.part? as usize])
+    }
+    fn item_rows(&self, item: ItemId) -> Option<&ItemRows> {
+        self.item_rows.get(item.0.checked_sub(1)? as usize)
+    }
+    /// Indexes tank, mechanism and part rows by item. The first row of an item leads.
+    fn index_item_rows(&mut self) {
+        let mut rows = vec![ItemRows::default(); self.items.len()];
+        let mut set = |item: ItemId, index: usize, row: fn(&mut ItemRows) -> &mut Option<u32>| {
+            if let Some(rows) = item.0.checked_sub(1).and_then(|i| rows.get_mut(i as usize)) {
+                row(rows).get_or_insert(index as u32);
+            }
+        };
+        for (index, tank) in self.tanks.iter().enumerate() {
+            set(tank.item, index, |r| &mut r.tank);
+        }
+        for (index, mechanism) in self.mechanisms.iter().enumerate() {
+            set(mechanism.item, index, |r| &mut r.mechanism);
+        }
+        for (index, part) in self.parts.iter().enumerate() {
+            set(part.item, index, |r| &mut r.part);
+        }
+        self.item_rows = rows;
+    }
     pub fn expected_instances(&self) -> usize {
         self.assets
             .iter()
             .filter(|a| a.usage == AssetUsage::UniqueScene)
             .count()
     }
+    #[cfg(feature = "validate")]
     pub fn from_manifest(bytes: &[u8]) -> Result<Self, ReferenceError> {
-        let manifest = Self::parse(bytes)?;
+        let manifest = Self::from_runtime(bytes)?;
         manifest.validate()?;
         Ok(manifest)
     }
 
+    /// Parses the shipped manifest. The build checks the same file with `validate-reference`.
     pub fn from_runtime(bytes: &[u8]) -> Result<Self, ReferenceError> {
-        let manifest = Self::from_checked_runtime(bytes)?;
-        manifest.validate_gameplay()?;
-        Ok(manifest)
-    }
-
-    /// Parses runtime bytes that `from_runtime` checks in another place.
-    /// The renderer uses it. The simulation worker checks the same bytes.
-    pub fn from_checked_runtime(bytes: &[u8]) -> Result<Self, ReferenceError> {
-        let mut manifest = Self::parse(bytes)?;
-        AudioRecord::check_playback(&mut manifest);
-        Ok(manifest)
-    }
-
-    fn parse(bytes: &[u8]) -> Result<Self, ReferenceError> {
         require(bytes.len() <= MAX_MANIFEST_BYTES, "manifest size")?;
-        let (json, tables) = split_manifest(bytes)?;
-        let mut manifest: Self =
-            serde_json::from_slice(json).map_err(|e| ReferenceError(e.to_string()))?;
-        std::sync::Arc::get_mut(&mut manifest.world)
-            .expect("new world")
-            .decode_tables(tables)?;
+        let error = |e: postcard::Error| ReferenceError(format!("Manifest: {e}"));
+        let (mut manifest, _receipts) = postcard::take_from_bytes::<Self>(bytes).map_err(error)?;
+        #[cfg(feature = "validate")]
+        {
+            let (receipts, rest) = postcard::take_from_bytes(_receipts).map_err(error)?;
+            require(rest.is_empty(), "manifest end")?;
+            std::sync::Arc::get_mut(&mut manifest.world)
+                .expect("new world")
+                .receipts = receipts;
+        }
         std::sync::Arc::make_mut(&mut manifest.file_catalog).admit()?;
+        manifest.index_item_rows();
         Ok(manifest)
     }
 
-    pub fn validate(&self) -> Result<(), ReferenceError> {
-        self.audio.playback()?.validate(self)?;
-        self.validate_gameplay()
+    /// Half texture quality for the renderer copy: the texture rows lose their top mip.
+    /// Primary textures apply it at load with `TextureRecord::levels`.
+    pub fn drop_top_mips(&mut self) {
+        let world = std::sync::Arc::make_mut(&mut self.world);
+        for texture in self
+            .lighting
+            .textures
+            .iter_mut()
+            .chain(&mut world.material_textures)
+            .chain(&mut world.terrain.textures)
+        {
+            texture.drop_top();
+        }
     }
 
-    fn validate_gameplay(&self) -> Result<(), ReferenceError> {
+    #[cfg(feature = "validate")]
+    pub fn validate(&self) -> Result<(), ReferenceError> {
+        self.audio.validate(self)?;
         for texture in self
             .lighting
             .textures
@@ -1802,11 +1868,7 @@ impl ReferenceManifest {
                     break;
                 };
                 require(depth < self.mechanisms.len(), "mechanism child cycle")?;
-                child = self
-                    .mechanisms
-                    .iter()
-                    .find(|m| m.item == id)
-                    .and_then(|m| m.child);
+                child = self.item_mechanism(id).and_then(|m| m.child);
             }
         }
         for r in &self.openings {
@@ -2092,16 +2154,19 @@ impl ReferenceManifest {
 mod tests {
     use super::*;
 
+    /// Postcard cannot read internal tags or untagged enums. `tagged_enum!` gives them a binary form.
     #[test]
-    fn manifest_file_moves_world_tables_to_postcard() {
-        let json = br#"{"world":{"records":[{"source":{"file":"level1","path_id":1},"class_name":"Light","fields":{"a":1.5}}],"prototypes":[],"receipts":[{"file":"level1","path_id":2}],"x":2},"a":1}"#;
-        let bytes = encode_manifest(json).unwrap();
-        let (json, tables) = split_manifest(&bytes).unwrap();
-        assert_eq!(json, br#"{"a":1,"world":{"x":2}}"#);
-        let (records, prototypes, receipts): WorldTables = postcard::from_bytes(tables).unwrap();
-        assert_eq!(records[0].class_name, "Light");
-        assert!(prototypes.is_empty());
-        assert_eq!(receipts[0].path_id, 2);
-        assert!(split_manifest(&[9, 0, 0, 0, b'{']).is_err());
+    fn tagged_enums_round_trip_as_postcard() {
+        let json =
+            r#"[{"override_state":true,"value":1.5},{"override_state":false,"value":[1.0,2.0]}]"#;
+        let values: Vec<postprocessing::VolumeParameter> = serde_json::from_str(json).unwrap();
+        let values: Vec<postprocessing::VolumeParameter> =
+            postcard::from_bytes(&postcard::to_stdvec(&values).unwrap()).unwrap();
+        assert_eq!(serde_json::to_string(&values).unwrap(), json);
+        let json = r#"{"type":"none"}"#;
+        let kind: guns::GunKind = serde_json::from_str(json).unwrap();
+        let kind: guns::GunKind =
+            postcard::from_bytes(&postcard::to_stdvec(&kind).unwrap()).unwrap();
+        assert_eq!(serde_json::to_string(&kind).unwrap(), json);
     }
 }

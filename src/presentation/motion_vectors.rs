@@ -221,7 +221,7 @@ impl MotionPass {
         self.encoded.load(std::sync::atomic::Ordering::Acquire) == frame
     }
     pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        super::postprocessing::pipeline_failure(cache, &[self.camera_pipeline])
+        super::fullscreen::failure(cache, &[self.camera_pipeline], super::fullscreen::EFFECT)
     }
 }
 
@@ -413,22 +413,15 @@ fn new_pass(
         &cache.get_bind_group_layout(&object_camera_layout),
         &BindGroupEntries::single(camera.binding().unwrap()),
     );
-    let camera_pipeline = cache.queue_render_pipeline(RenderPipelineDescriptor {
-        label: Some("source_motion_camera".into()),
-        layout: vec![camera_layout],
-        vertex: VertexState {
-            shader: shader.clone(),
-            entry_point: Some("camera_vertex".into()),
-            ..default()
-        },
-        fragment: Some(FragmentState {
-            shader: shader.clone(),
-            entry_point: Some("camera_fragment".into()),
-            targets: vec![Some(MOTION_FORMAT.into())],
-            ..default()
-        }),
-        ..default()
-    });
+    let mut camera_pipeline = super::fullscreen::descriptor(
+        "source_motion_camera",
+        &camera_layout,
+        shader,
+        "camera_fragment",
+        vec![Some(MOTION_FORMAT.into())],
+    );
+    camera_pipeline.vertex.entry_point = Some("camera_vertex".into());
+    let camera_pipeline = cache.queue_render_pipeline(camera_pipeline);
     MotionPass {
         colors,
         _texture: texture,
@@ -466,25 +459,14 @@ fn encode(
         return;
     };
     let encoder = context.command_encoder();
-    let colors = [Some(RenderPassColorAttachment {
-        view: &pass.view,
-        depth_slice: None,
-        resolve_target: None,
-        ops: Operations {
-            load: LoadOp::Clear(LinearRgba::NONE.into()),
-            store: StoreOp::Store,
-        },
-    })];
-    {
-        let mut camera = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("source_motion_camera"),
-            color_attachments: &colors,
-            ..default()
-        });
-        camera.set_pipeline(camera_pipeline);
-        camera.set_bind_group(0, &pass.camera_group, &[]);
-        camera.draw(0..3, 0..1);
-    }
+    super::fullscreen::draw(
+        encoder,
+        "source_motion_camera",
+        camera_pipeline,
+        &pass.camera_group,
+        &[&pass.view],
+        super::fullscreen::CLEAR,
+    );
     pass.encoded
         .store(frame.frame, std::sync::atomic::Ordering::Release);
     let Some((_, object_group)) = pass

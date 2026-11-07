@@ -95,11 +95,9 @@ fn prepare(
         }
         return;
     };
-    if let Some(error) = super::postprocessing::named_pipeline_failure(
-        &cache,
-        &[pass.pipeline],
-        "Weather bolt pipeline",
-    ) {
+    if let Some(error) =
+        super::fullscreen::failure(&cache, &[pass.pipeline], "Weather bolt pipeline")
+    {
         status.fail(error);
         return;
     }

@@ -450,8 +450,7 @@ impl MeleeState {
             let tag = collider_tag(collider.user_data);
             let parent = collider.parent();
             let owned = (collider.user_data & 0xffff_ffff) as u32;
-            let body_item =
-                parent.and_then(|b| items.iter().find(|i| i.body == Some(b)).map(|i| i.id));
+            let body_item = parent.and_then(|b| items.on_body(b).first().copied());
             let mut item = owned.checked_sub(1).map(ItemId).or(body_item);
             if let Some(body) = parent
                 && item.is_none_or(|id| !buried.recently_unburied(id))
@@ -616,7 +615,6 @@ fn absolute(origin: [f64; 3], local: Vector) -> [f64; 3] {
 /// Exported audio clips: source, id and source length.
 pub(crate) fn clip_table(r: &ReferenceManifest) -> Vec<(SourceId, u32, f32)> {
     r.audio
-        .gameplay
         .clips
         .iter()
         .map(|c| (c.source.clone(), c.id, c.source_duration_seconds as f32))

@@ -47,7 +47,6 @@ pub struct ShadowScene {
     pub fits: [Option<ShadowFit>; WORLD_VIEWS],
     pub candidates: [usize; WORLD_VIEWS],
     pub split_counts: [[usize; 4]; WORLD_VIEWS],
-    pub shadow_only: usize,
     bounds: WorldBoundsCache<Entity>,
     /// Renderers already reported with nonfinite bounds.
     nonfinite: bevy::ecs::entity::EntityHashSet,
@@ -131,7 +130,6 @@ pub(super) fn prepare_scene(
     mut scene: ResMut<ShadowScene>,
     status: Res<RendererStateHandle>,
     master: Res<super::lighting::SourceLighting>,
-    camera: Res<super::renderer_visibility::CameraVisibility>,
     meshes: Query<ShadowMesh, (With<ViewVisibility>, Without<SourceMaterialWarmup>)>,
     mut instances: ResMut<SourceInstances>,
     lamps: Res<super::lamp_shadows::LampShadows>,
@@ -379,7 +377,6 @@ pub(super) fn prepare_scene(
     }
     scene.mask_revisions[0] = scene.views[0].revision() + scene.lamp_revision;
     let mut visibility = updates.p1();
-    scene.shadow_only = 0;
     let entities = &scene.caster_data.entities;
     scene.visible.clear();
     for (masks, marked) in scene.masks.iter().zip(&scene.marked) {
@@ -396,9 +393,6 @@ pub(super) fn prepare_scene(
         let Ok(mut visible) = visibility.get_mut(entity) else {
             continue;
         };
-        if !camera.entities.contains(&entity) {
-            scene.shadow_only += 1;
-        }
         visible.set_visible();
     }
     scene.casters_ready = true;
@@ -612,7 +606,6 @@ pub fn extract_scene(
     output.fits = input.fits;
     output.candidates = input.candidates;
     output.split_counts = input.split_counts;
-    output.shadow_only = input.shadow_only;
     output.origin = input.origin;
     output.sun = input.sun;
     output.contents = input.contents;

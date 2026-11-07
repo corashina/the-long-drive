@@ -166,11 +166,7 @@ impl Creatures {
                 if matches(id) {
                     return Some(id);
                 }
-                node = reference
-                    .nodes
-                    .iter()
-                    .find(|n| n.id == id)
-                    .and_then(|n| n.parent);
+                node = reference.node(id).and_then(|n| n.parent);
             }
             None
         };

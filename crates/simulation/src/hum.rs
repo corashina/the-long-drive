@@ -1,7 +1,7 @@
 //! Source `fpscontroller` hum. `IN.hum` plays the start clip of the tune, then loops its hum
 //! clip. Scroll selects the tune. The mouse sets the volume and the pitch.
 //! `humStimul.SetAudioValue` lets rabbits hear it.
-use crate::reference::{AudioGameplayReference, HumReference};
+use crate::reference::{AudioReference, HumReference};
 
 /// Source `humSource.clip.length * 0.75f`: the start clip part before the hum clip.
 const START_FRACTION: f64 = 0.75;
@@ -48,8 +48,10 @@ pub struct Hum {
 }
 
 impl Hum {
-    pub fn new(reference: &HumReference, audio: &AudioGameplayReference) -> Self {
-        let clips = &audio.binding(crate::audio::AudioKind::Hum as u32).clips;
+    pub fn new(reference: &HumReference, audio: &AudioReference) -> Self {
+        let clips = &audio
+            .survival_row(crate::audio::AudioKind::Hum as u32)
+            .clips;
         let start_seconds = clips[..reference.stimulus_values.len()]
             .iter()
             .map(|id| {

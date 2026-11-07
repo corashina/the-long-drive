@@ -35,8 +35,8 @@ impl StartupTerrain {
                 .sum::<f32>();
             let record = reference
                 .records
-                .iter()
-                .find(|r| &r.source == source && r.class_name == "Transform")
+                .find(source)
+                .filter(|r| r.class_name == "Transform")
                 .ok_or_else(|| {
                     ReferenceError(format!(
                         "{}:{} startup Transform",
@@ -51,19 +51,12 @@ impl StartupTerrain {
         Ok(offset)
     }
     pub fn body_offsets(&self, reference: &ReferenceManifest) -> Vec<(BodyId, f32)> {
-        use std::collections::HashMap;
-        let nodes: HashMap<_, _> = reference.nodes.iter().map(|node| (node.id, node)).collect();
-        let records: HashMap<_, _> = reference
-            .world
-            .records
-            .iter()
-            .map(|r| (&r.source, r))
-            .collect();
+        let records = &reference.world.records;
         reference
             .bodies
             .iter()
             .map(|body| {
-                let mut node = &nodes[&body.node];
+                let mut node = reference.node(body.node).expect("checked body node");
                 let mut offset = 0.0_f32;
                 loop {
                     offset += self
@@ -73,7 +66,7 @@ impl StartupTerrain {
                         .map(|(_, value)| *value)
                         .sum::<f32>();
                     if let Some(parent) = node.parent {
-                        node = &nodes[&parent];
+                        node = reference.node(parent).expect("checked node parent");
                     } else {
                         break;
                     }
@@ -81,7 +74,7 @@ impl StartupTerrain {
                 // Asset roots can have source parents outside the exported scene.
                 let mut source = &node.source;
                 while let Some(WorldValue::Link(parent)) = records
-                    .get(source)
+                    .find(source)
                     .and_then(|record| record.fields.get("m_Father"))
                 {
                     offset += self
@@ -105,12 +98,10 @@ impl StartupTerrain {
     ) -> Result<Self, ReferenceError> {
         use crate::reference::{SourceId, WorldSourceRecord};
         use rapier3d::math::Rotation;
-        use std::collections::HashMap;
-        let records: HashMap<_, _> = reference.records.iter().map(|r| (&r.source, r)).collect();
         let get = |id: &SourceId| -> Result<&'a WorldSourceRecord, ReferenceError> {
-            records
-                .get(id)
-                .copied()
+            reference
+                .records
+                .find(id)
                 .ok_or_else(|| ReferenceError(format!("{}:{} startup record", id.file, id.path_id)))
         };
         fn number(value: &WorldValue) -> f32 {
@@ -202,6 +193,7 @@ impl StartupTerrain {
                     evaluator,
                     tile,
                     roads,
+                    road_grid: None,
                     road_radius_squared: Some(22500.0),
                     foundations: &result.foundations,
                     holes: &[],
@@ -356,8 +348,8 @@ pub fn source_world_pose(
     while let Some(source) = current {
         let record = reference
             .records
-            .iter()
-            .find(|r| r.source == source && r.class_name == "Transform")
+            .find(&source)
+            .filter(|r| r.class_name == "Transform")
             .ok_or_else(|| {
                 ReferenceError(format!(
                     "{}:{} startup Transform",

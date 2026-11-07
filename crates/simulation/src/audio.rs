@@ -383,11 +383,7 @@ impl AudioState {
                 if area.interaction.mechanisms.node_pose(id).is_some() {
                     break;
                 }
-                node = game
-                    .nodes
-                    .iter()
-                    .find(|n| n.id == id)
-                    .and_then(|n| n.parent);
+                node = game.node(id).and_then(|n| n.parent);
             }
             let local = node.map_or(world, |id| {
                 to_rapier(crate::interaction::items::node_pose(game, id).unwrap()).inverse() * world
@@ -457,7 +453,7 @@ impl AudioState {
                             if n == node {
                                 return true;
                             }
-                            cursor = game.nodes.iter().find(|v| v.id == n).and_then(|v| v.parent);
+                            cursor = game.node(n).and_then(|v| v.parent);
                         }
                         false
                     })

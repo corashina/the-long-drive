@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from tools.reference import runtime_package
-from tools.reference.runtime_package import build_start_packs, file_receipt, start_files, verify_package
+from tools.reference.runtime_package import build_packs, file_receipt, start_files, verify_package
 
 
 class StartPackTests(unittest.TestCase):
@@ -19,7 +19,7 @@ class StartPackTests(unittest.TestCase):
             old = runtime_package.PACK_BYTES
             runtime_package.PACK_BYTES = 11
             try:
-                packs = build_start_packs(list(files), files, output)
+                packs = build_packs(list(files), files, output, 'start')
             finally:
                 runtime_package.PACK_BYTES = old
             # c.bin is over the limit and stays a single file.
@@ -54,7 +54,7 @@ class StartPackTests(unittest.TestCase):
             (root / 'packs/start-0.gz').write_bytes(gzip.compress(b'abc', mtime=0))
             receipt = file_receipt(root / 'packs/start-0.gz', 'packs/start-0.gz')
             manifest = {'file_catalog': {'files': list(files.values()), 'packs': [
-                {'file': 'packs/start-0.gz', 'bytes': receipt['bytes'], 'sha256': receipt['sha256'], 'files': ['reference/a.bin']}]}}
+                {'file': 'packs/start-0.gz', 'bytes': receipt['bytes'], 'sha256': receipt['sha256'], 'files': ['reference/a.bin']}], 'top_packs': []}}
             manifest['content_base'] = f'assets/runtime/{runtime_package.package_id(manifest)}/'
             verify_package(manifest, root)
             (root / 'packs/start-0.gz').write_bytes(gzip.compress(b'abd', mtime=0))

@@ -1,4 +1,5 @@
 pub mod antialiasing;
+pub(crate) mod bind_state;
 pub mod camera;
 pub mod camera_projection;
 pub mod cigarettes;
@@ -10,7 +11,6 @@ pub mod decals;
 pub mod figure_stage;
 pub mod fixed_assets;
 mod fog_far;
-pub mod gpu_prepare;
 pub mod gpu_timing;
 pub mod humans;
 pub mod lamp_shadows;
@@ -56,9 +56,11 @@ pub mod sky;
 pub mod caster;
 pub(crate) mod caster_material;
 pub mod clouds;
+pub(crate) mod crunch;
 pub mod depth_resolve;
 pub mod frame_copy;
 pub mod frame_graph;
+pub mod fullscreen;
 pub mod lighting_assets;
 pub mod lighting_scene;
 pub mod lightning_bolt;
@@ -69,6 +71,7 @@ pub mod postprocessing;
 pub mod precipitation;
 pub mod probes;
 pub mod prop_draws;
+pub mod quad_batches;
 pub mod render_bundles;
 pub mod render_targets;
 pub mod renderer_visibility;
@@ -96,8 +99,6 @@ pub mod view_frame;
 pub mod weather_pass;
 pub mod weather_shafts;
 pub mod wheel_spray;
-
-mod pipeline_ownership;
 
 pub mod primary_image;
 

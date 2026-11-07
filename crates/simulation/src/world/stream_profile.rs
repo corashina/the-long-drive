@@ -55,8 +55,11 @@ pub enum Stage {
     SelectUnbound,
     SelectInstances,
     SelectLights,
+    /// Sub-stages of `StreamGeometry` and `Publication`.
+    TerrainCheck,
+    TerrainPublication,
 }
-const STAGES: usize = 46;
+const STAGES: usize = 48;
 const NAMES: [&str; STAGES] = [
     "Cleanup",
     "FixedInputs",
@@ -104,6 +107,8 @@ const NAMES: [&str; STAGES] = [
     "SelectUnbound",
     "SelectInstances",
     "SelectLights",
+    "TerrainCheck",
+    "TerrainPublication",
 ];
 #[derive(Clone, Copy, Default, serde::Serialize)]
 struct Measurement {
@@ -132,31 +137,27 @@ static VALUES: Mutex<[Measurement; STAGES]> = Mutex::new(
 
 pub struct Timer {
     stage: Stage,
-    #[cfg(target_arch = "wasm32")]
-    start: Option<f64>,
-    #[cfg(not(target_arch = "wasm32"))]
-    start: Option<std::time::Instant>,
+    start: Option<super::Deadline>,
 }
 impl Timer {
     pub fn new(stage: Stage) -> Self {
         Self {
             stage,
-            start: ENABLED.load(Ordering::Relaxed).then(now),
+            start: ENABLED
+                .load(Ordering::Relaxed)
+                .then(super::Deadline::unbounded),
         }
     }
     pub fn next(&mut self, stage: Stage) {
         self.record();
         self.stage = stage;
         if self.start.is_some() {
-            self.start = Some(now());
+            self.start = Some(super::Deadline::unbounded());
         }
     }
     fn record(&self) {
         let Some(start) = self.start else { return };
-        #[cfg(target_arch = "wasm32")]
-        let ms = now() - start;
-        #[cfg(not(target_arch = "wasm32"))]
-        let ms = start.elapsed().as_secs_f64() * 1000.;
+        let ms = start.elapsed_ms();
         let mut values = VALUES.lock().unwrap();
         let value = &mut values[self.stage as usize];
         SAMPLES.lock().unwrap()[self.stage as usize][value.calls as usize % SAMPLE_CAPACITY] = ms;
@@ -181,14 +182,6 @@ impl Drop for Timer {
     fn drop(&mut self) {
         self.record();
     }
-}
-#[cfg(target_arch = "wasm32")]
-fn now() -> f64 {
-    crate::host::game_now()
-}
-#[cfg(not(target_arch = "wasm32"))]
-fn now() -> std::time::Instant {
-    std::time::Instant::now()
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]

@@ -911,9 +911,7 @@ fn check_food(
 ) -> Result<(), ReferenceError> {
     let recipe = &reference.survival.foods[item.food.unwrap().prototype_index];
     let root = reference
-        .nodes
-        .iter()
-        .find(|n| n.id == recipe.root)
+        .node(recipe.root)
         .ok_or_else(|| ReferenceError("Missing food root".into()))?;
     let mut roots = prototype.nodes.iter().filter(|n| n.parent.is_none());
     match (roots.next(), roots.next()) {

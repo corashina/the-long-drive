@@ -25,7 +25,7 @@ pub struct CarWorld<'a> {
     /// The player body. Car controls send reach moves to it.
     pub body: &'a mut BodyState,
     pub powertrain: &'a mut PowertrainParts,
-    pub audio: &'a mut Option<crate::audio::AudioState>,
+    pub audio: &'a mut crate::audio::AudioState,
     pub origin: &'a WorldOrigin,
     pub assists: DrivingAssists,
     /// Engine input without car controls: ambient temperature and clock rate.
@@ -53,7 +53,7 @@ impl VehicleRuntime {
         world: &mut CarWorld,
         input: CarInput,
     ) {
-        step_drive(
+        let active = step_drive(
             world,
             reference,
             key,
@@ -62,9 +62,18 @@ impl VehicleRuntime {
             input.driven,
             input.driving,
         );
+        // An inactive car does not change. Its effects run until the last particle is gone.
+        if !active && self.effects_idle() {
+            return;
+        }
         advance_lights(world, reference, key, self);
         advance_exhaust(world, reference, key, self);
         advance_wheel_effects(world, reference, key, self);
+    }
+
+    /// No exhaust, steam or wheel particle is alive.
+    fn effects_idle(&self) -> bool {
+        self.exhaust.idle() && self.coolant_steam.idle() && self.wheel_effects.idle()
     }
 }
 
@@ -165,11 +174,8 @@ fn advance_wheel_effects(
             grounded,
         }
     };
-    // Footsteps own the source sand layer list. Without audio, every hit is road.
-    let sand_layers = world
-        .audio
-        .as_ref()
-        .map_or(&[][..], |a| &a.reference.footsteps.sand_layers);
+    // Footsteps own the source sand layer list.
+    let sand_layers = &world.audio.reference.footsteps.sand_layers[..];
     vehicle.wheel_effects.advance(
         FIXED_DT,
         &crate::wheel_effects::WheelEffectsInput {
@@ -191,6 +197,7 @@ fn advance_wheel_effects(
 
 /// Steps one engine and applies its forces. Only the driven vehicle reads keys.
 /// The engine and radiator are the parts mounted on this car. Torque needs an engine part.
+/// False when the chassis and the engine are inactive: the step did nothing.
 fn step_drive(
     world: &mut CarWorld,
     reference: &ReferenceManifest,
@@ -199,7 +206,7 @@ fn step_drive(
     input: FrameInput,
     driving: bool,
     driving_output: crate::simulation::input::DrivingOutput,
-) {
+) -> bool {
     vehicle.net.sent = None;
     let received_gear = vehicle.net.gear.take();
     let received_rpm = vehicle.net.rpm.take();
@@ -221,7 +228,7 @@ fn step_drive(
         if let Some(gear) = received_gear {
             vehicle.drivetrain.restore_gear(gear);
         }
-        return;
+        return false;
     }
     let gearbox: crate::simulation::drivetrain::Gearbox =
         world_vehicle(reference, vehicle.prototype).into();
@@ -265,7 +272,7 @@ fn step_drive(
         gear_edges,
         world.assists,
         engine.map(|engine| (engine.state.output(), &engine.record)),
-        vehicle.ignition.ignition,
+        vehicle.ignition.on(),
         rolling_rpm,
         direction,
         gearbox,
@@ -378,7 +385,7 @@ fn step_drive(
             crate::simulation::reach::IgnitionReach {
                 held: ignition_held,
                 last_held: vehicle.ignition.held(),
-                starting: vehicle.ignition.starter,
+                starting: vehicle.ignition.cranking(),
                 hold: vehicle.ignition.hold_seconds(),
                 delay: vehicle.starter_delay_seconds,
             },
@@ -390,7 +397,7 @@ fn step_drive(
             frames.send(world.body, m);
         }
     }
-    let was_ignition = vehicle.ignition.ignition;
+    let was_ignition = vehicle.ignition.on();
     vehicle.ignition.step(
         IgnitionInput {
             held: ignition_held,
@@ -415,8 +422,7 @@ fn step_drive(
         part.state.step(
             EngineInput {
                 installed: Some(InstalledEngineInput {
-                    ignition: vehicle.ignition.ignition,
-                    starter: vehicle.ignition.starter,
+                    key: vehicle.ignition.key,
                     throttle,
                     clutch: drivetrain.engagement,
                     wheel_rpm: drivetrain.wheel_rpm,
@@ -456,7 +462,7 @@ fn step_drive(
         .engine
         .and_then(|item| world.powertrain.engine(item));
     let output = engine.map_or_else(EngineOutput::default, |e| e.state.output());
-    if vehicle.ignition.ignition != was_ignition {
+    if vehicle.ignition.on() != was_ignition {
         car_sound(
             world.audio,
             world.physics,
@@ -587,6 +593,7 @@ fn step_drive(
             bike_gas: vehicle.pedals.gas,
         });
     }
+    true
 }
 
 /// Source `bikepedalscript.Update()`. Returns the motor torque of each pedal wheel.

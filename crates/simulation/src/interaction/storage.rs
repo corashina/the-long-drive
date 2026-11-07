@@ -539,8 +539,9 @@ impl StorageLocks {
             .ok_or_else(|| error("Storage item has no body"))?;
         let loose_local = to_rapier(state.local_pose);
         if items
+            .on_body(body)
             .iter()
-            .any(|s| s.body == Some(body) && s.id != item && !items.descends(s.id, item))
+            .any(|&id| id != item && !items.descends(id, item))
         {
             return Ok(false);
         }
@@ -565,8 +566,7 @@ impl StorageLocks {
         physics.edit_body(body, |body| body.set_enabled(false));
         let rebase = carrier_pose.inverse() * body_pose;
         self.riders.clear();
-        self.riders
-            .extend(items.iter().filter(|s| s.body == Some(body)).map(|s| s.id));
+        self.riders.extend_from_slice(items.on_body(body));
         for &rider in &self.riders {
             let state = items.set_body(rider, Some(carrier)).unwrap();
             state.local_pose = from_rapier(&(rebase * to_rapier(state.local_pose)));
@@ -690,9 +690,9 @@ impl StorageLocks {
         self.riders.clear();
         self.riders.extend(
             items
+                .on_body(carrier)
                 .iter()
-                .filter(|s| s.body == Some(carrier) && (s.id == item || items.descends(s.id, item)))
-                .map(|s| s.id),
+                .filter(|&&id| id == item || items.descends(id, item)),
         );
         for &rider in &self.riders {
             let state = items.set_body(rider, Some(entry.body)).unwrap();

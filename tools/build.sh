@@ -5,14 +5,17 @@ set -eu
 
 wasm="$CARGO_TARGET_DIR/wasm32-unknown-unknown/$PROFILE"
 
+# Check the exported reference manifest natively before the WASM build.
+cargo run --quiet --locked --bin validate-reference -- web/assets/reference/manifest.bin.gz
+
 cargo build --locked --profile "$PROFILE" --target wasm32-unknown-unknown --lib \
-    -p the-long-slop -p simulation-worker
+    -p the-long-slop -p simulation-worker -p crunch-worker
 # Road and grass admit a 2 MiB WASM memory first, so the mesh worker starts at that size.
 cargo rustc --locked --profile "$PROFILE" --target wasm32-unknown-unknown --lib -p mesh-worker \
     -- -C link-arg=--initial-memory=2097152
 
 mkdir -p web/pkg
-for module in the_long_slop simulation_worker mesh_worker; do
+for module in the_long_slop simulation_worker mesh_worker crunch_worker; do
     wasm-bindgen --target web --out-dir web/pkg --out-name "$module" "$wasm/$module.wasm"
 done
 

@@ -72,8 +72,10 @@ export function createPerformance(readWasmBytes,wasmLimit,readRender,watchRender
  };
  window.addEventListener('keydown',key);document.addEventListener('visibilitychange',reset);
  return {
-  frame(now,physicsMs,rapierMs,worldMs,updateMs,renderMs){
+  // The ms values of one frame, in the order of `game_performance_frame` in src/browser.rs.
+  frame(physicsMs,rapierMs,worldMs,updateMs,renderMs){
    if(stopped||document.hidden)return false;
+   const now=performance.now();
    timings.sample(now,physicsMs,rapierMs,worldMs,updateMs,renderMs);
    if((root.hidden&&!benched)||now-lastPaint<250)return false;
    lastPaint=now;return true;

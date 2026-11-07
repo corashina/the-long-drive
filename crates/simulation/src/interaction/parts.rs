@@ -161,16 +161,12 @@ impl PartAttachments {
                 if let Some(p) = r.parts.iter().position(|p| p.node == node) {
                     return Some(p);
                 }
-                node = r.nodes.iter().find(|n| n.id == node)?.parent?;
+                node = r.node(node)?.parent?;
             }
         };
         let mut parts = Vec::new();
         for (i, p) in r.parts.iter().enumerate() {
-            let item = r
-                .items
-                .iter()
-                .find(|x| x.id == p.item)
-                .ok_or_else(|| error("Missing part item"))?;
+            let item = r.item(p.item).ok_or_else(|| error("Missing part item"))?;
             let members: Vec<_> = r
                 .items
                 .iter()
@@ -219,9 +215,7 @@ impl PartAttachments {
         let mut collider_slots = HashMap::new();
         for s in &r.part_slots {
             let anchor = |id| {
-                r.anchors
-                    .iter()
-                    .find(|a| a.id == id)
+                r.anchor(id)
                     .map(|a| a.node)
                     .ok_or_else(|| error("Missing part anchor"))
             };
@@ -282,22 +276,19 @@ impl PartAttachments {
     pub fn capture_save(
         &self,
         ids: &crate::save::IdentityMap,
+        items: &crate::interaction::items::ItemStore,
     ) -> Result<Vec<crate::save::PartAttachment>, crate::save::SaveError> {
         let mut records = self
             .slots
             .iter()
-            .filter(|slot| ids.part_slots.values().any(|id| *id == slot.reference.id))
+            .filter(|slot| ids.part_slots.contains(slot.reference.id))
             .map(|slot| {
                 Ok(crate::save::PartAttachment {
-                    slot: crate::save::identity::source_key(&ids.part_slots, slot.reference.id)?,
+                    slot: ids.part_slots.source(slot.reference.id)?,
                     part: slot
                         .part
-                        .filter(|part| {
-                            ids.items
-                                .values()
-                                .any(|id| *id == self.parts[*part].reference.item)
-                        })
-                        .map(|part| ids.item_instance(self.parts[part].reference.item))
+                        .filter(|part| ids.items.contains(self.parts[*part].reference.item))
+                        .map(|part| ids.item_instance(items, self.parts[part].reference.item))
                         .transpose()?,
                 })
             })

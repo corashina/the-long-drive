@@ -1,5 +1,5 @@
 //! Post stack v2 DepthOfField with the Small kernel. Allocate only at startup and physical resize.
-use super::pipeline_failure;
+use crate::presentation::fullscreen::{self, FullscreenPass, Samplers};
 use crate::presentation::render_targets::HDR_FORMAT;
 use crate::reference::postprocessing::Lens;
 use bevy::prelude::*;
@@ -108,6 +108,7 @@ impl DofPass {
         device: &RenderDevice,
         queue: &RenderQueue,
         cache: &PipelineCache,
+        samplers: &Samplers,
         shader: Handle<Shader>,
         depth: &TextureView,
         temporal: Option<(&TextureView, f32)>,
@@ -119,26 +120,14 @@ impl DofPass {
             || {
                 std::array::from_fn(|i| {
                     let format = if i < 2 { COC_FORMAT } else { HDR_FORMAT };
-                    cache.queue_render_pipeline(RenderPipelineDescriptor {
-                        label: Some(format!("source_dof_{}", PASSES[i]).into()),
-                        layout: vec![layout.clone()],
-                        vertex: VertexState {
-                            shader: shader.clone(),
-                            entry_point: Some("vertex".into()),
-                            ..default()
-                        },
-                        fragment: Some(FragmentState {
-                            shader: shader.clone(),
-                            entry_point: Some(PASSES[i].into()),
-                            targets: vec![Some(ColorTargetState {
-                                format,
-                                blend: None,
-                                write_mask: ColorWrites::ALL,
-                            })],
-                            ..default()
-                        }),
-                        ..default()
-                    })
+                    fullscreen::queue(
+                        cache,
+                        format!("source_dof_{}", PASSES[i]),
+                        &layout,
+                        &shader,
+                        PASSES[i],
+                        format,
+                    )
                 })
             },
             |old| old.pipelines,
@@ -160,11 +149,6 @@ impl DofPass {
             taa: Vec4::ZERO,
         });
         uniform.write_buffer(device, queue);
-        let sampler = device.create_sampler(&SamplerDescriptor {
-            min_filter: FilterMode::Linear,
-            mag_filter: FilterMode::Linear,
-            ..default()
-        });
         // Main, CoC, then DoF input. No pass reads its own output.
         let motion = temporal.map_or(&raw.view, |(view, _)| view);
         let group = |main: &TextureView, coc: &TextureView, dof: &TextureView| {
@@ -177,7 +161,7 @@ impl DofPass {
                     main,
                     coc,
                     dof,
-                    &sampler,
+                    &samplers.linear,
                     motion,
                 )),
             )
@@ -218,14 +202,6 @@ impl DofPass {
     }
     pub fn raw(&self) -> &TextureView {
         &self.raw.view
-    }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        self.pipelines
-            .iter()
-            .all(|id| cache.get_render_pipeline(*id).is_some())
-    }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        pipeline_failure(cache, &self.pipelines)
     }
     pub fn reset_history(&mut self) {
         self.reset = true;
@@ -296,25 +272,21 @@ impl DofPass {
             let pipeline = cache
                 .get_render_pipeline(self.pipelines[i])
                 .ok_or("Source depth of field pipeline is not ready")?;
-            let attachments = [Some(RenderPassColorAttachment {
-                view: target,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations {
-                    load: LoadOp::Clear(LinearRgba::NONE.into()),
-                    store: StoreOp::Store,
-                },
-            })];
-            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("source_dof"),
-                color_attachments: &attachments,
-                ..default()
-            });
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, group, &[]);
-            pass.draw(0..3, 0..1);
+            fullscreen::draw(
+                encoder,
+                "source_dof",
+                pipeline,
+                group,
+                &[target],
+                fullscreen::CLEAR,
+            );
         }
         self.pending = temporal.is_some();
         Ok(())
+    }
+}
+impl FullscreenPass for DofPass {
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        &self.pipelines
     }
 }

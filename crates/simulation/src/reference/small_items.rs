@@ -161,32 +161,41 @@ pub struct ExhaleReference {
     pub particle: ParticleReference,
 }
 
+#[cfg(feature = "validate")]
 const SPIRIT_LEVEL_ITEM: u32 = 401;
+#[cfg(feature = "validate")]
 const SPRAY_BOTTLE_ITEM: u32 = 121;
+#[cfg(feature = "validate")]
 const GENIE_LAMP_ITEM: u32 = 211;
+#[cfg(feature = "validate")]
 const BINOCULARS_ITEM: u32 = 85;
+#[cfg(feature = "validate")]
 const PACK_ITEM: u32 = 74;
+#[cfg(feature = "validate")]
 const START_PACKS: usize = 3;
 
+#[cfg(feature = "validate")]
 fn invalid(field: &str) -> ReferenceError {
     ReferenceError(format!("Invalid small item field {field}"))
 }
 
+#[cfg(feature = "validate")]
 fn checked(ok: bool, field: &str) -> Result<(), ReferenceError> {
     if ok { Ok(()) } else { Err(invalid(field)) }
 }
 
+#[cfg(feature = "validate")]
 fn curve(c: &TorqueCurve) -> bool {
     !c.keys.is_empty() && particles::curve_valid(c)
 }
 
 impl SmallItemsReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
-        let records: HashMap<&SourceId, &WorldSourceRecord> =
-            m.world.records.iter().map(|r| (&r.source, r)).collect();
+        let records = &m.world.records;
         let class = |source: &SourceId, name: &str| {
             records
-                .get(source)
+                .find(source)
                 .is_some_and(|r| r.class_name == name && r.fields.len() > 1)
         };
         // Each script lies on a selected catalog prototype. Its nodes are prototype nodes.
@@ -289,7 +298,7 @@ impl SmallItemsReference {
             v.source.file == "level1"
                 && class(&v.source, script)
                 && records
-                    .get(&v.transform)
+                    .find(&v.transform)
                     .is_some_and(|r| r.class_name == "Transform")
                 && v.item_id == item
                 && ammo(&v.ammo)
@@ -298,10 +307,10 @@ impl SmallItemsReference {
         let g = &self.genie_lamp;
         let p = prototype(GENIE_LAMP_ITEM, "ginlamp", &g.prototype)?;
         let on_prototype = |source: &SourceId, name: &str| {
-            records.get(source).is_some_and(|r| {
+            records.find(source).is_some_and(|r| {
                 r.class_name == name
                     && matches!(r.fields.get("m_GameObject"), Some(WorldValue::Link(go))
-                        if records.contains_key(go))
+                        if records.contains(go))
             })
         };
         checked(
@@ -385,6 +394,7 @@ impl SmallItemsReference {
 }
 
 impl SmallItemsReference {
+    #[cfg(feature = "validate")]
     fn validate_washes(
         &self,
         m: &ReferenceManifest,

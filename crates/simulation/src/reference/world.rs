@@ -6,11 +6,15 @@ mod initial_materials;
 mod initialization;
 mod lod;
 use super::{
-    AssetId, AssetRecord, AssetUsage, ColliderGeometry, EngineGlobals, EnginePartReference,
-    GaugePartReference, LibraryProvenance, NodeId, PrototypeBounds, RadiatorPartReference,
-    ReferenceError, ReferenceManifest, SourceHash, SourceId, Transform, WorldFollowersReference,
-    WorldHitchReference, WorldTrailerReference, WorldVehicleReference, field, finite, hash,
-    require, source_valid, transform,
+    AssetId, ColliderGeometry, EngineGlobals, EnginePartReference, GaugePartReference,
+    LibraryProvenance, NodeId, RadiatorPartReference, ReferenceError, SourceHash, SourceId,
+    Transform, WorldFollowersReference, WorldHitchReference, WorldTrailerReference,
+    WorldVehicleReference,
+};
+#[cfg(feature = "validate")]
+use super::{
+    AssetRecord, AssetUsage, PrototypeBounds, ReferenceManifest, field, finite, hash, require,
+    source_valid, transform,
 };
 pub use grass::*;
 pub use initial_materials::*;
@@ -21,7 +25,9 @@ pub use draw_distance::*;
 mod mirrors;
 pub use mirrors::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
+#[cfg(feature = "validate")]
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -38,45 +44,33 @@ pub struct WorldReference {
     pub electronics_cutoff: f32,
     pub draw_distance: DrawDistanceReference,
     pub mirrors: MirrorsReference,
-    #[serde(deserialize_with = "compact_vec")]
     pub source_hashes: Vec<SourceHash>,
     pub road: WorldRoadReference,
     pub terrain: WorldTerrainReference,
     pub buildings: WorldBuildingReference,
     pub catalog: WorldCatalogReference,
-    #[serde(deserialize_with = "compact_vec")]
     pub part_scope_slots: Vec<WorldPartScopeSlot>,
-    #[serde(deserialize_with = "compact_vec")]
     pub generators: Vec<WorldGeneratorReference>,
-    #[serde(deserialize_with = "compact_vec")]
     pub startup: Vec<WorldStartupReference>,
-    #[serde(deserialize_with = "compact_vec")]
     pub startup_holes: Vec<WorldStartupHole>,
     pub collision_rules: WorldCollisionRules,
     pub grass_displacement: WorldGrassDisplacement,
     pub lod: WorldLodReference,
-    #[serde(deserialize_with = "compact_vec")]
     pub initial_materials: Vec<WorldInitialMaterial>,
-    #[serde(deserialize_with = "compact_vec")]
     pub mechanisms: Vec<WorldMechanism>,
-    #[serde(deserialize_with = "compact_vec")]
     pub painting_materials: Vec<WorldPaintingMaterial>,
     /// Source `materialpairscript` sets that marked prototype nodes use.
-    #[serde(deserialize_with = "compact_vec")]
     pub biome_material_sets: Vec<WorldBiomeMaterialSet>,
-    /// The world tables (prototypes, records, receipts) are postcard after the manifest JSON.
-    #[serde(skip)]
     pub prototypes: WorldPrototypes,
-    #[serde(skip)]
-    pub records: Vec<WorldSourceRecord>,
-    #[serde(skip)]
+    pub records: WorldRecords,
+    /// Only the manifest checks read the receipts. The manifest file holds them after the manifest.
+    /// The binary form here is a unit (no bytes), so builds without the field read the same file.
+    #[cfg(feature = "validate")]
+    #[serde(with = "super::json_only")]
     pub receipts: Vec<SourceId>,
-    #[serde(deserialize_with = "compact_vec")]
     pub exclusions: Vec<WorldExclusion>,
-    #[serde(deserialize_with = "compact_vec")]
     pub material_textures: Vec<super::rendering::LightingTextureRecord>,
     /// Lighting texture of each world Light cookie.
-    #[serde(deserialize_with = "compact_vec")]
     pub light_cookies: Vec<WorldLightCookie>,
     pub pickup_hits: Vec<WorldPickupHit>,
     pub home_cable: HomeCableReference,
@@ -133,24 +127,18 @@ pub struct WorldPrototypeReference {
     pub role: WorldPrototypeRole,
     pub asset: AssetId,
     pub nodes: SourceList<WorldPrototypeNode>,
-    #[serde(deserialize_with = "compact_vec")]
     pub controls: Vec<u32>,
-    #[serde(deserialize_with = "compact_vec")]
     pub excluded_actions: Vec<String>,
-    #[serde(deserialize_with = "compact_vec")]
     pub deferred_materials: Vec<WorldSourceMaterial>,
-    #[serde(deserialize_with = "compact_vec")]
     /// Skins of road prototype nodes. Bones are prototype node indices.
     pub skins: Vec<SkinnedMeshReference<u32, u32>>,
-    #[serde(deserialize_with = "compact_vec")]
     pub bodies: Vec<WorldPrototypeBody>,
-    #[serde(deserialize_with = "compact_vec")]
     pub colliders: Vec<WorldColliderReference>,
     pub prefab_pose: Transform,
-    #[serde(default, deserialize_with = "compact_vec")]
+    #[serde(default)]
     pub interiors: Vec<WorldInteriorReference>,
     /// Realtime reflection probes of cars, trailers and buildings.
-    #[serde(default, deserialize_with = "compact_vec")]
+    #[serde(default)]
     pub probes: Vec<super::render_lighting::WorldProbeReference>,
     /// Car prototypes only.
     #[serde(default)]
@@ -167,7 +155,7 @@ pub struct WorldPrototypeReference {
     /// Node followers of Bus02 springs, axles and rams.
     pub followers: Option<WorldFollowersReference>,
     /// Trailer hitch targets on this prototype.
-    #[serde(default, deserialize_with = "compact_vec")]
+    #[serde(default)]
     pub hitches: Vec<WorldHitchReference>,
     /// Source `pushablescript` components with a Rigidbody on their node.
     #[serde(default)]
@@ -207,6 +195,7 @@ pub struct WorldPushReference {
     pub grip: Option<super::PushGripReference<u32, u32>>,
 }
 impl WorldPushReference {
+    #[cfg(feature = "validate")]
     fn valid(&self, p: &WorldPrototypeReference) -> bool {
         let node = |n: u32| (n as usize) < p.nodes.len();
         // Grip colliders must be on the push body, below the push node, as the binder needs.
@@ -331,6 +320,7 @@ pub struct SledWheelReference {
 }
 
 impl SledReference {
+    #[cfg(feature = "validate")]
     fn valid(&self, p: &WorldPrototypeReference) -> bool {
         finite(&[
             self.slide_above_mass,
@@ -435,23 +425,14 @@ pub struct SkinnedMeshReference<Node, Bone> {
     pub source: SourceId,
     pub mesh: SourceId,
     pub node: Node,
-    #[serde(deserialize_with = "compact_vec")]
     pub bones: Vec<Bone>,
-    #[serde(deserialize_with = "compact_vec")]
     pub bind_poses: Vec<[f32; 16]>,
-    #[serde(deserialize_with = "compact_vec")]
     pub positions: Vec<[f32; 3]>,
-    #[serde(deserialize_with = "compact_vec")]
     pub normals: Vec<[f32; 3]>,
-    #[serde(deserialize_with = "compact_vec")]
     pub tangents: Vec<[f32; 4]>,
-    #[serde(deserialize_with = "compact_vec")]
     pub uv: Vec<[f32; 2]>,
-    #[serde(deserialize_with = "compact_vec")]
     pub joints: Vec<[u32; 4]>,
-    #[serde(deserialize_with = "compact_vec")]
     pub weights: Vec<[f32; 4]>,
-    #[serde(deserialize_with = "compact_vec")]
     pub triangles: Vec<Vec<[u32; 3]>>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -484,11 +465,13 @@ pub enum TriggerRole {
     },
 }
 impl WorldColliderReference {
+    #[cfg(feature = "validate")]
     fn role_valid(&self) -> bool {
         self.role.is_none_or(|r| self.trigger && r.valid())
     }
 }
 impl TriggerRole {
+    #[cfg(feature = "validate")]
     fn valid(&self) -> bool {
         match *self {
             Self::Ladder { speed, up } => {
@@ -619,7 +602,6 @@ pub struct WorldRoadReference {
     #[serde(rename = "genInOneFrame")]
     pub gen_in_one_frame: u32,
     pub source: SourceId,
-    #[serde(deserialize_with = "compact_vec")]
     pub prototypes: Vec<SourceId>,
     pub length: f32,
     #[serde(rename = "roadBoneNum")]
@@ -656,7 +638,6 @@ pub struct WorldRoadReference {
     pub add_point: u32,
     #[serde(rename = "buildingBoneNum")]
     pub building_bone_num: u32,
-    #[serde(deserialize_with = "compact_vec")]
     pub noises: Vec<WorldNoiseReference>,
 }
 
@@ -664,14 +645,10 @@ pub struct WorldRoadReference {
 #[serde(deny_unknown_fields)]
 pub struct WorldTerrainReference {
     pub source: SourceId,
-    #[serde(deserialize_with = "compact_vec")]
     pub prefabs: Vec<SourceId>,
-    #[serde(deserialize_with = "compact_vec")]
     pub materials: Vec<WorldSourceMaterial>,
-    #[serde(deserialize_with = "compact_vec")]
     pub textures: Vec<super::rendering::LightingTextureRecord>,
     pub game_settings: WorldGameSettings,
-    #[serde(deserialize_with = "compact_vec")]
     pub tiles: Vec<WorldTileReference>,
     #[serde(rename = "edgeOfWorld")]
     pub edge_of_world: f32,
@@ -711,7 +688,6 @@ pub struct WorldTileReference {
 #[serde(deny_unknown_fields)]
 pub struct WorldGeneratorReference {
     pub source: SourceId,
-    #[serde(deserialize_with = "compact_vec")]
     pub types: Vec<WorldObjectTypeReference>,
     pub seedplus: i32,
     #[serde(rename = "noSpawnChance")]
@@ -760,12 +736,9 @@ pub struct WorldObjectTypeReference {
 #[serde(deny_unknown_fields)]
 pub struct WorldBuildingReference {
     pub source: SourceId,
-    #[serde(deserialize_with = "compact_vec")]
     pub types: Vec<WorldBuildingType>,
-    #[serde(deserialize_with = "compact_vec")]
     pub groups: Vec<WorldBuildingGroup>,
     #[serde(rename = "defaultSides")]
-    #[serde(deserialize_with = "compact_vec")]
     pub default_sides: Vec<WorldBuildingSide>,
     #[serde(rename = "minStartDist")]
     pub min_start_dist: f32,
@@ -785,10 +758,8 @@ pub struct WorldBuildingType {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldBuildingGroup {
-    #[serde(deserialize_with = "compact_vec")]
     pub available: Vec<i32>,
     #[serde(rename = "currentAvailable")]
-    #[serde(deserialize_with = "compact_vec")]
     pub current_available: Vec<i32>,
     #[serde(rename = "currentCount")]
     pub current_count: i32,
@@ -798,7 +769,6 @@ pub struct WorldBuildingGroup {
     pub max_count: i32,
     #[serde(rename = "minCount")]
     pub min_count: i32,
-    #[serde(deserialize_with = "compact_vec")]
     pub types: Vec<WorldBuildingSelection>,
 }
 
@@ -811,7 +781,6 @@ pub struct WorldBuildingSelection {
     pub dont_use_default: u8,
     #[serde(rename = "useModifier")]
     pub use_modifier: u8,
-    #[serde(deserialize_with = "compact_vec")]
     pub sides: Vec<WorldBuildingSide>,
     #[serde(rename = "maxDist")]
     pub max_dist: f32,
@@ -845,6 +814,7 @@ impl WorldReference {
         self.startup_row(id).is_some_and(|row| row.start_car)
     }
     /// Every set material binds as a world prototype material. Desert materials are unique.
+    #[cfg(feature = "validate")]
     fn validate_biome_material_sets(
         &self,
         manifest: &ReferenceManifest,
@@ -874,6 +844,7 @@ impl WorldReference {
         Ok(())
     }
 }
+#[cfg(feature = "validate")]
 fn values_valid(value: &WorldValue, receipts: &HashSet<&SourceId>) -> bool {
     match value {
         WorldValue::Number(n) => n.is_finite(),
@@ -883,20 +854,21 @@ fn values_valid(value: &WorldValue, receipts: &HashSet<&SourceId>) -> bool {
         _ => true,
     }
 }
+#[cfg(feature = "validate")]
 fn record_link<'a>(record: &'a WorldSourceRecord, name: &str) -> Option<&'a SourceId> {
     match record.fields.get(name) {
         Some(WorldValue::Link(source)) => Some(source),
         _ => None,
     }
 }
+#[cfg(feature = "validate")]
 fn checked_record<'a>(
-    records: &HashMap<&SourceId, &'a WorldSourceRecord>,
+    records: &'a WorldRecords,
     source: &SourceId,
     classes: &[&str],
 ) -> Result<&'a WorldSourceRecord, ReferenceError> {
     let record = records
-        .get(source)
-        .copied()
+        .find(source)
         .ok_or_else(|| ReferenceError(field(source, "missing ownership record")))?;
     require(
         classes.contains(&record.class_name.as_str()),
@@ -904,9 +876,11 @@ fn checked_record<'a>(
     )?;
     Ok(record)
 }
+#[cfg(feature = "validate")]
 fn component_listed(record: &WorldSourceRecord, source: &SourceId) -> bool {
     record.components().any(|component| component == source)
 }
+#[cfg(feature = "validate")]
 fn node_links_match(
     record: &WorldSourceRecord,
     name: &str,
@@ -917,6 +891,7 @@ fn node_links_match(
         && values.iter().zip(indices).all(|(value, index)| matches!(value, WorldValue::Link(source) if nodes.get(*index as usize).is_some_and(|node| &node.source == source))))
 }
 impl WorldReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, manifest: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(transform(&self.generation_frame), "world source frame")?;
         validate_world_library(&self.library, &manifest.library)?;
@@ -1045,12 +1020,14 @@ impl WorldReference {
             )?;
         }
 
-        let records: HashSet<_> = self.records.iter().map(|r| &r.source).collect();
         require(
-            records.len() == self.records.len(),
+            self.records
+                .order
+                .windows(2)
+                .all(|w| self.records[w[0] as usize].source != self.records[w[1] as usize].source),
             "world duplicate source record",
         )?;
-        let record_map: HashMap<_, _> = self.records.iter().map(|r| (&r.source, r)).collect();
+        let records = &self.records;
         for r in &self.records {
             require(
                 receipts.contains(&r.source) && !r.class_name.is_empty() && !r.fields.is_empty(),
@@ -1098,11 +1075,7 @@ impl WorldReference {
                 )?;
             }
         }
-        let collision = checked_record(
-            &record_map,
-            &self.collision_rules.source,
-            &["PhysicsManager"],
-        )?;
+        let collision = checked_record(records, &self.collision_rules.source, &["PhysicsManager"])?;
         let Some(WorldValue::Array(rows)) = collision.fields.get("m_LayerCollisionMatrix") else {
             return Err(ReferenceError("Missing source collision matrix".into()));
         };
@@ -1115,9 +1088,9 @@ impl WorldReference {
                 .all(|prototype| prototype.nodes.iter().all(|node| node.layer < 32)),
             "source prototype collision layers",
         )?;
-        self.lod.validate(&record_map)?;
+        self.lod.validate(records)?;
         for binding in &self.painting_materials {
-            checked_record(&record_map, &binding.material, &["Material"])?;
+            checked_record(records, &binding.material, &["Material"])?;
             require(
                 receipts.contains(&binding.texture),
                 "Painting texture receipt",
@@ -1137,13 +1110,13 @@ impl WorldReference {
         }
         self.validate_biome_material_sets(manifest)?;
         for binding in &self.initial_materials {
-            binding.validate(&record_map)?;
+            binding.validate(records)?;
         }
-        self.grass_displacement.validate(&record_map, &receipts)?;
+        self.grass_displacement.validate(records, &receipts)?;
         let mut hole_components = HashSet::new();
         for hole in &self.startup_holes {
-            let component = checked_record(&record_map, &hole.component, &["digholescript2"])?;
-            let filter = checked_record(&record_map, &hole.filter, &["MeshFilter"])?;
+            let component = checked_record(records, &hole.component, &["digholescript2"])?;
+            let filter = checked_record(records, &hole.filter, &["MeshFilter"])?;
             require(
                 hole_components.insert(&hole.component)
                     && record_link(component, "m_GameObject")
@@ -1237,10 +1210,10 @@ impl WorldReference {
             &field(&t.source, "terrain inputs"),
         )?;
         for (tier, prefab) in t.prefabs.iter().enumerate() {
-            let transform = checked_record(&record_map, prefab, &["Transform"])?;
+            let transform = checked_record(records, prefab, &["Transform"])?;
             let owner = record_link(transform, "m_GameObject")
                 .ok_or_else(|| ReferenceError(format!("Terrain prefab {tier} owner")))?;
-            let object = checked_record(&record_map, owner, &["GameObject"])?;
+            let object = checked_record(records, owner, &["GameObject"])?;
             require(
                 receipts.contains(owner)
                     && matches!(object.fields.get("m_Layer"),
@@ -1396,7 +1369,7 @@ impl WorldReference {
             }
         }
         for p in &self.prototypes {
-            self.validate_prototype(p, manifest, &record_map, &receipts)?;
+            self.validate_prototype(p, manifest, records, &receipts)?;
         }
         require(
             manifest
@@ -1531,7 +1504,7 @@ impl WorldReference {
             for c in &frame.conditions {
                 require(
                     frame.prototype.is_some()
-                        && checked_record(&record_map, &c.source, &["partconditionscript"]).is_ok()
+                        && checked_record(records, &c.source, &["partconditionscript"]).is_ok()
                         && (0..=4).contains(&c.state)
                         && (0..=c.random_max).contains(&c.random_min)
                         && c.override_min.is_none_or(|v| (0..=4).contains(&v))
@@ -1542,19 +1515,19 @@ impl WorldReference {
             for t in &frame.tanks {
                 require(
                     frame.prototype.is_some()
-                        && checked_record(&record_map, &t.source, &["tankscript"]).is_ok()
+                        && checked_record(records, &t.source, &["tankscript"]).is_ok()
                         && crate::fluids::validate_fluid_entries(&t.fluids),
                     &field(&t.source, "start tank"),
                 )?;
             }
-            let mut node = checked_record(&record_map, &frame.source, &["Transform"])?;
+            let mut node = checked_record(records, &frame.source, &["Transform"])?;
             let mut ancestors = HashSet::new();
             while let Some(parent) = record_link(node, "m_Father") {
                 require(
                     ancestors.insert(&node.source),
                     &field(&frame.source, "startup transform cycle"),
                 )?;
-                node = checked_record(&record_map, parent, &["Transform"])?;
+                node = checked_record(records, parent, &["Transform"])?;
             }
         }
         require(
@@ -1640,11 +1613,12 @@ impl WorldReference {
         Ok(())
     }
 
+    #[cfg(feature = "validate")]
     fn validate_prototype(
         &self,
         p: &WorldPrototypeReference,
         manifest: &ReferenceManifest,
-        records: &HashMap<&SourceId, &WorldSourceRecord>,
+        records: &WorldRecords,
         receipts: &HashSet<&SourceId>,
     ) -> Result<(), ReferenceError> {
         let f = field(&p.source, "prototype");
@@ -1719,7 +1693,7 @@ impl WorldReference {
         let mut source_bodies = HashMap::new();
         for (index, object) in objects.iter().enumerate() {
             for source in object.components() {
-                let component = records.get(source).ok_or_else(|| {
+                let component = records.find(source).ok_or_else(|| {
                     ReferenceError(field(source, "missing source component type/owner record"))
                 })?;
                 require(
@@ -1753,7 +1727,7 @@ impl WorldReference {
         let road_rules: Vec<_> = objects
             .iter()
             .flat_map(|object| object.components())
-            .filter_map(|source| records.get(source).copied())
+            .filter_map(|source| records.find(source))
             .filter(|record| record.class_name == "roadscript")
             .collect();
         if p.role == WorldPrototypeRole::Road {
@@ -1831,7 +1805,7 @@ impl WorldReference {
                     && c.body.is_none_or(|i| (i as usize) < p.bodies.len())
                     && (c.node as usize) < p.nodes.len()
                     && ([c.deformed_skin.is_some(), c.geometry.is_some(), c.source_empty_mesh.is_some()].into_iter().filter(|v| *v).count() == 1)
-                    && c.source_empty_mesh.as_ref().is_none_or(|s| self.records.iter().any(|r| &r.source == s && r.class_name == "Mesh" && matches!(r.fields.get("m_VertexData"), Some(WorldValue::Record(v)) if matches!(v.get("m_VertexCount"),Some(WorldValue::Integer(0))))))
+                    && c.source_empty_mesh.as_ref().is_none_or(|s| self.records.find(s).is_some_and(|r| r.class_name == "Mesh" && matches!(r.fields.get("m_VertexData"), Some(WorldValue::Record(v)) if matches!(v.get("m_VertexCount"),Some(WorldValue::Integer(0))))))
                     && c.deformed_skin.is_none_or(|i| (i as usize) < p.skins.len())
                     && c.role_valid(),
                 &f,
@@ -1948,6 +1922,7 @@ impl WorldReference {
     }
 }
 /// Vehicle, engine and radiator records resolve inside the prototype.
+#[cfg(feature = "validate")]
 fn vehicle_valid(p: &WorldPrototypeReference, asset: &AssetRecord) -> Result<(), ReferenceError> {
     if let Some(v) = &p.vehicle {
         v.validate(PrototypeBounds {
@@ -1974,6 +1949,7 @@ fn vehicle_valid(p: &WorldPrototypeReference, asset: &AssetRecord) -> Result<(),
     Ok(())
 }
 /// Interior colliders, doors and parents resolve inside the prototype.
+#[cfg(feature = "validate")]
 fn interiors_valid(p: &WorldPrototypeReference, doors: &[&SourceId]) -> Result<(), ReferenceError> {
     let door = |s: &SourceId| doors.contains(&s);
     // Parent cycles are valid. Source `GetValue(p)` skips the parent that called it.
@@ -1996,6 +1972,7 @@ fn interiors_valid(p: &WorldPrototypeReference, doors: &[&SourceId]) -> Result<(
     }
     Ok(())
 }
+#[cfg(feature = "validate")]
 fn collider_valid(g: &ColliderGeometry) -> bool {
     match g {
         ColliderGeometry::Box {
@@ -2033,29 +2010,24 @@ fn collider_valid(g: &ColliderGeometry) -> bool {
 #[serde(deny_unknown_fields)]
 pub struct WorldCatalogReference {
     pub source: SourceId,
-    #[serde(deserialize_with = "compact_vec")]
     pub items: Vec<WorldCatalogItem>,
-    #[serde(deserialize_with = "compact_vec")]
     pub categories: Vec<WorldCategory>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldCatalogItem {
     pub field: String,
-    #[serde(deserialize_with = "compact_vec")]
     pub compatible_slots: Vec<SourceId>,
     pub index: u32,
     pub name: String,
     pub source: SourceId,
     pub prototype: Option<SourceId>,
     pub exclusion: String,
-    #[serde(deserialize_with = "compact_vec")]
     pub excluded_actions: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldCategory {
-    #[serde(deserialize_with = "compact_vec")]
     pub invalid_category_indices: Vec<u32>,
     pub initialized: bool,
     pub index: u32,
@@ -2077,6 +2049,8 @@ pub struct WorldPrototypeBody {
     pub angular_damping: f32,
     pub kinematic: bool,
     pub use_gravity: bool,
+    /// Unity `collisionDetectionMode` is not Discrete. The body uses CCD.
+    pub ccd: bool,
     pub constraints: u32,
     pub pose: Transform,
     /// `setcenterofmass`: `T.localPosition` in the body frame.
@@ -2087,9 +2061,7 @@ pub struct WorldPrototypeBody {
 #[serde(deny_unknown_fields)]
 pub struct WorldPartScopeSlot {
     pub source: SourceId,
-    #[serde(deserialize_with = "compact_vec")]
     pub main_types: Vec<String>,
-    #[serde(deserialize_with = "compact_vec")]
     pub part_types: Vec<String>,
 }
 
@@ -2097,15 +2069,12 @@ pub struct WorldPartScopeSlot {
 #[serde(deny_unknown_fields)]
 pub struct WorldSourceMaterial {
     pub source: SourceId,
-    #[serde(deserialize_with = "compact_vec")]
     pub valid_keywords: Vec<String>,
     pub shader: super::rendering::ShaderReference,
     pub source_data: super::rendering::ResourceReference,
     pub floats: BTreeMap<String, f32>,
     pub colors: BTreeMap<String, [f32; 4]>,
-    #[serde(deserialize_with = "compact_vec")]
     pub textures: Vec<super::rendering::TextureLink>,
-    #[serde(deserialize_with = "compact_vec")]
     pub render_targets: Vec<WorldRenderTarget>,
     pub texture_coordinates: BTreeMap<String, [f32; 4]>,
 }
@@ -2132,8 +2101,12 @@ impl Sourced for WorldPrototypeNode {
         &self.source
     }
 }
+impl Sourced for WorldSourceRecord {
+    fn source(&self) -> &SourceId {
+        &self.source
+    }
+}
 
-/// Source inputs are immutable after decoding. Retain no deserializer growth slack.
 /// Rows with a source lookup built at load.
 #[derive(Clone, Debug)]
 pub struct SourceList<T> {
@@ -2141,6 +2114,8 @@ pub struct SourceList<T> {
     /// Row indices sorted by source. The first of equal sources leads.
     order: Vec<u32>,
 }
+pub type WorldPrototypes = SourceList<WorldPrototypeReference>;
+pub type WorldRecords = SourceList<WorldSourceRecord>;
 impl<T> Default for SourceList<T> {
     fn default() -> Self {
         Self {
@@ -2166,6 +2141,9 @@ impl<T: Sourced> SourceList<T> {
     /// The first row of `source`.
     pub fn find(&self, source: &SourceId) -> Option<&T> {
         self.index(source).map(|index| &self.list[index])
+    }
+    pub fn contains(&self, source: &SourceId) -> bool {
+        self.index(source).is_some()
     }
     /// Edits the list and rebuilds the source lookup.
     pub fn edit<R>(&mut self, edit: impl FnOnce(&mut Vec<T>) -> R) -> R {
@@ -2194,10 +2172,9 @@ impl<T: Serialize> Serialize for SourceList<T> {
 }
 impl<'de, T: Sourced + Deserialize<'de>> Deserialize<'de> for SourceList<T> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        compact_vec(deserializer).map(Self::new)
+        Vec::deserialize(deserializer).map(Self::new)
     }
 }
-pub type WorldPrototypes = SourceList<WorldPrototypeReference>;
 impl WorldReference {
     /// The first world prototype of `source`.
     pub fn prototype(&self, source: &SourceId) -> Result<&WorldPrototypeReference, ReferenceError> {
@@ -2225,39 +2202,10 @@ impl WorldPrototypeReference {
         })
     }
 }
-/// The world tables (records, prototypes, receipts). The manifest file holds them as postcard.
-pub type WorldTables = (Vec<WorldSourceRecord>, WorldPrototypes, Vec<SourceId>);
-impl WorldReference {
-    /// Sets the world tables from all of `bytes`.
-    pub fn decode_tables(&mut self, bytes: &[u8]) -> Result<(), super::ReferenceError> {
-        let error = |e: postcard::Error| super::ReferenceError(format!("World tables: {e}"));
-        let (tables, rest) = postcard::take_from_bytes::<WorldTables>(bytes).map_err(error)?;
-        super::require(rest.is_empty(), "world tables end")?;
-        (self.records, self.prototypes, self.receipts) = tables;
-        Ok(())
-    }
-}
-fn compact_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: serde::Deserialize<'de>,
-{
-    let values = Vec::<T>::deserialize(deserializer)?;
-    // Input decoding precedes world jobs. This is the only live compaction buffer.
-    let overlap = values
-        .capacity()
-        .saturating_add(values.len())
-        .saturating_mul(std::mem::size_of::<T>());
-    if values.capacity() != values.len() && overlap > 32 * 1024 * 1024 {
-        return Err(serde::de::Error::custom(
-            "Source input compaction exceeds shared pending budget",
-        ));
-    }
-    Ok(values.into_boxed_slice().into_vec())
-}
 
 impl<Node, Bone: Eq + std::hash::Hash> SkinnedMeshReference<Node, Bone> {
     /// Unique bones with finite bind poses, complete vertex streams, unit weights, and indexed triangles.
+    #[cfg(feature = "validate")]
     pub fn valid_streams(&self) -> bool {
         let count = self.positions.len();
         !self.bones.is_empty()
@@ -2288,6 +2236,7 @@ impl<Node, Bone: Eq + std::hash::Hash> SkinnedMeshReference<Node, Bone> {
     }
 }
 
+#[cfg(feature = "validate")]
 fn validate_world_library(
     current: &LibraryProvenance,
     accepted: &LibraryProvenance,

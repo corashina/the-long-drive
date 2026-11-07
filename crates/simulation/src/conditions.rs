@@ -85,7 +85,6 @@ pub struct ConditionStore {
 }
 impl ConditionStore {
     pub fn new(reference: &ReferenceManifest) -> Result<Self, ReferenceError> {
-        reference.conditions.validate(reference)?;
         let r = &reference.conditions;
         let washes = r
             .washes

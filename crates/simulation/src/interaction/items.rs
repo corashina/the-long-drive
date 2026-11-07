@@ -1,6 +1,6 @@
 use crate::reference::WorldPrototypeReference;
 use crate::world::{AbsolutePose, GeneratedId, SupplyDefinition, WorldOrigin};
-use bevy_platform::collections::HashMap as BevyHashMap;
+use bevy_platform::collections::{HashMap as BevyHashMap, HashSet as BevyHashSet};
 use std::collections::{HashMap, HashSet};
 
 use rapier3d::math::{Rotation, Vector};
@@ -74,52 +74,26 @@ pub struct ItemState {
 
 pub struct ItemStore {
     dirty: HashSet<ItemId>,
+    /// Items with a mutable access or a body change since the last `sync_poses`.
+    stale_poses: BevyHashSet<ItemId>,
+    /// Scratch list of the bodies that moved since the last `sync_poses`.
+    moved_bodies: Vec<RigidBodyHandle>,
     states: Vec<ItemState>,
     indices: BevyHashMap<ItemId, usize>,
     body_ids: Vec<BodyId>,
     names: Vec<String>,
     slot_owners: HashMap<PartSlotId, Option<ItemId>>,
     generated: BevyHashMap<GeneratedId, ItemId>,
+    /// The inverse of `generated`, so a step finds the key of a dirty item without a scan.
+    generated_keys: BevyHashMap<ItemId, GeneratedId>,
     membership_revision: u64,
+    /// Items that entered (`true`) or left (`false`) since the last `take_membership`, in order.
+    membership: Vec<(ItemId, bool)>,
+    /// Items of each body, in `states` order. Membership changes keep it current.
+    by_body: BevyHashMap<RigidBodyHandle, Vec<ItemId>>,
     initialized_supplies: HashSet<ItemId>,
     next_generated: u32,
     origin: WorldOrigin,
-}
-
-/// Physical membership changes less often than item poses.
-#[derive(Default)]
-pub struct ItemBodyIndex {
-    revision: Option<u64>,
-    by_body: BevyHashMap<RigidBodyHandle, Vec<ItemId>>,
-    #[cfg(test)]
-    visits: usize,
-}
-
-impl ItemBodyIndex {
-    pub fn refresh(&mut self, items: &ItemStore) -> bool {
-        if self.revision == Some(items.membership_revision()) {
-            return false;
-        }
-        for ids in self.by_body.values_mut() {
-            ids.clear();
-        }
-        for item in items.iter() {
-            #[cfg(test)]
-            {
-                self.visits += 1;
-            }
-            if let Some(body) = item.body {
-                self.by_body.entry(body).or_default().push(item.id);
-            }
-        }
-        self.by_body.retain(|_, ids| !ids.is_empty());
-        self.revision = Some(items.membership_revision());
-        true
-    }
-
-    pub fn items(&self, body: RigidBodyHandle) -> &[ItemId] {
-        self.by_body.get(&body).map_or(&[], Vec::as_slice)
-    }
 }
 
 impl ItemStore {
@@ -184,16 +158,18 @@ impl ItemStore {
     pub fn mark_dirty(&mut self, id: ItemId) {
         self.dirty.insert(id);
     }
+    pub fn has_dirty(&self) -> bool {
+        !self.dirty.is_empty()
+    }
     pub fn take_dirty(&mut self) -> Option<ItemId> {
         let id = self.dirty.iter().next().copied()?;
         self.dirty.remove(&id);
         Some(id)
     }
     pub fn object_key(&self, id: ItemId) -> crate::world::ObjectKey {
-        self.generated
-            .iter()
-            .find(|(_, value)| **value == id)
-            .map_or(crate::world::ObjectKey::Imported(id), |(key, _)| {
+        self.generated_keys
+            .get(&id)
+            .map_or(crate::world::ObjectKey::Imported(id), |key| {
                 crate::world::ObjectKey::Generated(key.clone())
             })
     }
@@ -203,13 +179,26 @@ impl ItemStore {
             crate::world::ObjectKey::Generated(id) => self.generated.get(id).copied(),
         }
     }
+    /// Keeps `generated` and its inverse `generated_keys` equal.
+    fn bind_generated(&mut self, key: GeneratedId, id: ItemId) {
+        self.generated_keys.insert(id, key.clone());
+        self.generated.insert(key, id);
+    }
+    fn unbind_generated(&mut self, id: ItemId) {
+        if let Some(key) = self.generated_keys.remove(&id) {
+            self.generated.remove(&key);
+        }
+    }
     pub fn is_generated(&self, id: ItemId) -> bool {
-        self.generated.values().any(|value| *value == id)
+        self.generated_keys.contains_key(&id)
     }
     pub fn generated_bindings(&self) -> impl Iterator<Item = (&GeneratedId, &ItemState)> {
         self.generated
             .iter()
             .filter_map(|(key, id)| self.get(*id).map(|state| (key, state)))
+    }
+    pub fn generated_key(&self, id: ItemId) -> Option<&GeneratedId> {
+        self.generated_keys.get(&id)
     }
     pub fn generated_item_id(&self, id: &GeneratedId) -> Option<ItemId> {
         self.generated.get(id).copied()
@@ -228,20 +217,14 @@ impl ItemStore {
         for item in &reference.items {
             let pose = node_pose(reference, item.node)?;
             let body = reference
-                .bodies
-                .iter()
-                .find(|body| body.id == item.body)
+                .body(item.body)
                 .ok_or_else(|| ReferenceError(format!("Missing item body {}", item.body.0)))?;
             let body_pose = VehiclePose {
                 position: body.pose.translation,
                 rotation: body.pose.rotation,
             };
             let local_pose = from_rapier(&(to_rapier(body_pose).inverse() * to_rapier(pose)));
-            let fluid = reference
-                .tanks
-                .iter()
-                .find(|tank| tank.item == item.id)
-                .map(FluidContainer::from);
+            let fluid = reference.item_tank(item.id).map(FluidContainer::from);
             if indices.insert(item.id, states.len()).is_some() {
                 return Err(ReferenceError(format!("Duplicate item {}", item.id.0)));
             }
@@ -285,8 +268,13 @@ impl ItemStore {
         }
         Ok(Self {
             dirty: HashSet::new(),
+            stale_poses: BevyHashSet::new(),
+            moved_bodies: Vec::new(),
             generated: BevyHashMap::new(),
+            generated_keys: BevyHashMap::new(),
             membership_revision: 0,
+            membership: Vec::new(),
+            by_body: BevyHashMap::new(),
             initialized_supplies: HashSet::new(),
             next_generated: reference
                 .items
@@ -308,15 +296,7 @@ impl ItemStore {
             names: reference
                 .items
                 .iter()
-                .map(|item| {
-                    reference
-                        .nodes
-                        .iter()
-                        .find(|node| node.id == item.node)
-                        .unwrap()
-                        .name
-                        .clone()
-                })
+                .map(|item| reference.node(item.node).unwrap().name.clone())
                 .collect(),
         })
     }
@@ -329,11 +309,9 @@ impl ItemStore {
         interaction: &crate::interaction::InteractionState,
         reference: &ReferenceManifest,
     ) -> Result<Vec<crate::save::ItemSnapshot>, crate::save::SaveError> {
-        use crate::save::{
-            AbsolutePose, ItemLocationSave, ItemSnapshot, LocalPose, identity::source_key,
-        };
+        use crate::save::{AbsolutePose, ItemLocationSave, ItemSnapshot, LocalPose};
         let mut records = Vec::with_capacity(ids.items.len());
-        for &id in ids.items.values() {
+        for id in ids.items.ids() {
             let item = self.get(id).ok_or_else(|| {
                 crate::save::SaveError::InvalidLinks("Missing source item".into())
             })?;
@@ -372,7 +350,7 @@ impl ItemStore {
                         crate::save::SaveError::InvalidLinks("Missing wheel slot identity".into())
                     })?,
                 },
-                ItemLocation::PartSlot(slot) if !ids.part_slots.values().any(|id| *id == slot) => {
+                ItemLocation::PartSlot(slot) if !ids.part_slots.contains(slot) => {
                     ItemLocationSave::GeneratedAttachment {
                         attachment: crate::world::changes::capture(
                             id,
@@ -392,7 +370,7 @@ impl ItemStore {
                 ItemLocation::Stored(slot) => ItemLocationSave::Stored { slot },
                 ItemLocation::Equipped => ItemLocationSave::Equipped,
                 ItemLocation::PartSlot(slot) => ItemLocationSave::PartSlot {
-                    slot: source_key(&ids.part_slots, slot)?,
+                    slot: ids.part_slots.source(slot)?,
                 },
                 ItemLocation::Attached(owner)
                     if matches!(
@@ -417,7 +395,7 @@ impl ItemStore {
                     }
                 }
                 ItemLocation::Attached(owner) => ItemLocationSave::Attached {
-                    owner: ids.item_instance(owner)?,
+                    owner: ids.item_instance(self, owner)?,
                 },
                 // Storage volumes belong to world owners. A lock saves with the generated owner.
                 ItemLocation::Locked { .. } => ItemLocationSave::GeneratedAttachment {
@@ -438,7 +416,7 @@ impl ItemStore {
             };
             let local_pose = self.saved_local_pose(id, &interaction.storage)?;
             records.push(ItemSnapshot {
-                instance: ids.item_instance(id)?,
+                instance: ids.item_instance(self, id)?,
                 pose: AbsolutePose { position, rotation },
                 local_pose: LocalPose {
                     position: local_pose.position,
@@ -648,7 +626,8 @@ impl ItemStore {
             buried: false,
         });
         self.membership_revision += 1;
-        self.generated.insert(key, id);
+        self.membership.push((id, true));
+        self.bind_generated(key, id);
         self.next_generated = next;
         Ok(id)
     }
@@ -693,6 +672,9 @@ impl ItemStore {
             buried: false,
         });
         self.membership_revision += 1;
+        self.membership.push((id, true));
+        self.by_body.entry(body).or_default().push(id);
+        self.stale_poses.insert(id);
         Ok(())
     }
 
@@ -730,7 +712,9 @@ impl ItemStore {
             buried: false,
         });
         self.membership_revision += 1;
-        self.dirty.insert(id);
+        self.membership.push((id, true));
+        self.by_body.entry(body).or_default().push(id);
+        self.touch(id);
         Ok(())
     }
 
@@ -746,7 +730,7 @@ impl ItemStore {
         if self.initialized_supplies.contains(&id) {
             return Ok(());
         }
-        if !self.generated.values().any(|value| *value == id) {
+        if !self.is_generated(id) {
             return Err(ReferenceError("Supply is not a generated item".into()));
         }
         let mut entries = Vec::with_capacity(source.fluids.len());
@@ -850,7 +834,7 @@ impl ItemStore {
         Ok(())
     }
     pub fn can_remove_generated(&self, id: ItemId) -> bool {
-        self.generated.values().any(|value| *value == id)
+        self.is_generated(id)
             && self
                 .get(id)
                 .is_some_and(|item| item.location == ItemLocation::World && item.body.is_none())
@@ -858,7 +842,7 @@ impl ItemStore {
 
     /// Unbind colliders first. Held, mounted, and attached items retain their identity.
     pub fn remove_generated(&mut self, id: ItemId) -> bool {
-        if !self.generated.values().any(|value| *value == id) {
+        if !self.is_generated(id) {
             return false;
         }
         let Some(index) = self.indices.get(&id).copied() else {
@@ -867,7 +851,7 @@ impl ItemStore {
         if self.states[index].location != ItemLocation::World || self.states[index].body.is_some() {
             return false;
         }
-        self.generated.retain(|_, value| *value != id);
+        self.unbind_generated(id);
         self.initialized_supplies.remove(&id);
         self.remove_state(index);
         true
@@ -889,13 +873,68 @@ impl ItemStore {
     fn remove_state(&mut self, index: usize) {
         let id = self.states[index].id;
         self.membership_revision += 1;
+        self.membership.push((id, false));
         self.dirty.remove(&id);
         self.indices.remove(&id);
+        debug_assert!(
+            self.states[index].body.is_none(),
+            "removed item has no body"
+        );
         self.states.swap_remove(index);
         self.names.swap_remove(index);
         self.body_ids.swap_remove(index);
         if index < self.states.len() {
-            self.indices.insert(self.states[index].id, index);
+            let moved = &self.states[index];
+            let (id, body) = (moved.id, moved.body);
+            self.indices.insert(id, index);
+            // The moved item takes a new place in `states` order.
+            if let Some(body) = body {
+                self.leave_body(id, body);
+                self.join_body(id, body);
+            }
+        }
+    }
+    /// Adds `id` to the items of `body` at its `states` place.
+    fn join_body(&mut self, id: ItemId, body: RigidBodyHandle) {
+        let indices = &self.indices;
+        let ids = self.by_body.entry(body).or_default();
+        let at = ids.partition_point(|other| indices[other] < indices[&id]);
+        ids.insert(at, id);
+    }
+    fn leave_body(&mut self, id: ItemId, body: RigidBodyHandle) {
+        let ids = self.by_body.get_mut(&body).expect("indexed body");
+        ids.remove(
+            ids.iter()
+                .position(|other| *other == id)
+                .expect("indexed item"),
+        );
+        if ids.is_empty() {
+            self.by_body.remove(&body);
+        }
+    }
+    fn move_body(
+        &mut self,
+        id: ItemId,
+        from: Option<RigidBodyHandle>,
+        to: Option<RigidBodyHandle>,
+    ) {
+        if let Some(body) = from {
+            self.leave_body(id, body);
+        }
+        if let Some(body) = to {
+            self.join_body(id, body);
+        }
+    }
+    /// Items on `body`, in `states` order.
+    pub fn on_body(&self, body: RigidBodyHandle) -> &[ItemId] {
+        self.by_body.get(&body).map_or(&[], Vec::as_slice)
+    }
+    /// Edits each item on `body`, in `states` order.
+    pub fn on_body_mut(&mut self, body: RigidBodyHandle, mut edit: impl FnMut(&mut ItemState)) {
+        for id in self.by_body.get(&body).into_iter().flatten() {
+            self.dirty.insert(*id);
+            self.stale_poses.insert(*id);
+            edit(&mut self.states[self.indices[id]]);
         }
     }
 
@@ -907,6 +946,7 @@ impl ItemStore {
     }
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut ItemState> {
         self.dirty.extend(self.states.iter().map(|s| s.id));
+        self.stale_poses.extend(self.states.iter().map(|s| s.id));
         self.states.iter_mut()
     }
 
@@ -916,13 +956,25 @@ impl ItemStore {
 
     pub fn get_mut(&mut self, id: ItemId) -> Option<&mut ItemState> {
         let index = *self.indices.get(&id)?;
-        self.dirty.insert(id);
+        self.touch(id);
         self.states.get_mut(index)
+    }
+
+    /// Marks `id` for change capture and for the next pose sync.
+    fn touch(&mut self, id: ItemId) {
+        self.dirty.insert(id);
+        self.stale_poses.insert(id);
     }
 
     /// Changes only when items enter, leave, or change physical bodies.
     pub fn membership_revision(&self) -> u64 {
         self.membership_revision
+    }
+
+    /// Items that entered (`true`) or left (`false`) since the last call, in order.
+    pub fn take_membership(&mut self, out: &mut Vec<(ItemId, bool)>) {
+        out.clear();
+        std::mem::swap(out, &mut self.membership);
     }
 
     /// Set physical membership before editing the remaining item state.
@@ -932,11 +984,13 @@ impl ItemStore {
         body: Option<RigidBodyHandle>,
     ) -> Option<&mut ItemState> {
         let index = *self.indices.get(&id)?;
-        if self.states[index].body != body {
+        let old = self.states[index].body;
+        if old != body {
             self.states[index].body = body;
             self.membership_revision += 1;
+            self.move_body(id, old, body);
         }
-        self.dirty.insert(id);
+        self.touch(id);
         self.states.get_mut(index)
     }
 
@@ -946,8 +1000,8 @@ impl ItemStore {
         second: ItemId,
     ) -> Option<(&mut ItemState, &mut ItemState)> {
         let indices = [*self.indices.get(&first)?, *self.indices.get(&second)?];
-        self.dirty.insert(first);
-        self.dirty.insert(second);
+        self.touch(first);
+        self.touch(second);
         let [first, second] = self.states.get_disjoint_mut(indices).ok()?;
         Some((first, second))
     }
@@ -984,31 +1038,37 @@ impl ItemStore {
     }
 
     pub fn bind_body(&mut self, id: BodyId, handle: RigidBodyHandle) {
-        for (state, body) in self.states.iter_mut().zip(&self.body_ids) {
-            if *body == id && state.body != Some(handle) {
-                state.body = Some(handle);
+        for index in 0..self.states.len() {
+            let old = self.states[index].body;
+            if self.body_ids[index] == id && old != Some(handle) {
+                self.states[index].body = Some(handle);
                 self.membership_revision += 1;
+                self.stale_poses.insert(self.states[index].id);
+                self.move_body(self.states[index].id, old, Some(handle));
             }
         }
     }
 
-    pub fn sync_poses(&mut self, physics: &PhysicsWorld) {
-        for state in &mut self.states {
-            if state.inactive_pose.is_some() {
-                continue;
+    /// Recomputes the poses of the items on bodies that moved or are awake, and of stale items.
+    pub fn sync_poses(&mut self, physics: &mut PhysicsWorld) {
+        physics.take_moved_bodies(&mut self.moved_bodies);
+        let awake = physics.rapier().islands.active_bodies();
+        let bodies = self.moved_bodies.iter().copied().chain(awake);
+        for id in bodies.flat_map(|body| self.by_body.get(&body)).flatten() {
+            sync_pose(&mut self.states[self.indices[id]], physics, &mut self.dirty);
+        }
+        for id in self.stale_poses.drain() {
+            if let Some(&index) = self.indices.get(&id) {
+                sync_pose(&mut self.states[index], physics, &mut self.dirty);
             }
-            if let Some(handle) = state.body
-                && let Some(body) = physics.rapier().bodies.get(handle)
-            {
-                let pose = from_rapier(&(*body.position() * to_rapier(state.local_pose)));
-                if state.pose.position != pose.position
-                    || state.pose.rotation != pose.rotation
-                    || !body.is_sleeping()
-                {
-                    self.dirty.insert(state.id);
-                }
-                state.pose = pose;
-            }
+        }
+        #[cfg(debug_assertions)]
+        for state in &self.states {
+            debug_assert!(
+                body_pose(state, physics).is_none_or(|(pose, _)| pose == state.pose),
+                "item {} pose missed the moved-body sync",
+                state.id.0
+            );
         }
     }
 
@@ -1022,6 +1082,26 @@ impl ItemStore {
                 *position -= shift;
             }
         }
+    }
+}
+
+/// Pose of an active `state` from its body, and whether the body is awake.
+fn body_pose(state: &ItemState, physics: &PhysicsWorld) -> Option<(VehiclePose, bool)> {
+    if state.inactive_pose.is_some() {
+        return None;
+    }
+    let body = physics.rapier().bodies.get(state.body?)?;
+    let pose = from_rapier(&(*body.position() * to_rapier(state.local_pose)));
+    Some((pose, !body.is_sleeping()))
+}
+
+/// Sets the pose of `state` from its body. Marks it dirty when it moved or its body is awake.
+fn sync_pose(state: &mut ItemState, physics: &PhysicsWorld, dirty: &mut HashSet<ItemId>) {
+    if let Some((pose, awake)) = body_pose(state, physics) {
+        if state.pose != pose || awake {
+            dirty.insert(state.id);
+        }
+        state.pose = pose;
     }
 }
 
@@ -1046,9 +1126,7 @@ pub fn node_pose(reference: &ReferenceManifest, id: NodeId) -> Result<VehiclePos
     let mut depth = 0;
     while let Some(id) = current {
         let node = reference
-            .nodes
-            .iter()
-            .find(|node| node.id == id)
+            .node(id)
             .ok_or_else(|| ReferenceError(format!("Missing node {}", id.0)))?;
         let q = Rotation::from_xyzw(
             node.transform.rotation[0],
@@ -1069,4 +1147,143 @@ pub fn node_pose(reference: &ReferenceManifest, id: NodeId) -> Result<VehiclePos
         position: position.to_array(),
         rotation: rotation.to_array(),
     })
+}
+
+#[cfg(test)]
+impl ItemStore {
+    /// A store with no items.
+    pub fn empty_for_tests() -> Self {
+        Self {
+            dirty: HashSet::new(),
+            stale_poses: BevyHashSet::new(),
+            moved_bodies: Vec::new(),
+            states: Vec::new(),
+            indices: BevyHashMap::new(),
+            body_ids: Vec::new(),
+            names: Vec::new(),
+            slot_owners: HashMap::new(),
+            generated: BevyHashMap::new(),
+            generated_keys: BevyHashMap::new(),
+            membership_revision: 0,
+            membership: Vec::new(),
+            by_body: BevyHashMap::new(),
+            initialized_supplies: HashSet::new(),
+            next_generated: 10,
+            origin: WorldOrigin::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod generated_key_tests {
+    use super::*;
+
+    fn key(ordinal: u32) -> GeneratedId {
+        crate::world::GeneratedKey {
+            layer: crate::world::WorldLayer::Prop,
+            generator: crate::reference::SourceId {
+                file: "props".into(),
+                path_id: 1,
+            },
+            unit: [0, 0],
+            ordinal,
+            children: Vec::new(),
+        }
+        .into()
+    }
+
+    fn empty() -> ItemStore {
+        ItemStore::empty_for_tests()
+    }
+
+    #[test]
+    fn body_items_keep_state_order() {
+        let mut items = empty();
+        let (a, b) = (
+            RigidBodyHandle::from_raw_parts(1, 0),
+            RigidBodyHandle::from_raw_parts(2, 0),
+        );
+        let pose = VehiclePose {
+            position: [0.; 3],
+            rotation: [0., 0., 0., 1.],
+        };
+        for (id, body) in [(1, a), (2, b), (3, a), (4, b)] {
+            items
+                .insert_spawned(ItemId(id), "item", pose, body, None)
+                .unwrap();
+        }
+        let check = |items: &ItemStore| {
+            for body in [a, b] {
+                let scan: Vec<_> = items
+                    .iter()
+                    .filter(|i| i.body == Some(body))
+                    .map(|i| i.id)
+                    .collect();
+                assert_eq!(items.on_body(body), scan.as_slice());
+            }
+        };
+        check(&items);
+        items.set_body(ItemId(2), Some(a));
+        check(&items);
+        items.set_body(ItemId(1), None);
+        assert!(items.remove_spawned(ItemId(1)));
+        // Item 4 takes the place of item 1.
+        assert_eq!(items.on_body(b), [ItemId(4)]);
+        assert_eq!(items.on_body(a), [ItemId(2), ItemId(3)]);
+        check(&items);
+        items.set_body(ItemId(4), None);
+        assert!(items.on_body(b).is_empty() && !items.by_body.contains_key(&b));
+    }
+
+    #[test]
+    fn pose_sync_follows_moved_bodies_only() {
+        use rapier3d::prelude::RigidBodyBuilder;
+        let mut physics = PhysicsWorld::empty_for_tests();
+        let mut items = empty();
+        let [moving, resting] = [1., 5.].map(|x| {
+            physics.insert_body(RigidBodyBuilder::fixed().translation(Vector::new(x, 0., 0.)))
+        });
+        let pose = VehiclePose {
+            position: [0.; 3],
+            rotation: [0., 0., 0., 1.],
+        };
+        for (id, body) in [(1, moving), (2, resting)] {
+            items
+                .insert_spawned(ItemId(id), "item", pose, body, None)
+                .unwrap();
+        }
+        items.sync_poses(&mut physics);
+        let x = |items: &ItemStore, id| items.get(ItemId(id)).unwrap().pose.position[0];
+        assert_eq!((x(&items, 1), x(&items, 2)), (1., 5.));
+        physics.edit_body(moving, |b| {
+            b.set_translation(Vector::new(3., 0., 0.), false)
+        });
+        items.sync_poses(&mut physics);
+        assert_eq!(x(&items, 1), 3., "an edited body moves its item");
+        // The debug full walk in `sync_poses` checks every other item.
+        items.get_mut(ItemId(2)).unwrap().local_pose.position = [0., 1., 0.];
+        items.sync_poses(&mut physics);
+        assert_eq!(items.get(ItemId(2)).unwrap().pose.position, [5., 1., 0.]);
+    }
+
+    #[test]
+    fn item_keys_follow_generated_bindings() {
+        let mut items = empty();
+        let (a, b) = (key(1), key(2));
+        items.bind_generated(a.clone(), ItemId(10));
+        items.bind_generated(b.clone(), ItemId(11));
+        let generated = |items: &ItemStore, id| match items.object_key(id) {
+            crate::world::ObjectKey::Generated(key) => Some(key),
+            crate::world::ObjectKey::Imported(_) => None,
+        };
+        assert!(generated(&items, ItemId(10)) == Some(a.clone()));
+        assert!(generated(&items, ItemId(11)) == Some(b.clone()));
+        assert!(generated(&items, ItemId(3)).is_none(), "an imported item");
+        items.unbind_generated(ItemId(10));
+        assert!(generated(&items, ItemId(10)).is_none());
+        assert!(!items.is_generated(ItemId(10)));
+        assert!(items.is_generated(ItemId(11)));
+        assert_eq!(items.generated_item_id(&a), None);
+        assert_eq!(items.generated_item_id(&b), Some(ItemId(11)));
+    }
 }

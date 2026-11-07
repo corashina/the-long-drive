@@ -1,7 +1,7 @@
 //! Reused hash set of the generated ids that selected change records name. A miss means the id
 //! is not named. A hit needs an exact check, because two ids can share a hash.
 use crate::world::changes::{ChangeRecordIndex, ChangeRecords};
-use crate::world::{GeneratedId, GeneratedKey, ObjectKey};
+use crate::world::{GeneratedId, ObjectKey};
 use std::collections::HashSet;
 use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 
@@ -77,6 +77,7 @@ pub fn selects(
 mod tests {
     use super::*;
     use crate::reference::{ItemId, SourceId};
+    use crate::world::GeneratedKey;
     use crate::world::{Placement, StructureInstance, WorldLayer};
 
     fn id(ordinal: u32) -> GeneratedId {

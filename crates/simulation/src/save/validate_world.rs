@@ -1,8 +1,12 @@
 use super::*;
-use crate::world::{AttachmentSnapshot, GeneratedId, GeneratedKey, ObjectKey, SpawnContext};
+use crate::world::{AttachmentSnapshot, GeneratedId, ObjectKey, SpawnContext};
 
 impl SaveSnapshot {
-    pub(super) fn validate_world(&self, reference: &ReferenceManifest) -> Result<(), SaveError> {
+    pub(super) fn validate_world(
+        &self,
+        reference: &ReferenceManifest,
+        ids: &IdentityMap,
+    ) -> Result<(), SaveError> {
         self.world
             .generation
             .validate_identity(&reference.content_base)
@@ -60,15 +64,14 @@ impl SaveSnapshot {
         };
         let object = |key: &ObjectKey| -> Result<(), SaveError> {
             match key {
-                ObjectKey::Imported(id) => links(
-                    reference.items.iter().any(|i| i.id == *id),
-                    "Unknown imported world item",
-                ),
+                ObjectKey::Imported(id) => {
+                    links(reference.item(*id).is_some(), "Unknown imported world item")
+                }
                 ObjectKey::Generated(id) => generated(id),
             }
         };
         let exists = |key: &ObjectKey| match key {
-            ObjectKey::Imported(id) => reference.items.iter().any(|i| i.id == *id),
+            ObjectKey::Imported(id) => reference.item(*id).is_some(),
             ObjectKey::Generated(_) => self
                 .world
                 .changes
@@ -247,7 +250,6 @@ impl SaveSnapshot {
                 }
             }
         }
-        let ids = IdentityMap::new(reference)?;
         for item in &self.items {
             let key = ObjectKey::Imported(ids.item(&item.instance)?);
             match &item.location {
@@ -435,6 +437,7 @@ fn descendant(child: &GeneratedId, parent: &GeneratedId) -> bool {
 mod tests {
     use super::*;
     use crate::world::AbsolutePose;
+    use crate::world::GeneratedKey;
 
     fn id(path_id: i64) -> r::SourceId {
         r::SourceId {

@@ -84,10 +84,10 @@ impl MechanismState {
         let mut records = self
             .controls
             .iter()
-            .filter(|c| ids.mechanisms.values().any(|id| *id == c.reference.id))
+            .filter(|c| ids.mechanisms.contains(c.reference.id))
             .map(|c| {
                 Ok(crate::save::MechanismSnapshot {
-                    source: crate::save::identity::source_key(&ids.mechanisms, c.reference.id)?,
+                    source: ids.mechanisms.source(c.reference.id)?,
                     degrees: c.degrees,
                     slide: c.slide,
                     enabled: c.enabled,
@@ -187,9 +187,7 @@ impl MechanismState {
                 };
                 needed.insert(id);
                 node = reference
-                    .nodes
-                    .iter()
-                    .find(|n| n.id == id)
+                    .node(id)
                     .ok_or_else(|| ReferenceError("Missing mechanism node".into()))?
                     .parent;
             }
@@ -271,11 +269,10 @@ impl MechanismState {
             })
             .collect();
         let order = (0..frames.len()).collect();
-        let audio = reference.audio.playback().ok();
         let mut state = Self {
             radio_seconds: 0.,
             last_radio_tune: 0.,
-            radio_repeat: audio.as_ref().map_or(0., |a| a.radio.tuning_repeat_seconds),
+            radio_repeat: reference.audio.radio.tuning_repeat_seconds,
             order,
             controls,
             items,

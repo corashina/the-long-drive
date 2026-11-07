@@ -5,7 +5,8 @@ use crate::boundary::{Change, SaveCommand, SimFrame};
 use crate::driver::SimDriver;
 use crate::reference::ReferenceManifest;
 use crate::save::fresh_permit::FreshSessionPermit;
-use crate::save::{SaveError, SaveSnapshot, SourceStamp};
+use crate::save::{SaveError, SourceStamp};
+use crate::starting_area::SessionPhase;
 use crate::world::GameMode;
 use serde::{Deserialize, Serialize};
 
@@ -122,11 +123,7 @@ pub(crate) struct SaveState {
     results: Vec<Change>,
 }
 
-#[derive(Serialize)]
-struct CaptureResult<'a> {
-    save: &'a SaveSnapshot,
-    summary: CaptureSummary,
-}
+/// The save list fields of a capture. The save itself goes as JSON bytes beside it.
 #[derive(Serialize)]
 struct CaptureSummary {
     seed: i32,
@@ -154,15 +151,17 @@ impl SimDriver {
                     mode,
                     epoch,
                 } => {
-                    let (payload, error) = match self.request(reference, &request, mode, epoch) {
-                        Ok(None) => continue,
-                        Ok(Some(payload)) => (payload, String::new()),
-                        Err(error) => (String::new(), error.to_string()),
-                    };
+                    let ((payload, save), error) =
+                        match self.request(reference, &request, mode, epoch) {
+                            Ok(None) => continue,
+                            Ok(Some(answer)) => (answer, String::new()),
+                            Err(error) => ((String::new(), Vec::new()), error.to_string()),
+                        };
                     self.save.results.push(Change::SaveResult {
                         id: request.id,
                         kind: request.kind(),
                         payload,
+                        save,
                         error,
                     });
                 }
@@ -182,7 +181,7 @@ impl SimDriver {
         request: &SaveRequest,
         mode: GameMode,
         epoch: u32,
-    ) -> Result<Option<String>, SaveError> {
+    ) -> Result<Option<(String, Vec<u8>)>, SaveError> {
         let invalid = |message: &str| SaveError::ReconstructionFailure(message.into());
         match &request.action {
             SaveAction::Commit(id) => {
@@ -194,7 +193,7 @@ impl SimDriver {
                     .prepared
                     .take()
                     .ok_or_else(|| invalid("Prepared session is missing"))?;
-                let result = if self.ready {
+                let result = if self.ready() {
                     permit.commit(*id, &mut self.runtime, epoch)
                 } else {
                     Err(invalid("The garage is not ready"))
@@ -205,16 +204,16 @@ impl SimDriver {
                 }
                 self.clear_input();
                 self.frame_steps = 0;
-                Ok(Some(String::new()))
+                Ok(Some((String::new(), Vec::new())))
             }
             SaveAction::Capture(capture) => {
                 #[cfg(target_arch = "wasm32")]
                 let _profile =
                     crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::SavePrepare);
-                if !self.ready {
+                if !self.ready() {
                     return Err(invalid("The garage is not ready"));
                 }
-                if !capture.autosave && self.runtime.started && !self.runtime.menu {
+                if !capture.autosave && self.runtime.phase == SessionPhase::Playing {
                     return Err(invalid("Pause the game first"));
                 }
                 // Source guests have no save. The host world is the only world.
@@ -230,25 +229,24 @@ impl SimDriver {
                 if capture.guest {
                     crate::starting_area::garage_start(reference, &mut snapshot.player);
                 }
-                serde_json::to_string(&CaptureResult {
-                    save: &snapshot,
-                    summary: CaptureSummary {
-                        seed: snapshot.world.seed,
-                        driven_km: snapshot.progress.driven_km,
-                        build_id: snapshot.source.build_id,
-                    },
+                let corrupt = |error: serde_json::Error| SaveError::CorruptData(error.to_string());
+                let summary = serde_json::to_string(&CaptureSummary {
+                    seed: snapshot.world.seed,
+                    driven_km: snapshot.progress.driven_km,
+                    build_id: snapshot.source.build_id,
                 })
-                .map(Some)
-                .map_err(|error| SaveError::CorruptData(error.to_string()))
+                .map_err(corrupt)?;
+                let save = serde_json::to_vec(&snapshot).map_err(corrupt)?;
+                Ok(Some((summary, save)))
             }
             SaveAction::PrepareNewGame(new_game) => {
                 #[cfg(target_arch = "wasm32")]
                 let _profile =
                     crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::SavePrepare);
-                if !self.ready {
+                if !self.ready() {
                     return Err(invalid("The garage is not ready"));
                 }
-                if self.runtime.started && !self.runtime.menu {
+                if self.runtime.phase == SessionPhase::Playing {
                     return Err(invalid("Pause the game first"));
                 }
                 if self.save.prepared.is_some() {
@@ -257,7 +255,7 @@ impl SimDriver {
                 let runtime = &self.runtime;
                 // A new game starts the garage world. The browser reloads the page for a
                 // started game or another game mode, so the garage has the new mode.
-                if runtime.started
+                if runtime.started()
                     || runtime.stream.mode() != mode
                     || !runtime
                         .distances
@@ -266,7 +264,7 @@ impl SimDriver {
                     return Err(invalid("New game needs a garage in its game mode"));
                 }
                 self.save.prepared = Some(FreshSessionPermit::prepare(request.id, runtime, epoch)?);
-                Ok(Some(request.id.to_string()))
+                Ok(Some((request.id.to_string(), Vec::new())))
             }
             SaveAction::Discard(_) => Err(invalid("The renderer answers Discard")),
         }

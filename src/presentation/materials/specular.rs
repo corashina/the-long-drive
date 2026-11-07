@@ -15,7 +15,6 @@ use bevy::{
 };
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct SpecularMaterial {
-    pub preparation: crate::presentation::gpu_prepare::GpuPreparation,
     pub source: SourceId,
     base: StandardMaterial,
     uniform: SourceUniform,
@@ -170,7 +169,6 @@ impl SpecularMaterial {
         let array_count = banks.len() as u8;
         let arrays = std::array::from_fn(|i| banks.get(i).unwrap_or(&banks[0]).1.clone());
         Ok(Self {
-            preparation: default(),
             source: record.source.clone(),
             base: StandardMaterial::default(),
             uniform,
@@ -283,32 +281,13 @@ impl AsBindGroup for SpecularMaterial {
     fn bind_group_data(&self) -> (bool, bool) {
         (self.reflected, self.gpu_props)
     }
-    fn as_bind_group(
-        &self,
-        descriptor: &BindGroupLayoutDescriptor,
-        device: &RenderDevice,
-        cache: &PipelineCache,
-        param: &mut SystemParamItem<Self::Param>,
-    ) -> Result<PreparedBindGroup, AsBindGroupError> {
-        crate::presentation::gpu_prepare::bind_group(
-            self,
-            &self.preparation,
-            descriptor,
-            device,
-            cache,
-            param,
-        )
-    }
     fn unprepared_bind_group(
         &self,
         layout: &BindGroupLayout,
         device: &RenderDevice,
         params: &mut SystemParamItem<Self::Param>,
-        direct: bool,
+        _: bool,
     ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
-        if self.preparation.isolated() && !direct {
-            return Err(AsBindGroupError::CreateBindGroupDirectly);
-        }
         let extension = SourceReceiver {
             receiver_mask: self.receiver_mask,
         };

@@ -14,13 +14,11 @@ const RADIO_STIMULUS: u64 = 2 << 32;
 
 impl GarageRuntime {
     /// `stimulscript.CheckAudioSources` inputs: engine and horn loops of this step and the
-    /// radio voices. Without audio there are none.
+    /// radio voices.
     pub(super) fn bind_rabbit_sounds(&mut self) {
         let bound = self.creatures.bound_sounds();
         bound.clear();
-        let Some(audio) = &self.audio else {
-            return;
-        };
+        let audio = &self.audio;
         bound.extend_from_slice(&audio.cars.stimuli);
         let cutoff = audio.reference.radio.electronics_cutoff;
         for (item, script, state, output, _) in self.stream.portable_radios() {
@@ -85,9 +83,7 @@ impl GarageRuntime {
         position: [f64; 3],
         pitch: f32,
     ) {
-        let Some(audio) = &mut self.audio else {
-            return;
-        };
+        let audio = &mut self.audio;
         let seconds = audio
             .reference
             .clips

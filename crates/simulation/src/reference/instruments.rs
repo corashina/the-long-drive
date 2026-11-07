@@ -8,6 +8,7 @@ pub struct MaterialLink {
 }
 tagged_enum! {
 "MaterialSwitchReference",
+#[json(tag = "kind")]
 #[derive(Clone, Debug)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum MaterialSwitchReference {
@@ -58,6 +59,7 @@ pub struct LampReference {
     pub clamp: Option<[f32; 2]>,
 }
 impl LampReference {
+    #[cfg(feature = "validate")]
     pub fn values_valid(&self) -> bool {
         [
             self.min_value,

@@ -47,13 +47,19 @@ It does not read game assemblies or write analysis output.
 
 Runtime derivation and `--stage runtime --verify` require Docker and the project toolchain image.
 Build the image with `docker build --tag the-long-slop-toolchain --file tools/Dockerfile .`.
-The export writes `manifest.json.gz` (the exporter JSON) for the tools.
-It sends the JSON to the native `validate-reference --encode` command through stdin.
+The export sends the exporter JSON to the native `validate-reference --encode` command through stdin.
 That command validates it and makes `manifest.bin.gz`, the game manifest file.
-The game file is the JSON without `world.records`, `world.prototypes` and `world.receipts`, then these tables as postcard.
-Runtime verification encodes the JSON again and compares the result to `manifest.bin.gz`.
+The game file is the manifest as postcard, then `world.receipts` as postcard. Only the checks read the receipts.
+The export also writes `catalog.json` (`content_base` and `file_catalog`). Deploy reads it.
+The export also writes the exporter JSON as `manifest.json.gz`. The tools read it. The game does not.
+Runtime verification checks that JSON, encodes it again and compares the result to `manifest.bin.gz`.
+The encoding must give the same bytes for the same JSON. Use `BTreeMap`, not `HashMap`, in manifest types.
+If the manifest file, verification or package step fails, the export keeps the derived runtime in `web/assets/runtime-failed`.
+`--retry-package` repeats only those steps on it, in minutes. The next full export deletes it.
+Do not check the manifest from a decoded `manifest.bin.gz`: f32 fields decode to other float text.
 The export compiles that command in the background while runtime derivation runs.
 It uses the game's `ReferenceManifest` contract, the existing Cargo volumes, and a read-only checkout mount.
+The checks are behind the `validate` feature of the `simulation` crate. Native builds enable it. WASM builds do not.
 The Rust contract is the only owner of each record's fields and rules.
 Python checks only source facts and exported files. Do not add Python checks of record shape.
 Missing Docker, failed validation, or an unavailable image stops acceptance before promotion.
@@ -186,6 +192,10 @@ Body poses contain translation and rotation. `parent_body` identifies moving par
 Node extras contain the resolved source ID in `reference_id`.
 Bind this ID to the manifest's numeric node ID once during loading.
 Asset records include hashes for each referenced buffer and texture.
+Primary textures are source BC blocks (`.bc`), source crunch data (`.crn`), or decoded RGBA8 levels (`.rgba`).
+A crunch texture keeps the header, tables and levels 1+ in `.crn`, and the level 0 data in `.top.crn`.
+The game unpacks crunch to BC in a worker. It decodes no other image.
+`crunch-evidence.json` holds the exporter BC hash of each crunch texture. The export checks the game unpacker against it.
 Lighting records include separate hashes for shader records, native bytes, sprites, textures, and SMIP chains.
 The runtime verifier checks these files before promotion.
 Runtime lighting shader evidence retains accepted typed JSON and native program bytes.

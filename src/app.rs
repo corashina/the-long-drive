@@ -37,6 +37,8 @@ pub(crate) struct Drive {
     /// Sequence of the last command with menu actions. Older frames have a stale pause flag.
     action_seq: u64,
     world_ms: f64,
+    /// F3 or the bench painted. The next command asks for the body counters.
+    body_counters: bool,
     /// Camera position of the last rendered frame. The simulation assigns radio voices by it.
     pub listener: Option<[f32; 3]>,
     pub(crate) ready: bool,
@@ -81,31 +83,21 @@ fn game_mode(reference: &ReferenceManifest) -> crate::world::GameMode {
 
 /// The parsed reference of `prepare`, for `run`.
 struct Prepared {
-    reference: Arc<ReferenceManifest>,
-    materials: presentation::materials::SourceMaterials,
-    fixed_assets: presentation::fixed_assets::SourceFixedAssets,
+    reference: ReferenceManifest,
 }
 thread_local! {
     static PREPARED: std::cell::RefCell<Option<Prepared>> = const { std::cell::RefCell::new(None) };
 }
 
 #[wasm_bindgen]
-/// Parses the reference while the simulation worker parses and checks its copy.
+/// Parses the reference while the simulation worker parses its copy.
 /// Returns the shell JSON for the browser interface.
 pub fn prepare(manifest: &[u8]) -> Result<String, JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
     console_error_panic_hook::set_once();
-    let reference = Arc::new(ReferenceManifest::from_checked_runtime(manifest).map_err(js_error)?);
+    let reference = ReferenceManifest::from_runtime(manifest).map_err(js_error)?;
     let shell = crate::manifest_shell::shell(&reference).map_err(js_error)?;
-    // The simulation worker checks the reference. Systems need these resources.
-    let materials = presentation::materials::load_materials(&reference).map_err(js_error)?;
-    let fixed_assets =
-        presentation::fixed_assets::SourceFixedAssets::new(&reference).map_err(js_error)?;
-    PREPARED.set(Some(Prepared {
-        reference,
-        materials,
-        fixed_assets,
-    }));
+    PREPARED.set(Some(Prepared { reference }));
     Ok(shell)
 }
 
@@ -114,17 +106,18 @@ pub fn prepare(manifest: &[u8]) -> Result<String, JsValue> {
 /// the first command waits in its queue, and the first frame gives the camera and the world session.
 pub fn run() -> Result<(), JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
-    let Prepared {
-        reference,
-        materials,
-        fixed_assets,
-    } = PREPARED
+    let Prepared { mut reference } = PREPARED
         .take()
         .ok_or_else(|| JsValue::from_str("The reference is not prepared."))?;
-    // The audio bridge exists only after `prepare`.
-    if let Err(error) = reference.audio.playback() {
-        game_audio_error(&error.to_string());
+    // The display settings come after `prepare`. Half textures change the renderer records.
+    if crate::display_settings::half_textures() {
+        reference.drop_top_mips();
     }
+    let reference = Arc::new(reference);
+    // The build checks the reference. Systems need these resources.
+    let materials = presentation::materials::load_materials(&reference).map_err(js_error)?;
+    let fixed_assets =
+        presentation::fixed_assets::SourceFixedAssets::new(&reference).map_err(js_error)?;
     App::new()
         .insert_resource(presentation::readiness::RendererStateHandle::default())
         .init_resource::<presentation::world::runtime::SourcePresentationAllocation>()
@@ -142,6 +135,7 @@ pub fn run() -> Result<(), JsValue> {
             seq: 0,
             action_seq: 0,
             world_ms: 0.,
+            body_counters: false,
             listener: None,
             ready: false,
             look: MouseLook::default(),
@@ -336,7 +330,7 @@ fn check_ready(
         Res<presentation::lighting::SourceLighting>,
         Res<presentation::fixed_assets::SourceFixedAssets>,
     ),
-    materials: Res<presentation::materials::SourceMaterials>,
+    mut materials: ResMut<presentation::materials::SourceMaterials>,
     plates: (
         Res<presentation::plates::PlateTextStatus>,
         Res<presentation::particles::ParticleRender>,
@@ -470,6 +464,7 @@ fn check_ready(
             if !drive.ready {
                 drive.ready = true;
                 game_ready();
+                materials.start_top_mips(&reference.0.file_catalog);
             }
         }
         crate::render_readiness::RendererStatus::Failed(error) => {
@@ -579,6 +574,7 @@ fn read_input(
         player_settings,
         old_heat_haze: display.old_heat_haze,
         measure: game_measure_requested(),
+        body_counters: std::mem::take(&mut drive.body_counters),
         world: std::mem::take(&mut drive.world),
         save: requests.take_commands(),
         listener: drive.listener,

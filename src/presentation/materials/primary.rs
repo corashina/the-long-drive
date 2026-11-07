@@ -1,7 +1,7 @@
 //! Dynamic primary materials share the accepted source material cache.
 use super::*;
 use crate::ownership::{PresentationLedger, RendererCounts};
-pub(super) use crate::reference::fixed_reservation::{png_chain_staging, primary_staging};
+pub(super) use crate::reference::fixed_reservation::primary_staging;
 use crate::{
     reference::{AssetId as SourceAssetId, ReferenceError},
     world::RendererWorld,
@@ -208,7 +208,7 @@ impl SourceMaterials {
         }
         let jobs = self.primary_loading(chains, server);
         self.account_primary(ledger, jobs, self.pending_primary())?;
-        if !self.preparation.cancelled() && failure.is_none() && stream.frame().failure.is_none() {
+        if failure.is_none() && stream.frame().failure.is_none() {
             for index in 0..self.textures.len() {
                 let texture = &self.textures[index];
                 // A stalled image loads its chain again into the same image.
@@ -234,29 +234,27 @@ impl SourceMaterials {
                 )?;
                 let texture = &mut self.textures[index];
                 let record = Arc::clone(&texture.record);
-                let encoded_bytes = match &record.storage {
-                    source::TextureStorage::PngChain { mips } => mips
-                        .iter()
-                        .map(|m| {
-                            crate::presentation::world::preflight::checked_input_bytes(&m.file)
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                    source::TextureStorage::NativeBc { input, .. } => vec![input.bytes as usize],
+                let input_bytes = match &record.storage {
+                    source::TextureStorage::Rgba8 { input, .. }
+                    | source::TextureStorage::NativeBc { input, .. } => input.bytes as usize,
                 };
+                // Fixed textures load before the game starts. Their top mips load after.
+                let defer_top = texture.persistent;
+                let half = crate::display_settings::half_textures();
                 texture.chain = Some(
                     server
                         .load_builder()
                         .with_settings(move |settings: &mut SourcePrimaryImageSettings| {
                             settings.record = Some(Arc::clone(&record));
-                            settings.encoded_bytes = encoded_bytes.clone();
+                            settings.input_bytes = input_bytes;
+                            settings.defer_top = defer_top;
+                            settings.half = half;
                         })
                         .load(texture.record.file().to_owned()),
                 );
             }
         }
-        if !self.preparation.cancelled() {
-            self.texture_bytes += assemble_textures(&mut self.textures, chains, images);
-        }
+        self.texture_bytes += assemble_textures(&mut self.textures, chains, images);
         let jobs = self.primary_loading(chains, server);
         self.account_primary(ledger, jobs, self.pending_primary())?;
         if let Some(error) = failure {
@@ -424,13 +422,11 @@ impl SourceMaterials {
         images: &mut Assets<Image>,
         batches: &mut Assets<crate::presentation::texture_batches::SourceTextureBatch>,
     ) -> Result<(), ReferenceError> {
-        if self.preparation.cancelled() || stream.frame().failure.is_some() {
+        if stream.frame().failure.is_some() {
             self.world_textures.cancel();
         }
         self.account_deferred(ledger, self.world_textures.jobs())?;
-        let result =
-            self.world_textures
-                .prepare(server, images, batches, &self.preparation, ledger);
+        let result = self.world_textures.prepare(server, images, batches, ledger);
         self.account_deferred(ledger, self.world_textures.jobs())?;
         result?;
         let launch = match self.world_textures.queued_jobs() {
@@ -451,7 +447,7 @@ impl SourceMaterials {
         reference: &ReferenceManifest,
     ) -> Result<(), ReferenceError> {
         for t in &reference.render_lighting.textures {
-            let file = &t.mips[0].file;
+            let file = &t.file;
             if let Some(&index) = self.texture_indices.get(file) {
                 let old = &self.textures[index].record;
                 if old.source != t.source
@@ -462,7 +458,8 @@ impl SourceMaterials {
                     || old.sampler.aniso != t.sampler.aniso
                     || old.sampler.mip_bias.to_bits() != t.sampler.mip_bias.to_bits()
                     || old.sampler.mip_count != t.sampler.mip_count
-                    || !matches!(&old.storage, source::TextureStorage::PngChain { mips } if *mips == t.mips)
+                    || !matches!(&old.storage, source::TextureStorage::Rgba8 { width, height, input }
+                        if *width == t.width && *height == t.height && input.file == t.file)
                 {
                     return Err(ReferenceError(
                         "Conflicting persistent lighting sampler".into(),
@@ -474,8 +471,10 @@ impl SourceMaterials {
             let record = TextureRecord {
                 slot: String::new(),
                 source: t.source.clone(),
-                storage: source::TextureStorage::PngChain {
-                    mips: t.mips.clone(),
+                storage: source::TextureStorage::Rgba8 {
+                    width: t.width,
+                    height: t.height,
+                    input: reference.file_catalog.file(file)?.clone(),
                 },
                 color_space: t.color_space,
                 encoding: source::TextureEncoding::Rgba,
@@ -485,8 +484,7 @@ impl SourceMaterials {
                 offset: [0., 0.],
                 sampler: t.sampler.clone(),
             };
-            let input_staging =
-                png_chain_staging(&t.mips, t.sampler.mip_count, &reference.file_catalog)?;
+            let input_staging = primary_staging(&record, &reference.file_catalog)?;
             let entry = SourceTexture::new(record, input_staging, true, file.clone())?;
             self.texture_indices
                 .insert(file.clone(), self.textures.len());
@@ -525,7 +523,7 @@ impl SourceMaterials {
         serde_json::json!({
             "selected_materials": self.world_primary.materials.iter().collect::<Vec<_>>(),
             "textures": self.textures.iter().map(|t| serde_json::json!({
-                "source": t.record.source, "path": t.record.file(), "payload_bytes": t.payload_bytes, "storage": match &t.record.storage { source::TextureStorage::PngChain { .. } => "png_chain", source::TextureStorage::NativeBc { format: source::NativeBcFormat::Bc1, .. } => "bc1", source::TextureStorage::NativeBc { .. } => "bc3" },
+                "source": t.record.source, "path": t.record.file(), "payload_bytes": t.payload_bytes, "storage": match &t.record.storage { source::TextureStorage::Rgba8 { .. } => "rgba8", source::TextureStorage::NativeBc { format: source::NativeBcFormat::Bc1, .. } => "bc1", source::TextureStorage::NativeBc { .. } => "bc3" },
                 "persistent": t.persistent, "users": t.users, "owners": Arc::strong_count(&t.owner),
                 "failed": t.failed, "upload_complete": t.upload.completed(),
                 "upload_registered": t.upload.registered(), "stalled_steps": t.stalled,

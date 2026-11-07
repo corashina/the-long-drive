@@ -7,7 +7,7 @@ const reference={sliders:{},toggles:{}};
 const mirror={minimum:10,maximum:500,half:150,step:5,default:150};
 const memory=items=>({getItem:k=>items[k]??null,setItem:(k,v)=>{items[k]=v;}});
 // Same record as the Rust `DisplaySettings` parse test.
-const DEFAULTS='{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":0,"mirror_distance":150,"lamp_shadows":true,"antialiasing":1,"ambient_occlusion":0,"reflections":0,"rain":0}';
+const DEFAULTS='{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":0,"mirror_distance":150,"lamp_shadows":true,"antialiasing":1,"ambient_occlusion":0,"reflections":0,"textures":0,"rain":0}';
 
 test('display_rows_store_check_and_reset_with_the_graphics_tab',()=>{
  const items={'the-long-slop.settings':JSON.stringify({shadows:2,scene_scale:90,lamp_shadows:false,mirror_distance:1000})};

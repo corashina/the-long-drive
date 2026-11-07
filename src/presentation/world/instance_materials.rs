@@ -14,7 +14,6 @@ use crate::{
     world::RendererWorld,
 };
 use bevy::{ecs as bevy_ecs, ecs::system::SystemParam, prelude::*};
-use grass_mesh::GrassView;
 #[derive(Clone)]
 pub enum InstanceMaterial {
     Primary(Handle<SourceMaterial>),
@@ -143,7 +142,6 @@ impl InstanceMaterials<'_> {
         receive: bool,
         reflected: bool,
         source_position: Vec3,
-        view: GrassView,
         gpu: bool,
     ) -> Result<Option<RendererMaterial>, ReferenceError> {
         let mask = 1u32 << layer;
@@ -181,7 +179,7 @@ impl InstanceMaterials<'_> {
             match record.shader.name.as_str() {
                 "Stix Games/Grass" => InstanceMaterial::Grass(
                     self.grass
-                        .add(GrassMaterial::from_source(session, record, view, mask)?),
+                        .add(GrassMaterial::from_source(session, record, mask)?),
                 ),
                 "Hidden/Amplify Impostors/Octahedron Impostor"
                 | "Impostors/Custom/Colored Barrels" => {
@@ -268,20 +266,6 @@ impl InstanceMaterials<'_> {
             }
             InstanceMaterial::Primary(self.primary.add(material))
         };
-        match &visible {
-            InstanceMaterial::Primary(h) => {
-                self.primary.get_mut(h).unwrap().preparation = self.cache.preparation.clone()
-            }
-            InstanceMaterial::Specular(h) => {
-                self.specular.get_mut(h).unwrap().preparation = self.cache.preparation.clone()
-            }
-            InstanceMaterial::Impostor(h) => {
-                self.impostors.get_mut(h).unwrap().preparation = self.cache.preparation.clone()
-            }
-            InstanceMaterial::Grass(h) => {
-                self.grass.get_mut(h).unwrap().preparation = self.cache.preparation.clone()
-            }
-        }
         if let Some(key) = &shared {
             self.cache.generated.insert(
                 key.clone(),
@@ -660,9 +644,9 @@ pub fn selected_material<'a>(
                 || a.color_material.is_some())
     });
     let selected = appearance.and_then(|a| a.material.as_ref()).or_else(|| stream.prop_material(placement).filter(|(renderer,_)| {
-                                        let owner = reference.world.records.iter().find(|r| &r.source == *renderer)
+                                        let owner = reference.world.records.find(*renderer)
                                             .and_then(|r| r.fields.get("m_GameObject"));
-                                        let node_owner = reference.world.records.iter().find(|r| r.source == *node)
+                                        let node_owner = reference.world.records.find(node)
                                             .and_then(|r| r.fields.get("m_GameObject"));
                                         matches!((owner,node_owner), (Some(crate::reference::WorldValue::Link(a)),Some(crate::reference::WorldValue::Link(b))) if a == b)
                                     }).map(|(_,material)| material));

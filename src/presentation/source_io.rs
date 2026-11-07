@@ -17,6 +17,9 @@ use wasm_bindgen::prelude::*;
 extern "C" {
     #[wasm_bindgen(catch, js_namespace=window, js_name=sourceReadAsset)]
     async fn read_asset(base: &str, receipt: &str) -> Result<js_sys::Uint8Array, JsValue>;
+    /// Drops the pack entries that were not read.
+    #[wasm_bindgen(js_namespace=window, js_name=sourceReleasePacks)]
+    pub(crate) fn release_packs();
 }
 pub(crate) struct SourceIoPlugin {
     content_base: String,

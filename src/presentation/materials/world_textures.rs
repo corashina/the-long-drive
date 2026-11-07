@@ -283,7 +283,6 @@ impl WorldTextures {
         server: &AssetServer,
         images: &mut Assets<Image>,
         batches: &mut Assets<SourceTextureBatch>,
-        preparation: &crate::presentation::gpu_prepare::GpuPreparation,
         ledger: &mut crate::ownership::PresentationLedger,
     ) -> Result<(), ReferenceError> {
         self.reap(server, batches)?;
@@ -459,7 +458,6 @@ impl WorldTextures {
                     handle: None,
                     payload: None,
                     error: None,
-                    preparation: preparation.clone(),
                     callback_registered: false,
                     completion: Arc::default(),
                 });

@@ -17,7 +17,7 @@ fn error(e: &dyn std::fmt::Display) -> JsValue {
     JsValue::from_str(&e.to_string())
 }
 
-/// Parses and checks the manifest. It runs while the main thread sets up the interface.
+/// Parses the manifest. It runs while the main thread sets up the interface.
 #[wasm_bindgen]
 pub fn load(manifest: &[u8]) -> Result<(), JsValue> {
     console_error_panic_hook::set_once();

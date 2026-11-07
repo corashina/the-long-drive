@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 
+# The manifest checks. Only the native `validate-reference` bin and native tests enable them.
+[features]
+validate = []
+
 [lib]
 doctest = false
 
@@ -14,7 +18,7 @@ bytemuck = { version = "=1.25.2", features = ["derive"] }
 glam = { version = "=0.32.1", default-features = false, features = ["std", "nostd-libm"] }
 rapier3d = "=0.36.0"
 serde = { version = "=1.0.229", features = ["derive", "rc"] }
-serde_json = { version = "=1.0.151", features = ["float_roundtrip", "raw_value"] }
+serde_json = { version = "=1.0.151", features = ["float_roundtrip"] }
 terrain = { path = "../terrain" }
 road-mesh = { path = "../road-mesh" }
 grass-mesh = { path = "../grass-mesh" }

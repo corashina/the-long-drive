@@ -2,6 +2,19 @@
 #[path = "stream_tests/kit.rs"]
 pub mod kit;
 
+/// The renderer finishes only a surface that it reserved. The finish keeps the stale fact.
+#[test]
+fn a_surface_finishes_only_after_its_reservation() {
+    use super::SurfaceState;
+    assert_eq!(
+        SurfaceState::Prepared.accept().unwrap_err().0,
+        "Unreserved source renderer"
+    );
+    let mut state = SurfaceState::Reserved { stale: true };
+    state.accept().unwrap();
+    assert_eq!(state, SurfaceState::RendererReady { stale: true });
+}
+
 /// The stream drops a structure while the renderer finishes it. The late receipt ends its claim
 /// and does not stop the game.
 #[test]

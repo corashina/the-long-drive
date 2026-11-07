@@ -1,4 +1,5 @@
 //! Scene instances of spawned item prototype bodies.
+use super::bind_state::BindState;
 use super::materials::SourceMaterial;
 use super::reference::ReferenceVisuals;
 use super::scene_nodes::SceneGraph;
@@ -20,10 +21,7 @@ pub(crate) struct SpawnedScene;
 
 struct SpawnedInstance {
     root: Entity,
-    ready: bool,
-    bound: bool,
-    /// Binding failed. The item stays hidden and binding does not run again.
-    failed: bool,
+    state: BindState,
     source_materials_bound: bool,
     nodes: Vec<(NodeId, Entity)>,
     primitives: Vec<Entity>,
@@ -49,8 +47,7 @@ impl SpawnedVisuals {
     /// Bound scene node of a spawned item, for item-specific presentation.
     pub fn node(&self, item: ItemId, node: NodeId) -> Option<Entity> {
         let instance = self.instances.get(&item)?;
-        instance
-            .bound
+        (instance.state == BindState::Bound)
             .then(|| instance.nodes.iter().find(|(id, _)| *id == node))
             .flatten()
             .map(|(_, entity)| *entity)
@@ -129,7 +126,7 @@ fn owning_body(
         if prototype.bodies.iter().any(|b| b.node == node) {
             return Some(node);
         }
-        node = manifest.nodes.iter().find(|n| n.id == node)?.parent?;
+        node = manifest.node(node)?.parent?;
     }
     None
 }
@@ -293,8 +290,9 @@ pub(crate) fn sync(
                         }
                         if let Some(instance) = spawned.instances.get_mut(&id)
                             && instance.root == event.entity
+                            && instance.state == BindState::Loading
                         {
-                            instance.ready = true;
+                            instance.state = BindState::Loaded;
                         }
                     },
                 )
@@ -303,9 +301,7 @@ pub(crate) fn sync(
                 item.id,
                 SpawnedInstance {
                     root,
-                    ready: false,
-                    bound: false,
-                    failed: false,
+                    state: BindState::Loading,
                     source_materials_bound: false,
                     nodes: Vec::new(),
                     primitives: Vec::new(),
@@ -318,18 +314,15 @@ pub(crate) fn sync(
             continue;
         }
         let instance = spawned.instances.get_mut(&item.id).unwrap();
-        if !instance.ready {
+        if matches!(instance.state, BindState::Loading | BindState::Failed) {
             continue;
         }
-        if instance.failed {
-            continue;
-        }
-        if !instance.bound {
+        if instance.state == BindState::Loaded {
             let binding =
                 graph.bind_instance(&mut commands, manifest, instance.root, prototype.asset);
             if !binding.complete() {
                 error!("Spawned item {:?}: {}", item.id, binding.failure());
-                instance.failed = true;
+                instance.state = BindState::Failed;
                 continue;
             }
             instance.nodes = binding.nodes;
@@ -353,7 +346,7 @@ pub(crate) fn sync(
                     commands.entity(entity).insert(Visibility::Hidden);
                 }
             }
-            instance.bound = true;
+            instance.state = BindState::Bound;
         }
         if !instance.source_materials_bound {
             if instance.primitives.is_empty()

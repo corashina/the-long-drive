@@ -6,26 +6,20 @@ fn installed_startup_selects_only_garage_lada() {
     let bytes =
         the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
             .unwrap();
-    ReferenceManifest::from_runtime(&bytes).unwrap();
-    let (json, tables) = the_long_slop::reference::split_manifest(&bytes).unwrap();
-    let mut manifest: serde_json::Value = serde_json::from_slice(json).unwrap();
+    let mut reference = ReferenceManifest::from_manifest(&bytes).unwrap();
     assert!(
-        manifest["assets"]
-            .as_array()
-            .unwrap()
+        reference
+            .assets
             .iter()
-            .all(|asset| { asset["path"] != "reference/skoda.gltf" })
+            .all(|asset| asset.path != "reference/skoda.gltf")
     );
-    let packs = manifest["acquisition"]["startup_packs"]
-        .as_array_mut()
-        .unwrap();
+    let packs = &mut reference.acquisition.startup_packs;
     assert_eq!(packs.len(), 1);
-    assert_eq!(packs[0]["vehicle"]["path_id"], 77839);
+    assert_eq!(packs[0].vehicle.path_id, 77839);
     packs.clear();
-    let bytes =
-        the_long_slop::reference::join_manifest(&serde_json::to_vec(&manifest).unwrap(), tables);
     assert!(
-        ReferenceManifest::from_runtime(&bytes)
+        reference
+            .validate()
             .unwrap_err()
             .to_string()
             .contains("selected packs")
@@ -38,7 +32,7 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
     let bytes =
         the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
             .unwrap();
-    let mut reference = ReferenceManifest::from_runtime(&bytes).unwrap();
+    let mut reference = ReferenceManifest::from_manifest(&bytes).unwrap();
     let index = reference
         .world
         .records
@@ -51,8 +45,10 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
         .as_object_mut()
         .unwrap()
         .remove("m_LocalReferencePoint");
-    std::sync::Arc::make_mut(&mut reference.world).records[index].fields =
-        serde_json::from_value(value).unwrap();
+    let changed = serde_json::from_value(value).unwrap();
+    std::sync::Arc::make_mut(&mut reference.world)
+        .records
+        .edit(|records| records[index].fields = changed);
     assert!(
         reference
             .validate()
@@ -60,7 +56,9 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
             .to_string()
             .contains("m_LocalReferencePoint")
     );
-    std::sync::Arc::make_mut(&mut reference.world).records[index].fields = fields;
+    std::sync::Arc::make_mut(&mut reference.world)
+        .records
+        .edit(|records| records[index].fields = fields);
     let root = &reference.world.startup[0].source;
     let index = reference
         .world
@@ -70,11 +68,11 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
         .unwrap();
     let root = std::sync::Arc::make_mut(&mut reference.world)
         .records
-        .swap_remove(index);
+        .edit(|records| records.swap_remove(index));
     assert!(reference.validate().is_err());
     std::sync::Arc::make_mut(&mut reference.world)
         .records
-        .push(root);
+        .edit(|records| records.push(root));
     let evaluator =
         the_long_slop::world::terrain_evaluator(&reference.world, reference.world.terrain.seed);
     the_long_slop::world::StartupTerrain::new(
@@ -142,62 +140,5 @@ fn oversized_documents_stop_before_parsing() {
             result.unwrap_err().to_string(),
             "Invalid reference field: manifest size"
         );
-    }
-}
-
-/// The shell from the parsed manifest matches the manifest text, so the interface reads the same values.
-#[test]
-#[ignore = "requires the installed source export"]
-fn installed_manifest_shell_matches_the_manifest_text() {
-    use serde_json::Value;
-    fn same(a: &Value, b: &Value, path: &str) {
-        match (a, b) {
-            (Value::Number(a), Value::Number(b)) => {
-                let (a, b) = (a.as_f64().unwrap(), b.as_f64().unwrap());
-                assert!((a - b).abs() <= 1e-6 * a.abs().max(1.0), "{path}: {a} {b}");
-            }
-            (Value::Array(a), Value::Array(b)) => {
-                assert_eq!(a.len(), b.len(), "{path}");
-                for (i, (a, b)) in a.iter().zip(b).enumerate() {
-                    same(a, b, &format!("{path}/{i}"));
-                }
-            }
-            (Value::Object(a), Value::Object(b)) => {
-                let keys =
-                    |o: &serde_json::Map<String, Value>| o.keys().cloned().collect::<Vec<_>>();
-                assert_eq!(keys(a), keys(b), "{path}");
-                for (key, a) in a {
-                    same(a, &b[key], &format!("{path}/{key}"));
-                }
-            }
-            _ => assert_eq!(a, b, "{path}"),
-        }
-    }
-    let bytes =
-        the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
-            .unwrap();
-    let reference = ReferenceManifest::from_checked_runtime(&bytes).unwrap();
-    let mut shell: Value =
-        serde_json::from_str(&the_long_slop::manifest_shell::shell(&reference).unwrap()).unwrap();
-    assert!(
-        !shell["world"]["start_cars"].as_array().unwrap().is_empty(),
-        "start cars"
-    );
-    shell["world"].as_object_mut().unwrap().remove("start_cars");
-    let (json, _) = the_long_slop::reference::split_manifest(&bytes).unwrap();
-    let text: Value = serde_json::from_slice(json).unwrap();
-    for (key, value) in shell.as_object().unwrap() {
-        let expected = match key.as_str() {
-            "world" => serde_json::json!({
-                "draw_distance": text["world"]["draw_distance"],
-                "mirrors": text["world"]["mirrors"],
-            }),
-            "clothing" => serde_json::json!({
-                "characters": text["clothing"]["characters"].as_array().unwrap().iter()
-                    .map(|c| serde_json::json!({"segments": c["segments"]})).collect::<Vec<_>>(),
-            }),
-            _ => text[key].clone(),
-        };
-        same(value, &expected, key);
     }
 }

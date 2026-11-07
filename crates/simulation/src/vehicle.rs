@@ -237,6 +237,9 @@ pub struct PhysicsWorld {
     sleep_speed: f32,
     /// Milliseconds of `step_physics` since the last `take_step_ms`. Zero off the web.
     step_ms: f64,
+    /// Count of the last collider edit of each body. See `shape_revision`.
+    body_shapes: HashMap<RigidBodyHandle, u64>,
+    shape_edits: u64,
     /// Weather tire grip multiplier for all wheel sets.
     tire_grip: f32,
 }
@@ -261,12 +264,11 @@ impl PhysicsWorld {
             sleep_speed:
                 rapier3d::prelude::RigidBodyActivation::default_normalized_linear_threshold(),
             step_ms: 0.,
+            body_shapes: HashMap::new(),
+            shape_edits: 0,
             tire_grip: 1.0,
         };
         physics.physics.integration_parameters.dt = FIXED_DT;
-        // A recycled contact keeps its fixed-collider points in world space. The origin rebase
-        // moves fixed colliders, so a recycled contact would push against the old surface.
-        physics.physics.integration_parameters.contact_recycling = false;
         physics
     }
 }
@@ -447,6 +449,7 @@ impl PhysicsWorld {
             .begin_step(&self.physics.bodies, self.physics.islands.active_bodies());
         self.physics
             .step_with_events(&self.ignored, &self.hit_collector);
+        self.physics.integration_parameters.contact_recycling = true;
         self.presentation_bodies.end_step(&self.physics.bodies);
         self.hit_collector.take(&mut self.hits);
         self.hit_collector.take_enters(&mut self.trigger_enters);
@@ -729,6 +732,7 @@ impl PhysicsWorld {
             .and_then(|collider| collider.parent())
         {
             self.query_bounds.mark_body(parent);
+            self.shapes_changed(parent);
         }
         self.physics.remove_collider(handle);
         self.refresh_queries();
@@ -753,6 +757,9 @@ impl PhysicsWorld {
                 collider.set_translation(collider.translation() - shift);
             }
         }
+        // A recycled contact keeps its fixed-collider points in world space. The rebase moves
+        // fixed colliders, so the next step computes every moved contact again.
+        self.physics.integration_parameters.contact_recycling = false;
         // Rapier refreshes private wheel ray points before applying forces next step.
         // Keep suspension lengths, wheel rotations, and velocities unchanged here.
         self.refresh_queries();

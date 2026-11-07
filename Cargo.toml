@@ -13,17 +13,18 @@ name = "validate-reference"
 test = false
 
 [workspace]
-members = ["crates/simulation", "crates/simulation-worker", "crates/terrain", "crates/road-mesh", "crates/grass-mesh", "crates/mesh-worker", "crates/wasm-heap"]
+members = ["crates/crunch", "crates/crunch-worker", "crates/simulation", "crates/simulation-worker", "crates/terrain", "crates/road-mesh", "crates/grass-mesh", "crates/mesh-worker", "crates/wasm-heap"]
 
 [dependencies]
 simulation = { path = "crates/simulation" }
 bevy_platform = "=0.19.1"
 rapier3d = "=0.36.0"
 serde = { version = "=1.0.229", features = ["derive", "rc"] }
-serde_json = { version = "=1.0.151", features = ["float_roundtrip", "raw_value"] }
+serde_json = { version = "=1.0.151", features = ["float_roundtrip"] }
 terrain = { path = "crates/terrain" }
 road-mesh = { path = "crates/road-mesh" }
 grass-mesh = { path = "crates/grass-mesh" }
+crunch = { path = "crates/crunch" }
 wasm-heap = { path = "crates/wasm-heap" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -31,13 +32,13 @@ async-lock = "=3.4.2"
 bytemuck = "=1.25.2"
 js-sys = "=0.3.106"
 wgpu = { version = "=29.0.4", default-features = false, features = ["serde"] }
-# `png` decodes primary texture PNG chains (primary_image.rs). `reflect_auto_register` fills the
-# type registry that glTF scene spawning (`WorldAssetRoot`) needs. Without it the WASM is not smaller.
+# `reflect_auto_register` fills the type registry that glTF scene spawning (`WorldAssetRoot`) needs.
+# Without it the WASM is not smaller.
 bevy = { version = "=0.19.1", default-features = false, features = [
     "std", "async_executor", "bevy_asset", "bevy_log", "bevy_window",
     "bevy_winit", "bevy_render", "bevy_core_pipeline", "bevy_pbr",
     "bevy_light", "bevy_mesh", "bevy_camera", "bevy_color",
-    "keyboard", "mouse", "bevy_gltf", "png", "reflect_auto_register", "webgpu",
+    "keyboard", "mouse", "bevy_gltf", "reflect_auto_register", "webgpu",
 ] }
 # Bevy `info!` goes through tracing. Release builds drop info, debug and trace at compile time (V6).
 # The simulation crate sets the same feature on `log`, which wgpu uses.
@@ -48,6 +49,12 @@ wasm-bindgen-futures = "=0.4.79"
 winit = { version = "=0.30.13", default-features = false }
 gltf = { version = "=1.4.1", default-features = false, features = ["utils", "names", "extras"] }
 console_error_panic_hook = "=0.1.7"
+
+# `validate-reference` and native tests run the manifest checks. WASM builds leave them out.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+simulation = { path = "crates/simulation", features = ["validate"] }
+# The export crunch check of `validate-reference`.
+sha2 = "=0.10.9"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 bevy = { version = "=0.19.1", default-features = false, features = [

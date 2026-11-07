@@ -33,11 +33,44 @@ use std::sync::{Arc, Mutex};
 /// Fixed rows that load at once. A chunk load waits several frames, mostly not on the CPU.
 const ROW_JOBS: usize = 3;
 use crate::reference::fixed_reservation::{FIXED_SHADER_PATHS as SHADERS, shader_input};
-type RootState = SelectedMetadata<Handle<SourcePlan>, Handle<Gltf>>;
+type RootState = SelectedMetadata<Handle<SourcePlan>, GltfRead>;
+/// The glTF read of a fixed root. The mesh upload follows the read.
+enum GltfRead {
+    Reading(Handle<Gltf>),
+    /// The glTF and its meshes are parsed. The read job and its staging are free.
+    Read(Handle<Gltf>),
+}
+impl GltfRead {
+    fn id(&self) -> bevy::asset::AssetId<Gltf> {
+        match self {
+            Self::Reading(handle) | Self::Read(handle) => handle.id(),
+        }
+    }
+    fn read(&mut self) {
+        if let Self::Reading(handle) = self {
+            *self = Self::Read(std::mem::take(handle));
+        }
+    }
+}
+/// The fixed cloud mesh load. The reservation holds until the mesh uploads.
+enum CloudLoad {
+    None,
+    Loading { mesh: Handle<Mesh> },
+    Uploading { fence: Arc<MeshUpload> },
+    Done,
+    Failed,
+}
+/// The fixed caster dither load: bytes, then one 3D image upload.
+enum DitherLoad {
+    None,
+    Loading(Handle<CasterDitherBytes>),
+    Converted(UploadReceipt),
+    Done,
+    Failed,
+}
 struct Root {
     asset: AssetId,
     state: RootState,
-    input_done: bool,
     failed: bool,
     meshes: Vec<Handle<Mesh>>,
     fence: Option<Arc<MeshUpload>>,
@@ -81,15 +114,8 @@ pub struct SourceFixedAssets {
     rows: Vec<Row>,
     shaders: Vec<ShaderLoad>,
     uploads: Arc<Mutex<Uploads>>,
-    cloud: Option<Handle<Mesh>>,
-    cloud_fence: Option<Arc<MeshUpload>>,
-    cloud_done: bool,
-    cloud_failed: bool,
-    dither: Option<Handle<CasterDitherBytes>>,
-    dither_receipt: UploadReceipt,
-    dither_done: bool,
-    dither_failed: bool,
-    dither_converted: bool,
+    cloud: CloudLoad,
+    dither: DitherLoad,
     cookies: Option<Handle<Image>>,
     cookie_receipt: UploadReceipt,
     admitted: bool,
@@ -139,7 +165,6 @@ impl SourceFixedAssets {
             .map(|a| Root {
                 asset: a.id,
                 state: RootState::Queued,
-                input_done: false,
                 failed: false,
                 meshes: Vec::new(),
                 fence: None,
@@ -193,15 +218,8 @@ impl SourceFixedAssets {
                 })
                 .collect(),
             uploads,
-            cloud: None,
-            cloud_fence: None,
-            cloud_done: false,
-            cloud_failed: false,
-            dither: None,
-            dither_receipt: default(),
-            dither_done: false,
-            dither_failed: false,
-            dither_converted: false,
+            cloud: CloudLoad::None,
+            dither: DitherLoad::None,
             cookies: None,
             cookie_receipt: default(),
             admitted: false,
@@ -244,8 +262,8 @@ impl SourceFixedAssets {
             .count();
         let shaders = self.shaders.iter().filter(|s| s.done).count();
         let singles = [
-            self.cloud_done,
-            self.dither_done,
+            matches!(self.cloud, CloudLoad::Done),
+            matches!(self.dither, DitherLoad::Done),
             self.cookie_receipt.completed(),
         ];
         let ready = roots + rows + shaders + singles.iter().filter(|done| **done).count();
@@ -263,8 +281,8 @@ impl SourceFixedAssets {
                 .rows
                 .iter()
                 .all(|r| r.image.is_some() && r.receipt.completed())
-            && self.cloud_done
-            && self.dither_done
+            && matches!(self.cloud, CloudLoad::Done)
+            && matches!(self.dither, DitherLoad::Done)
             && self.cookie_receipt.completed()
             && self.shaders_bound
     }
@@ -280,7 +298,14 @@ impl SourceFixedAssets {
             }
             match r.state {
                 RootState::PlanLoading(_) => add(1, 1),
-                RootState::Loading { .. } => add(usize::from(!r.input_done), 1),
+                RootState::Loading {
+                    asset: GltfRead::Reading(_),
+                    ..
+                } => add(1, 1),
+                RootState::Loading {
+                    asset: GltfRead::Read(_),
+                    ..
+                } => add(0, 1),
                 _ => {}
             }
         }
@@ -292,13 +317,15 @@ impl SourceFixedAssets {
             let active = shader.handle.is_some() && !shader.done;
             add(usize::from(active), usize::from(active));
         }
-        if self.cloud.is_some() && !self.cloud_failed {
-            let reading = !self.cloud_done && self.cloud_fence.is_none();
-            add(usize::from(reading), usize::from(!self.cloud_done));
+        match &self.cloud {
+            CloudLoad::Loading { .. } => add(1, 1),
+            CloudLoad::Uploading { .. } => add(0, 1),
+            CloudLoad::None | CloudLoad::Done | CloudLoad::Failed => {}
         }
-        if self.dither.is_some() && !self.dither_failed {
-            let converting = !self.dither_done && !self.dither_converted;
-            add(usize::from(converting), usize::from(!self.dither_done));
+        match &self.dither {
+            DitherLoad::Loading(_) => add(1, 1),
+            DitherLoad::Converted(_) => add(0, 1),
+            DitherLoad::None | DitherLoad::Done | DitherLoad::Failed => {}
         }
         if self.cookies.is_some() {
             add(0, usize::from(!self.cookie_receipt.completed()));
@@ -400,9 +427,9 @@ impl SourceFixedAssets {
             if root.failed {
                 continue;
             }
-            if let LoadState::Failed(error) = server.load_state(asset.id()) {
+            let id = asset.id();
+            if let LoadState::Failed(error) = server.load_state(id) {
                 root.failed = true;
-                root.input_done = true;
                 let path = &reference
                     .assets
                     .iter()
@@ -415,13 +442,15 @@ impl SourceFixedAssets {
                 continue;
             }
             if let Some((_, _, bevy::asset::RecursiveDependencyLoadState::Failed(error))) =
-                server.get_load_states(asset.id())
+                server.get_load_states(id)
             {
                 self.failure
                     .get_or_insert(format!("Fixed glTF dependency: {error}"));
             }
-            if let Some(gltf) = gltfs.get(asset) {
-                root.input_done = true;
+            if let Some(gltf) = gltfs.get(id) {
+                if let RootState::Loading { asset, .. } = &mut root.state {
+                    asset.read();
+                }
                 if root.fence.is_none() {
                     for handle in &gltf.meshes {
                         let Some(mesh) = gltf_meshes.get(handle) else {
@@ -552,35 +581,32 @@ impl SourceFixedAssets {
                 }
             }
         }
-        if let Some(handle) = &self.cloud {
-            if let LoadState::Failed(error) = server.load_state(handle.id()) {
-                self.failure.get_or_insert(format!("Fixed cloud: {error}"));
-                self.cloud_failed = true;
-            } else if meshes.contains(handle.id()) && self.cloud_fence.is_none() {
-                let fence = Arc::new(MeshUpload {
-                    meshes: vec![handle.clone()],
-                    receipt: default(),
-                });
-                self.uploads.lock().unwrap().meshes.push(Arc::clone(&fence));
-                self.cloud_fence = Some(fence);
-            }
-            if self
-                .cloud_fence
-                .as_ref()
-                .is_some_and(|f| f.receipt.completed())
-                && !self.cloud_done
-            {
-                self.cloud_done = true;
-            }
+        if let CloudLoad::Loading { mesh } = &self.cloud
+            && let LoadState::Failed(error) = server.load_state(mesh.id())
+        {
+            self.failure.get_or_insert(format!("Fixed cloud: {error}"));
+            self.cloud = CloudLoad::Failed;
         }
-        if let Some(handle) = &self.dither {
+        if let CloudLoad::Loading { mesh } = &self.cloud
+            && meshes.contains(mesh.id())
+        {
+            let fence = Arc::new(MeshUpload {
+                meshes: vec![mesh.clone()],
+                receipt: default(),
+            });
+            self.uploads.lock().unwrap().meshes.push(Arc::clone(&fence));
+            self.cloud = CloudLoad::Uploading { fence };
+        }
+        if let CloudLoad::Uploading { fence } = &self.cloud
+            && fence.receipt.completed()
+        {
+            self.cloud = CloudLoad::Done;
+        }
+        if let DitherLoad::Loading(handle) = &self.dither {
             if let LoadState::Failed(error) = server.load_state(handle.id()) {
-                self.dither_failed = true;
                 self.failure.get_or_insert(format!("Fixed dither: {error}"));
-            }
-            if render_lighting.caster_dither.is_none()
-                && let Some(data) = dither.remove(handle.id())
-            {
+                self.dither = DitherLoad::Failed;
+            } else if let Some(data) = dither.remove(handle.id()) {
                 let mut image = Image::new(
                     Extent3d {
                         width: 4,
@@ -603,15 +629,20 @@ impl SourceFixedAssets {
                     ..default()
                 });
                 let handle = images.add(image);
+                let receipt = UploadReceipt::default();
                 self.uploads
                     .lock()
                     .unwrap()
                     .images
-                    .push((handle.clone(), self.dither_receipt.clone()));
+                    .push((handle.clone(), receipt.clone()));
                 render_lighting.caster_dither = Some(handle);
-                self.dither_converted = true;
+                self.dither = DitherLoad::Converted(receipt);
             }
-            self.dither_done = self.dither_receipt.completed();
+        }
+        if let DitherLoad::Converted(receipt) = &self.dither
+            && receipt.completed()
+        {
+            self.dither = DitherLoad::Done;
         }
         self.account(ledger, snapshot)?;
         if let Some(error) = &self.failure {
@@ -661,7 +692,9 @@ impl SourceFixedAssets {
                 .load(record.path.clone());
             visuals.handles.push((record.path.clone(), handle.clone()));
             visuals.gltfs.push((record.id, handle.clone()));
-            self.roots[index].state.start_payload(handle);
+            self.roots[index]
+                .state
+                .start_payload(GltfRead::Reading(handle));
         }
         // A shader starts when the shaders it imports by path are done.
         for index in 0..self.shaders.len() {
@@ -774,9 +807,9 @@ impl SourceFixedAssets {
                     .load(chunk.data.path.clone()),
             );
         }
-        if self.cloud.is_none() {
+        if matches!(self.cloud, CloudLoad::None) {
             if crate::ownership::fixed::fixed_room(ledger, true, true) {
-                let handle = server
+                let mesh = server
                     .load_builder()
                     .with_settings(super::reference::source_gltf_settings)
                     .load(
@@ -786,12 +819,12 @@ impl SourceFixedAssets {
                         }
                         .from_asset(reference.render_lighting.sky.cloud_mesh.file.clone()),
                     );
-                assets.cloud_mesh = handle.clone();
-                self.cloud = Some(handle);
+                assets.cloud_mesh = mesh.clone();
+                self.cloud = CloudLoad::Loading { mesh };
                 self.account(ledger, snapshot)?;
             }
         }
-        if self.dither.is_none() {
+        if matches!(self.dither, DitherLoad::None) {
             let path = &reference.render_lighting.caster_dither.file;
             if reference.file_catalog.file(path)?.bytes != 256 {
                 return Err(ReferenceError("Fixed dither receipt size".into()));
@@ -799,7 +832,7 @@ impl SourceFixedAssets {
             if crate::ownership::fixed::fixed_room(ledger, true, true) {
                 let handle = server.load(path.clone());
                 assets.dither_bytes = handle.clone();
-                self.dither = Some(handle);
+                self.dither = DitherLoad::Loading(handle);
                 self.account(ledger, snapshot)?;
             }
         }

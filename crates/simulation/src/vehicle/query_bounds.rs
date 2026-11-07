@@ -26,12 +26,12 @@ pub(super) struct RefreshWork {
 }
 
 #[derive(Default)]
-struct HandleQueue<H> {
-    handles: Vec<H>,
+pub(super) struct HandleQueue<H> {
+    pub(super) handles: Vec<H>,
     markers: Vec<Option<(H, usize)>>,
 }
 impl<H: Copy + Eq> HandleQueue<H> {
-    fn mark(&mut self, handle: H, slot: usize) -> usize {
+    pub(super) fn mark(&mut self, handle: H, slot: usize) -> usize {
         if self.markers.len() <= slot {
             self.markers.resize_with(slot + 1, || None);
         }
@@ -45,7 +45,7 @@ impl<H: Copy + Eq> HandleQueue<H> {
         self.markers[slot] = Some((handle, index));
         index
     }
-    fn clear(&mut self, slot: impl Fn(H) -> usize) {
+    pub(super) fn clear(&mut self, slot: impl Fn(H) -> usize) {
         for &handle in &self.handles {
             let marker = &mut self.markers[slot(handle)];
             if marker.is_some_and(|(previous, _)| previous == handle) {

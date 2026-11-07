@@ -107,9 +107,7 @@ impl WorldStream {
             layer: WorldLayer::Terrain,
             unit,
         };
-        self.surfaces
-            .iter()
-            .any(|s| s.key == key && s.collider.is_some())
+        self.surface(key).is_some_and(|s| s.collider.is_some())
     }
     /// Removes patches that a tile replaced, that the windows left, or that have an old
     /// terrain context. Then adds patches where the windows have no tile collider.
@@ -117,6 +115,7 @@ impl WorldStream {
         let context = self.ground.context;
         let keep = self.patch_windows(PATCH_KEEP);
         let mut patches = std::mem::take(&mut self.ground.patches);
+        let count = patches.len();
         patches.retain(|p| {
             let keep = p.context == context
                 && !self.tile_collides(p.unit)
@@ -131,6 +130,9 @@ impl WorldStream {
             }
             keep
         });
+        if patches.len() != count {
+            self.support_changed();
+        }
         self.ground.patches = patches;
         if self.failure.is_some() || !self.initial_generation_ready || context == 0 {
             return;
@@ -195,6 +197,7 @@ impl WorldStream {
                 }
             }
         }
+        self.support_changed();
         true
     }
     /// A collider over one chunk of tile `unit`.
@@ -208,6 +211,7 @@ impl WorldStream {
             evaluator: &self.evaluator,
             tile: self.tiles[0],
             roads: &self.ground.tile_roads,
+            road_grid: None,
             road_radius_squared: None,
             foundations: &self.ground.foundations,
             holes: &[],
@@ -298,6 +302,7 @@ mod tests {
             evaluator: &evaluator,
             tile,
             roads: &roads,
+            road_grid: None,
             road_radius_squared: None,
             foundations: &[],
             holes: &[],

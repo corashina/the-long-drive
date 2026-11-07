@@ -177,9 +177,7 @@ impl WheelAssemblies {
                 return Err(error("Missing or shared wheel part collider"));
             }
             let item = reference
-                .items
-                .iter()
-                .find(|item| item.id == record.item)
+                .item(record.item)
                 .ok_or_else(|| error("Missing wheel part item"))?;
             let rim = match item.kind {
                 ItemKind::Rim => true,
@@ -188,14 +186,10 @@ impl WheelAssemblies {
             };
             let tire_mount = if let Some(id) = record.tire_slot_anchor {
                 let anchor = reference
-                    .anchors
-                    .iter()
-                    .find(|anchor| anchor.id == id)
+                    .anchor(id)
                     .ok_or_else(|| error("Missing tire mount anchor"))?;
                 let body = reference
-                    .bodies
-                    .iter()
-                    .find(|body| body.id == anchor.body)
+                    .body(anchor.body)
                     .ok_or_else(|| error("Missing tire mount body"))?;
                 Some(
                     to_rapier(node_pose(reference, item.node)?).inverse()

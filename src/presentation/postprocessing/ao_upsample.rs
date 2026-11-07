@@ -3,6 +3,7 @@ use super::{
     ao_depth::{AoDepthPass, AoDepthTarget},
     ao_render::AoRenderPass,
 };
+use crate::presentation::fullscreen::{self, FullscreenPass};
 use crate::reference::postprocessing::OcclusionSettings;
 use bevy::prelude::*;
 use bevy::render::{
@@ -145,30 +146,18 @@ impl AoUpsamplePass {
             || {
                 std::array::from_fn(|i| {
                     let name = ["horizontal", "vertical", "bilateral"][i];
-                    cache.queue_render_pipeline(RenderPipelineDescriptor {
-                        label: Some(format!("source_ao_{name}").into()),
-                        layout: vec![layout.clone()],
-                        vertex: VertexState {
-                            shader: shader.clone(),
-                            entry_point: Some("vertex".into()),
-                            ..default()
-                        },
-                        fragment: Some(FragmentState {
-                            shader: shader.clone(),
-                            entry_point: Some(name.into()),
-                            targets: vec![Some(ColorTargetState {
-                                format: if i == 2 {
-                                    TextureFormat::R8Unorm
-                                } else {
-                                    TextureFormat::R32Float
-                                },
-                                blend: None,
-                                write_mask: ColorWrites::RED,
-                            })],
-                            ..default()
-                        }),
-                        ..default()
-                    })
+                    let format = if i == 2 {
+                        TextureFormat::R8Unorm
+                    } else {
+                        TextureFormat::R32Float
+                    };
+                    cache.queue_render_pipeline(fullscreen::descriptor(
+                        format!("source_ao_{name}"),
+                        &layout,
+                        &shader,
+                        name,
+                        vec![fullscreen::target(format, ColorWrites::RED)],
+                    ))
                 })
             },
             |pass| pass.pipelines,
@@ -183,14 +172,6 @@ impl AoUpsamplePass {
             pipelines,
         })
     }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        self.pipelines
-            .iter()
-            .all(|&id| cache.get_render_pipeline(id).is_some())
-    }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        super::named_pipeline_failure(cache, &self.pipelines, "Source AO upsample pipeline")
-    }
     pub fn encode(&self, encoder: &mut CommandEncoder, cache: &PipelineCache) -> bool {
         if !self.ready(cache) {
             return false;
@@ -200,25 +181,22 @@ impl AoUpsamplePass {
                 .into_iter()
                 .enumerate()
             {
-                let colors = [Some(RenderPassColorAttachment {
-                    view: &target.view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Default::default()),
-                        store: StoreOp::Store,
-                    },
-                })];
-                let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("source_ao_upsample"),
-                    color_attachments: &colors,
-                    ..default()
-                });
-                pass.set_pipeline(cache.get_render_pipeline(self.pipelines[stage]).unwrap());
-                pass.set_bind_group(0, &self.bindings[i][stage], &[]);
-                pass.draw(0..3, 0..1);
+                fullscreen::draw(
+                    encoder,
+                    "source_ao_upsample",
+                    cache.get_render_pipeline(self.pipelines[stage]).unwrap(),
+                    &self.bindings[i][stage],
+                    &[&target.view],
+                    fullscreen::CLEAR,
+                );
             }
         }
         true
+    }
+}
+impl FullscreenPass for AoUpsamplePass {
+    const NAME: &'static str = "Source AO upsample pipeline";
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        &self.pipelines
     }
 }

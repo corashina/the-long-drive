@@ -1,13 +1,12 @@
 //! Cached source candidate grids and coordinate-seeded object selection.
 use super::{
-    AbsolutePose, GeneratedId, GeneratedKey, Placement, RoadCurve, SourceRandom, TerrainContext,
-    WorldBounds, WorldLayer, source_perlin,
+    AbsolutePose, GeneratedKey, Placement, RoadCurve, SourceRandom, TerrainContext, WorldBounds,
+    WorldLayer, source_perlin,
 };
 use crate::reference::{
     ReferenceError, SourceId, WorldGeneratorReference, WorldReference, WorldValue,
 };
 use ::terrain::ROAD_HALF_WIDTH;
-use std::collections::HashMap;
 
 /// Extra gap from the road edge to a prop origin.
 const ROAD_CLEARANCE: f32 = 1.0;
@@ -81,7 +80,7 @@ impl PropGenerator {
             })
             .collect();
         max_chance += reference.types.len() as f32 * reference.no_spawn_chance;
-        let records: HashMap<_, _> = world.records.iter().map(|r| (&r.source, r)).collect();
+        let record = |source: &SourceId| world.records.find(source).expect("checked source record");
         let mut prototypes = Vec::with_capacity(reference.types.len());
         for selection in &reference.types {
             let Some(source) = &selection.prototype else {
@@ -89,11 +88,11 @@ impl PropGenerator {
                 continue;
             };
             let prototype = world.prototype(source)?;
-            let owner = field_link(&records[source].fields, "m_GameObject")?;
-            let object = records[owner];
+            let owner = field_link(&record(source).fields, "m_GameObject")?;
+            let object = record(owner);
             let component = object
                 .components()
-                .map(|source| records[source])
+                .map(record)
                 .find(|r| r.class_name == "RandomSpawnedObjScript")
                 .ok_or_else(|| {
                     ReferenceError("Missing source prop initialization caller".into())
@@ -101,7 +100,7 @@ impl PropGenerator {
             let rock = match component.fields.get("mountain") {
                 Some(WorldValue::Empty) => None,
                 Some(WorldValue::Link(link)) => {
-                    let r = records[link];
+                    let r = record(link);
                     Some(RockRule {
                         renderer: optional_link(&r.fields, "r")?.cloned(),
                         materials: value_array(&r.fields, "materials")?

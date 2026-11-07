@@ -58,16 +58,17 @@ pub struct PlayerPoseReference {
     pub follow: PlayerFollowReference,
     pub evidence: ManagedEvidence,
 }
+#[cfg(feature = "validate")]
 fn node(m: &ReferenceManifest, id: NodeId) -> Result<&NodeRecord, ReferenceError> {
-    m.nodes
-        .iter()
-        .find(|n| n.id == id)
+    m.node(id)
         .ok_or_else(|| ReferenceError("missing player node".into()))
 }
+#[cfg(feature = "validate")]
 pub(super) fn same_pose(a: &Transform, b: &Transform) -> bool {
     a.translation == b.translation && a.rotation == b.rotation && a.scale == b.scale && transform(a)
 }
 impl PlayerPoseReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let root = node(m, self.root)?;
         let asset = m
@@ -259,6 +260,7 @@ impl PlayerPoseReference {
     }
 }
 
+#[cfg(feature = "validate")]
 const ANCHOR_FIELDS: &[(&str, i64)] = &[
     ("CharacterRoot", 29438),
     ("CharacterStandPos", 36982),
@@ -290,6 +292,7 @@ const ANCHOR_FIELDS: &[(&str, i64)] = &[
     ("Th", 39811),
 ];
 
+#[cfg(feature = "validate")]
 const TARGET_FIELDS: &[(&str, i64)] = &[
     ("HHTarget", 25362),
     ("LHTarget", 32234),
@@ -299,11 +302,13 @@ const TARGET_FIELDS: &[(&str, i64)] = &[
     ("Pelvis", 29799),
 ];
 
+#[cfg(feature = "validate")]
 const WALK_IDS: &[&[i64]] = &[
     &[22742, 32651, 34295, 22427, 37543, 24385],
     &[28142, 26891, 36507, 36405, 33777, 27003],
 ];
 
+#[cfg(feature = "validate")]
 const SIT_IDS: &[&[i64]] = &[
     &[34069, 34069, 34069],
     &[26796, 26796, 26796],
@@ -311,6 +316,7 @@ const SIT_IDS: &[&[i64]] = &[
     &[28329, 30177, 36962],
 ];
 
+#[cfg(feature = "validate")]
 const IK_BONES: &[&[i64]] = &[
     &[26925, 26072, 30531],
     &[38757, 28290, 34137],
@@ -319,6 +325,7 @@ const IK_BONES: &[&[i64]] = &[
     &[34390, 29634, 31204],
 ];
 
+#[cfg(feature = "validate")]
 const IK_LINKS: &[(i64, i64, i64)] = &[
     (29799, 36286, 23301),
     (29799, 26378, 38357),
@@ -327,8 +334,10 @@ const IK_LINKS: &[(i64, i64, i64)] = &[
     (25710, 32762, 38405),
 ];
 
+#[cfg(feature = "validate")]
 const IK_IDS: &[i64] = &[69323, 79008, 76627, 70472, 76733];
 
+#[cfg(feature = "validate")]
 const FOLLOW_NODES: &[i64] = &[
     25455, 30383, 37943, 37865, 28293, 39700, 32025, 36794, 39866, 24604, 32753, 27265, 24960,
     22453, 31901, 32533, 33876, 27041, 24970, 38256, 24859, 35588, 38783, 27677, 31650, 25383,
@@ -338,6 +347,7 @@ const FOLLOW_NODES: &[i64] = &[
     32014,
 ];
 
+#[cfg(feature = "validate")]
 const FOLLOW_TARGETS: &[i64] = &[
     26068, 29799, 36277, 36234, 27719, 38049, 32657, 37442, 38141, 26362, 32161, 28124, 25617,
     24366, 33505, 31941, 35609, 28814, 25713, 40017, 26804, 33934, 39475, 28176, 33387, 25893,
@@ -347,6 +357,7 @@ const FOLLOW_TARGETS: &[i64] = &[
     32635,
 ];
 
+#[cfg(feature = "validate")]
 const NULL_FIELDS: &[&str] = &[
     "nearestHand",
     "nearestLeg",
@@ -357,8 +368,10 @@ const NULL_FIELDS: &[&str] = &[
     "VCurrentRLT",
 ];
 
+#[cfg(feature = "validate")]
 const HAND_ROTATION: &[f32] = &[-0.0, -0.0, -0.7071067811865476, 0.7071067811865476];
 
+#[cfg(feature = "validate")]
 const IK_ROTATIONS: &[&[f32]] = &[
     &[-0.0, 0.7071067811865476, 0.0, 0.7071067811865476],
     &[-0.0, 0.7071067811865476, 0.0, 0.7071067811865476],

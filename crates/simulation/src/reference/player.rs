@@ -64,6 +64,8 @@ pub struct RemotePlayerReference {
     /// Body and feet material. Unity combines it with the minimum.
     pub friction: f32,
     pub mass_kg: f32,
+    /// Unity `collisionDetectionMode` is not Discrete. The body uses CCD.
+    pub ccd: bool,
     /// Layer 0 while standing, layer 10 while seated.
     pub standing_membership: u32,
     pub standing_filter: u32,
@@ -148,10 +150,12 @@ pub struct MapViewReference {
     pub look_time: f32,
 }
 
+#[cfg(feature = "validate")]
 fn same(actual: f32, expected: f32) -> bool {
     actual.is_finite() && (actual - expected).abs() <= 0.00001
 }
 
+#[cfg(feature = "validate")]
 fn sphere(
     value: &PlayerSphereReference,
     file: &str,
@@ -169,6 +173,7 @@ fn sphere(
 }
 
 impl PlayerReference {
+    #[cfg(feature = "validate")]
     pub(super) fn validate_movement(&self) -> Result<(), ReferenceError> {
         let p = &self.posture;
         require(

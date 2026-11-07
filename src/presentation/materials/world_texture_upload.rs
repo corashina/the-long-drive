@@ -2,10 +2,7 @@
 use crate::presentation_logic::upload_budget::{UploadBudget, UploadSpend};
 use crate::{
     ownership::texture_batch::{BatchIdentity, BatchQueue, BatchState, SLOTS},
-    presentation::{
-        gpu_prepare::GpuPreparation,
-        texture_batches::{SourceTextureBatch, SourceTextureBatchSettings},
-    },
+    presentation::texture_batches::{SourceTextureBatch, SourceTextureBatchSettings},
     reference::texture_batch::TextureBatchReference,
 };
 use bevy::{
@@ -15,7 +12,7 @@ use bevy::{
         Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
         render_asset::{RenderAssets, prepare_assets},
         render_resource::*,
-        renderer::{RenderDevice, RenderQueue},
+        renderer::RenderQueue,
         texture::GpuImage,
     },
 };
@@ -30,7 +27,6 @@ pub(super) struct Upload {
     pub handle: Option<Handle<SourceTextureBatch>>,
     pub payload: Option<SourceTextureBatch>,
     pub error: Option<String>,
-    pub preparation: GpuPreparation,
     pub callback_registered: bool,
     pub completion: Arc<Mutex<Option<BatchIdentity>>>,
 }
@@ -174,7 +170,6 @@ fn upload(
     uploads: Res<RenderUploads>,
     images: Res<RenderAssets<GpuImage>>,
     queue: Res<RenderQueue>,
-    device: Res<RenderDevice>,
 ) {
     let Some(shared) = &uploads.queue else {
         return;
@@ -200,21 +195,25 @@ fn upload(
         {
             return;
         }
-        upload_job(job, image, &queue, &device);
+        upload_job(job, image, &queue);
         shared.ownership.submit(owner.identity);
     }
 }
 /// Writes the rows of one ready batch.
-fn upload_job(job: &Upload, image: &GpuImage, queue: &RenderQueue, device: &RenderDevice) {
+fn upload_job(job: &Upload, image: &GpuImage, queue: &RenderQueue) {
     let batch = job.payload.as_ref().unwrap();
-    let _scope = job.preparation.scope(device);
     let block = batch.format.block();
+    // Half texture quality: the array has no top mip. See `LightingTextureRecord::drop_top`.
+    let skip = batch.mip_count - image.texture.mip_level_count();
     for region in batch.regions.iter() {
+        let Some(mip_level) = region.mip.checked_sub(skip) else {
+            continue;
+        };
         // A BC copy covers whole blocks. A mip under 4 pixels uses its 4x4 physical size.
         queue.write_texture(
             TexelCopyTextureInfo {
                 texture: &image.texture,
-                mip_level: region.mip,
+                mip_level,
                 origin: Origin3d {
                     x: 0,
                     y: region.row,
@@ -234,10 +233,6 @@ fn upload_job(job: &Upload, image: &GpuImage, queue: &RenderQueue, device: &Rend
                 depth_or_array_layers: 1,
             },
         );
-    }
-    if job.preparation.isolated() {
-        queue.submit([]);
-        job.preparation.submitted(queue);
     }
 }
 fn complete(uploads: Res<RenderUploads>, queue: Res<RenderQueue>) {

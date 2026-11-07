@@ -38,6 +38,13 @@ pub struct BodyLight {
 }
 impl WorldLight {
     /// Structure lights append their component identity. Road lights share the pole identity.
+    /// The seed of the owner id that `owned_by` accepts. None: no id owns the light.
+    pub fn owner_seed(&self) -> Option<u64> {
+        if self.biome.is_some() {
+            return Some(self.id.seed());
+        }
+        self.id.parent_seed()
+    }
     pub fn owned_by(&self, parent: &GeneratedId) -> bool {
         if self.biome.is_some() {
             return self.id == *parent;
@@ -82,8 +89,7 @@ pub fn record<'a>(
 ) -> Result<&'a WorldSourceRecord, ReferenceError> {
     world
         .records
-        .iter()
-        .find(|r| &r.source == id)
+        .find(id)
         .ok_or_else(|| ReferenceError(format!("Missing source record {}:{}", id.file, id.path_id)))
 }
 /// The `roadscript` record of a road prototype.

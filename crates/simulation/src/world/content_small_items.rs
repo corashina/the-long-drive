@@ -116,8 +116,8 @@ impl SmallItems {
             ],
             firing: None,
             clips: [
-                reference.audio.gameplay.clip_id(&s.set_clip),
-                reference.audio.gameplay.clip_id(&s.reset_clip),
+                reference.audio.clip_id(&s.set_clip),
+                reference.audio.clip_id(&s.reset_clip),
             ],
             time: 0.,
             sounds: Vec::with_capacity(8),
@@ -562,6 +562,7 @@ impl WorldStream {
         let small = &mut self.small_items;
         small.time += f64::from(dt);
         let g = &reference.small_items.genie_lamp;
+        let mut reach_changed = false;
         for b in &mut small.lamps {
             let rubbed = cleaning.take_generated_rub(b.item);
             let before = b.lamp.value;
@@ -588,10 +589,14 @@ impl WorldStream {
                 .chain(self.lights.iter_mut())
                 .filter(|l| l.id == b.light)
             {
+                reach_changed |= light.range != out.range;
                 light.intensity = out.intensity;
                 light.range = out.range;
                 light.record.range_meters = out.range;
             }
+        }
+        if reach_changed {
+            self.support_changed();
         }
     }
     /// Source ammoscript.CanReload. True when `to` can take from another bottle of its type.

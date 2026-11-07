@@ -24,7 +24,7 @@ import {installFramePacer} from './frame-pacer.js';
 import {actionIndex,compileBindings,inputsField} from './bindings.js';
 import {createSurvival} from './survival.js';
 import {createAudio,installAudioBridge} from './audio.js';
-import {manifestStamp,createSaveStorage,verifyRecord,AUTOSAVE} from './save-storage.js';
+import {manifestStamp,createSaveStorage,AUTOSAVE} from './save-storage.js';
 import {createSaveSession,startSave} from './save-session.js';
 import {createSaveBridge} from './save-bridge.js';
 import {createThumbnail} from './thumbnail.js';
@@ -86,6 +86,7 @@ import {createBootChoice} from './boot-choice.js';
 import {ROLE} from './net.js';
 import {createAnalytics,hostedSite} from './analytics.js';
 import {installGrassBridge} from './grass.js';
+import {installCrunch} from './crunch.js';
 import {configureAssetCatalog,readAsset,releaseStartPacks,startPackMeasurements,worldBootstrapMeasurements,worldInputBytes,setAssetCpuProfile} from './world-assets.js';
 setAssetCpuProfile(cpuProfile);
 // Start the simulation worker and its WASM download early.
@@ -94,6 +95,8 @@ simulation.hooks({inputConsumed:()=>window.gameCpuInputConsumed(),clearInput:()=
 installSimulationBridge(window,simulation);
 const grassClients=installGrassBridge(window,cpuProfile);
 window.sourceReadAsset=(base,receipt)=>readAsset(base,JSON.parse(receipt));
+window.sourceReleasePacks=releaseStartPacks;
+installCrunch(window);
 window.sourceInputBytes=worldInputBytes;
 const canvas=document.querySelector('#game'),toast=document.querySelector('#toast'),runtimeError=document.querySelector('#runtime-error');
 const loading=createLoading(),thumbnail=createThumbnail(canvas);
@@ -119,7 +122,7 @@ let adapterName='';
 let wasmMemory,renderAudit,watchRenderAudit,renderAuditWatched=false,initialReadyMs=null,peakFrameMs=0,lastFrameTime=null,measureRequested=false;
 const wasmLimit=wasmMemoryLimit(navigator.deviceMemory),wasmTotal=()=>(wasmMemory?.buffer.byteLength??0)+simulation.wasmBytes()+grassClients.wasmBytes();
 const performancePanel=createPerformance(wasmTotal,wasmLimit,()=>renderAudit&&JSON.parse(renderAudit()),on=>{renderAuditWatched=on;watchRenderAudit?.(on);},()=>worldDrawDistance,()=>simulation.stats());
-window.gamePerformanceFrame=(physicsMs,worldMs,updateMs,renderMs)=>performancePanel.frame(performance.now(),physicsMs,worldMs,updateMs,renderMs);
+window.gamePerformanceFrame=performancePanel.frame;
 window.gamePerformanceBudget=performancePanel.budget;
 window.gamePerformanceCounters=performancePanel.counters;
 window.gamePerformance=since=>performancePanel.snapshot(since);
@@ -127,7 +130,7 @@ createWeatherPanel(simulation,()=>multiplayer?.role===ROLE.GUEST);
 // The failure message after a startup or runtime failure, else null. `gameFailure` reports a failure.
 window.gameFailureMessage=()=>failure;
 // The start menu model, for `tests/bench/fps.mjs`. Null before the interface loads.
-window.gameMenu=()=>menu?{state:menu.model.state,started:menu.model.started,pending:menu.model.pending,ready:menu.model.readyFlag,status:menu.model.status,error:menu.model.error}:null;
+window.gameMenu=()=>menu?{state:menu.model.state,started:menu.model.started,pending:menu.model.pending,ready:menu.model.isReady(),status:menu.model.status,error:menu.model.error}:null;
 // Test sandbox (`simulation::sandbox`), for `tests/bench/fps.mjs`. Only a `?sandbox` page has it.
 if(new URLSearchParams(location.search).has('sandbox'))window.gameSandbox=actions=>simulation.sandbox(JSON.stringify(actions)).then(JSON.parse);
 const measurementWaiters=[];
@@ -150,9 +153,9 @@ window.gameInventory=(selected,a,b,c,d,progress)=>{
 window.gameWeaponCrosshair=(icon,color)=>feedback?.weapon(icon,color);
 const record={actions:0,context:0,name:'',notice:'',carrying:false,amount:0,capacity:0,hasName:false,noText:true,fluidWord:0,help:0,held:'',throwCharge:0,throwActive:false,radioVolume:undefined,radioFrequency:undefined,radioAm:false,quantities:[0,0,0,0,0,0],fluidOrder:0,hose:0,computer:0,crosshair:0,weight:1};
 const settleSave=window.gameSaveResult;
-window.gameSaveResult=(id,kind,payload,error)=>{
+window.gameSaveResult=(id,kind,payload,save,error)=>{
  if(kind==='Commit'&&!error){input.clear();actions=0;}
- settleSave(id,kind,payload,error);
+ settleSave(id,kind,payload,save,error);
 };
 window.gameTypingKeys=()=>input.state.typingKeys();
 window.gameTypedText=buffer=>input.state.takeText(buffer);
@@ -236,7 +239,8 @@ async function downloadManifest(response){
  show();const timer=setInterval(show,250);
  try{
   const packed=new Uint8Array(await new Response(counted).arrayBuffer());
-  // The file is gzip at rest. A host that sends Content-Encoding: gzip gives the plain file here.
+  // The file is gzip at rest. The hosted site sends a Brotli copy of the plain file, and fetch decodes it.
+  // A host that sends Content-Encoding: gzip also gives the plain file here.
   const bytes=packed[0]===0x1f&&packed[1]===0x8b?new Uint8Array(await new Response(new Blob([packed]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()):packed;
   loading.step('download',1,1,mebibytes(bytes.byteLength)+' MiB');
   return bytes;
@@ -244,6 +248,16 @@ async function downloadManifest(response){
 }
 async function load(){
  cpuProfile.begin('startup');
+ // Download and compile the game code and download the manifest while the browser opens the adapter.
+ const code=Promise.all([import('./pkg/the_long_slop.js'),fetch('./pkg/the_long_slop_bg.wasm').then(response=>{
+  if(!response.ok)throw Error('Cannot load game code (HTTP '+response.status+').');
+  return WebAssembly.compileStreaming(response);
+ })]);
+ const manifestBytes=fetch('./assets/reference/manifest.bin.gz').then(response=>{
+  if(!response.ok)throw Error('Cannot load reference manifest (HTTP '+response.status+').');
+  return downloadManifest(response);
+ });
+ code.catch(()=>{});manifestBytes.catch(()=>{});
  startup.begin('graphics');
  // Bevy asks for the high performance adapter, so this is the GPU that renders.
  const adapter=await navigator.gpu?.requestAdapter({powerPreference:'high-performance'});
@@ -251,27 +265,21 @@ async function load(){
  const quality=firstQuality(adapter.info,navigator);
  adapterName=[adapter.info.vendor,adapter.info.architecture,adapter.info.description].filter(Boolean).join(' ');
  startup.end('graphics');startup.begin('manifest');
- // Download and compile the game code while the manifest downloads.
- const code=Promise.all([import('./pkg/the_long_slop.js'),fetch('./pkg/the_long_slop_bg.wasm').then(response=>{
-  if(!response.ok)throw Error('Cannot load game code (HTTP '+response.status+').');
-  return WebAssembly.compileStreaming(response);
- })]);
- code.catch(()=>{});
- const response=await fetch('./assets/reference/manifest.bin.gz');
- if(!response.ok)throw Error('Cannot load reference manifest (HTTP '+response.status+').');
- const bytes=await downloadManifest(response);
+ const bytes=await manifestBytes;
  // The worker parses and checks its copy while this thread loads the interface.
  simulation.load(bytes.slice());
  loading.step('code',0);
- const [{default:init,prepare,run,source_render_failure,source_render_audit,watch_render_audit,cpu_profile,cpu_profile_audit,request_thumbnail,wake_frame,prewarm_pipeline_list},module]=await code;
+ const [{default:init,prepare,run,source_render_failure,source_render_audit,watch_render_audit,cpu_profile,cpu_profile_audit,request_thumbnail,wake_frame,prewarm_pipeline_list,set_depth_prepass},module]=await code;
  const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;watchRenderAudit=watch_render_audit;watch_render_audit(renderAuditWatched);
  rustCpuProfile=cpu_profile;rustCpuAudit=cpu_profile_audit;if(startupCpuProfile)rustCpuProfile(true);
+ // Hidden bench toggle: ?prepass=0 draws the world view opaque pass without the depth prepass.
+ if(new URLSearchParams(location.search).get('prepass')==='0')set_depth_prepass(false);
  window.gameThumbnailFrame=()=>thumbnail.frame();thumbnail.connect(request_thumbnail);
  // The bundled pipeline prewarm list plus this run's play pipelines. Save it as src/presentation/prewarm_pipelines.json.
  window.gamePrewarmList=()=>prewarm_pipeline_list();
  // Rust parses the manifest once and returns only the shell fields, so JS does not parse the rest.
  startup.begin('prepare');const text=prepare(bytes),manifest=JSON.parse(text);startup.end('prepare');analytics.build(manifest.build_id);
- const {manifest_sha256:manifestHash}=await manifestStamp(bytes,manifest);
+ const manifestHash=manifestStamp(manifest);
  const bindings=manifest.driving.bindings,actionIds=actionIndex(bindings);
  settings=createSettings(()=>localStorage,manifest.settings,{...displayFields(manifest.world.mirrors.draw_distance,PRESETS[quality]),quality:qualityField(quality),...gameFields(manifest.world.start_cars.length),inputs:inputsField(bindings),language:languageField(manifest.language)});
  const language=createLanguage(manifest.language,settings,document);
@@ -296,8 +304,8 @@ async function load(){
  const storedSave=async()=>{
   const name=await startSave({loadName,newGame:newGameSeed!==undefined,autoLoad:settings.values.BAutoLoad,list:()=>saveStorage.list(),buildId:manifest.build_id});
   if(name===null)return null;
-  const record=await saveStorage.read(name);if(record===null)throw new Error('No saved game.');
-  return {save:new TextEncoder().encode(JSON.stringify(await verifyRecord(record))),operation:'load'};
+  const save=await saveStorage.read(name);if(save===null)throw new Error('No saved game.');
+  return {save,operation:'load'};
  };
  const startWorld=(async()=>{
   for(let choice=await firstChoice;;){

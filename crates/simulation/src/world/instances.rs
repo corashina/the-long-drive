@@ -133,7 +133,7 @@ impl StructureRecipe {
             let builder = if body.kinematic {
                 RigidBodyBuilder::kinematic_position_based()
             } else {
-                RigidBodyBuilder::dynamic().ccd_enabled(true)
+                RigidBodyBuilder::dynamic().ccd_enabled(body.ccd)
             }
             .enabled(active(body.node as usize))
             .additional_mass(body.mass_kg)
@@ -171,16 +171,12 @@ impl StructureRecipe {
                 ))
             })?;
             let (friction, restitution) = if let Some(source) = &record.material {
-                let material = reference
-                    .records
-                    .iter()
-                    .find(|r| r.source == *source)
-                    .ok_or_else(|| {
-                        ReferenceError(format!(
-                            "Missing physical material {}:{}",
-                            source.file, source.path_id
-                        ))
-                    })?;
+                let material = reference.records.find(source).ok_or_else(|| {
+                    ReferenceError(format!(
+                        "Missing physical material {}:{}",
+                        source.file, source.path_id
+                    ))
+                })?;
                 let number = |name: &str| match material.fields.get(name) {
                     Some(WorldValue::Number(value)) => Ok(*value as f32),
                     Some(WorldValue::Integer(value)) => Ok(*value as f32),

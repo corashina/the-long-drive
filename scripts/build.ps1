@@ -5,6 +5,7 @@ $root = Split-Path $PSScriptRoot -Parent
 $cargoTarget = Get-CargoTargetDirectory $root
 $image = 'the-long-slop-toolchain'
 # Fast builds skip LTO, wasm-opt and Brotli. Use them to iterate, not for F3 numbers.
+# Every build first checks the shipped manifest natively. The game runs no manifest checks.
 $cargoProfile = if ($Fast) { 'fast' } else { 'release' }
 try {
     & docker build --tag $image --file "$root/tools/Dockerfile" $root

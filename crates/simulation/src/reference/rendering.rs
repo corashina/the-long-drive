@@ -1,8 +1,12 @@
 //! Source material bindings and authored texture levels.
 
-use super::{AssetId, AssetRecord, AssetUsage, ReferenceError, SourceId, finite, require};
+use super::{AssetId, ReferenceError, SourceId, require};
+#[cfg(feature = "validate")]
+use super::{AssetRecord, AssetUsage, finite};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
+#[cfg(feature = "validate")]
+use std::collections::HashSet;
 
 pub const MATERIAL_TEXTURE_SLOTS: [&str; 9] = [
     "_MainTex",
@@ -255,11 +259,17 @@ pub struct TextureRecord<S = TextureStorage> {
     pub sampler: SamplerRecord,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+tagged_enum! {
+"TextureStorage",
+#[json(tag = "kind")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TextureStorage {
-    PngChain {
-        mips: Vec<TextureMip>,
+    /// Decoded RGBA8 levels in ascending mip order. The game uploads them without a decode.
+    Rgba8 {
+        width: u32,
+        height: u32,
+        input: super::FileReceipt,
     },
     NativeBc {
         format: NativeBcFormat,
@@ -270,8 +280,12 @@ pub enum TextureStorage {
         image_count: u32,
         dimension: u32,
         mips_stripped: u32,
+        /// Mips 1+, or the only mip. The game loads it at start.
         input: super::FileReceipt,
+        /// The top mip of a texture with more than one mip. The game loads it after start.
+        top: Option<super::FileReceipt>,
     },
+}
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -287,16 +301,30 @@ impl NativeBcFormat {
         }
     }
 }
+/// The levels of a texture that go to the GPU.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextureLevels {
+    pub width: u32,
+    pub height: u32,
+    pub mip_count: u32,
+    /// Payload bytes of the skipped top mip. 0 when the texture keeps it.
+    pub skip: usize,
+    /// Payload bytes of the uploaded levels.
+    pub bytes: usize,
+}
 impl TextureRecord {
     pub fn file(&self) -> &str {
         match &self.storage {
-            TextureStorage::PngChain { mips } => mips.first().map_or("", |m| m.file.as_str()),
-            TextureStorage::NativeBc { input, .. } => &input.file,
+            TextureStorage::Rgba8 { input, .. } | TextureStorage::NativeBc { input, .. } => {
+                &input.file
+            }
         }
     }
     pub fn payload_bytes(&self) -> Result<usize, ReferenceError> {
         match &self.storage {
-            TextureStorage::PngChain { mips } => super::fixed_reservation::png_pixels(mips),
+            TextureStorage::Rgba8 { width, height, .. } => {
+                super::fixed_reservation::rgba_payload(*width, *height, self.sampler.mip_count)
+            }
             TextureStorage::NativeBc {
                 format,
                 width,
@@ -305,6 +333,44 @@ impl TextureRecord {
                 ..
             } => super::fixed_reservation::bc_payload(*format, *width, *height, *mip_count),
         }
+    }
+    /// The GPU levels. Half texture quality (Unity `masterTextureLimit` 1) skips the top mip.
+    /// A texture keeps its top mip when it has one mip, or when BC mip 1 is not whole blocks.
+    pub fn levels(&self, half: bool) -> Result<TextureLevels, ReferenceError> {
+        let bytes = self.payload_bytes()?;
+        let mip_count = self.sampler.mip_count;
+        let (width, height, block) = match &self.storage {
+            TextureStorage::Rgba8 { width, height, .. } => (*width, *height, 1),
+            TextureStorage::NativeBc { width, height, .. } => (*width, *height, 4),
+        };
+        let (half_width, half_height) = ((width >> 1).max(1), (height >> 1).max(1));
+        if !half || mip_count < 2 || half_width % block != 0 || half_height % block != 0 {
+            return Ok(TextureLevels {
+                width,
+                height,
+                mip_count,
+                skip: 0,
+                bytes,
+            });
+        }
+        let rest = match &self.storage {
+            TextureStorage::Rgba8 { .. } => {
+                super::fixed_reservation::rgba_payload(half_width, half_height, mip_count - 1)
+            }
+            TextureStorage::NativeBc { format, .. } => super::fixed_reservation::bc_payload(
+                *format,
+                half_width,
+                half_height,
+                mip_count - 1,
+            ),
+        }?;
+        Ok(TextureLevels {
+            width: half_width,
+            height: half_height,
+            mip_count: mip_count - 1,
+            skip: bytes - rest,
+            bytes: rest,
+        })
     }
 }
 
@@ -318,14 +384,8 @@ pub struct SamplerRecord {
     pub mip_bias: f32,
     pub mip_count: u32,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TextureMip {
-    pub file: String,
-    pub width: u32,
-    pub height: u32,
-}
 
+#[cfg(feature = "validate")]
 pub(super) fn safe_path(path: &str) -> bool {
     path.starts_with("reference/")
         && !path.contains(['\\', ':', '?', '#', '\0'])
@@ -333,6 +393,7 @@ pub(super) fn safe_path(path: &str) -> bool {
             .split('/')
             .all(|part| !part.is_empty() && part != "." && part != "..")
 }
+#[cfg(feature = "validate")]
 fn known_slot(slot: &str) -> bool {
     matches!(
         slot,
@@ -349,6 +410,7 @@ fn known_slot(slot: &str) -> bool {
 }
 
 impl RenderingRecord {
+    #[cfg(feature = "validate")]
     pub fn validate(
         &self,
         assets: &[AssetRecord],
@@ -709,18 +771,21 @@ impl RenderingRecord {
                     &field,
                 )?;
                 let normal = matches!(texture.slot.as_str(), "_BumpMap" | "_DetailNormalMap");
-                // A decoded normal PNG holds RGB. Standard native BC normals keep the source AG channels.
+                // A decoded RGBA8 normal holds RGB. Native BC normals keep the source DXT5nm channels.
                 let native = matches!(texture.storage, TextureStorage::NativeBc { .. });
+                let native_normal = match material.shader_family {
+                    ShaderFamily::Standard => TextureEncoding::Ag,
+                    ShaderFamily::PlayerModel => TextureEncoding::Rag,
+                    _ => TextureEncoding::Rgb,
+                };
                 require(
                     texture.encoding
                         == match (normal, native) {
                             (false, _) => TextureEncoding::Rgba,
                             (true, false) => TextureEncoding::Rgb,
-                            (true, true) => TextureEncoding::Ag,
+                            (true, true) => native_normal,
                         }
-                        && (!normal || texture.color_space == TextureColorSpace::Linear)
-                        && (!(normal && native)
-                            || material.shader_family == ShaderFamily::Standard),
+                        && (!normal || texture.color_space == TextureColorSpace::Linear),
                     &field,
                 )?;
                 let sampler = &texture.sampler;
@@ -734,41 +799,25 @@ impl RenderingRecord {
                     &field,
                 )?;
                 match &texture.storage {
-                    TextureStorage::PngChain { mips } => {
-                        require(mips.len() == sampler.mip_count as usize, &field)?;
-                        let mut dimensions: Option<(u32, u32)> = None;
-                        let mut paths = HashSet::new();
-                        for mip in mips {
-                            require(
-                                safe_path(&mip.file)
-                                    && paths.insert(&mip.file)
-                                    && mip.width > 0
-                                    && mip.height > 0
-                                    && asset.dependencies.iter().any(|dependency| {
-                                        dependency.file == mip.file
-                                            && dependency.image_size
-                                                == Some([mip.width, mip.height])
-                                    }),
-                                &field,
-                            )?;
-                            if let Some((width, height)) = dimensions {
-                                require(
-                                    (width > 1 || height > 1)
-                                        && mip.width == (width / 2).max(1)
-                                        && mip.height == (height / 2).max(1),
-                                    &field,
-                                )?;
-                            }
-                            dimensions = Some((mip.width, mip.height));
-                        }
-                    }
-                    TextureStorage::NativeBc { input, .. } => {
-                        super::fixed_reservation::validate_native_bc(texture)?;
+                    TextureStorage::Rgba8 { input, .. } => {
+                        super::fixed_reservation::validate_rgba(texture)?;
                         require(
                             asset
                                 .dependencies
                                 .iter()
                                 .any(|dependency| dependency == input),
+                            &field,
+                        )?;
+                    }
+                    TextureStorage::NativeBc { input, top, .. } => {
+                        super::fixed_reservation::validate_native_bc(texture)?;
+                        require(
+                            std::iter::once(input).chain(top).all(|receipt| {
+                                asset
+                                    .dependencies
+                                    .iter()
+                                    .any(|dependency| dependency == receipt)
+                            }),
                             &field,
                         )?;
                     }
@@ -1030,6 +1079,34 @@ impl LightingTextureRecord {
     }
 }
 impl LightingTextureRecord {
+    /// Half texture quality (Unity `masterTextureLimit` 1): removes the top mip rows.
+    /// A batch of top mip rows only goes too. A batch with top and mip 1 rows stays, and the upload skips its top rows.
+    /// A texture keeps its top mip when it has one mip, or when BC mip 1 is not whole blocks.
+    pub fn drop_top(&mut self) {
+        let block = self.format.block();
+        let (width, height) = ((self.width >> 1).max(1), (self.height >> 1).max(1));
+        if self.mip_count < 2 || width % block != 0 || height % block != 0 {
+            return;
+        }
+        // Batches partition the ordered chunks.
+        let mut start = 0;
+        self.batches.retain(|batch| {
+            let end = start + batch.region_count;
+            let keep = self
+                .chunks
+                .get(start..end)
+                .is_none_or(|chunks| chunks.iter().any(|c| c.mip > 0));
+            start = end;
+            keep
+        });
+        self.chunks.retain(|c| c.mip > 0);
+        for chunk in &mut self.chunks {
+            chunk.mip -= 1;
+        }
+        self.width = width;
+        self.height = height;
+        self.mip_count -= 1;
+    }
     fn row_bytes(&self, width: u32, rows: u32) -> Result<usize, ReferenceError> {
         self.format.region_bytes(width, rows)
     }
@@ -1057,5 +1134,181 @@ impl LightingTextureRecord {
             )?;
         }
         Ok(pixels)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn receipt(file: &str, bytes: usize) -> super::super::FileReceipt {
+        super::super::FileReceipt {
+            file: file.into(),
+            bytes: bytes as u32,
+            sha256: "0".repeat(64),
+            image_size: None,
+        }
+    }
+    fn record(storage: TextureStorage, mip_count: u32) -> TextureRecord {
+        TextureRecord {
+            slot: "_MainTex".into(),
+            source: SourceId {
+                file: "a".into(),
+                path_id: 1,
+            },
+            storage,
+            color_space: TextureColorSpace::Srgb,
+            encoding: TextureEncoding::Rgba,
+            source_encoding: TextureEncoding::Rgba,
+            uv_channel: 0,
+            scale: [1., 1.],
+            offset: [0., 0.],
+            sampler: SamplerRecord {
+                filter: 2,
+                wrap_u: 0,
+                wrap_v: 0,
+                aniso: 1,
+                mip_bias: 0.,
+                mip_count,
+            },
+        }
+    }
+    fn bc(format: NativeBcFormat) -> TextureRecord {
+        // 64x32: 7 mips. The top mip is 16x8 blocks.
+        let top = 16 * 8 * format.block_bytes();
+        let bytes = super::super::fixed_reservation::bc_payload(format, 64, 32, 7).unwrap();
+        record(
+            TextureStorage::NativeBc {
+                format,
+                source_format: 10,
+                width: 64,
+                height: 32,
+                mip_count: 7,
+                image_count: 1,
+                dimension: 2,
+                mips_stripped: 0,
+                input: receipt("reference/t.bc", bytes - top),
+                top: Some(receipt("reference/t.top.bc", top)),
+            },
+            7,
+        )
+    }
+
+    #[test]
+    fn half_drops_exactly_the_top_mip() {
+        for format in [NativeBcFormat::Bc1, NativeBcFormat::Bc3] {
+            let texture = bc(format);
+            let full = texture.payload_bytes().unwrap();
+            let top = 16 * 8 * format.block_bytes();
+            let TextureStorage::NativeBc { input, .. } = &texture.storage else {
+                unreachable!()
+            };
+            let half = texture.levels(true).unwrap();
+            assert_eq!((half.width, half.height, half.mip_count), (32, 16, 6));
+            assert_eq!((half.skip, half.bytes), (top, full - top));
+            // Half reads only the input file: mips 1+.
+            assert_eq!(half.bytes, input.bytes as usize);
+            assert_eq!(texture.levels(false).unwrap().bytes, full);
+        }
+        // 16x8 RGBA8 with 5 mips: the top mip is 16 * 8 * 4 bytes.
+        let full = super::super::fixed_reservation::rgba_payload(16, 8, 5).unwrap();
+        let rgba = record(
+            TextureStorage::Rgba8 {
+                width: 16,
+                height: 8,
+                input: receipt("reference/t.rgba", full),
+            },
+            5,
+        );
+        let half = rgba.levels(true).unwrap();
+        assert_eq!((half.width, half.height, half.mip_count), (8, 4, 4));
+        assert_eq!((half.skip, half.bytes), (16 * 8 * 4, full - 16 * 8 * 4));
+        // One mip, or a BC mip 1 that is not whole blocks, keeps the top mip.
+        let one = record(
+            TextureStorage::Rgba8 {
+                width: 16,
+                height: 8,
+                input: receipt("reference/t.rgba", 16 * 8 * 4),
+            },
+            1,
+        );
+        assert_eq!(one.levels(true).unwrap().skip, 0);
+        let mut small = bc(NativeBcFormat::Bc1);
+        if let TextureStorage::NativeBc {
+            width,
+            height,
+            mip_count,
+            ..
+        } = &mut small.storage
+        {
+            (*width, *height, *mip_count) = (4, 4, 3);
+        }
+        small.sampler.mip_count = 3;
+        assert_eq!(small.levels(true).unwrap().skip, 0);
+    }
+
+    #[test]
+    fn half_drops_the_top_rows_of_a_bc1_row_texture() {
+        let source = SourceId {
+            file: "a".into(),
+            path_id: 1,
+        };
+        // 16x16 BC1: two top row chunks, then one chunk per mip.
+        let chunks = [
+            (0, 0, 16, 8),
+            (0, 8, 16, 8),
+            (1, 0, 8, 8),
+            (2, 0, 4, 4),
+            (3, 0, 2, 2),
+            (4, 0, 1, 1),
+        ];
+        let chunks = chunks
+            .iter()
+            .map(|&(mip, row, width, rows)| LightingTextureChunk {
+                data: ResourceReference {
+                    source: source.clone(),
+                    path: format!("reference/t.{mip}.{row}.smip"),
+                    sha256: "0".repeat(64),
+                },
+                mip,
+                row,
+                width,
+                rows,
+            })
+            .collect();
+        let batch = |region_count| super::super::texture_batch::TextureBatchReference {
+            descriptor: receipt("reference/b.stexbatch", 1),
+            decoded_bytes: 1,
+            largest_raw_input_bytes: 1,
+            region_count,
+        };
+        let mut texture = LightingTextureRecord {
+            format: ChunkFormat::Bc1,
+            // Top rows only, then top and mip 1 rows, then the rest.
+            batches: vec![batch(1), batch(2), batch(3)],
+            chunks,
+            id: 1,
+            source,
+            width: 16,
+            height: 16,
+            source_format: 10,
+            sample_channel: String::new(),
+            color_space: 1,
+            filter_mode: 2,
+            wrap_u: 0,
+            wrap_v: 0,
+            mip_count: 5,
+            aniso: 1,
+            mip_bias: 0.,
+        };
+        let full = texture.validate_chunks().unwrap();
+        texture.drop_top();
+        assert_eq!(
+            (texture.width, texture.height, texture.mip_count),
+            (8, 8, 4)
+        );
+        assert_eq!(texture.chunks.len(), 4);
+        assert_eq!(texture.batches.len(), 2);
+        assert_eq!(texture.validate_chunks().unwrap(), full - 4 * 4 * 8);
     }
 }

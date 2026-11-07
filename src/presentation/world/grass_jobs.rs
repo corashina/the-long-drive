@@ -40,6 +40,14 @@ enum Pending {
         ticket: Option<PipelineTicket>,
     },
 }
+/// Worker copy of the instance patch dataset.
+#[derive(Clone, Copy)]
+enum Dataset {
+    None,
+    /// Sent to the worker. The install job runs until the worker reports it installed.
+    Installing,
+    Cached,
+}
 struct Instance {
     continuation: Option<crate::ownership::renderer_pending::PipelineContinuation>,
     upload: Option<Arc<crate::presentation::fixed_assets::MeshUpload>>,
@@ -56,10 +64,7 @@ struct Instance {
     accepted_view: Option<GrassView>,
     accepted: Option<Geometry>,
     pending: Option<Pending>,
-    /// The worker holds the patch dataset.
-    cached: bool,
-    /// The dataset install job runs.
-    installing: bool,
+    dataset: Dataset,
     ready: bool,
 }
 #[derive(Resource, Default)]
@@ -67,7 +72,7 @@ pub struct GrassJobs {
     instances: Vec<Instance>,
     /// Instance index by entity.
     index: HashMap<Entity, usize>,
-    /// Camera view of this frame. Every instance expands for it.
+    /// Camera view of this frame. An instance expands again when its view no longer covers it.
     view: GrassView,
     /// Per parent, whether a job is pending, and the stale instance that may start next.
     groups: HashMap<Entity, (bool, Option<(u64, usize)>)>,
@@ -75,6 +80,10 @@ pub struct GrassJobs {
     /// The worker started.
     started: bool,
     revision: u64,
+}
+/// Whether the instance needs a new expansion for this view.
+fn stale(accepted: Option<GrassView>, view: &GrassView) -> bool {
+    !accepted.is_some_and(|accepted| accepted.covers(view))
 }
 impl GrassJobs {
     pub(crate) fn startup_audit(&self) -> serde_json::Value {
@@ -161,7 +170,7 @@ impl GrassJobs {
             }
             if group_idle
                 && instance.pending.is_none()
-                && instance.accepted_view != Some(self.view)
+                && stale(instance.accepted_view, &self.view)
                 && ledger.can_request_independent(1)
             {
                 instance.continuation =
@@ -193,8 +202,7 @@ impl GrassJobs {
             accepted_view: None,
             accepted: None,
             pending: queued.then_some(Pending::Queued),
-            cached: false,
-            installing: false,
+            dataset: Dataset::None,
             ready: false,
         });
         Ok(())
@@ -203,9 +211,8 @@ impl GrassJobs {
         self.worker.dispose();
         self.started = false;
         for i in &mut self.instances {
-            ledger.end_jobs(usize::from(i.installing))?;
-            i.cached = false;
-            i.installing = false;
+            ledger.end_jobs(usize::from(matches!(i.dataset, Dataset::Installing)))?;
+            i.dataset = Dataset::None;
             if matches!(i.pending, Some(Pending::Worker { .. })) {
                 ledger.end_jobs(1)?;
                 i.pending = Some(Pending::Queued);
@@ -281,14 +288,14 @@ impl GrassJobs {
         for (index, i) in self.instances.iter().enumerate() {
             let group = self.groups.entry(i.parent).or_default();
             group.0 |= i.pending.is_some();
-            if i.accepted_view != Some(view) {
+            if stale(i.accepted_view, &view) {
                 let key = (i.last_started, index);
                 group.1 = Some(group.1.map_or(key, |first| first.min(key)));
             }
         }
         for index in 0..self.instances.len() {
             let needs_child = self.instances[index].pending.is_none()
-                && self.instances[index].accepted_view != Some(view);
+                && stale(self.instances[index].accepted_view, &view);
             let group_idle = needs_child
                 && self.groups[&self.instances[index].parent]
                     == (false, Some((self.instances[index].last_started, index)));
@@ -298,28 +305,29 @@ impl GrassJobs {
             }
             if group_idle
                 && instance.pending.is_none()
-                && instance.accepted_view != Some(view)
+                && stale(instance.accepted_view, &view)
                 && ledger.can_request_independent(1)
             {
                 instance.continuation =
                     Some(ledger.claim_grass(stream.frame().request, instance.entity.to_bits()));
                 instance.pending = Some(Pending::Queued);
             }
-            if instance.installing && self.worker.installed(instance.entity.to_bits())? {
+            if matches!(instance.dataset, Dataset::Installing)
+                && self.worker.installed(instance.entity.to_bits())?
+            {
                 ledger.end_jobs(1)?;
-                instance.installing = false;
+                instance.dataset = Dataset::Cached;
             }
             if writers_ready
                 && candidate == Some(index)
                 && matches!(instance.pending, Some(Pending::Queued))
                 && ledger.available_external_jobs() > 0
             {
-                if !instance.cached {
+                if matches!(instance.dataset, Dataset::None) {
                     let encoded = grass_mesh::dataset_encoded_len(&instance.patches)
                         .map_err(ReferenceError)?;
                     ledger.start_jobs(1);
-                    instance.cached = true;
-                    instance.installing = true;
+                    instance.dataset = Dataset::Installing;
                     self.revision = self
                         .revision
                         .checked_add(1)
@@ -393,10 +401,6 @@ impl GrassJobs {
                     unreachable!()
                 };
                 let (id, view) = (*id, *view);
-                let mut material = materials
-                    .get(&instance.material)
-                    .ok_or_else(|| ReferenceError("Missing Grass material owner".into()))?
-                    .clone();
                 let output = self.worker.consume(id)?;
                 // The view or the distance can leave no blades. An empty mesh never uploads, so
                 // the instance draws nothing and is ready at once.
@@ -422,14 +426,22 @@ impl GrassJobs {
                 }
                 let mut mesh = Mesh::new(
                     PrimitiveTopology::TriangleList,
-                    RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+                    RenderAssetUsages::RENDER_WORLD,
                 );
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, output.anchors);
                 mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, output.uvs);
                 mesh.insert_attribute(BLADE_ATTRIBUTE, output.blades);
                 mesh.insert_indices(Indices::U32(output.indices));
-
-                material.uniform.camera = view.position.extend(view.screen_height);
+                // The material holds no view, so a rebuild keeps the accepted material.
+                let material = match &instance.accepted {
+                    Some(accepted) => accepted.material.clone(),
+                    None => materials.add(
+                        materials
+                            .get(&instance.material)
+                            .ok_or_else(|| ReferenceError("Missing Grass material owner".into()))?
+                            .clone(),
+                    ),
+                };
                 let mesh = uploads.add(meshes, mesh);
                 let upload = fixed.watch_meshes(std::iter::once(mesh.clone()));
                 instance
@@ -440,7 +452,7 @@ impl GrassJobs {
                 instance.upload = Some(upload);
                 instance.pending = Some(Pending::Upload {
                     mesh,
-                    material: materials.add(material),
+                    material,
                     view,
                     ticket: None,
                 });
@@ -486,7 +498,9 @@ impl GrassJobs {
                     };
                     if let Some(old) = instance.accepted.take() {
                         meshes.remove(old.mesh.id());
-                        materials.remove(old.material.id());
+                        if old.material != material {
+                            materials.remove(old.material.id());
+                        }
                     }
                     self.worker.publication_started(instance.entity.to_bits());
                     commands.entity(instance.entity).insert((
@@ -549,7 +563,7 @@ impl GrassJobs {
             }
         }
         let entity_bits = self.instances[index].entity.to_bits();
-        if self.instances[index].cached {
+        if !matches!(self.instances[index].dataset, Dataset::None) {
             if !self.worker.retiring(entity_bits)? {
                 return Ok(false);
             }
@@ -577,7 +591,7 @@ impl GrassJobs {
             materials.remove(material.id());
         }
         ledger.end_jobs(
-            usize::from(instance.installing)
+            usize::from(matches!(instance.dataset, Dataset::Installing))
                 + usize::from(matches!(instance.pending, Some(Pending::Worker { .. }))),
         )?;
         if let Some(claim) = instance.continuation.as_mut() {

@@ -386,8 +386,9 @@ impl InteractionState {
     pub fn capture_carry_save(
         &self,
         ids: &crate::save::IdentityMap,
+        items: &items::ItemStore,
     ) -> Result<Option<crate::save::CarrySnapshot>, crate::save::SaveError> {
-        self.carry.capture_save(ids)
+        self.carry.capture_save(ids, items)
     }
 
     pub fn new(reference: &ReferenceManifest) -> Result<Self, ReferenceError> {
@@ -397,19 +398,13 @@ impl InteractionState {
         let mut openings = Vec::with_capacity(reference.openings.len());
         for opening in &reference.openings {
             let anchor = reference
-                .anchors
-                .iter()
-                .find(|anchor| anchor.id == opening.anchor)
+                .anchor(opening.anchor)
                 .ok_or_else(|| ReferenceError("Missing opening anchor".into()))?;
             let item = reference
-                .items
-                .iter()
-                .find(|item| item.id == opening.tank)
+                .item(opening.tank)
                 .ok_or_else(|| ReferenceError("Missing opening tank".into()))?;
             let body = reference
-                .bodies
-                .iter()
-                .find(|body| body.id == item.body)
+                .body(item.body)
                 .ok_or_else(|| ReferenceError("Missing tank body".into()))?;
             let item_pose = to_rapier(items::node_pose(reference, item.node)?);
             let local_pose = item_pose.inverse()
@@ -1152,17 +1147,12 @@ impl InteractionState {
             };
         }
         let get = |source: &crate::reference::SourceId| {
-            reference
-                .world
-                .records
-                .iter()
-                .find(|record| &record.source == source)
-                .ok_or_else(|| {
-                    ReferenceError(format!(
-                        "Missing source supply {}:{}",
-                        source.file, source.path_id
-                    ))
-                })
+            reference.world.records.find(source).ok_or_else(|| {
+                ReferenceError(format!(
+                    "Missing source supply {}:{}",
+                    source.file, source.path_id
+                ))
+            })
         };
         let cap_record = get(&definition.cap)?;
         let tank_record = get(&definition.tank)?;

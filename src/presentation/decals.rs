@@ -1,6 +1,7 @@
 //! Bullet-hole decals: one instanced quad batch per `ShootDecals` prefab. The simulation
 //! frame carries the live decals.
 use super::lighting::SourceLighting;
+use super::quad_batches::{QuadBatchGpu, QuadBatchPlugin, QuadBatches, quad_batch};
 use super::sim_frame::SimFrameResource;
 use crate::app::RuntimeReference;
 use crate::lighting::source_linear;
@@ -8,11 +9,7 @@ use crate::reference::{GUN_DECALS, GunDecal};
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::render::{
-    Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
-    render_asset::RenderAssets,
-    render_resource::*,
-    renderer::{RenderDevice, RenderQueue},
-    texture::GpuImage,
+    render_asset::RenderAssets, render_resource::*, renderer::RenderDevice, texture::GpuImage,
 };
 use bevy::shader::ShaderRef;
 use bevy::{
@@ -103,7 +100,10 @@ impl Material for DecalMaterial {
 }
 impl AsBindGroup for DecalMaterial {
     type Data = ();
-    type Param = (SRes<DecalGpu>, SRes<RenderAssets<GpuImage>>);
+    type Param = (
+        SRes<QuadBatchGpu<DecalUniform>>,
+        SRes<RenderAssets<GpuImage>>,
+    );
     fn label() -> &'static str {
         "source decals"
     }
@@ -116,9 +116,7 @@ impl AsBindGroup for DecalMaterial {
         _: bool,
     ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
         let buffer =
-            p.0.buffers
-                .get(self.kind)
-                .and_then(|b| b.buffer())
+            p.0.buffer(self.kind)
                 .ok_or(AsBindGroupError::RetryNextUpdate)?;
         let image =
             p.1.get(self.texture.id())
@@ -157,29 +155,21 @@ impl AsBindGroup for DecalMaterial {
     }
 }
 
-#[derive(Resource, Default)]
-pub struct DecalGpu {
-    buffers: Vec<UniformBuffer<DecalUniform>>,
-}
-
 /// One batch per decal kind. A kind without a texture has no batch.
 #[derive(Resource, Default)]
 pub(crate) struct DecalRender {
     prepared: bool,
     entities: [Option<Entity>; GUN_DECALS],
-    uniforms: Vec<DecalUniform>,
-}
-
-#[derive(Resource, Default)]
-pub(crate) struct ExtractedDecals {
-    uniforms: Vec<DecalUniform>,
 }
 
 pub struct SourceDecalPlugin;
 impl Plugin for SourceDecalPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DecalRender>()
-            .add_plugins(MaterialPlugin::<DecalMaterial>::default())
+            .add_plugins((
+                MaterialPlugin::<DecalMaterial>::default(),
+                QuadBatchPlugin::<DecalUniform>::default(),
+            ))
             .add_systems(
                 PostUpdate,
                 sync_decals
@@ -187,37 +177,6 @@ impl Plugin for SourceDecalPlugin {
                     .after(super::lighting::sync_lighting)
                     .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
             );
-        app.sub_app_mut(RenderApp)
-            .init_resource::<DecalGpu>()
-            .init_resource::<ExtractedDecals>()
-            .add_systems(ExtractSchedule, extract)
-            .add_systems(Render, upload.in_set(RenderSystems::PrepareResources));
-    }
-}
-
-fn extract(state: Extract<Res<DecalRender>>, mut extracted: ResMut<ExtractedDecals>) {
-    extracted
-        .uniforms
-        .resize(state.uniforms.len(), DecalUniform::default());
-    extracted.uniforms.copy_from_slice(&state.uniforms);
-}
-
-fn upload(
-    extracted: Res<ExtractedDecals>,
-    mut gpu: ResMut<DecalGpu>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
-) {
-    while gpu.buffers.len() < extracted.uniforms.len() {
-        gpu.buffers.push(UniformBuffer::default());
-    }
-    for (i, value) in extracted.uniforms.iter().enumerate() {
-        // Hidden empty batches need no upload after their initial buffer creation.
-        if value.settings.w == 0. && gpu.buffers[i].buffer().is_some() {
-            continue;
-        }
-        gpu.buffers[i].set(*value);
-        gpu.buffers[i].write_buffer(&device, &queue);
     }
 }
 
@@ -256,14 +215,18 @@ fn linear(c: [f32; 4]) -> Vec4 {
 
 fn setup(
     state: &mut DecalRender,
+    batches: &mut QuadBatches<DecalUniform>,
     decals: &[GunDecal; GUN_DECALS],
     lighting: &SourceLighting,
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<DecalMaterial>,
 ) {
-    let mesh = meshes.add(super::particles::quad_batch(DECAL_CAP));
-    state.uniforms = vec![DecalUniform::default(); GUN_DECALS];
+    let mesh = meshes.add(quad_batch(DECAL_CAP));
+    for _ in 0..GUN_DECALS {
+        batches.push(DecalUniform::default());
+    }
+    let uniforms = batches.uniforms_mut();
     for (kind, d) in decals.iter().enumerate() {
         let m = &d.material;
         let Some(t) = m
@@ -286,7 +249,7 @@ fn setup(
             _ => Vec4::ONE,
         };
         let lit = !(shader.contains("Particles") || shader.contains("Unlit"));
-        let u = &mut state.uniforms[kind];
+        let u = &mut uniforms[kind];
         u.node = node_matrix(d);
         u.tint = tint;
         u.st = Vec4::new(t.scale[0], t.scale[1], t.offset[0], t.offset[1]);
@@ -337,6 +300,7 @@ fn sync_decals(
     mut state: ResMut<DecalRender>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DecalMaterial>>,
+    mut batches: ResMut<QuadBatches<DecalUniform>>,
     mut visibility: Query<(&mut Visibility, &mut GlobalTransform)>,
 ) {
     if !lighting.bound {
@@ -346,6 +310,7 @@ fn sync_decals(
     if !state.prepared {
         setup(
             state,
+            &mut batches,
             &reference.0.guns.decals,
             &lighting,
             &mut commands,
@@ -364,7 +329,8 @@ fn sync_decals(
     );
     let fog = linear(cycle.fog_color).truncate().extend(cycle.fog_density);
     let ambient = lighting.uniform.ambient.truncate().extend(0.);
-    for u in &mut state.uniforms {
+    let uniforms = batches.uniforms_mut();
+    for u in uniforms.iter_mut() {
         u.settings.w = 0.;
         u.fog = fog;
         u.ambient = ambient;
@@ -375,7 +341,7 @@ fn sync_decals(
     let mut newest = [Vec3::ZERO; GUN_DECALS];
     for row in &frame.decals {
         let kind = row.kind as usize;
-        let Some(u) = state.uniforms.get_mut(kind) else {
+        let Some(u) = uniforms.get_mut(kind) else {
             continue;
         };
         let pose = super::interpolate(row.previous.pose(), row.current.pose(), frame.state.alpha);
@@ -391,9 +357,10 @@ fn sync_decals(
         let Ok((mut v, mut transform)) = visibility.get_mut(*entity) else {
             continue;
         };
-        let shown = state.uniforms[kind].settings.w > 0.;
+        let shown = batches.uniforms_mut()[kind].settings.w > 0.;
         if shown {
-            *transform = GlobalTransform::from_translation(newest[kind]);
+            batches.mark(kind);
+            transform.set_if_neq(GlobalTransform::from_translation(newest[kind]));
         }
         v.set_if_neq(if shown {
             Visibility::Visible

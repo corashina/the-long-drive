@@ -1,5 +1,5 @@
 //! Renderer data of one tick.
-use super::GarageRuntime;
+use super::{GarageRuntime, SessionPhase};
 use crate::boundary::{
     BudgetRow, Change, CigaretteRow, ConditionRow, CreatureBoneRow, CreatureRow, HumanRow,
     PlaneRow, PoseRow, SimFrame, StateBlock, ValveRow, WheelSprayRow,
@@ -20,8 +20,8 @@ impl GarageRuntime {
         let metrics = self.stream.metrics();
         let mut flags = 0;
         for (on, flag) in [
-            (self.started, StateBlock::STARTED),
-            (self.menu, StateBlock::PAUSED),
+            (self.started(), StateBlock::STARTED),
+            (self.phase == SessionPhase::Paused, StateBlock::PAUSED),
             (self.area.player.seated(), StateBlock::SEATED),
             (self.sleeping(), StateBlock::SLEEPING),
             (self.needs_output().dead, StateBlock::DEAD),
@@ -292,7 +292,7 @@ impl GarageRuntime {
             });
         }
         let lighting = &self.lighting;
-        if self.started {
+        if self.started() {
             frame.lighting.cycle.clone_from(lighting.cycle.output());
         } else {
             frame.lighting.cycle = self
@@ -451,8 +451,6 @@ impl GarageRuntime {
 
 impl GarageRuntime {
     fn perf_block(&self) -> crate::boundary::PerfBlock {
-        let [dynamic_bodies, awake_bodies, ccd_bodies, contact_pairs] =
-            self.physics.body_counters();
         crate::boundary::PerfBlock {
             contacts: self.loaded_vehicle().map_or(0, |key| {
                 self.physics.wheel_contacts(key).filter(|v| *v).count() as u32
@@ -466,10 +464,6 @@ impl GarageRuntime {
             weather_cells: self.weather.cells.len() as u32,
             weather_rain: self.weather.mix().rain,
             weather_wetness: self.weather.wetness,
-            dynamic_bodies,
-            awake_bodies,
-            ccd_bodies,
-            contact_pairs,
             ..Default::default()
         }
     }
@@ -525,8 +519,8 @@ impl GarageRuntime {
             .collect();
         serde_json::json!({
             "supported": self.world_supported(),
-            "started": self.started,
-            "menu": self.menu,
+            "started": self.started(),
+            "menu": self.phase == SessionPhase::Paused,
             "paused": self.paused(),
             "recovering": self.recovering,
             "sleeping": self.sleeping(),
@@ -562,7 +556,7 @@ impl GarageRuntime {
                     &self.physics, &frame.origin, key),
             })).collect::<Vec<_>>(),
             "retained_source_bodies": self.area.bodies.iter().filter_map(|(id, handle)| {
-                let record = reference.bodies.iter().find(|body| body.id == *id)?;
+                let record = reference.body(*id)?;
                 self.persistent_world.body_snapshot(*handle, crate::save::BodyIdentity::Source {
                     source: crate::save::SourceKey::from(&record.source),
                 })

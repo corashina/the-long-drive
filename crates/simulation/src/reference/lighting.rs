@@ -1,8 +1,10 @@
 //! Source cycle and lamp controls. Values retain Unity units.
 use super::rendering::*;
+use super::{AssetId, ColliderId, LightControlId, LightId, NodeId, SourceId, Transform};
+#[cfg(feature = "validate")]
 use super::{
-    AssetId, AssetUsage, ColliderId, LightControlId, LightId, NodeId, ReferenceError,
-    ReferenceManifest, SourceId, Transform, finite, hash, ids, require, source_valid, transform,
+    AssetUsage, ReferenceError, ReferenceManifest, finite, hash, ids, require, source_valid,
+    transform,
 };
 use serde::{Deserialize, Serialize};
 
@@ -270,10 +272,11 @@ pub struct LightingRecord {
 }
 
 impl LightingRecord {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, manifest: &ReferenceManifest) -> Result<(), ReferenceError> {
         let check =
             |ok: bool, source: &SourceId, field: &str| require(ok, &super::field(source, field));
-        let node = |id: NodeId| manifest.nodes.iter().find(|n| n.id == id);
+        let node = |id: NodeId| manifest.node(id);
         let valid_source = |s: &SourceId| source_valid(s, &manifest.source_hashes);
         let valid_resource = |s: &SourceId, path: &str, digest: &str| {
             valid_source(s)

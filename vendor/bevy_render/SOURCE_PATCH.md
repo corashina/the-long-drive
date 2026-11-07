@@ -1,4 +1,4 @@
-# Bevy render ownership patch
+# Bevy render patch
 
 This directory contains the cached crates.io `bevy_render` 0.19.1 package.
 No package was downloaded. Its version, features, and dependency versions are unchanged.
@@ -11,16 +11,10 @@ Upstream path: crates/bevy_render.
 The changed upstream Rust files are `src/render_resource/pipeline_cache.rs` and the render bundle files below.
 
 `src/render_resource/pipeline_cache.rs`:
-It adds held render IDs, per-ID synchronous preparation, safe retirement, and release.
-Held IDs cannot enter automatic processing, including shader reload retries.
-An owned queue guard admits descriptor storage before material specialization.
-Descriptor accounting uses vector and string capacities. It also reserves cloned keys and retry links.
-Rejected metadata stays held as a terminal error. Normal active-cache processing stays unchanged.
 `prewarm_render_pipeline` and `prewarm_compute_pipeline` queue a listed pipeline and keep its descriptor.
-A later queue of an equal descriptor returns the listed ID. Owned queue scopes do not use listed IDs.
-
-The product owns candidate scopes, cancellation, readiness, promotion, and the persistent metadata budget.
-The patch does not change the mesh allocator, shader language, renderer backend, or normal active-cache queue.
+A later queue of an equal descriptor returns the listed ID.
+`process_pipeline_queue_system` is public, so product systems can order after it.
+The patch does not change the mesh allocator, shader language, renderer backend, or normal queue processing.
 
 `src/render_phase/draw_state.rs`: `TrackedRenderPass::begin_capture` sends the next commands to a list, not the pass.
 The list holds only commands that a render bundle can hold. Other commands mark the capture as unsupported.

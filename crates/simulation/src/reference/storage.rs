@@ -1,5 +1,7 @@
 //! Checked source `mountStuff` storage volumes, policy, and item flags.
-use super::{ItemId, ReferenceError, ReferenceManifest, SourceId, finite, require};
+use super::{ItemId, SourceId};
+#[cfg(feature = "validate")]
+use super::{ReferenceError, ReferenceManifest, finite, require};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -67,6 +69,7 @@ pub fn stores(storage_type: u8) -> bool {
     !matches!(storage_type, 5 | 7)
 }
 
+#[cfg(feature = "validate")]
 fn positive(half_extents: &[f32; 3]) -> bool {
     half_extents
         .iter()
@@ -74,6 +77,7 @@ fn positive(half_extents: &[f32; 3]) -> bool {
 }
 
 impl StorageRecord {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self, manifest: &ReferenceManifest) -> Result<(), ReferenceError> {
         let policy = &self.policy;
         require(
@@ -95,9 +99,10 @@ impl StorageRecord {
                         })
                     })
                     && volume.slots.iter().all(|slot| {
-                        world.records.iter().any(|record| {
-                            record.source == *slot && record.class_name == "partslotscript"
-                        })
+                        world
+                            .records
+                            .find(slot)
+                            .is_some_and(|record| record.class_name == "partslotscript")
                     })
                     && finite(&volume.center)
                     && positive(&volume.half_extents)
@@ -115,7 +120,7 @@ impl StorageRecord {
         for flag in &self.flags {
             require(
                 (flag.dont_mount || flag.dont_mount_till_pickup)
-                    && manifest.items.iter().any(|item| item.id == flag.item),
+                    && manifest.item(flag.item).is_some(),
                 "storage flag item",
             )?;
         }

@@ -73,12 +73,7 @@ fn manifest_grips(
     root: NodeId,
 ) -> Result<[Option<Pose>; 2], ReferenceError> {
     let missing = || ReferenceError("Missing pickup grip node".into());
-    let asset = r
-        .nodes
-        .iter()
-        .find(|n| n.id == root)
-        .ok_or_else(missing)?
-        .asset;
+    let asset = r.node(root).ok_or_else(missing)?.asset;
     let grip = |source: &Option<SourceId>| -> Result<Option<Pose>, ReferenceError> {
         let Some(source) = source else {
             return Ok(None);
@@ -333,12 +328,13 @@ impl CarryState {
     pub fn capture_save(
         &self,
         ids: &crate::save::IdentityMap,
+        items: &crate::interaction::items::ItemStore,
     ) -> Result<Option<crate::save::CarrySnapshot>, crate::save::SaveError> {
         self.held
             .as_ref()
             .map(|held| {
                 Ok(crate::save::CarrySnapshot {
-                    item: ids.item_instance(held.item)?,
+                    item: ids.item_instance(items, held.item)?,
                     offset: held.offset.to_array(),
                     rotation: held.rotation.to_array(),
                     local_grip: crate::save::LocalPose {

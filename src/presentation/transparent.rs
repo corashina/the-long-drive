@@ -2,7 +2,7 @@
 use super::{
     materials::MaterialLoading,
     readiness::RendererStateHandle,
-    renderer_visibility::{CameraVisibility, SourceSortData},
+    renderer_visibility::{SortDataChanges, SourceSortData},
     source_lighting::{DrawSourceAdd, DrawSourceBase, DrawSourceGlass},
 };
 use crate::reference::sorting::{PassSortKey, perspective_distance};
@@ -17,20 +17,19 @@ use bevy::render::{
 use bevy::{ecs as bevy_ecs, prelude::*};
 use std::ops::Range;
 
-/// Bevy mesh phases retain main IDs and use a placeholder render entity.
+/// Sort data of every main entity that has it. Bevy mesh phases retain main IDs and use a
+/// placeholder render entity. Only the changes of each frame cross to the render world.
 #[derive(Resource, Default)]
 pub struct SourceSortIndex(bevy::ecs::entity::EntityHashMap<SourceSortData>);
 pub fn extract_sort_index(
-    input: bevy::render::Extract<Res<CameraVisibility>>,
+    input: bevy::render::Extract<Res<SortDataChanges>>,
     mut index: ResMut<SourceSortIndex>,
 ) {
-    index.0.clear();
-    index.0.extend(
-        input
-            .sort_data
-            .iter()
-            .map(|(entity, data)| (*entity, *data)),
-    );
+    // A removal and a new insert in the same frame leave the new data.
+    for entity in &input.removed {
+        index.0.remove(entity);
+    }
+    index.0.extend(input.set.iter().copied());
 }
 #[derive(Clone, Copy)]
 struct OrderedPass {
@@ -133,7 +132,7 @@ pub(crate) fn prepare_pass_order(
     loading: Res<MaterialLoading>,
     functions: Res<DrawFunctions<Transparent3d>>,
     status: Res<RendererStateHandle>,
-    particles: Res<super::particles::ExtractedParticles>,
+    particles: Res<super::quad_batches::ExtractedQuadBatches<super::particles::ParticleUniform>>,
     lighting: Res<super::lighting::ExtractedLighting>,
 ) {
     if !loading.is_ready() || status.failure().is_some() {
@@ -154,7 +153,7 @@ pub(crate) fn prepare_pass_order(
         }
         // One named grab capture precedes the first distortion particle.
         let capacity = loading.transparent_pass_capacity().unwrap_or(0)
-            + particles.uniforms.len()
+            + particles.len
             + crate::reference::GUN_DECALS
             + 1;
         if order.entries.capacity() < capacity {

@@ -568,7 +568,6 @@ pub(crate) fn graph_ready(
     surface: Res<super::surface_pass::SurfacePasses>,
     caster: Res<CasterPasses>,
     resolve: Res<super::depth_resolve::DepthResolve>,
-    owners: Res<super::pipeline_ownership::PipelineOwners>,
     loading: Res<super::materials::MaterialLoading>,
     status: Res<RendererStateHandle>,
     props: Res<super::prop_draws::PropDraws>,
@@ -582,8 +581,8 @@ pub(crate) fn graph_ready(
         && props.frame == frame.frame
         && props.ready[view.index]
         && loading.is_ready()
-        && surface.ready(&cache, &owners)
-        && caster.ready(&cache, &owners)
+        && surface.ready(&cache)
+        && caster.ready(&cache)
         && resolve.ready(&cache)
         && sun.prepared_frame == frame.frame
         && status.failure().is_none()

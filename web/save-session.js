@@ -1,4 +1,4 @@
-import {verifyRecord} from './save-storage.js';
+import {gzip} from './gzip.js';
 const two=value=>String(value).padStart(2,'0');
 function formatDate(date){return `${date.getFullYear()}.${two(date.getMonth()+1)}.${two(date.getDate())}. ${two(date.getHours())}:${two(date.getMinutes())}`;}
 export function lastSave({saves,autosave,last},buildId){
@@ -43,11 +43,11 @@ export function createSaveSession({storage,runtime,drawDistance,reload,onStatus=
   operation.candidate=null;
  }
  const load=name=>run('load',async operation=>{
-  const record=await storage.read(name);
+  // Read gunzips the save, so a corrupt save fails here and not after the reload.
+  const save=await storage.read(name);
   if(!current(operation))return;
-  if(record===null)throw new Error('No saved game.');
-  await verifyRecord(record);
-  if(current(operation))await reload(name);
+  if(save===null)throw new Error('No saved game.');
+  await reload(name);
  });
  return {
   get pending(){return active!==null;},
@@ -64,8 +64,8 @@ export function createSaveSession({storage,runtime,drawDistance,reload,onStatus=
    await write;
   });},
   load,
-  // Multiplayer host: the world for a joining guest, as JSON. Its player starts in the garage. Nothing is stored.
-  async share(){const {save}=await runtime.capture(true,true);return JSON.stringify(save);},
+  // Multiplayer host: the world for a joining guest, as gzip bytes. Its player starts in the garage. Nothing is stored.
+  async share(){const {save}=await runtime.capture(true,true);return gzip(save);},
   remove(name){return run('remove',async()=>{await storage.remove(name);});},
   async loadLast(buildId){
    const name=lastSave(await storage.list(),buildId);

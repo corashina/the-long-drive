@@ -2,7 +2,7 @@
 import math
 import copy
 from pathlib import Path
-from .source import LibrarySource, key, source_id
+from .source import LibrarySource, continuous, key, source_id
 from .library.reader import LibraryReader
 from .library.types import ObjectId
 from .gltf import GltfExporter, convert_bind_poses, converted_transform
@@ -936,7 +936,7 @@ def export_world_prototypes(source,reader,selected,output,roots,roles,scope_cach
                 body_nodes[key(n['reader'])]=len(bodies)
                 bodies.append({'source':source_id(component),'node':mapping[key(n['reader'])],
                     'mass_kg':data['m_Mass'],'linear_damping':data['m_Drag'],'angular_damping':data['m_AngularDrag'],
-                    'kinematic':bool(data['m_IsKinematic']),'use_gravity':bool(data['m_UseGravity']),
+                    'kinematic':bool(data['m_IsKinematic']),'use_gravity':bool(data['m_UseGravity']),'ccd':continuous(data),
                     'constraints':data['m_Constraints'],'pose':world_pose(local,n['reader']),
                     'center_of_mass':centers.pop(key(component),None)})
         if centers:raise ValueError(f'{name}: setcenterofmass Rigidbody outside its prototype')

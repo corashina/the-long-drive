@@ -1,4 +1,5 @@
 //! Source exposure history uses two persistent R32Float targets.
+use crate::presentation::fullscreen::{self, FullscreenPass};
 use crate::presentation::render_targets::EXPOSURE_FORMAT;
 use crate::reference::postprocessing::ExposureSettings;
 use bevy::prelude::*;
@@ -36,26 +37,13 @@ impl ExposurePass {
             return Err("Invalid source exposure settings".into());
         }
         let layout = exposure_layout();
-        let pipeline = cache.queue_render_pipeline(RenderPipelineDescriptor {
-            label: Some("source_exposure".into()),
-            layout: vec![layout.clone()],
-            vertex: VertexState {
-                shader: shader.clone(),
-                entry_point: Some("vertex".into()),
-                ..default()
-            },
-            fragment: Some(FragmentState {
-                shader,
-                entry_point: Some("exposure".into()),
-                targets: vec![Some(ColorTargetState {
-                    format: EXPOSURE_FORMAT,
-                    blend: None,
-                    write_mask: ColorWrites::RED,
-                })],
-                ..default()
-            }),
-            ..default()
-        });
+        let pipeline = cache.queue_render_pipeline(fullscreen::descriptor(
+            "source_exposure",
+            &layout,
+            &shader,
+            "exposure",
+            vec![fullscreen::target(EXPOSURE_FORMAT, ColorWrites::RED)],
+        ));
         let textures = std::array::from_fn(|_| {
             device.create_texture(&TextureDescriptor {
                 label: Some("source_exposure_history"),
@@ -126,12 +114,6 @@ impl ExposurePass {
             )
         });
     }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        super::pipeline_failure(cache, &[self.pipeline])
-    }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        cache.get_render_pipeline(self.pipeline).is_some()
-    }
     /// Preallocate downstream bind groups for both views. Select output_index without rebuilding them.
     pub fn views(&self) -> [&TextureView; 2] {
         [&self.views[0], &self.views[1]]
@@ -184,29 +166,21 @@ impl ExposurePass {
         );
         self.uniform.get_mut().control.x = u32::from(!self.initialized);
         self.uniform.write_buffer(device, queue);
-        let attachments = [Some(RenderPassColorAttachment {
-            view: &self.views[next],
-            depth_slice: None,
-            resolve_target: None,
-            ops: Operations {
-                load: LoadOp::Clear(LinearRgba::NONE.into()),
-                store: StoreOp::Store,
-            },
-        })];
-        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("source_exposure"),
-            color_attachments: &attachments,
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            ..default()
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &self.bindings[next], &[]);
-        pass.draw(0..3, 0..1);
-        drop(pass);
+        fullscreen::draw(
+            encoder,
+            "source_exposure",
+            pipeline,
+            &self.bindings[next],
+            &[&self.views[next]],
+            fullscreen::CLEAR,
+        );
         self.pending = Some(next);
         Ok(true)
+    }
+}
+impl FullscreenPass for ExposurePass {
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        std::slice::from_ref(&self.pipeline)
     }
 }
 

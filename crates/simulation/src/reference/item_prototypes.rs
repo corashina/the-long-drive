@@ -127,6 +127,7 @@ pub struct HoseOpening {
 }
 
 impl HoseReference {
+    #[cfg(feature = "validate")]
     fn validate(&self, p: &ItemPrototype, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let segments = ids(self.segments.iter().copied(), "duplicate hose segment")?;
         require(
@@ -309,26 +310,33 @@ pub struct GibReference {
 }
 
 /// Item prototypes before the gibs, in export order.
+#[cfg(feature = "validate")]
 const SELECTED: [i64; 12] = [
     75443, 51722, 61587, 70812, 53838, 53837, 63605, 63259, 54495, 83430, 51557, 51878,
 ];
 /// Gib prototypes: beer, box, cacti, vase, wc, then box, vase and wc reduced gibs, then the
 /// tumbleweed gib and the Attachable07 gib.
+#[cfg(feature = "validate")]
 const GIB_COUNT: usize = 10;
 /// Box gib and reduced gib roots.
+#[cfg(feature = "validate")]
 pub(super) const BOX_GIBS: [i64; 2] = [81642, 81645];
 
+#[cfg(feature = "validate")]
 fn checked(source: &SourceId, path: i64) -> bool {
     source.file == "sharedassets1.assets" && source.path_id == path
 }
+#[cfg(feature = "validate")]
 fn optional_checked(source: &Option<SourceId>, path: i64) -> bool {
     source.as_ref().is_some_and(|s| checked(s, path))
 }
+#[cfg(feature = "validate")]
 pub(super) fn clip_exists(m: &ReferenceManifest, source: &SourceId) -> bool {
-    m.audio.gameplay.clip(source).is_some()
+    m.audio.clip(source).is_some()
 }
 
 impl PickupReference {
+    #[cfg(feature = "validate")]
     pub fn validate_links(
         &self,
         m: &ReferenceManifest,
@@ -372,6 +380,7 @@ impl PickupReference {
     }
 }
 
+#[cfg(feature = "validate")]
 pub fn validate_prototypes(m: &ReferenceManifest) -> Result<(), ReferenceError> {
     let (items, gibs) = m
         .item_prototypes
@@ -414,11 +423,7 @@ pub fn validate_prototypes(m: &ReferenceManifest) -> Result<(), ReferenceError> 
 impl ItemPrototype {
     pub(super) fn within(&self, m: &ReferenceManifest, mut node: NodeId) -> bool {
         for _ in 0..=m.nodes.len() {
-            let Some(n) = m
-                .nodes
-                .iter()
-                .find(|n| n.id == node && n.asset == self.asset)
-            else {
+            let Some(n) = m.node(node).filter(|n| n.asset == self.asset) else {
                 return false;
             };
             if node == self.root {
@@ -440,10 +445,11 @@ impl ItemPrototype {
             if let Some(b) = self.bodies.iter().find(|b| b.node == current) {
                 return Some(b.id);
             }
-            node = m.nodes.iter().find(|n| n.id == current)?.parent;
+            node = m.node(current)?.parent;
         }
         None
     }
+    #[cfg(feature = "validate")]
     fn validate_gib(&self, m: &ReferenceManifest, generic: bool) -> Result<(), ReferenceError> {
         let b = &self.behavior;
         ids(
@@ -515,6 +521,7 @@ impl ItemPrototype {
             "debris child owners",
         )
     }
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let spec = match self.id.0.path_id {
             75443 => Some((Some(74), 1, Some(4624), true, false, Some(149224))),
@@ -601,11 +608,7 @@ impl ItemPrototype {
             "complete prototype physics",
         )?;
         for b in &self.bodies {
-            let parent = m
-                .nodes
-                .iter()
-                .find(|n| n.id == b.node)
-                .and_then(|n| n.parent);
+            let parent = m.node(b.node).and_then(|n| n.parent);
             require(
                 self.within(m, b.node)
                     && checked(&b.source, b.source.path_id)

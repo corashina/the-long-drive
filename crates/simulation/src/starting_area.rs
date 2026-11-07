@@ -99,7 +99,7 @@ impl StartingArea {
                 RigidBodyBuilder::kinematic_position_based()
             } else if body.dynamic {
                 RigidBodyBuilder::dynamic()
-                    .ccd_enabled(true)
+                    .ccd_enabled(body.ccd)
                     .additional_mass(body.mass_kg)
                     .linear_damping(body.linear_damping)
                     .angular_damping(body.angular_damping)
@@ -224,11 +224,7 @@ impl StartingArea {
                 {
                     return None;
                 }
-                let parent_record = reference
-                    .bodies
-                    .iter()
-                    .find(|body| body.id == parent)
-                    .expect("validated parent");
+                let parent_record = reference.body(parent).expect("validated parent");
                 let source = to_rapier(VehiclePose {
                     position: record.pose.translation,
                     rotation: record.pose.rotation,
@@ -425,11 +421,7 @@ pub fn collider_item(reference: &ReferenceManifest, mut node: NodeId) -> Option<
         if let Some(item) = reference.items.iter().find(|item| item.node == node) {
             return Some(item.id);
         }
-        node = reference
-            .nodes
-            .iter()
-            .find(|record| record.id == node)?
-            .parent?;
+        node = reference.node(node)?.parent?;
     }
 }
 
@@ -494,11 +486,12 @@ pub struct GarageRuntime {
     previous_speed: Option<f32>,
     death_protected: bool,
     death_announced: bool,
-    pub audio_gameplay: crate::reference::AudioGameplayReference,
 
-    pub audio: Option<crate::audio::AudioState>,
+    pub audio: crate::audio::AudioState,
     pub persistent_world: crate::save::PersistentWorld,
     pending_restore: Option<save::PendingRestore>,
+    /// Source identities for save capture and restore. One map per session.
+    ids: crate::save::IdentityMap,
     pub lighting: crate::lighting::LightingState,
     /// The main depth of field focus.
     pub focus: crate::depth_of_field::Focus,
@@ -516,11 +509,9 @@ pub struct GarageRuntime {
     recovery_held_bodies: Vec<RigidBodyHandle>,
     /// The vehicle the player last sat in. The HUD and recovery follow it.
     pub vehicle: Option<ObjectKey>,
-    /// The menu is open. The player gets no input.
-    pub menu: bool,
+    pub phase: SessionPhase,
     /// Multiplayer is on. Net sets it. Online, the menu does not stop the world.
     pub online: bool,
-    pub started: bool,
     pub attempts: u64,
     /// Kilometers that the player drove as driver.
     pub driven_km: f64,
@@ -535,6 +526,10 @@ pub struct GarageRuntime {
     recovery_bodies: Vec<RigidBodyHandle>,
     /// Simulation time of the next under-map check.
     under_map_check: f64,
+    /// The under-map check visits a share of the items each step.
+    under_map_items: crate::round_robin::RoundRobin,
+    /// Fallen items of this step. The buffer is kept between steps.
+    under_map_fallen: Vec<(RigidBodyHandle, f32)>,
     frame_poses: crate::boundary::FramePoses,
     /// The first frame carries every condition. Later frames carry changes.
     conditions_sent: bool,
@@ -553,10 +548,23 @@ pub struct GarageRuntime {
     render_input: crate::boundary::RenderInput,
 }
 
+/// Phase of the game session. The start menu shows in `Unstarted`, the pause menu in `Paused`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionPhase {
+    /// A fresh runtime. The player gets no input and the world does not step.
+    Unstarted,
+    Playing,
+    /// The menu is open. The player gets no input.
+    Paused,
+}
+
 impl GarageRuntime {
+    pub fn started(&self) -> bool {
+        self.phase != SessionPhase::Unstarted
+    }
     /// The world does not step. Online, the menu does not stop it: other players use the same world.
     pub fn paused(&self) -> bool {
-        self.menu && !self.online
+        self.phase == SessionPhase::Paused && !self.online
     }
     pub fn set_player_settings(&mut self, settings: crate::reference::PlayerSettings) {
         self.player_settings = settings;
@@ -569,7 +577,7 @@ impl GarageRuntime {
         &mut self,
         mut requested: crate::reference::DrivingAssists,
     ) -> Result<(), ReferenceError> {
-        if self.started && !self.menu {
+        if self.phase == SessionPhase::Playing {
             return Err(ReferenceError("Driving assists require pause".into()));
         }
         requested.automatic_gears &= requested.automatic_clutch;
@@ -588,7 +596,9 @@ impl GarageRuntime {
         mode: crate::world::GameMode,
         draw_distance: f32,
     ) -> Result<Self, ReferenceError> {
-        Self::new_candidate(reference, true, mode.seed, mode, draw_distance)
+        let ids =
+            crate::save::IdentityMap::new(reference).map_err(|e| ReferenceError(e.to_string()))?;
+        Self::new_candidate(reference, ids, true, mode.seed, mode, draw_distance)
     }
     /// Test runtime in the default game mode at the export default draw distance.
     #[cfg(test)]
@@ -601,6 +611,7 @@ impl GarageRuntime {
     }
     fn new_candidate(
         reference: &ReferenceManifest,
+        ids: crate::save::IdentityMap,
         stream_world: bool,
         seed: i32,
         mode: crate::world::GameMode,
@@ -623,27 +634,22 @@ impl GarageRuntime {
             .cleaning
             .sync_wash_colliders(&area.interaction.conditions, &mut physics);
         physics.refresh_queries();
-        area.items.sync_poses(&physics);
+        area.items.sync_poses(&mut physics);
         area.commit_poses(&physics, true);
         stream.initialize_imported_changes(reference, &area.items, &area.interaction, &physics);
         let lighting = crate::lighting::LightingState::new(&reference.lighting, &distances);
-        let audio = reference.audio.playback().ok().map(|r| {
-            let mut state = crate::audio::AudioState::new(r.clone(), 1);
-            state.bind_game(reference, &area, &physics);
-            state.sync_lamps(&reference.lighting, &lighting);
-            state
-        });
+        let mut audio = crate::audio::AudioState::new(reference.audio.shared().clone(), 1);
+        audio.bind_game(reference, &area, &physics);
+        audio.sync_lamps(&reference.lighting, &lighting);
         let weather_bindings = weather::WeatherBindings::new(
             &physics,
             area.player.body_handle(),
-            &audio.as_ref().map_or(Vec::new(), |audio| {
-                audio
-                    .reference
-                    .interiors
-                    .iter()
-                    .map(|i| i.collider)
-                    .collect()
-            }),
+            &audio
+                .reference
+                .interiors
+                .iter()
+                .map(|i| i.collider)
+                .collect::<Vec<_>>(),
         );
         let urine_visual = reference
             .particles
@@ -662,7 +668,6 @@ impl GarageRuntime {
             urine_splash,
             0x70697373,
         );
-        let audio_gameplay = reference.audio.gameplay.clone();
         let mut run = Self {
             driving_assists: reference.driving.default_assists,
             options: Default::default(),
@@ -684,7 +689,7 @@ impl GarageRuntime {
                 }
             },
             horror: crate::horror::HorrorSound::new(seed as u64),
-            hum: crate::hum::Hum::new(&reference.survival.hum, &audio_gameplay),
+            hum: crate::hum::Hum::new(&reference.survival.hum, &reference.audio),
             food_particles: crate::food_particles::FoodParticles::new(
                 &reference.survival.food_particles,
                 0x666f_6f64,
@@ -721,10 +726,10 @@ impl GarageRuntime {
             previous_speed: None,
             death_protected: true,
             death_announced: false,
-            audio_gameplay,
             audio,
             persistent_world: crate::save::PersistentWorld::new(reference),
             pending_restore: None,
+            ids,
             physics,
             area,
             stream,
@@ -735,9 +740,8 @@ impl GarageRuntime {
             vehicles: BTreeMap::new(),
             powertrain: PowertrainParts::default(),
             vehicle: None,
-            menu: false,
+            phase: SessionPhase::Unstarted,
             online: false,
-            started: false,
             attempts: 0,
             driven_km: 0.,
             rebases: 0,
@@ -754,6 +758,8 @@ impl GarageRuntime {
             recovery_bodies: Vec::with_capacity(reference.items.len()),
             recovery_held_bodies: Vec::with_capacity(reference.items.len()),
             under_map_check: 0.,
+            under_map_items: Default::default(),
+            under_map_fallen: Vec::new(),
             frame_poses: Default::default(),
             conditions_sent: false,
             home_cable_session: None,
@@ -788,38 +794,36 @@ impl GarageRuntime {
     }
 
     fn sync_tool_audio(&mut self, reference: &ReferenceManifest) {
-        if let Some(audio) = &mut self.audio {
-            let cleaning = &self.area.interaction.cleaning;
-            let c = &reference.conditions;
-            let brushes = c.brushes.iter().map(|b| (b.item, b.tool.voice));
-            for (item, voice) in brushes.chain(c.sprays.iter().map(|b| (b.item, b.tool.voice))) {
-                if let Some(voice) = voice
-                    && let Some(s) = cleaning.signal(item)
-                {
-                    audio.voice(voice, s.playing, s.voice_gain, 1.);
-                }
-            }
-            if let Some(voice) = c.player_brush.tool.voice {
-                let s = cleaning.player_signal();
+        let audio = &mut self.audio;
+        let cleaning = &self.area.interaction.cleaning;
+        let c = &reference.conditions;
+        let brushes = c.brushes.iter().map(|b| (b.item, b.tool.voice));
+        for (item, voice) in brushes.chain(c.sprays.iter().map(|b| (b.item, b.tool.voice))) {
+            if let Some(voice) = voice
+                && let Some(s) = cleaning.signal(item)
+            {
                 audio.voice(voice, s.playing, s.voice_gain, 1.);
             }
-            audio.tool_loops.clear();
-            for (item, index, _) in cleaning.prototype_tools() {
-                let sound = match &c.prototype_tools[index].kind {
-                    PrototypeTool::Brush { sound, .. } => sound.as_ref(),
-                    PrototypeTool::Spray { sound, .. } => Some(sound),
-                };
-                let (Some(sound), Some(s), Some(placed)) =
-                    (sound, cleaning.signal(item), self.area.items.get(item))
-                else {
-                    continue;
-                };
-                if s.playing {
-                    let p =
-                        to_rapier(placed.pose) * rapier3d::math::Vector::from_array(sound.position);
-                    let p = self.stream.origin.absolute(p.to_array());
-                    audio.tool_loop(item, sound.voice, s.voice_gain, p);
-                }
+        }
+        if let Some(voice) = c.player_brush.tool.voice {
+            let s = cleaning.player_signal();
+            audio.voice(voice, s.playing, s.voice_gain, 1.);
+        }
+        audio.tool_loops.clear();
+        for (item, index, _) in cleaning.prototype_tools() {
+            let sound = match &c.prototype_tools[index].kind {
+                PrototypeTool::Brush { sound, .. } => sound.as_ref(),
+                PrototypeTool::Spray { sound, .. } => Some(sound),
+            };
+            let (Some(sound), Some(s), Some(placed)) =
+                (sound, cleaning.signal(item), self.area.items.get(item))
+            else {
+                continue;
+            };
+            if s.playing {
+                let p = to_rapier(placed.pose) * rapier3d::math::Vector::from_array(sound.position);
+                let p = self.stream.origin.absolute(p.to_array());
+                audio.tool_loop(item, sound.voice, s.voice_gain, p);
             }
         }
     }
@@ -834,13 +838,12 @@ impl GarageRuntime {
             .origin
             .absolute(self.area.player.body_pose(&self.physics).position);
         // In source order, the zones duck the ambient before napszak reads it.
-        if let Some(audio) = &mut self.audio {
-            audio.sync_zones(
-                self.stream.structure_revision(),
-                self.stream.frame().structures,
-            );
-            self.ambient.duck(audio.zone_step(position));
-        }
+        let audio = &mut self.audio;
+        audio.sync_zones(
+            self.stream.structure_revision(),
+            self.stream.frame().structures,
+        );
+        self.ambient.duck(audio.zone_step(position));
         // napszakvaltakozas.FixedUpdate reads inSandStorm before the storms update.
         let storm = self.weather.influence().strength.clamp(0., 1.);
         let gains = self.ambient.gains(
@@ -849,27 +852,25 @@ impl GarageRuntime {
             reference.weather.storm.ambient_decrease * storm,
             dt,
         );
-        if let Some(audio) = &mut self.audio {
-            use crate::audio::AudioKind;
-            audio.source_loop(AudioKind::AmbientDay, 0, gains[0], position);
-            audio.source_loop(AudioKind::AmbientNight, 0, gains[1], position);
-            audio.source_loop(
-                AudioKind::StormInside,
-                0,
-                reference.weather.storm.volume * storm,
-                position,
-            );
-            audio.sync_rocks(
-                self.stream.structure_revision(),
-                self.stream.frame().structures,
-            );
-            audio.rock_step(self.lighting.cycle.output(), position);
-        }
+        let audio = &mut self.audio;
+        use crate::audio::AudioKind;
+        audio.source_loop(AudioKind::AmbientDay, 0, gains[0], position);
+        audio.source_loop(AudioKind::AmbientNight, 0, gains[1], position);
+        audio.source_loop(
+            AudioKind::StormInside,
+            0,
+            reference.weather.storm.volume * storm,
+            position,
+        );
+        audio.sync_rocks(
+            self.stream.structure_revision(),
+            self.stream.frame().structures,
+        );
+        audio.rock_step(self.lighting.cycle.output(), position);
         let night = self.lighting.cycle.output().phase == crate::lighting::CyclePhase::Night;
         let horror = self.horror.step(night, self.simulation_seconds);
-        if let Some(audio) = &mut self.audio {
-            audio.horror(horror, position);
-        }
+        let audio = &mut self.audio;
+        audio.horror(horror, position);
     }
 
     fn advance_light_fades(&mut self, reference: &ReferenceManifest, dt: f32) {
@@ -891,25 +892,21 @@ impl GarageRuntime {
         let (items, origin, audio) = (&self.area.items, self.stream.origin, &mut self.audio);
         self.stream
             .advance_music_boxes(dt, |item, pitch, detune, chance| {
-                if let (Some(audio), Some(item)) = (audio.as_mut(), items.get(item)) {
+                if let Some(item) = items.get(item) {
                     audio.music_note(origin.absolute(item.pose.position), pitch, detune, chance);
                 }
             });
         // metalDetectorScript.Turn stops the beep of a detector that is off.
-        if let Some(audio) = audio.as_mut() {
-            audio.stop_survival_loops(crate::audio::AudioKind::MetalDetector);
-        }
+        audio.stop_survival_loops(crate::audio::AudioKind::MetalDetector);
         self.stream
             .advance_detectors(dt, items, &self.physics, |item, position, pitch, volume| {
-                if let Some(audio) = audio.as_mut() {
-                    audio.pitched_loop(
-                        crate::audio::AudioKind::MetalDetector,
-                        item.0,
-                        volume,
-                        Some(pitch),
-                        origin.absolute(position),
-                    );
-                }
+                audio.pitched_loop(
+                    crate::audio::AudioKind::MetalDetector,
+                    item.0,
+                    volume,
+                    Some(pitch),
+                    origin.absolute(position),
+                );
             });
         self.lighting.advance_fades(&reference.lighting, dt);
     }
@@ -965,13 +962,17 @@ impl GarageRuntime {
     }
 
     pub fn step(&mut self, reference: &ReferenceManifest, mut input: FrameInput) {
+        use crate::cpu_profile::{Stage, Timer};
+        let mut profile = Timer::new(Stage::StepConditions);
         self.wheels
             .refresh_conditions(&self.area.interaction.conditions);
+        profile.next(Stage::StepPersistent);
         if let Err(error) = self.sync_world_activity(reference) {
             self.stream.fail(ReferenceError(error.to_string()));
         }
+        profile.next(Stage::StepWorld);
         // The check reads the stream request, so the request is the current position.
-        let held = !self.started || self.paused() || self.recovering || {
+        let held = !self.started() || self.paused() || self.recovering || {
             self.request_focus();
             !self.world_supported()
         };
@@ -989,6 +990,7 @@ impl GarageRuntime {
         if crate::cpu_profile::enabled() {
             crate::host::game_cpu_input_consumed();
         }
+        profile.next(Stage::StepSurvival);
         let factors = self.clock_factors(reference);
         let sleep = self.sleep.output();
         self.lighting.cycle.advance(
@@ -1023,6 +1025,7 @@ impl GarageRuntime {
         self.step_wear(&mut input);
         let smoking = self.step_cigarettes(reference, &mut input);
         self.step_hum(reference, &mut input, smoking);
+        profile.next(Stage::StepVehicles);
         for (key, vehicle) in &mut self.vehicles {
             vehicle.previous = self.persistent_world.absolute_vehicle_position(
                 &self.physics,
@@ -1033,15 +1036,15 @@ impl GarageRuntime {
             vehicle.last_speed = crash::forward_kmh(&self.physics, key);
         }
 
+        profile.next(Stage::StepInteraction);
         self.area.begin_step();
+        let preliminary_pose = self.area.player.view(&self.physics).camera_pose;
         let preliminary_aim = if self.sleeping() {
             ResolvedAim::default()
         } else {
-            self.area.interaction.resolve(
-                &self.physics,
-                self.area.player.view(&self.physics).camera_pose,
-                &self.area.items,
-            )
+            self.area
+                .interaction
+                .resolve(&self.physics, preliminary_pose, &self.area.items)
         };
         let preliminary_availability = self.area.interaction.available_actions(
             &preliminary_aim,
@@ -1055,6 +1058,9 @@ impl GarageRuntime {
         let view = self.area.player.view(&self.physics);
         let aim = if self.sleeping() || view.ray_actions_blocked {
             ResolvedAim::default()
+        } else if view.camera_pose == preliminary_pose {
+            // `step_view` changes only the player, so the same camera pose gives the same aim.
+            preliminary_aim
         } else {
             self.area
                 .interaction
@@ -1124,9 +1130,7 @@ impl GarageRuntime {
             Some(InteractionAction::DialTune(knob, direction)) => {
                 let (audio, physics) = (&mut self.audio, &self.physics);
                 let bus_door = self.stream.use_bus_door_button(knob, |key, shot| {
-                    if let Some(audio) = audio.as_mut()
-                        && physics.vehicle_keys().any(|k| k == key)
-                    {
+                    if physics.vehicle_keys().any(|k| k == key) {
                         let pose = *physics.rapier().bodies[physics.chassis_handle(key)].position();
                         audio.car_shot(key, shot, pose);
                     }
@@ -1146,12 +1150,9 @@ impl GarageRuntime {
                     {
                         self.shared_radios.push(radio);
                     }
-                    if click
-                        && let (Some(audio), Some(item)) =
-                            (&mut self.audio, self.area.items.get(radio))
-                    {
+                    if click && let Some(item) = self.area.items.get(radio) {
                         let origin = self.area.origin;
-                        audio.radio_click_at(std::array::from_fn(|i| {
+                        self.audio.radio_click_at(std::array::from_fn(|i| {
                             origin[i] + f64::from(item.pose.position[i])
                         }));
                     }
@@ -1270,6 +1271,7 @@ impl GarageRuntime {
         {
             self.vehicle = Some(vehicle.clone());
         }
+        profile.next(Stage::StepVehicles);
         let vehicle_input = if previous_seat != self.area.player.seat_body() {
             self.clear_driving_input();
             // Pads stay, so a button held across the seat change gives no edge.
@@ -1381,6 +1383,7 @@ impl GarageRuntime {
             .step_sleds(&mut self.physics, sled_seat, driving_output.controls);
         self.stream.step_trailers(&mut self.physics);
         self.stream.step_followers(&self.physics);
+        profile.next(Stage::StepCreatures);
         self.advance_urine(reference, FIXED_DT);
         self.advance_ambient(reference, FIXED_DT);
         self.advance_weather(
@@ -1395,8 +1398,11 @@ impl GarageRuntime {
             .interaction
             .mechanisms
             .apply_reactions(&mut self.physics);
+        profile.next(Stage::StepRapier);
         self.physics.step_physics();
+        profile.next(Stage::StepVehicles);
         self.step_crashes(reference);
+        profile.next(Stage::StepItems);
         self.area
             .player
             .step_head_bob(walking_input, needs.dead, &self.physics, FIXED_DT);
@@ -1433,63 +1439,64 @@ impl GarageRuntime {
         self.area.sync_equipment(reference, &mut self.physics);
         self.step_body(reference);
         self.area.sync_worn(&mut self.physics);
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
         self.break_targets(reference);
         self.area.commit_poses(&self.physics, false);
-        if let Some(audio) = &mut self.audio {
-            audio.fixed_step(&self.area, &self.physics, &self.stream, FIXED_DT);
-            audio.hits(
-                reference,
-                &self.area,
-                &self.vehicles,
-                &self.physics,
-                FIXED_DT,
-            );
-            let stream = &mut self.stream;
-            let biome_override = stream.mode().biome_override();
-            audio.footsteps(
-                &self.area,
-                &self.physics,
-                walking_input.held & keys::RUN != 0,
-                |position| crate::world::biome(stream.terrain_color(position), biome_override),
-            );
-            while let Some(sound) = self.area.interaction.pop_sound() {
-                match sound {
-                    crate::interaction::InteractionSound::Action(action) => {
-                        audio.action(action, audio.game_seconds)
-                    }
-                    crate::interaction::InteractionSound::Cap {
-                        id,
-                        previous,
-                        current,
-                        tune,
-                    } => {
-                        if audio.imported_cap(id) {
-                            audio.cap(id, previous, current, tune);
-                        } else if let Some((clips, cap)) = self.area.interaction.cap_clips(id)
-                            && let Some(item) = self.area.items.get(cap)
-                        {
-                            let position = self.stream.origin.absolute(item.pose.position);
-                            audio.generated_cap(clips, previous, current, tune, position);
-                        }
+        profile.next(Stage::StepAudio);
+        let audio = &mut self.audio;
+        audio.fixed_step(&self.area, &self.physics, &self.stream, FIXED_DT);
+        audio.hits(
+            reference,
+            &self.area,
+            &self.vehicles,
+            &self.physics,
+            FIXED_DT,
+        );
+        let stream = &mut self.stream;
+        let biome_override = stream.mode().biome_override();
+        audio.footsteps(
+            &self.area,
+            &self.physics,
+            walking_input.held & keys::RUN != 0,
+            |position| crate::world::biome(stream.terrain_color(position), biome_override),
+        );
+        while let Some(sound) = self.area.interaction.pop_sound() {
+            match sound {
+                crate::interaction::InteractionSound::Action(action) => {
+                    audio.action(action, audio.game_seconds)
+                }
+                crate::interaction::InteractionSound::Cap {
+                    id,
+                    previous,
+                    current,
+                    tune,
+                } => {
+                    if audio.imported_cap(id) {
+                        audio.cap(id, previous, current, tune);
+                    } else if let Some((clips, cap)) = self.area.interaction.cap_clips(id)
+                        && let Some(item) = self.area.items.get(cap)
+                    {
+                        let position = self.stream.origin.absolute(item.pose.position);
+                        audio.generated_cap(clips, previous, current, tune, position);
                     }
                 }
             }
-            // szankoScript.Update sets the slide volume and pitch of each sled in use.
-            audio.stop_survival_loops(crate::audio::AudioKind::Sled);
-            let origin = self.stream.origin;
-            self.stream
-                .sled_sounds(&self.physics, |item, volume, pitch, position| {
-                    audio.pitched_loop(
-                        crate::audio::AudioKind::Sled,
-                        item.0,
-                        volume,
-                        pitch,
-                        origin.absolute(position),
-                    )
-                });
         }
+        // szankoScript.Update sets the slide volume and pitch of each sled in use.
+        audio.stop_survival_loops(crate::audio::AudioKind::Sled);
+        let origin = self.stream.origin;
+        self.stream
+            .sled_sounds(&self.physics, |item, volume, pitch, position| {
+                audio.pitched_loop(
+                    crate::audio::AudioKind::Sled,
+                    item.0,
+                    volume,
+                    pitch,
+                    origin.absolute(position),
+                )
+            });
         self.step_car_sounds(reference, input);
+        profile.next(Stage::StepVehicles);
         let driven = self
             .area
             .player
@@ -1509,7 +1516,10 @@ impl GarageRuntime {
             if driven.as_ref() == Some(key) {
                 self.driven_km += distance_m / 1000.;
             }
-            if vehicle.kmh_slots.is_empty() {
+            // A frozen or unloaded car does not move. Its meters keep their values.
+            if vehicle.kmh_slots.is_empty()
+                || !self.physics.body_active(self.physics.chassis_handle(key))
+            {
                 continue;
             }
             // Source carscript.Update reads the meter of the part in each kmhmeters slot.
@@ -1545,6 +1555,7 @@ impl GarageRuntime {
             }
         }
 
+        profile.next(Stage::StepWorld);
         self.advance_under_map();
         let focus = self.request_focus();
         let absolute = self.stream.origin.absolute(focus);
@@ -1555,6 +1566,7 @@ impl GarageRuntime {
                 .cycle
                 .set_terrain_color(&reference.lighting.cycle, &color, 0.);
         }
+        profile.next(Stage::StepPersistent);
         self.persistent_world
             .sync(
                 reference,
@@ -1564,6 +1576,7 @@ impl GarageRuntime {
                 &mut self.physics,
             )
             .expect("persistent world bindings");
+        profile.next(Stage::StepWorld);
         self.rebase_to(focus);
         self.stream.capture_changes(
             reference,
@@ -1571,6 +1584,7 @@ impl GarageRuntime {
             &self.area.interaction,
             &self.physics,
         );
+        profile.next(Stage::StepPersistent);
         self.persistent_world
             .sync(
                 reference,
@@ -1580,6 +1594,7 @@ impl GarageRuntime {
                 &mut self.physics,
             )
             .expect("persistent world bindings");
+        profile.next(Stage::StepSurvival);
         self.advance_light_fades(reference, FIXED_DT);
         self.advance_cigarettes();
         self.heat_haze
@@ -1651,12 +1666,11 @@ impl GarageRuntime {
         self.ground_ufos
             .place(&reference.sky.ground_ufo, anchor, &world);
         self.sync_emps(reference, anchor);
-        if let Some(audio) = &mut self.audio {
-            audio.sky(
-                self.sky.planes().iter().chain(self.ground_ufos.planes()),
-                anchor,
-            );
-        }
+        let audio = &mut self.audio;
+        audio.sky(
+            self.sky.planes().iter().chain(self.ground_ufos.planes()),
+            anchor,
+        );
     }
 
     /// Sky planes, then ground UFOs, relative to the sky anchor.
@@ -1712,18 +1726,17 @@ impl GarageRuntime {
             &self.area.items,
             &mut self.physics,
         );
-        if let Some(audio) = &mut self.audio {
-            let (items, physics, origin) = (&self.area.items, &self.physics, &self.stream.origin);
-            audio.flyers(
-                flyer.voice,
-                self.flyers.squeaks(),
-                self.simulation_seconds,
-                |item| {
-                    let body = physics.rapier().bodies.get(items.get(item)?.body?)?;
-                    Some(origin.absolute(body.translation().to_array()))
-                },
-            );
-        }
+        let audio = &mut self.audio;
+        let (items, physics, origin) = (&self.area.items, &self.physics, &self.stream.origin);
+        audio.flyers(
+            flyer.voice,
+            self.flyers.squeaks(),
+            self.simulation_seconds,
+            |item| {
+                let body = physics.rapier().bodies.get(items.get(item)?.body?)?;
+                Some(origin.absolute(body.translation().to_array()))
+            },
+        );
     }
 
     /// Rabbits run in every state. Source `aispawn` sits on the Player.
@@ -1782,13 +1795,12 @@ impl GarageRuntime {
         }
         self.settle_rabbits(reference);
         let r = &reference.creatures.human;
-        if let Some(audio) = &mut self.audio {
-            let sounds = self
-                .creatures
-                .humans
-                .sounds(r, &self.physics, self.simulation_seconds);
-            audio.humans(r.voice.voice, sounds, &self.stream.origin);
-        }
+        let audio = &mut self.audio;
+        let sounds = self
+            .creatures
+            .humans
+            .sounds(r, &self.physics, self.simulation_seconds);
+        audio.humans(r.voice.voice, sounds, &self.stream.origin);
     }
 
     pub fn sky(&self) -> &crate::sky_traffic::SkyTraffic {
@@ -1875,7 +1887,7 @@ impl GarageRuntime {
         input: crate::boundary::RenderInput,
     ) {
         self.render_input = input;
-        if self.started && !self.paused() {
+        if self.started() && !self.paused() {
             self.advance_instruments(reference, input.dt, false);
             // Source `carscript.Update` eases the lever once per frame by scaled frame time.
             self.advance_levers(reference, input.dt);
@@ -1890,9 +1902,7 @@ impl GarageRuntime {
 
     /// Car and engine part sounds of every copy in range of the player.
     fn step_car_sounds(&mut self, reference: &ReferenceManifest, input: FrameInput) {
-        let Some(audio) = &mut self.audio else {
-            return;
-        };
+        let audio = &mut self.audio;
         let origin = self.stream.origin.offset;
         audio.begin_cars(origin);
         let listener =
@@ -2022,11 +2032,10 @@ impl GarageRuntime {
                         .break_lamp(reference, &mut self.physics, &parent, control, record)
                         .expect("bound lamp");
                     if let Some(clip) = self.stream.pick_break_clip(rules)
-                        && let Some(audio) = &mut self.audio
                         && let Some(position) = position
                     {
                         let origin = self.area.origin;
-                        audio.break_clip(
+                        self.audio.break_clip(
                             clip,
                             std::array::from_fn(|i| origin[i] + f64::from(position[i])),
                         );
@@ -2070,11 +2079,9 @@ impl GarageRuntime {
             return;
         };
         self.spawn_gib(reference, rules, pose, buried);
-        if let Some(clip) = self.stream.pick_break_clip(rules)
-            && let Some(audio) = &mut self.audio
-        {
+        if let Some(clip) = self.stream.pick_break_clip(rules) {
             let origin = self.area.origin;
-            audio.break_clip(
+            self.audio.break_clip(
                 clip,
                 std::array::from_fn(|i| origin[i] + f64::from(pose.position[i])),
             );
@@ -2157,7 +2164,11 @@ impl GarageRuntime {
 
     pub fn initialize_storage_frame(&mut self, dt: f32) -> Result<bool, ReferenceError> {
         // It runs only while the world loads.
-        let dt = if self.menu { 0.0 } else { dt };
+        let dt = if self.phase == SessionPhase::Paused {
+            0.0
+        } else {
+            dt
+        };
         let changed = self.area.interaction.storage.initialize_frame(
             &mut self.area.items,
             &mut self.physics,
@@ -2168,7 +2179,7 @@ impl GarageRuntime {
         )?;
         if changed {
             self.wheels.sync(&mut self.area.items, &mut self.physics)?;
-            self.area.items.sync_poses(&self.physics);
+            self.area.items.sync_poses(&mut self.physics);
             self.area.commit_poses(&self.physics, true);
         }
         Ok(changed)
@@ -2370,9 +2381,8 @@ impl GarageRuntime {
             self.urine.rebase(shift_vector);
             self.flyers.rebase(shift_vector);
             self.creatures.rebase(shift_vector);
-            if let Some(audio) = &mut self.audio {
-                audio.rebase(shift);
-            }
+            let audio = &mut self.audio;
+            audio.rebase(shift);
             self.aim.rebase(shift);
             self.rebases += 1;
         }
@@ -2447,7 +2457,7 @@ impl GarageRuntime {
             self.spawn_pack(reference, pose, count)?;
         }
         self.physics.refresh_queries();
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
         hose::spawn_start(reference, &mut self.area, &mut self.physics)?;
         self.area.commit_poses(&self.physics, true);
         self.startup_aligned = true;

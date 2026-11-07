@@ -41,14 +41,6 @@ pub(crate) fn roadside_stamp(reference: &ReferenceManifest) -> SourceStamp {
             .next()
             .unwrap()
             .into(),
-        source_hashes: reference
-            .source_hashes
-            .iter()
-            .map(|h| crate::save::SourceHash {
-                file: h.file.clone(),
-                sha256: h.sha256.clone(),
-            })
-            .collect(),
     }
 }
 
@@ -142,7 +134,7 @@ pub(crate) fn prepare_step_for_views(
     }
     if let Some((request, surface)) = stream.prepared_surface() {
         let key = surface.key;
-        if !stream.ready.as_ref().unwrap().renderer_reserved {
+        if !stream.ready.as_ref().unwrap().state.reserved() {
             stream.reserve_surface_renderer(request, key).unwrap();
             stream.accept_surface_renderer(request, key).unwrap();
             *surface_claim = Some((request, key));
@@ -238,8 +230,7 @@ pub(crate) fn load_garage() -> (ReferenceManifest, GarageRuntime) {
     assert_eq!(reference.build_id, 11140890);
     let mut run = ready(&reference);
     assert!(run.world_supported());
-    run.started = true;
-    run.menu = false;
+    run.phase = crate::starting_area::SessionPhase::Playing;
     (reference, run)
 }
 
@@ -357,8 +348,7 @@ pub(crate) fn restore(
         }
     }
     assert!(!run.restore_pending(), "restore stays pending");
-    run.started = true;
-    run.menu = false;
+    run.phase = crate::starting_area::SessionPhase::Playing;
 }
 
 /// A started runtime from `saved` with the restore done.

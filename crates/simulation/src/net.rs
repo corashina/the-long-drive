@@ -140,7 +140,7 @@ impl Net {
             .filter(|(slot, _)| {
                 self.remotes
                     .iter()
-                    .any(|r| r.slot == *slot && !r.smoothing.dead)
+                    .any(|r| r.slot == *slot && !r.smoothing.dead())
             })
             .map(|(_, pose)| *pose)
             .min_by(|a, b| {
@@ -204,9 +204,8 @@ impl Net {
         for handle in self.dropped.drain(..) {
             runtime.physics.remove_body(handle);
         }
-        if let Some(audio) = &mut runtime.audio {
-            audio.broadcasts.set_remote(self.role == NetRole::Guest);
-        }
+        let audio = &mut runtime.audio;
+        audio.broadcasts.set_remote(self.role == NetRole::Guest);
         self.prepare(runtime);
         if self.role == NetRole::Off {
             runtime.area.interaction.in_use.clear();
@@ -217,6 +216,7 @@ impl Net {
             runtime.weather.strike = None;
             self.cars.end(runtime);
             self.inventory.clear(runtime);
+            self.objects.skip(&mut runtime.area.items);
             return;
         }
         for slot in std::mem::take(&mut self.left) {
@@ -224,7 +224,7 @@ impl Net {
         }
         self.clock += real_dt as f64;
         self.objects
-            .refresh(&runtime.area.items, &runtime.area.spawned);
+            .refresh(&mut runtime.area.items, &runtime.area.spawned);
         self.read_inbox(reference, runtime);
         self.mark_in_use(reference, runtime);
         self.cars.send(
@@ -249,7 +249,7 @@ impl Net {
                 .send(self.slot, runtime, real_dt, &mut self.outbox);
         }
         self.objects
-            .refresh(&runtime.area.items, &runtime.area.spawned);
+            .refresh(&mut runtime.area.items, &runtime.area.spawned);
         self.items.bound(
             runtime,
             &mut self.objects,
@@ -320,13 +320,13 @@ impl Net {
             self.figures
                 .push((remote.slot, crate::vehicle::to_rapier(pose)));
             let flags = if remote.ragdoll.step(
-                remote.smoothing.dead,
+                remote.smoothing.dead(),
                 real_dt,
                 origin,
                 &mut frame.remote_ragdolls,
             ) {
                 RemoteRow::RAGDOLL
-            } else if remote.smoothing.dead {
+            } else if remote.smoothing.dead() {
                 0
             } else {
                 RemoteRow::VISIBLE
@@ -592,5 +592,5 @@ impl Net {
 /// is back first. Attachments to far owners can stay deferred for the whole session, so they do
 /// not count.
 fn settled(runtime: &GarageRuntime) -> bool {
-    runtime.started && runtime.world_supported()
+    runtime.started() && runtime.world_supported()
 }

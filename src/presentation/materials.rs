@@ -6,6 +6,7 @@ pub mod primary;
 pub mod specular;
 pub mod terrain;
 use crate::ownership::upload_receipt;
+mod top_mips;
 mod world_texture_upload;
 pub mod world_textures;
 use super::primary_image::{SourcePrimaryImage, SourcePrimaryImageSettings};
@@ -151,6 +152,8 @@ struct SourceTexture {
     payload_bytes: usize,
     cpu_reservation: usize,
     image: Option<Handle<Image>>,
+    /// Crunch tables kept until the top mip loads.
+    crunch_tables: Option<Arc<[u8]>>,
     /// Renderer steps since the image was added without a completed upload.
     stalled: u32,
     label: String,
@@ -163,8 +166,10 @@ impl SourceTexture {
         persistent: bool,
         label: String,
     ) -> Result<Self, source::ReferenceError> {
-        let payload_bytes = record.payload_bytes()?;
-        let cpu_reservation = source::fixed_reservation::png_cpu(payload_bytes, input_staging)?;
+        let payload_bytes = record
+            .levels(crate::display_settings::half_textures())?
+            .bytes;
+        let cpu_reservation = source::fixed_reservation::primary_cpu(payload_bytes, input_staging)?;
         Ok(Self {
             owner: Arc::new(()),
             upload: default(),
@@ -177,6 +182,7 @@ impl SourceTexture {
             payload_bytes,
             cpu_reservation,
             image: None,
+            crunch_tables: None,
             stalled: 0,
             label,
         })
@@ -184,13 +190,13 @@ impl SourceTexture {
 }
 #[derive(Resource, Clone)]
 pub struct SourceMaterials {
-    pub preparation: super::gpu_prepare::GpuPreparation,
     pub(crate) generated: super::world::shared_materials::SharedMaterials<
         super::world::instance_materials::SharedBinding,
     >,
     pub world_textures: world_textures::WorldTextures,
     pub world_primary: primary::PrimaryOwnership,
     pub world_deferred: crate::ownership::RendererCounts,
+    top_mips: top_mips::TopMips,
     pub standard_records: HashMap<AssetId<StandardMaterial>, (source::AssetId, u32)>,
     records: Vec<Arc<MaterialRecord>>,
     sort_data: HashMap<(source::AssetId, u32), super::renderer_visibility::SourceSortData>,
@@ -378,6 +384,7 @@ impl Plugin for SourceMaterialPlugin {
             MaterialPlugin::<grass::material::GrassMaterial>::default(),
             grass::writers::GrassDisplacementPlugin,
             world_texture_upload::WorldTextureUploadPlugin,
+            top_mips::TopMipPlugin,
             super::fixed_assets::FixedAssetsPlugin,
         ))
         .insert_resource(MaterialLoading(Arc::new(Mutex::new(LoadingData {
@@ -390,7 +397,13 @@ impl Plugin for SourceMaterialPlugin {
         }))))
         .init_resource::<RetainedColors>()
         .init_resource::<super::renderers::RendererMeshes>()
-        .init_resource::<super::renderer_visibility::CameraVisibility>()
+        .init_resource::<super::renderer_visibility::SortDataChanges>()
+        // Same point as the camera filter, so a renderer and its sort data arrive in one frame.
+        .add_systems(
+            PostUpdate,
+            super::renderer_visibility::collect_sort_data
+                .after(super::renderer_visibility::filter_camera_visibility),
+        )
         .add_systems(
             PostUpdate,
             super::renderer_visibility::filter_camera_visibility
@@ -561,11 +574,11 @@ pub fn load_materials(
         textures.push(entry);
     }
     let mut source = SourceMaterials {
-        preparation: default(),
         generated: default(),
         world_textures: world_textures::WorldTextures::default(),
         world_primary: primary::PrimaryOwnership::default(),
         world_deferred: crate::ownership::RendererCounts::default(),
+        top_mips: default(),
         standard_records: HashMap::new(),
         sort_data,
         records,
@@ -613,10 +626,11 @@ fn assemble_textures(
         let Some(handle) = &texture.chain else {
             continue;
         };
-        let Some(SourcePrimaryImage(image)) = chains.remove(handle.id()) else {
+        let Some(SourcePrimaryImage(image, tables)) = chains.remove(handle.id()) else {
             continue;
         };
         texture.chain = None;
+        texture.crunch_tables = tables;
         if let Some(retried) = &texture.image {
             images.insert(retried.id(), image).unwrap();
             texture.upload = default();
@@ -1047,7 +1061,6 @@ fn make_material(
         .find(|texture| texture.slot == "_MainTex");
     SourceMaterial {
         retained_color: None,
-        preparation: default(),
         base: StandardMaterial {
             base_color_channel: main.map_or(bevy::mesh::UvChannel::Uv0, |texture| {
                 if texture.uv_channel == 0 {
@@ -1338,7 +1351,6 @@ use bevy::ecs::system::SystemParamItem;
 #[derive(Asset, TypePath, Clone, Debug, Default)]
 pub struct SourceMaterial {
     pub(crate) retained_color: Option<RetainedColor>,
-    pub preparation: super::gpu_prepare::GpuPreparation,
     pub base: StandardMaterial,
     pub extension: SourceExtension,
 }
@@ -1488,32 +1500,13 @@ impl AsBindGroup for SourceMaterial {
             self.extension.bind_group_data(),
         )
     }
-    fn as_bind_group(
-        &self,
-        descriptor: &BindGroupLayoutDescriptor,
-        device: &RenderDevice,
-        cache: &PipelineCache,
-        param: &mut SystemParamItem<Self::Param>,
-    ) -> Result<PreparedBindGroup, AsBindGroupError> {
-        crate::presentation::gpu_prepare::bind_group(
-            self,
-            &self.preparation,
-            descriptor,
-            device,
-            cache,
-            param,
-        )
-    }
     fn unprepared_bind_group(
         &self,
         layout: &BindGroupLayout,
         device: &RenderDevice,
         params: &mut SystemParamItem<Self::Param>,
-        direct: bool,
+        _: bool,
     ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
-        if self.preparation.isolated() && !direct {
-            return Err(AsBindGroupError::CreateBindGroupDirectly);
-        }
         let mut prepared = self
             .base
             .unprepared_bind_group(layout, device, &mut params.0, true)?;
@@ -2352,9 +2345,7 @@ pub fn authored_material(
             source.world_primary_admitted(key),
         );
     };
-    let mut material = make_material(record, reflected, mask, source);
-    material.preparation = source.preparation.clone();
-    material
+    make_material(record, reflected, mask, source)
 }
 impl SourceMaterials {
     pub(crate) fn shareable_generated_primary(&self, identity: (source::AssetId, u32)) -> bool {

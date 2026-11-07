@@ -1,25 +1,14 @@
-use super::{InstanceId, SaveError, SourceKey};
+use super::{InstanceId, SourceKey};
 use serde::{Deserialize, Serialize};
 
-pub const SAVE_SCHEMA_VERSION: u32 = 50;
-pub const OLDEST_SAVE_SCHEMA_VERSION: u32 = 50;
-pub fn schema_supported(version: u32) -> bool {
-    (OLDEST_SAVE_SCHEMA_VERSION..=SAVE_SCHEMA_VERSION).contains(&version)
-}
+pub const SAVE_SCHEMA_VERSION: u32 = 51;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SourceHash {
-    pub file: String,
-    pub sha256: String,
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceStamp {
     pub app_id: u32,
     pub build_id: u32,
     pub manifest_sha256: String,
-    pub source_hashes: Vec<SourceHash>,
 }
 impl SourceStamp {
     /// The save stamp of the build that `reference` comes from.
@@ -28,14 +17,6 @@ impl SourceStamp {
             app_id: reference.app_id,
             build_id: reference.build_id,
             manifest_sha256,
-            source_hashes: reference
-                .source_hashes
-                .iter()
-                .map(|s| SourceHash {
-                    file: s.file.clone(),
-                    sha256: s.sha256.clone(),
-                })
-                .collect(),
         }
     }
 }
@@ -187,20 +168,6 @@ pub struct FoodItemSnapshot {
     pub bite: u8,
     pub look: crate::interaction::items::FoodLook,
     pub pose: AbsolutePose,
-}
-impl SaveSnapshot {
-    pub fn from_json(bytes: &[u8]) -> Result<Self, SaveError> {
-        #[derive(Deserialize)]
-        struct Version {
-            schema_version: u32,
-        }
-        let version: Version =
-            serde_json::from_slice(bytes).map_err(|e| SaveError::CorruptData(e.to_string()))?;
-        if !schema_supported(version.schema_version) {
-            return Err(SaveError::IncompatibleSources("Schema version".into()));
-        }
-        serde_json::from_slice(bytes).map_err(|e| SaveError::CorruptData(e.to_string()))
-    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -518,29 +485,6 @@ pub struct ToolSnapshot {
 #[cfg(test)]
 mod g04_ordered_state {
     use super::*;
-
-    #[test]
-    fn older_schemas_are_rejected_before_payload_reconstruction() {
-        for version in [
-            6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-            31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51,
-        ] {
-            let payload = format!(r#"{{"schema_version":{version}}}"#);
-            assert!(matches!(
-                SaveSnapshot::from_json(payload.as_bytes()),
-                Err(SaveError::IncompatibleSources(_))
-            ));
-        }
-    }
-
-    #[test]
-    fn current_schema_passes_the_version_gate() {
-        // Schema 50 reaches payload parsing. The empty payload then fails as corrupt data.
-        assert!(matches!(
-            SaveSnapshot::from_json(br#"{"schema_version":50}"#),
-            Err(SaveError::CorruptData(_))
-        ));
-    }
 
     #[test]
     fn weather_cells_wind_and_forecast_round_trip() {

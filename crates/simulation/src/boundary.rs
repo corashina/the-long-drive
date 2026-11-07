@@ -226,6 +226,7 @@ pub struct PerfBlock {
     pub weather_cells: u32,
     pub weather_rain: f32,
     pub weather_wetness: f32,
+    /// The body counters fill only when a command asks for them. Others keep the last values.
     pub dynamic_bodies: u32,
     /// Bodies that are not asleep.
     pub awake_bodies: u32,
@@ -1058,7 +1059,10 @@ pub enum Change {
     SaveResult {
         id: u32,
         kind: crate::save_requests::SaveKind,
+        /// JSON answer. For Capture, the save list fields.
         payload: String,
+        /// Capture only: the save JSON, stored as is.
+        save: Vec<u8>,
         error: String,
     },
 }
@@ -1114,7 +1118,7 @@ pub struct SimFrame {
     pub brush_poses: Vec<PoseRow>,
     /// Spray colors, in `ConditionRecord::sprays` order.
     pub spray_colors: Vec<[f32; 4]>,
-    /// Browser audio calls. Empty without audio.
+    /// Browser audio calls.
     pub audio: Vec<AudioCall>,
     /// World counts against their caps, in `BUDGET_LABELS` order.
     pub budgets: Vec<BudgetRow>,
@@ -1180,6 +1184,8 @@ pub struct SimCommand {
     pub old_heat_haze: bool,
     /// The browser asks for a world measurement.
     pub measure: bool,
+    /// F3 or the bench reads the body counters of `PerfBlock`.
+    pub body_counters: bool,
     pub world: WorldCommand,
     /// Save requests, in order.
     pub save: Vec<SaveCommand>,
@@ -1271,6 +1277,7 @@ impl SimCommand {
             player_settings,
             old_heat_haze,
             measure,
+            body_counters,
             world,
             save,
             listener,
@@ -1291,6 +1298,7 @@ impl SimCommand {
         self.player_settings = player_settings.or(self.player_settings);
         self.old_heat_haze = old_heat_haze;
         self.measure |= measure;
+        self.body_counters |= body_counters;
         self.world.merge(world);
         self.save.extend(save);
         self.listener = listener.or(self.listener);

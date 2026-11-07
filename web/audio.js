@@ -65,7 +65,6 @@ export function installAudioBridge(target,audio){
  const position=new Float32Array(3),rotation=new Float32Array(4),frame={power:false,am:false,frequency:0,volume:0,staticGain:0,primary:{clip:null,offsetSeconds:0,gain:0,nextClip:null},secondary:{clip:null,offsetSeconds:0,gain:0,nextClip:null}};
  const pose=(b,i)=>{position[0]=b[i];position[1]=b[i+1];position[2]=b[i+2];rotation[0]=b[i+3];rotation[1]=b[i+4];rotation[2]=b[i+5];rotation[3]=b[i+6];};
  const playback=(p,b,i)=>{p.clip=b[i]||null;p.offsetSeconds=b[i+1];p.gain=b[i+2];p.nextClip=b[i+3]||null;};
- target.gameAudioError=message=>audio.fail(Error(message));
  target.gameAudioFrame=b=>{
   let i=0;const n=b.length;
   while(i<n){

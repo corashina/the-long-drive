@@ -1,5 +1,6 @@
 //! Source `ls` word table: `ls.w` names, the English words of `ls.FillDefWW` and the installed language files.
 //! The browser shows the words. The simulation checks word indices only.
+#[cfg(feature = "validate")]
 use super::{ReferenceError, require};
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +22,7 @@ pub struct LanguageFile {
 }
 
 impl LanguageReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self) -> Result<(), ReferenceError> {
         require(
             !self.names.is_empty()

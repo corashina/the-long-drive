@@ -84,7 +84,7 @@ impl ItemSync {
                 }
             } else if spawn(reference, runtime, &m).is_some() {
                 // Later packets of this frame name the new item.
-                index.refresh(&runtime.area.items, &runtime.area.spawned);
+                index.refresh(&mut runtime.area.items, &runtime.area.spawned);
             } else if host {
                 self.keep(NetKey(m.key), Some(m), None);
             }

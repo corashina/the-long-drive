@@ -1,4 +1,4 @@
-#import source_float_store::{source_max, source_min, source_sat}
+#import source_float_store::{positive, sat3, source_max, source_min, source_sat}
 // Installed Lut2DBaker pass LutGenLDR (blob 5), exact DXBC immediate words.
 // It bakes the 1024x32 ARGB32 strip from the user LDR LUT, then runs ColorGradeLDR and YrgbCurve.
 struct Params {
@@ -12,8 +12,6 @@ struct Params {
 @group(0) @binding(3) var curves: texture_2d<f32>;
 @group(0) @binding(4) var curve_sampler: sampler;
 fn f(bits: u32) -> f32 { return bitcast<f32>(bits); }
-fn sat3(v: vec3<f32>) -> vec3<f32> { return vec3(source_sat(v.x), source_sat(v.y), source_sat(v.z)); }
-fn positive(v: vec3<f32>) -> vec3<f32> { return vec3(source_max(v.x, 0.), source_max(v.y, 0.), source_max(v.z, 0.)); }
 fn curve(u: f32, v: f32) -> vec4<f32> { return textureSampleLevel(curves, curve_sampler, vec2(u, v), 0.); }
 @vertex fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     let uv = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));

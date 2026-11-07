@@ -55,7 +55,7 @@ impl Cobwebs {
                 duration: e.particle.duration,
                 elapsed: None,
                 emitter: [0.; 3],
-                clip: reference.audio.gameplay.clip_id(&e.clip),
+                clip: reference.audio.clip_id(&e.clip),
                 volume: e.volume,
             })
             .collect();

@@ -42,16 +42,32 @@ impl Shapes {
     }
 }
 
+/// Port only: what a remote figure does. Standing, seated and dead exclude each other.
+/// Wire messages keep the `SEATED`, `DEAD` and `IN_CAR` bits. `Smoothing::got_pose` maps them.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Stance {
+    #[default]
+    Standing,
+    /// Source `seatId` and `seatId2` of a car seat. `None` on an item seat.
+    Seated { car: Option<(u64, u32)> },
+    /// The figure hides and its colliders stay off.
+    Dead,
+}
+
+impl Stance {
+    pub fn seated(self) -> bool {
+        matches!(self, Self::Seated { .. })
+    }
+}
+
 pub struct RemoteBody {
     pub handle: RigidBodyHandle,
     /// `StandBody`, the head sphere, the head box, `Feet2`.
     colliders: [ColliderHandle; 4],
     head_offsets: [Vector; 2],
-    enable_at: f64,
-    enabled: bool,
-    seated: bool,
-    /// The player is dead. The colliders stay off.
-    dead: bool,
+    /// The colliders turn on at this time. `None`: they are on.
+    enable_at: Option<f64>,
+    stance: Stance,
     /// Bodies that this body ignores: the items its player holds.
     ignored: Vec<RigidBodyHandle>,
 }
@@ -78,7 +94,7 @@ impl RemoteBody {
                 .pose(pose)
                 .gravity_scale(0.)
                 .lock_rotations()
-                .ccd_enabled(true)
+                .ccd_enabled(r.ccd)
                 .additional_mass(r.mass_kg),
         );
         let standing = groups(r.standing_membership, r.standing_filter);
@@ -107,17 +123,15 @@ impl RemoteBody {
             ),
         ];
         let colliders = builders.map(|b| physics.insert_collider_with_parent(b.build(), handle));
-        let mut body = Self {
+        let body = Self {
             handle,
             colliders,
             head_offsets,
-            enable_at: now + SPAWN_DELAY,
-            enabled: true,
-            seated: false,
-            dead: false,
+            enable_at: Some(now + SPAWN_DELAY),
+            stance: Stance::Standing,
             ignored: Vec::new(),
         };
-        body.set_enabled(physics, false);
+        body.apply(physics);
         body.set_shapes(physics, shapes);
         physics.recompute_body_mass(handle);
         body
@@ -130,21 +144,19 @@ impl RemoteBody {
         &mut self,
         r: &RemotePlayerReference,
         shapes: Shapes,
-        seated: bool,
-        dead: bool,
+        stance: Stance,
         now: f64,
         physics: &mut PhysicsWorld,
     ) {
-        if dead != self.dead {
-            self.dead = dead;
-            self.set_enabled(physics, false);
-            self.enable_at = now + STAND_DELAY;
+        let seated = stance.seated();
+        let was_seated = self.stance.seated();
+        let dead_changed = (stance == Stance::Dead) != (self.stance == Stance::Dead);
+        let disable = dead_changed || (was_seated && !seated);
+        if disable {
+            self.enable_at = Some(now + STAND_DELAY);
         }
-        if self.seated && !seated {
-            self.set_enabled(physics, false);
-            self.enable_at = now + STAND_DELAY;
-        }
-        if seated != self.seated {
+        self.stance = stance;
+        if seated != was_seated {
             // Source `massScript.RemoveRB` while seated. The colliders stop being a dynamic body.
             let kind = if seated {
                 RigidBodyType::KinematicPositionBased
@@ -160,7 +172,8 @@ impl RemoteBody {
             for c in self.colliders {
                 physics.edit_collider(c, |c| c.set_collision_groups(groups(membership, filter)));
             }
-            self.seated = seated;
+        }
+        if disable || seated != was_seated {
             self.apply(physics);
         }
         if !seated {
@@ -175,12 +188,13 @@ impl RemoteBody {
     /// Source `EnableCollidersWithDelay`. A standing figure waits while it overlaps the body of
     /// `player`, so a spawn on a player never pushes the player out.
     pub fn tick(&mut self, now: f64, physics: &mut PhysicsWorld, player: RigidBodyHandle) {
-        if !self.enabled
-            && !self.dead
-            && now >= self.enable_at
-            && (self.seated || !self.overlaps(physics, player))
+        if let Some(at) = self.enable_at
+            && self.stance != Stance::Dead
+            && now >= at
+            && (self.stance.seated() || !self.overlaps(physics, player))
         {
-            self.set_enabled(physics, true);
+            self.enable_at = None;
+            self.apply(physics);
         }
     }
 
@@ -210,11 +224,11 @@ impl RemoteBody {
     }
 
     pub fn enabled(&self) -> bool {
-        self.enabled
+        self.enable_at.is_none()
     }
 
     pub fn seated(&self) -> bool {
-        self.seated
+        self.stance.seated()
     }
 
     /// The body position. Contacts move a standing figure between writes.
@@ -249,18 +263,14 @@ impl RemoteBody {
         self.ignored.extend_from_slice(items);
     }
 
-    fn set_enabled(&mut self, physics: &mut PhysicsWorld, enabled: bool) {
-        self.enabled = enabled;
-        self.apply(physics);
-    }
-
     /// In the source a seated figure's colliders join the car. The port keeps them for queries only,
     /// so the kinematic body does not push the car it sits in.
     fn apply(&self, physics: &mut PhysicsWorld) {
-        let solid = self.enabled && !self.seated;
+        let enabled = self.enabled();
+        let solid = enabled && !self.stance.seated();
         for c in self.colliders {
             physics.edit_collider(c, |c| {
-                set_collider_enabled(c, self.enabled);
+                set_collider_enabled(c, enabled);
                 if !solid {
                     c.set_solver_groups(InteractionGroups::none());
                 }
@@ -304,6 +314,7 @@ mod tests {
             feet_radius: 0.2,
             friction: 0.,
             mass_kg: 75.,
+            ccd: true,
             standing_membership: 1,
             standing_filter: 4_039_039_487,
             seated_membership: 1 << 10,
@@ -342,7 +353,7 @@ mod tests {
         let capsule = body.colliders[0];
         let groups =
             |physics: &PhysicsWorld| physics.rapier().colliders[capsule].collision_groups();
-        body.update(&r, shapes, true, false, 14., &mut physics);
+        body.update(&r, shapes, Stance::Seated { car: None }, 14., &mut physics);
         assert!(body.enabled(), "sitting down keeps the colliders");
         let solver = physics.rapier().colliders[capsule].solver_groups();
         assert_eq!(
@@ -352,7 +363,7 @@ mod tests {
         );
         assert!(physics.rapier().bodies[body.handle].is_kinematic());
         assert_eq!(groups(&physics).memberships.bits(), 1 << 10);
-        body.update(&r, shapes, false, false, 20., &mut physics);
+        body.update(&r, shapes, Stance::Standing, 20., &mut physics);
         assert!(!body.enabled());
         assert!(physics.rapier().bodies[body.handle].is_dynamic());
         assert_eq!(groups(&physics).memberships.bits(), 1);
@@ -371,11 +382,11 @@ mod tests {
         let player = player_at(&mut physics, 5.);
         body.tick(3., &mut physics, player);
         assert!(body.enabled());
-        body.update(&r, shapes, false, true, 10., &mut physics);
+        body.update(&r, shapes, Stance::Dead, 10., &mut physics);
         assert!(!body.enabled());
         body.tick(20., &mut physics, player);
         assert!(!body.enabled(), "a dead figure stays open");
-        body.update(&r, shapes, false, false, 30., &mut physics);
+        body.update(&r, shapes, Stance::Standing, 30., &mut physics);
         body.tick(30.9, &mut physics, player);
         assert!(!body.enabled());
         body.tick(31., &mut physics, player);

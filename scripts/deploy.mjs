@@ -1,15 +1,20 @@
 // Stages the built game for Cloudflare Pages and uploads it with Wrangler.
 // The WASM packages get a content hash in their path, so browsers cache them as immutable.
-// Files over the Pages size limit and the Brotli WASM files go to R2 under their SHA-256.
+// Files over the Pages size limit and the Brotli files go to R2 under their SHA-256.
+// Brotli files: the 4 WASM files, and each runtime package file, start pack and the reference manifest that shrinks by 10% or more.
+// Crunch textures (.crn) shrink by about 1%, so they get no Brotli try.
+// Start packs and the manifest are gzip at rest. Their Brotli file holds the decoded bytes, so the game skips its gzip step.
 // `functions/[[path]].js` serves them on the same site. `functions/api/` stores game events in D1.
 // Each deployment carries its own `r2.json` map, so a dashboard rollback also restores its R2 files.
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
+import {availableParallelism} from 'node:os';
 import {cp, mkdir, readdir, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {dirname, extname, relative, resolve, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {gunzipSync} from 'node:zlib';
+import {promisify} from 'node:util';
+import {brotliCompress, constants, gunzip} from 'node:zlib';
 import {prepareStartupCompression, WASM} from './prepare-http-compression.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,16 +26,24 @@ const HEADERS = IMMUTABLE.map(path => `/${path}*\n  Cache-Control: public, max-a
 const BUCKET = 'the-long-slop-large';
 const DATABASE = 'the-long-slop-events';
 const SITE = 'https://the-long-slop.pages.dev/';
-const TYPES = {'.wasm': 'application/wasm', '.json': 'application/json'};
+const TYPES = {'.wasm': 'application/wasm', '.json': 'application/json', '.gltf': 'model/gltf+json'};
 const KEY = /^[a-f0-9]{64}$/;
+// `_routes.json` accepts at most 100 rules, so the function gets whole folders. It sends paths without R2 keys to the site.
+const MANIFEST = 'assets/reference/manifest.bin.gz';
+const ROUTES = ['/pkg/*', '/assets/runtime/*', `/${MANIFEST}`, '/api/*'];
+// A Brotli file is kept only when it is at most 90% of the size of the stored file.
+const BROTLI_RATIO = 0.9;
+const brotli = promisify(brotliCompress);
+const gunzipAsync = promisify(gunzip);
 // Not a project dependency: CI does not need its ~220 MB. `npx` fetches it once.
 export const WRANGLER = 'wrangler@4.147.0';
 
 const webPath = path => path.split(sep).join('/');
 // The export library, old runtime packages and export evidence are not part of the site. `stagePackages` copies `pkg`.
 // The game reads only `manifest.bin.gz` from `assets/reference`. `material-evidence.json` alone is over 25 MiB.
+// `catalog.json` holds the package `content_base` and `file_catalog` for this script.
 const excluded = path => path === 'assets/library' || path === 'assets/runtime' || path.startsWith('assets/runtime-') || path === 'pkg'
-  || /^assets\/reference\/(([\w-]+-evidence|library-selection)\.json|manifest\.json\.gz)$/.test(path);
+  || /^assets\/reference\/(([\w-]+-evidence|library-selection|catalog)\.json|manifest\.json\.gz)$/.test(path);
 
 async function sha256(path) {
   const hash = createHash('sha256');
@@ -77,21 +90,63 @@ async function stagePackages(webRoot, siteRoot) {
   return sources;
 }
 
+// Makes a Brotli 11 file of each file in `root`, named by the SHA-256 of the stored bytes.
+// `gzip` files are decoded first, so their Brotli file holds the decoded bytes.
+// `index.json` keeps the result per stored SHA-256: the Brotli size, or 0 when the file shrinks by less than 10%.
+// Removes the files and index entries of older files. R2 keeps their uploads.
+// Returns the site path, Brotli file, R2 key and sizes of each kept file.
+async function compressFiles(items, root) {
+  await mkdir(root, {recursive: true});
+  const indexPath = resolve(root, 'index.json');
+  const previous = JSON.parse(await readFile(indexPath, 'utf8').catch(() => '{}'));
+  const index = {};
+  const result = [];
+  const queue = [...items];
+  const work = async () => {
+    for (let item = queue.pop(); item !== undefined; item = queue.pop()) {
+      const raw = await sha256(item.source);
+      const file = resolve(root, `${raw}.br`);
+      const {size} = await stat(item.source);
+      index[raw] = previous[raw];
+      if (index[raw] === undefined || (index[raw] > 0 && (await stat(file).catch(() => undefined))?.size !== index[raw])) {
+        const stored = await readFile(item.source);
+        const bytes = item.gzip ? await gunzipAsync(stored) : stored;
+        const encoded = await brotli(bytes, {params: {
+          [constants.BROTLI_PARAM_QUALITY]: 11,
+          [constants.BROTLI_PARAM_LGWIN]: 24,
+          [constants.BROTLI_PARAM_SIZE_HINT]: bytes.length,
+        }});
+        const kept = encoded.length <= size * BROTLI_RATIO;
+        if (kept) await writeFile(file, encoded);
+        index[raw] = kept ? encoded.length : 0;
+      }
+      if (index[raw] > 0) result.push({path: item.path, source: file, key: await sha256(file), stored: size, brotli: index[raw]});
+    }
+  };
+  await Promise.all(Array.from({length: availableParallelism()}, work));
+  await writeFile(indexPath, JSON.stringify(index));
+  for (const name of await readdir(root)) {
+    if (name.endsWith('.br') && !(index[name.slice(0, -3)] > 0)) await rm(resolve(root, name));
+  }
+  return result;
+}
+
 // Copies the app, the reference manifest, and the files of the current runtime package.
-// Moves files over 25 MiB out of the site. Routes them and the WASM files to the R2 function.
+// Moves files over 25 MiB out of the site. Routes them, the WASM files and the runtime Brotli files to the R2 function.
 // Returns the R2 uploads: site path, source and R2 key.
 export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot = resolve(projectRoot, '.cache/deploy'),
-  compressionRoot = resolve(projectRoot, '.cache/http-compression')} = {}) {
-  const manifest = JSON.parse(gunzipSync(await readFile(resolve(webRoot, 'assets/reference/manifest.json.gz'))).toString('utf8'));
+  compressionRoot = resolve(projectRoot, '.cache/http-compression'), packageBrotliRoot = resolve(projectRoot, '.cache/package-brotli')} = {}) {
+  const manifest = JSON.parse(await readFile(resolve(webRoot, 'assets/reference/catalog.json'), 'utf8'));
   const base = manifest.content_base;
-  if (!/^assets\/runtime\/[a-zA-Z0-9_-]+\/$/.test(base) || !Array.isArray(manifest.file_catalog?.files) || !Array.isArray(manifest.file_catalog.packs)) {
+  if (!/^assets\/runtime\/[a-zA-Z0-9_-]+\/$/.test(base) || !Array.isArray(manifest.file_catalog?.files) || !Array.isArray(manifest.file_catalog.packs)
+    || !Array.isArray(manifest.file_catalog.top_packs)) {
     throw Error('Invalid runtime package catalog.');
   }
   await rm(siteRoot, {recursive: true, force: true});
   await cp(webRoot, siteRoot, {recursive: true, filter: source => !excluded(webPath(relative(webRoot, source)))});
   const packageRoot = resolve(webRoot, base);
   // Start packs are package files too. Each one stays under the Pages file limit.
-  for (const {file} of [...manifest.file_catalog.files, ...manifest.file_catalog.packs]) {
+  for (const {file} of [...manifest.file_catalog.files, ...manifest.file_catalog.packs, ...manifest.file_catalog.top_packs]) {
     const source = resolve(packageRoot, file);
     if (typeof file !== 'string' || !source.startsWith(packageRoot + sep)) throw Error(`Invalid catalog file: ${file}`);
     const target = resolve(siteRoot, base, file);
@@ -129,9 +184,26 @@ export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot
     uploads.push({path: site, source: resolve(compressionRoot, brotli.file), key: brotli.sha256});
     routes[`/${site}`] = {...routes[`/${site}`], br: brotli.sha256};
   }
+  const items = [
+    ...manifest.file_catalog.files.filter(({file}) => !file.endsWith('.crn'))
+      .map(({file}) => ({path: base + file, source: resolve(packageRoot, file), gzip: false})),
+    ...[...manifest.file_catalog.packs, ...manifest.file_catalog.top_packs].map(({file}) => ({path: base + file, source: resolve(packageRoot, file), gzip: true})),
+    {path: MANIFEST, source: resolve(webRoot, MANIFEST), gzip: true},
+  ];
+  const gzipPaths = new Set(items.filter(({gzip}) => gzip).map(({path}) => path));
+  // Stored and Brotli bytes of the kept gzip files: the start packs and the manifest.
+  const gzipFiles = {count: 0, stored: 0, brotli: 0};
+  for (const {path, source, key, stored, brotli} of await compressFiles(items, packageBrotliRoot)) {
+    uploads.push({path, source, key});
+    routes[`/${path}`] = {...routes[`/${path}`], br: key};
+    if (!gzipPaths.has(path)) continue;
+    gzipFiles.count++;
+    gzipFiles.stored += stored;
+    gzipFiles.brotli += brotli;
+  }
   await writeFile(resolve(siteRoot, 'r2.json'), JSON.stringify(routes));
-  await writeFile(resolve(siteRoot, '_routes.json'), JSON.stringify({version: 1, include: [...Object.keys(routes), '/api/*'], exclude: []}));
-  return {count, bytes, uploads};
+  await writeFile(resolve(siteRoot, '_routes.json'), JSON.stringify({version: 1, include: ROUTES, exclude: []}));
+  return {count, bytes, uploads, gzipFiles};
 }
 
 function wrangler(args) {
@@ -150,11 +222,20 @@ async function requireAccess() {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await requireAccess();
-  const {count, bytes, uploads} = await stageSite();
-  console.log(`Staged ${count} files and ${uploads.length} R2 files, ${(bytes / 1024 / 1024).toFixed(1)} MiB.`);
-  for (const {path, source, key} of uploads) {
-    wrangler(['r2', 'object', 'put', `${BUCKET}/${key}`, '--file', source,
-      '--content-type', TYPES[extname(path)] ?? 'application/octet-stream', '--remote']);
+  const {count, bytes, uploads, gzipFiles} = await stageSite();
+  const mib = value => (value / 1024 / 1024).toFixed(1);
+  console.log(`Staged ${count} files and ${uploads.length} R2 files, ${mib(bytes)} MiB.`);
+  console.log(`Brotli for ${gzipFiles.count} gzip files (start packs, manifest): ${mib(gzipFiles.stored)} MiB gzip, ${mib(gzipFiles.brotli)} MiB Brotli.`);
+  // R2 keys are SHA-256 values, so a key uploaded once never changes. Delete this file after you empty the bucket.
+  const uploadedPath = resolve(projectRoot, '.cache/r2-uploaded.json');
+  const uploaded = new Set(JSON.parse(await readFile(uploadedPath, 'utf8').catch(() => '[]')));
+  const groups = Map.groupBy(uploads.filter(({key}) => !uploaded.has(key)), ({path}) => TYPES[extname(path)] ?? 'application/octet-stream');
+  for (const [type, group] of groups) {
+    const list = resolve(projectRoot, '.cache/r2-upload.json');
+    await writeFile(list, JSON.stringify([...new Map(group.map(({key, source}) => [key, {key, file: source}])).values()]));
+    wrangler(['r2', 'bulk', 'put', BUCKET, '--filename', list, '--content-type', type, '--remote']);
+    for (const {key} of group) uploaded.add(key);
+    await writeFile(uploadedPath, JSON.stringify([...uploaded]));
   }
   wrangler(['d1', 'migrations', 'apply', DATABASE, '--remote']);
   wrangler(['pages', 'deploy', '--branch', 'main']);

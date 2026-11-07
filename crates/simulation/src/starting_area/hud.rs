@@ -170,7 +170,7 @@ impl GarageRuntime {
             ""
         };
         let engine = car.map_or_else(Default::default, |(key, _)| self.engine_output(key));
-        let ignition = car.is_some_and(|(_, c)| c.ignition.ignition);
+        let ignition = car.is_some_and(|(_, c)| c.ignition.on());
         let handbrake = car.is_some_and(|(_, c)| c.handbrake);
         let seated = self.area.player.seated();
         let throw_charge = self.area.interaction.throw_charge();

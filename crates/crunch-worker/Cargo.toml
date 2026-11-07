@@ -1,0 +1,13 @@
+[package]
+name = "crunch-worker"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+crunch = { path = "../crunch" }
+wasm-bindgen = "=0.2.129"
+wasm-heap = { path = "../wasm-heap" }

@@ -13,6 +13,7 @@ pub struct WorldFollowersReference {
 
 tagged_enum! {
 "FollowerReference",
+#[json(tag = "kind")]
 #[derive(Clone, Debug)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum FollowerReference {
@@ -63,6 +64,7 @@ impl FollowerReference {
             }
         }
     }
+    #[cfg(feature = "validate")]
     fn valid(&self, nodes: usize) -> bool {
         let n = |v: u32| (v as usize) < nodes && v != 0;
         let set = |flag: bool, v: Option<u32>| !flag || v.is_some_and(n);
@@ -125,6 +127,7 @@ impl FollowerReference {
 }
 
 impl WorldFollowersReference {
+    #[cfg(feature = "validate")]
     pub(super) fn valid(&self, p: &WorldPrototypeReference) -> bool {
         let wheels = p
             .vehicle

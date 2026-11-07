@@ -265,6 +265,7 @@ pub struct ConditionColliderBinding {
     pub wash: Option<WashId>,
 }
 
+#[cfg(feature = "validate")]
 fn check(source: &SourceId, valid: bool, field: &str) -> Result<(), ReferenceError> {
     if valid && source.is_set() {
         Ok(())
@@ -277,6 +278,7 @@ fn check(source: &SourceId, valid: bool, field: &str) -> Result<(), ReferenceErr
 }
 
 impl ConditionRecord {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, r: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             self.repair_tables.len() == 8 && self.clean_tables.len() == 4,
@@ -305,7 +307,7 @@ impl ConditionRecord {
             check(
                 &s.source,
                 s.item
-                    .is_none_or(|id| r.items.iter().any(|i| i.id == id && i.node == s.node)),
+                    .is_none_or(|id| r.item(id).is_some_and(|i| i.node == s.node)),
                 "item",
             )?;
             check(
@@ -420,8 +422,7 @@ impl ConditionRecord {
                 if node == ancestor {
                     return true;
                 }
-                let Some(parent) = r.nodes.iter().find(|n| n.id == node).and_then(|n| n.parent)
-                else {
+                let Some(parent) = r.node(node).and_then(|n| n.parent) else {
                     return false;
                 };
                 node = parent;
@@ -444,11 +445,9 @@ impl ConditionRecord {
                 source,
                 match (id, identity) {
                     (None, None) => true,
-                    (Some(id), Some(identity)) => r
-                        .audio
-                        .gameplay
-                        .voice(id)
-                        .is_some_and(|v| v.source == *identity),
+                    (Some(id), Some(identity)) => {
+                        r.audio.voice(id).is_some_and(|v| v.source == *identity)
+                    }
                     _ => false,
                 },
                 "voice",
@@ -590,12 +589,9 @@ impl ConditionRecord {
             check(&t.source, b.save.is_set(), "save")?;
             check(
                 &t.source,
-                surfaces.get(&b.own_condition).is_some_and(|s| {
-                    r.items
-                        .iter()
-                        .find(|i| i.id == b.item)
-                        .is_some_and(|i| descendant(s.node, i.node))
-                }),
+                surfaces
+                    .get(&b.own_condition)
+                    .is_some_and(|s| r.item(b.item).is_some_and(|i| descendant(s.node, i.node))),
                 "own_condition",
             )?;
             check(
@@ -630,7 +626,7 @@ impl ConditionRecord {
             )?;
             spray(t, true)?;
         }
-        let car_voices = r.audio.gameplay.car_voices.len() as u32;
+        let car_voices = r.audio.car_voices.len() as u32;
         let sound = |t: &SourceId, s: &ToolSound| {
             check(
                 t,
@@ -784,6 +780,7 @@ impl ConditionRecord {
     }
 }
 
+#[cfg(feature = "validate")]
 pub(super) fn validate_particle(
     owner: &SourceId,
     p: &ParticleReference,

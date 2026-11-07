@@ -3,7 +3,7 @@ use crate::boundary::{Change, HudBlock, LookBlock, RenderInput, SimCommand, SimF
 use crate::car_camera::{CameraInput, CameraSeat, CarCamera};
 use crate::reference::{ReferenceError, ReferenceManifest};
 use crate::simulation::{FIXED_DT, FrameInput, StepClock, keys};
-use crate::starting_area::{GarageRuntime, WorldInput};
+use crate::starting_area::{GarageRuntime, SessionPhase, WorldInput};
 use crate::vehicle::VehiclePose;
 use glam::{Quat, Vec3};
 
@@ -13,6 +13,28 @@ const LOADING_BUDGET_MS: f64 = 12.;
 /// Seconds of hold before the first hold report, and between reports.
 const HOLD_REPORT_AFTER: f64 = 2.;
 const HOLD_REPORT_EVERY: f64 = 5.;
+
+/// Load phase of the renderer world.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Load {
+    /// No command reported this world as loading yet. Join starts a new world in a running page,
+    /// and the first command still carries the `ready` of the old world.
+    Unseen,
+    Loading,
+    /// The renderer shows the garage.
+    Ready,
+}
+
+impl Load {
+    /// The phase after a command. `ready` counts only after the world reported loading.
+    fn next(self, ready: bool) -> Self {
+        match (self, ready) {
+            (_, false) => Self::Loading,
+            (Self::Unseen, true) => Self::Unseen,
+            (_, true) => Self::Ready,
+        }
+    }
+}
 
 pub struct SimDriver {
     pub runtime: GarageRuntime,
@@ -56,14 +78,14 @@ pub struct SimDriver {
     /// Seconds that a started, unpaused game ran no step, and when the next hold report goes.
     held_seconds: f64,
     next_hold_report: f64,
-    /// The renderer shows the garage.
-    pub(crate) ready: bool,
-    /// The renderer reported this world as loading once. Join starts a new world in a running
-    /// page, and the first command still carries the `ready` of the old world.
-    loading_seen: bool,
+    load: Load,
     delta_seconds: f64,
     /// The browser asked for a world measurement.
     measure: bool,
+    /// A command asked for the body counters.
+    body_counters_asked: bool,
+    /// `PhysicsWorld::body_counters` at the last ask.
+    body_counters: [u32; 4],
     /// A failure that the next frame reports. The driver stops the storage startup after it.
     failure: Option<String>,
     failed: bool,
@@ -112,10 +134,11 @@ impl SimDriver {
             skip_elapsed: false,
             held_seconds: 0.,
             next_hold_report: HOLD_REPORT_AFTER,
-            ready: false,
-            loading_seen: false,
+            load: Load::Unseen,
             delta_seconds: 0.,
             measure: false,
+            body_counters_asked: false,
+            body_counters: [0; 4],
             failure: None,
             failed: false,
             save: crate::save_requests::SaveState::new(source),
@@ -143,8 +166,8 @@ impl SimDriver {
 
     /// Writes why the step holds after 2 s of a started, unpaused game with no step, then every 5 s.
     fn report_hold(&mut self, simulated: f64) {
-        if !self.ready
-            || !self.runtime.started
+        if !self.ready()
+            || !self.runtime.started()
             || self.runtime.paused()
             || self.runtime.simulation_seconds != simulated
         {
@@ -184,10 +207,10 @@ impl SimDriver {
     fn accept_input(&mut self, reference: &ReferenceManifest, command: SimCommand) {
         self.delta_seconds = command.delta_seconds;
         self.listener = command.listener;
-        self.loading_seen |= !command.ready;
-        self.ready = command.ready && self.loading_seen;
+        self.load = self.load.next(command.ready);
         self.accepted_seq = command.seq;
         self.measure |= command.measure;
+        self.body_counters_asked |= command.body_counters;
         self.world.accept(command.world);
         if command.hold {
             clear_profile_input();
@@ -196,16 +219,18 @@ impl SimDriver {
         }
         let actions = command.actions;
         if actions & SimCommand::PAUSE != 0 {
-            self.runtime.menu = true;
+            if self.runtime.started() {
+                self.runtime.phase = SessionPhase::Paused;
+            }
             self.clear_input();
         }
         if actions & SimCommand::RESPAWN != 0 && self.net.role() != crate::net::NetRole::Off {
             self.net.respawn(reference, &mut self.runtime);
             self.clear_input();
         }
-        if actions & SimCommand::START != 0 && self.ready && !self.runtime.needs_output().menu_due {
-            self.runtime.started = true;
-            self.runtime.menu = false;
+        if actions & SimCommand::START != 0 && self.ready() && !self.runtime.needs_output().menu_due
+        {
+            self.runtime.phase = SessionPhase::Playing;
             self.clear_input();
         }
         if actions & SimCommand::RECOVER != 0 {
@@ -231,7 +256,7 @@ impl SimDriver {
             self.runtime.set_player_settings(settings);
         }
         let frame = command.input;
-        if !self.ready || !self.runtime.started || self.runtime.menu {
+        if !self.ready() || self.runtime.phase != SessionPhase::Playing {
             self.input.clear();
             self.raw_mouse = [0.; 2];
             clear_profile_input();
@@ -265,8 +290,11 @@ impl SimDriver {
         self.rapier_ms = 0.;
         self.runtime.physics.take_step_ms();
         self.frame_steps = 0;
-        self.net.prepare(&mut self.runtime);
-        if !self.ready && !self.failed {
+        {
+            let _profile = crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::StepNetwork);
+            self.net.prepare(&mut self.runtime);
+        }
+        if !self.ready() && !self.failed {
             // Source storage startup runs once per loading frame.
             if let Err(error) = self
                 .runtime
@@ -276,7 +304,7 @@ impl SimDriver {
                 self.failed = true;
             }
         }
-        if !self.ready || !self.runtime.started || self.runtime.paused() {
+        if !self.ready() || !self.runtime.started() || self.runtime.paused() {
             return;
         }
         let blocked = self.skip_elapsed
@@ -300,11 +328,12 @@ impl SimDriver {
         }
         self.input_seq = self.frame_seq;
         let started = now();
-        #[cfg(target_arch = "wasm32")]
         let _profile = crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::Physics);
         let real = self.delta_seconds as f32;
         let delta = real * self.runtime.clock_factors(reference).time_scale;
+        let conditions = crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::StepConditions);
         self.runtime.area.interaction.conditions.update(delta, true);
+        drop(conditions);
         let frame = self
             .runtime
             .advance_inventory_frame(reference, raw, delta, self.rendered);
@@ -364,7 +393,7 @@ impl SimDriver {
             self.runtime.clear_input();
         }
         let started = now();
-        let budget_ms = if self.ready { 0. } else { LOADING_BUDGET_MS };
+        let budget_ms = if self.ready() { 0. } else { LOADING_BUDGET_MS };
         let runtime = &mut self.runtime;
         runtime.stream.advance_generation();
         let was_aligned = runtime.startup_aligned;
@@ -412,7 +441,7 @@ impl SimDriver {
         let alpha = self
             .clock
             .alpha(self.runtime.clock_factors(reference).time_scale);
-        if self.ready && self.runtime.started && !self.runtime.paused() {
+        if self.ready() && self.runtime.started() && !self.runtime.paused() {
             self.update_camera(reference, alpha);
         }
         self.runtime.fill_frame(reference, alpha, frame);
@@ -435,6 +464,16 @@ impl SimDriver {
         frame.state.perf.rapier_ms = self.rapier_ms;
         frame.state.perf.frame_steps = self.frame_steps;
         frame.state.perf.world_ms = self.world_ms;
+        if std::mem::take(&mut self.body_counters_asked) {
+            self.body_counters = self.runtime.physics.body_counters();
+        }
+        let perf = &mut frame.state.perf;
+        [
+            perf.dynamic_bodies,
+            perf.awake_bodies,
+            perf.ccd_bodies,
+            perf.contact_pairs,
+        ] = self.body_counters;
         if let Some(grant) = self.grant.take() {
             frame.changes.push(Change::Grant(grant));
         }
@@ -465,21 +504,9 @@ impl SimDriver {
         self.skip_elapsed = true;
     }
 
-    /// Starts a loaded runtime: paused, with no queued input.
-    pub fn restart(&mut self) {
-        self.camera.leave();
-        self.runtime.other_view = false;
-        self.camera_input = CameraInput::default();
-        self.reset_look();
-        self.raw_mouse = [0.; 2];
-        self.consumed_seq = self.accepted_seq;
-        self.input.clear();
-        self.frame_input.clear();
-        self.clock = StepClock::default();
-        self.frame_steps = 0;
-        self.ready = false;
-        self.runtime.menu = true;
-        self.skip_elapsed = true;
+    /// The renderer shows the garage.
+    pub(crate) fn ready(&self) -> bool {
+        self.load == Load::Ready
     }
 
     /// Drops the frame input. Its mouse is consumed when no step input waits.
@@ -568,5 +595,18 @@ fn clear_profile_input() {
     #[cfg(target_arch = "wasm32")]
     if crate::cpu_profile::enabled() {
         crate::host::game_cpu_clear_input();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Load;
+
+    #[test]
+    fn ready_counts_only_after_loading() {
+        // Join: the first command of the new world still carries the old `ready`.
+        assert_eq!(Load::Unseen.next(true), Load::Unseen);
+        assert_eq!(Load::Unseen.next(false).next(true), Load::Ready);
+        assert_eq!(Load::Ready.next(false), Load::Loading);
     }
 }

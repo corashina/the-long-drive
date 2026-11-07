@@ -1,4 +1,4 @@
-use super::GarageRuntime;
+use super::{GarageRuntime, SessionPhase};
 use crate::fluids::{contact_drink_transfer, drink_transfer};
 use crate::interaction::items::{FoodLook, ItemLocation};
 use crate::reference::{ConsumptionEffect, ItemId, NodeId, ReferenceError, ReferenceManifest};
@@ -30,7 +30,7 @@ pub fn spawn_consumable(
     let body = physics.insert_body(
         RigidBodyBuilder::dynamic()
             .pose(to_rapier(pose))
-            .ccd_enabled(true)
+            .ccd_enabled(prototype.ccd)
             .additional_mass(prototype.mass_kg)
             .linear_damping(prototype.linear_damping)
             .angular_damping(prototype.angular_damping),
@@ -153,12 +153,7 @@ pub fn active_part(
         if let Some(index) = parts.iter().position(|group| group.contains(&node)) {
             return index == bite as usize;
         }
-        let Some(parent) = reference
-            .nodes
-            .iter()
-            .find(|entry| entry.id == node)
-            .and_then(|entry| entry.parent)
-        else {
+        let Some(parent) = reference.node(node).and_then(|entry| entry.parent) else {
             return true;
         };
         node = parent;
@@ -180,12 +175,7 @@ pub fn look_shown(
         if let Some(index) = variants.iter().position(|v| *v == node) {
             return index == usize::from(look.variant);
         }
-        let Some(parent) = reference
-            .nodes
-            .iter()
-            .find(|entry| entry.id == node)
-            .and_then(|entry| entry.parent)
-        else {
+        let Some(parent) = reference.node(node).and_then(|entry| entry.parent) else {
             return true;
         };
         node = parent;
@@ -651,13 +641,7 @@ impl GarageRuntime {
         let Some(body) = self.area.items.get(item).and_then(|s| s.body) else {
             return;
         };
-        let on_body: Vec<ItemId> = self
-            .area
-            .items
-            .iter()
-            .filter(|s| s.body == Some(body))
-            .map(|s| s.id)
-            .collect();
+        let on_body = self.area.items.on_body(body).to_vec();
         let body_id = self.area.items.body_id(item).unwrap();
         self.physics.remove_body(body);
         self.physics.refresh_queries();
@@ -687,7 +671,7 @@ impl GarageRuntime {
         self.survival.output()
     }
     pub fn advance_needs(&mut self, reference: &ReferenceManifest, dt: f32, need_scale: f32) {
-        if !self.started || self.paused() {
+        if !self.started() || self.paused() {
             return;
         }
         self.simulation_seconds += f64::from(dt);
@@ -701,7 +685,7 @@ impl GarageRuntime {
         );
         self.announce_death(reference);
         if self.needs_output().menu_due {
-            self.menu = true;
+            self.phase = SessionPhase::Paused;
         }
     }
     pub(super) fn draw_survival(&mut self) -> f32 {
@@ -709,26 +693,18 @@ impl GarageRuntime {
         super::start_sample(super::DEFAULT_SEED, self.survival_draw)
     }
     fn select_survival_audio(&mut self, kind: crate::audio::AudioKind) -> (u32, f32, f32, f32) {
-        let b = self.audio_gameplay.binding(kind as u32).clone();
+        let audio = self.audio.reference.clone();
+        let b = audio.survival_row(kind as u32);
         let clip = b.clips
             [((self.draw_survival() * b.clips.len() as f32) as usize).min(b.clips.len() - 1)];
         let gain_draw = self.draw_survival();
-        // Keep source draw order and gate timing when playback is disabled.
-        let gain = self.audio.as_ref().map_or(0., |p| {
-            let b = p
-                .reference
-                .survival
-                .iter()
-                .find(|b| b.kind == kind as u32)
-                .unwrap();
-            b.gain[0] + (b.gain[1] - b.gain[0]) * gain_draw
-        });
+        let gain = b.gain[0] + (b.gain[1] - b.gain[0]) * gain_draw;
         let pitch = b.pitch[0] + (b.pitch[1] - b.pitch[0]) * self.draw_survival();
         (
             clip,
             gain,
             pitch,
-            self.audio_gameplay
+            audio
                 .clips
                 .iter()
                 .find(|c| c.id == clip)
@@ -742,9 +718,7 @@ impl GarageRuntime {
         kind: crate::audio::AudioKind,
         selection: (u32, f32, f32, f32),
     ) {
-        let Some(playback) = &mut self.audio else {
-            return;
-        };
+        let playback = &mut self.audio;
         let b = playback
             .reference
             .survival
@@ -1007,9 +981,7 @@ impl GarageRuntime {
 
     fn sleep_audio(&mut self, action: crate::audio::AudioAction, gain: f32) {
         let kind = crate::audio::AudioKind::Sleep;
-        let Some(playback) = &mut self.audio else {
-            return;
-        };
+        let playback = &mut self.audio;
         let position = self.sleep_camera.map_or_else(
             || {
                 self.stream

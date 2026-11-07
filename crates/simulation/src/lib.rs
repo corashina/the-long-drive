@@ -8,7 +8,6 @@ pub mod car;
 pub mod car_camera;
 pub mod conditions;
 pub mod coolant_steam;
-#[cfg(target_arch = "wasm32")]
 pub mod cpu_profile;
 pub mod crash;
 pub mod creatures;
@@ -40,6 +39,7 @@ pub mod render_readiness;
 pub mod render_scale;
 #[cfg(test)]
 mod roadmap_tests;
+pub mod round_robin;
 pub mod sandbox;
 pub mod save;
 pub mod save_requests;

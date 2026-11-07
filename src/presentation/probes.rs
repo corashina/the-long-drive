@@ -1,4 +1,5 @@
 //! Persistent source Gaussian cube filtering and final roughness remap.
+use super::fullscreen::{self, FullscreenPass, Samplers};
 use super::render_targets::{HDR_FORMAT, ProbeTargets};
 use crate::reference::reflections::{CUBE_BASES, source_filter_levels};
 use bevy::prelude::*;
@@ -21,11 +22,12 @@ struct FilterBinding {
     _uniform: UniformBuffer<FilterParams>,
     group: BindGroup,
 }
+const GAUSSIAN: usize = 0;
+const REMAP: usize = 1;
+const COPY: usize = 2;
+const CAPTURE: usize = 3;
 pub struct ProbeFilter {
-    gaussian: CachedRenderPipelineId,
-    remap: CachedRenderPipelineId,
-    copy: CachedRenderPipelineId,
-    capture: CachedRenderPipelineId,
+    pipelines: [CachedRenderPipelineId; 4],
     gaussian_bindings: [[FilterBinding; 6]; 6],
     remap_bindings: [[FilterBinding; 6]; 6],
     copy_bindings: [[FilterBinding; 6]; 7],
@@ -33,13 +35,14 @@ pub struct ProbeFilter {
 }
 impl ProbeFilter {
     pub fn pipelines(&self) -> [CachedRenderPipelineId; 4] {
-        [self.gaussian, self.remap, self.copy, self.capture]
+        self.pipelines
     }
     /// Buffers and bind groups are prepared once. Draws only borrow them.
     pub fn new(
         device: &RenderDevice,
         queue: &RenderQueue,
         cache: &PipelineCache,
+        samplers: &Samplers,
         shader: Handle<Shader>,
         targets: &ProbeTargets,
         capture: &TextureView,
@@ -64,28 +67,9 @@ impl ProbeFilter {
             ),
         );
         let pipeline = |entry: &'static str, layout: &BindGroupLayoutDescriptor| {
-            cache.queue_render_pipeline(RenderPipelineDescriptor {
-                label: Some(entry.into()),
-                layout: vec![layout.clone()],
-                vertex: VertexState {
-                    shader: shader.clone(),
-                    entry_point: Some("vertex".into()),
-                    ..default()
-                },
-                fragment: Some(FragmentState {
-                    shader: shader.clone(),
-                    entry_point: Some(entry.into()),
-                    targets: vec![Some(ColorTargetState {
-                        format: HDR_FORMAT,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    ..default()
-                }),
-                ..default()
-            })
+            fullscreen::queue(cache, entry, layout, &shader, entry, HDR_FORMAT)
         };
-        let [gaussian, remap, copy, capture_pipeline] = pipelines.unwrap_or_else(|| {
+        let pipelines = pipelines.unwrap_or_else(|| {
             [
                 pipeline("gaussian", &layout),
                 pipeline("remap", &layout),
@@ -93,13 +77,7 @@ impl ProbeFilter {
                 pipeline("capture", &capture_layout),
             ]
         });
-        let point = device.create_sampler(&SamplerDescriptor {
-            label: Some("source_probe_point"),
-            mag_filter: FilterMode::Nearest,
-            min_filter: FilterMode::Nearest,
-            mipmap_filter: MipmapFilterMode::Nearest,
-            ..default()
-        });
+        let point = &samplers.point;
         let linear = device.create_sampler(&SamplerDescriptor {
             label: Some("source_probe_trilinear"),
             mag_filter: FilterMode::Linear,
@@ -139,7 +117,7 @@ impl ProbeFilter {
                 } else {
                     &targets.auxiliary
                 };
-                make_binding(index + 1, face, &source.levels[index], &point, 0.)
+                make_binding(index + 1, face, &source.levels[index], point, 0.)
             })
         });
         let remap_bindings = std::array::from_fn(|index| {
@@ -155,7 +133,7 @@ impl ProbeFilter {
         });
         let copy_bindings = std::array::from_fn(|mip| {
             std::array::from_fn(|face| {
-                make_binding(mip, face, &targets.base.levels[mip], &point, 0.)
+                make_binding(mip, face, &targets.base.levels[mip], point, 0.)
             })
         });
         let capture_binding = device.create_bind_group(
@@ -164,27 +142,12 @@ impl ProbeFilter {
             &BindGroupEntries::with_indices(((3, capture),)),
         );
         Self {
-            gaussian,
-            remap,
-            copy,
-            capture: capture_pipeline,
+            pipelines,
             gaussian_bindings,
             remap_bindings,
             copy_bindings,
             capture_binding,
         }
-    }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        self.pipelines()
-            .into_iter()
-            .all(|id| cache.get_render_pipeline(id).is_some())
-    }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        super::postprocessing::named_pipeline_failure(
-            cache,
-            &self.pipelines(),
-            "Source probe pipeline",
-        )
     }
     pub fn capture_face(
         &self,
@@ -193,7 +156,7 @@ impl ProbeFilter {
         targets: &ProbeTargets,
         face: usize,
     ) -> bool {
-        let Some(pipeline) = cache.get_render_pipeline(self.capture) else {
+        let Some(pipeline) = cache.get_render_pipeline(self.pipelines[CAPTURE]) else {
             return false;
         };
         draw(
@@ -210,7 +173,7 @@ impl ProbeFilter {
         cache: &PipelineCache,
         targets: &ProbeTargets,
     ) -> bool {
-        let Some(pipeline) = cache.get_render_pipeline(self.copy) else {
+        let Some(pipeline) = cache.get_render_pipeline(self.pipelines[COPY]) else {
             return false;
         };
         for mip in 0..7 {
@@ -251,7 +214,7 @@ impl ProbeFilter {
         for mip in 2..7 {
             self.gaussian_mip(encoder, cache, targets, mip);
         }
-        let pipeline = cache.get_render_pipeline(self.copy).unwrap();
+        let pipeline = cache.get_render_pipeline(self.pipelines[COPY]).unwrap();
         for mip in [0, 2, 4, 6] {
             for face in 0..6 {
                 draw(
@@ -262,7 +225,7 @@ impl ProbeFilter {
                 );
             }
         }
-        let pipeline = cache.get_render_pipeline(self.remap).unwrap();
+        let pipeline = cache.get_render_pipeline(self.pipelines[REMAP]).unwrap();
         for index in 0..6 {
             for face in 0..6 {
                 draw(
@@ -287,7 +250,7 @@ impl ProbeFilter {
         } else {
             &targets.base
         };
-        let pipeline = cache.get_render_pipeline(self.gaussian).unwrap();
+        let pipeline = cache.get_render_pipeline(self.pipelines[GAUSSIAN]).unwrap();
         for face in 0..6 {
             draw(
                 encoder,
@@ -298,180 +261,24 @@ impl ProbeFilter {
         }
     }
 }
+impl FullscreenPass for ProbeFilter {
+    const NAME: &'static str = "Source probe pipeline";
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        &self.pipelines
+    }
+}
 fn draw(
     encoder: &mut CommandEncoder,
     pipeline: &RenderPipeline,
     group: &BindGroup,
     output: &TextureView,
 ) {
-    let attachments = [Some(RenderPassColorAttachment {
-        view: output,
-        depth_slice: None,
-        resolve_target: None,
-        ops: Operations {
-            load: LoadOp::Clear(LinearRgba::BLACK.into()),
-            store: StoreOp::Store,
-        },
-    })];
-    let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-        label: Some("source_probe_filter"),
-        color_attachments: &attachments,
-        depth_stencil_attachment: None,
-        timestamp_writes: None,
-        occlusion_query_set: None,
-        ..default()
-    });
-    pass.set_pipeline(pipeline);
-    pass.set_bind_group(0, group, &[]);
-    pass.draw(0..3, 0..1);
-}
-
-/// Capture completion is separate from the main-world eight-job scheduler.
-/// A failed capture leaves the last published cube valid.
-#[derive(Default, Debug)]
-pub struct ProbePublication {
-    faces: u8,
-    mips: u8,
-    pending: Option<(u32, crate::reference::reflections::ProbeJob)>,
-    validation_token: Option<u32>,
-    approved_token: Option<u32>,
-    publication_token: Option<u32>,
-    published: bool,
-    generation: u32,
-}
-impl ProbePublication {
-    pub fn face_mask(&self) -> u8 {
-        self.faces
-    }
-    pub fn mip_mask(&self) -> u8 {
-        self.mips
-    }
-    pub fn published(&self) -> bool {
-        self.published
-    }
-    pub fn generation(&self) -> u32 {
-        self.generation
-    }
-    pub fn validation_token(&self) -> Option<u32> {
-        self.validation_token
-    }
-    pub fn waiting(&self) -> bool {
-        self.pending.is_some()
-            || self.validation_token.is_some()
-            || self.approved_token.is_some()
-            || self.publication_token.is_some()
-    }
-    /// Record a fully encoded job. Call before its commands enter a submission.
-    pub fn encoded(
-        &mut self,
-        token: u32,
-        job: crate::reference::reflections::ProbeJob,
-    ) -> Result<(), &'static str> {
-        use crate::reference::reflections::ProbeJob;
-        if token == 0 || self.waiting() {
-            return Err("Source probe has a pending job or invalid token");
-        }
-        let valid = match job {
-            // Face 0 starts a new capture. It drops the faces of an abandoned capture.
-            ProbeJob::Face(0) => {
-                self.discard_capture();
-                true
-            }
-            ProbeJob::Face(face) if face < 6 => self.faces == (1u8 << face) - 1 && self.mips == 0,
-            ProbeJob::FirstMip => self.faces == 0x3f && self.mips == 1,
-            ProbeJob::RemainingMipsAndPublish => self.faces == 0x3f && self.mips == 3,
-            _ => false,
-        };
-        if !valid {
-            return Err("Source probe face or mip work is incomplete");
-        }
-        self.pending = Some((token, job));
-        Ok(())
-    }
-    /// Acknowledge exactly the job whose complete commands entered the queue.
-    /// Return true for jobs that the main-world scheduler can advance now.
-    pub fn submitted(&mut self, token: u32) -> Result<bool, &'static str> {
-        use crate::reference::reflections::ProbeJob;
-        let Some((expected, job)) = self.pending else {
-            return Err("Source probe submission has no encoded job");
-        };
-        if token != expected {
-            return Err("Source probe submission token differs");
-        }
-        self.pending = None;
-        match job {
-            ProbeJob::Face(face) => {
-                self.faces |= 1 << face;
-                if self.faces == 0x3f {
-                    self.mips = 1;
-                }
-                Ok(true)
-            }
-            ProbeJob::FirstMip => {
-                self.mips |= 2;
-                Ok(true)
-            }
-            ProbeJob::RemainingMipsAndPublish => {
-                self.mips = 0x7f;
-                self.validation_token = Some(token);
-                Ok(false)
-            }
-        }
-    }
-    /// Call after deferred device validation and completion for the filter submission.
-    pub fn validated(&mut self, token: u32, success: bool) -> Result<(), &'static str> {
-        if self.validation_token != Some(token) {
-            return Err("Source probe validation token differs");
-        }
-        if !success {
-            self.discard_capture();
-            return Err("Source probe capture failed GPU validation");
-        }
-        if self.faces != 0x3f || self.mips != 0x7f {
-            return Err("Source probe publication is incomplete");
-        }
-        self.validation_token = None;
-        self.approved_token = Some(token);
-        Ok(())
-    }
-    /// Encode publication only after capture validation. Retain the texture allocation.
-    pub fn encode_publication(
-        &mut self,
-        encoder: &mut CommandEncoder,
-        targets: &ProbeTargets,
-        filter: &ProbeFilter,
-        cache: &PipelineCache,
-    ) -> Result<u32, &'static str> {
-        let token = self
-            .approved_token
-            .ok_or("Source probe capture is not validated")?;
-        if !filter.publish(encoder, cache, targets) {
-            return Err("Source probe copy pipeline is pending");
-        }
-        self.approved_token = None;
-        self.publication_token = Some(token);
-        Ok(token)
-    }
-    /// After this acknowledgement, advance job eight in the main-world scheduler.
-    pub fn publication_submitted(&mut self, token: u32) -> Result<(), &'static str> {
-        if self.publication_token != Some(token) {
-            return Err("Source probe publication token differs");
-        }
-        self.generation = self
-            .generation
-            .checked_add(1)
-            .ok_or("Source probe generation exhausted")?;
-        self.published = true;
-        self.discard_capture();
-        Ok(())
-    }
-    /// Retain the prior valid publication when capture work fails or restarts.
-    pub fn discard_capture(&mut self) {
-        self.faces = 0;
-        self.mips = 0;
-        self.pending = None;
-        self.validation_token = None;
-        self.approved_token = None;
-        self.publication_token = None;
-    }
+    fullscreen::draw(
+        encoder,
+        "source_probe_filter",
+        pipeline,
+        group,
+        &[output],
+        Some(LinearRgba::BLACK),
+    );
 }

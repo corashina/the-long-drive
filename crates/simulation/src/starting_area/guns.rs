@@ -94,27 +94,26 @@ impl GarageRuntime {
                     pitch: sound.pitch,
                 });
             }
-            if let Some(audio) = &mut self.audio {
-                // `PlayClipAtPoint` destroys the copy after the clip length.
-                let seconds = audio
-                    .reference
-                    .clips
-                    .iter()
-                    .find(|c| c.id == sound.clip)
-                    .map_or(0., |c| c.source_duration_seconds as f32);
-                self.creatures
-                    .sound(sound.position, sound.gain, self.simulation_seconds, seconds);
-                audio.survival_event(crate::audio::SurvivalAudioEvent {
-                    session: audio.session,
-                    emitter: 0,
-                    kind: crate::audio::AudioKind::ItemHit,
-                    action: crate::audio::AudioAction::Start,
-                    clip: sound.clip,
-                    gain: sound.gain,
-                    pitch: sound.pitch,
-                    position: sound.position,
-                });
-            }
+            let audio = &mut self.audio;
+            // `PlayClipAtPoint` destroys the copy after the clip length.
+            let seconds = audio
+                .reference
+                .clips
+                .iter()
+                .find(|c| c.id == sound.clip)
+                .map_or(0., |c| c.source_duration_seconds as f32);
+            self.creatures
+                .sound(sound.position, sound.gain, self.simulation_seconds, seconds);
+            audio.survival_event(crate::audio::SurvivalAudioEvent {
+                session: audio.session,
+                emitter: 0,
+                kind: crate::audio::AudioKind::ItemHit,
+                action: crate::audio::AudioAction::Start,
+                clip: sound.clip,
+                gain: sound.gain,
+                pitch: sound.pitch,
+                position: sound.position,
+            });
         }
         while let Some(item) = self.area.interaction.guns.take_food() {
             if self.cut_food(reference, item, false).is_err() {
@@ -159,8 +158,7 @@ impl GarageRuntime {
                 .get(spawn.collider)
                 .and_then(|c| c.parent());
             let smooth = body.is_some_and(|b| {
-                area.bodies.values().any(|h| *h == b)
-                    || area.items.iter().any(|i| i.body == Some(b))
+                area.bodies.values().any(|h| *h == b) || !area.items.on_body(b).is_empty()
             });
             interaction.decals.spawn(spawn, &self.physics, smooth);
         }
@@ -405,7 +403,7 @@ impl GarageRuntime {
                 self.area.spawned.set_ammo(id, ammo);
             }
         }
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
     }
     /// Moves a world item body to `pose` at rest.
     fn move_item(&mut self, item: ItemId, pose: rapier3d::math::Pose) {
@@ -425,6 +423,6 @@ impl GarageRuntime {
             b.set_angvel(rapier3d::math::Vector::ZERO, true);
         });
         self.physics.refresh_queries();
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
     }
 }

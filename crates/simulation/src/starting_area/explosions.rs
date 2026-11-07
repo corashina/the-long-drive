@@ -12,7 +12,7 @@ use rapier3d::prelude::ColliderHandle;
 
 /// An imported item on the body of a portable tank. An exploded tank removes it.
 pub fn explosive_imported(reference: &ReferenceManifest, item: ItemId) -> bool {
-    let body = |id: ItemId| reference.items.iter().find(|i| i.id == id).map(|i| i.body);
+    let body = |id: ItemId| reference.item(id).map(|i| i.body);
     let Some(own) = body(item) else {
         return false;
     };
@@ -147,18 +147,17 @@ impl GarageRuntime {
         let origin = self.area.origin;
         let at = std::array::from_fn(|i| origin[i] + f64::from(blast.position[i]));
         let (clip, gain) = self.area.interaction.explosions.effect(blast, at);
-        if let Some(audio) = &mut self.audio {
-            audio.survival_event(crate::audio::SurvivalAudioEvent {
-                session: audio.session,
-                emitter: 0,
-                kind: crate::audio::AudioKind::ItemHit,
-                action: crate::audio::AudioAction::Start,
-                clip,
-                gain,
-                pitch: 1.,
-                position: at,
-            });
-        }
+        let audio = &mut self.audio;
+        audio.survival_event(crate::audio::SurvivalAudioEvent {
+            session: audio.session,
+            emitter: 0,
+            kind: crate::audio::AudioKind::ItemHit,
+            action: crate::audio::AudioAction::Start,
+            clip,
+            gain,
+            pitch: 1.,
+            position: at,
+        });
         let player = self.area.interaction.player_body();
         let mut heard: Option<f32> = None;
         self.area.interaction.explosions.query(&self.physics, blast);
@@ -233,14 +232,7 @@ impl GarageRuntime {
         ((c.user_data & 0xffff_ffff) as u32)
             .checked_sub(1)
             .map(ItemId)
-            .or_else(|| {
-                let body = c.parent()?;
-                self.area
-                    .items
-                    .iter()
-                    .find(|s| s.body == Some(body))
-                    .map(|s| s.id)
-            })
+            .or_else(|| self.area.items.on_body(c.parent()?).first().copied())
     }
     /// The content item that owns an attached item.
     fn content_root(&self, item: ItemId) -> ItemId {

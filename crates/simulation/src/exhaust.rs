@@ -72,6 +72,10 @@ impl ExhaustState {
     pub fn particles(&self, system: usize) -> &[ParticleOutput] {
         self.systems[system].particles()
     }
+    /// No smoke particle is alive.
+    pub fn idle(&self) -> bool {
+        self.systems.iter().all(|s| s.particles().is_empty())
+    }
 }
 
 /// Source `GetBurnColor`. Each fluid adds its color by share. Each later fluid halves the sum.

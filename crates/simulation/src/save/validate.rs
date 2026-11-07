@@ -7,8 +7,9 @@ impl SaveSnapshot {
         &self,
         reference: &ReferenceManifest,
         expected: &SourceStamp,
+        ids: &IdentityMap,
     ) -> Result<(), SaveError> {
-        if !schema_supported(self.schema_version) {
+        if self.schema_version != SAVE_SCHEMA_VERSION {
             return Err(SaveError::IncompatibleSources("Schema version".into()));
         }
         data(
@@ -17,8 +18,7 @@ impl SaveSnapshot {
         )?;
         validate_source(&self.source, expected, reference)?;
         data(timestamp(&self.saved_at), "Save timestamp")?;
-        let ids = IdentityMap::new(reference)?;
-        self.validate_world(reference)?;
+        self.validate_world(reference, ids)?;
         identity::unsigned(&self.progress.start_attempts)?;
         data(
             self.progress.driven_km.is_finite() && self.progress.driven_km >= 0.,
@@ -64,7 +64,7 @@ impl SaveSnapshot {
             absolute(&item.pose)?;
             local(&item.local_pose)?;
             links(item.temperature.is_none(), "Item temperature owner")?;
-            let tank = reference.tanks.iter().find(|tank| tank.item == id);
+            let tank = reference.item_tank(id);
             match (&item.fluids, tank) {
                 (Some(entries), Some(tank)) => data(
                     crate::fluids::validate_fluid_entries(entries)
@@ -118,14 +118,14 @@ impl SaveSnapshot {
             &self.cigarettes,
         )?;
         crate::starting_area::hose::validate_save(reference, &self.spawned)?;
-        self.validate_attachments(reference, &ids, &items)?;
-        self.validate_player(reference, &ids, &items)?;
+        self.validate_attachments(reference, ids, &items)?;
+        self.validate_player(reference, ids, &items)?;
         self.validate_needs(reference)?;
-        self.validate_inventory(reference, &ids, &items)?;
-        self.validate_worn(reference, &ids, &items)?;
-        self.validate_bodies(reference, &ids, &items)?;
-        self.validate_mechanisms(reference, &ids)?;
-        self.validate_lighting(reference, &ids)?;
+        self.validate_inventory(reference, ids, &items)?;
+        self.validate_worn(reference, ids, &items)?;
+        self.validate_bodies(reference, ids, &items)?;
+        self.validate_mechanisms(reference, ids)?;
+        self.validate_lighting(reference, ids)?;
         validate_weather(&reference.weather, &self.weather)?;
         let rabbit_bones = reference.creatures.rabbit.ragdoll.bodies.len();
         for rabbit in &self.rabbits {
@@ -263,9 +263,7 @@ impl SaveSnapshot {
                 let item = ids.item(instance)?;
                 links(linked_parts.insert(item), "Part has multiple owners")?;
                 let part = reference
-                    .parts
-                    .iter()
-                    .find(|part| part.item == item)
+                    .item_part(item)
                     .ok_or_else(|| invalid("Unknown part"))?;
                 links(
                     fits(
@@ -291,7 +289,7 @@ impl SaveSnapshot {
             "Missing part slot",
         )?;
         for (&id, item) in items {
-            let source_item = reference.items.iter().find(|i| i.id == id).unwrap();
+            let source_item = reference.item(id).unwrap();
             let detachable = assembly_root(reference, id);
             // A destroyed item (an exploded can and its cap) leaves its owner.
             if let Some(owner) = source_item
@@ -458,7 +456,7 @@ impl SaveSnapshot {
                     held.len() == 1 && held[0].instance == carry.item,
                     "Held item ownership",
                 )?;
-                let source_item = reference.items.iter().find(|i| i.id == id).unwrap();
+                let source_item = reference.item(id).unwrap();
                 links(
                     source_item.pickup.as_ref().is_some_and(|rule| {
                         !rule.cant_pickup && !(p.seat.is_some() && rule.cant_pickup_while_seated)
@@ -477,11 +475,7 @@ impl SaveSnapshot {
                         })
                         .map(|b| b.pose.position)
                 } else {
-                    let source = reference
-                        .bodies
-                        .iter()
-                        .find(|b| b.id == source_item.body)
-                        .unwrap();
+                    let source = reference.body(source_item.body).unwrap();
                     let key = SourceKey::from(&source.source);
                     let saved = self.bodies.iter().find(|b| {
                         matches!(&b.identity, BodyIdentity::Source { source } if *source == key)
@@ -720,7 +714,7 @@ impl SaveSnapshot {
                         .bodies
                         .get(source)
                         .ok_or_else(|| invalid("Unknown source body"))?;
-                    let source_body = reference.bodies.iter().find(|body| body.id == *id).unwrap();
+                    let source_body = reference.body(*id).unwrap();
                     links(
                         source_body.parent_body.is_none(),
                         "Parented source body is not independent",
@@ -886,49 +880,18 @@ fn validate_source(
     expected: &SourceStamp,
     reference: &ReferenceManifest,
 ) -> Result<(), SaveError> {
-    fn hashes<'a>(
-        hashes: impl Iterator<Item = (&'a str, &'a str)>,
-    ) -> Result<HashMap<&'a str, &'a str>, SaveError> {
-        let mut values = HashMap::new();
-        for (file, hash) in hashes {
-            data(!file.is_empty() && sha256(hash), "Source hash")?;
-            data(values.insert(file, hash).is_none(), "Duplicate source hash")?;
-        }
-        data(!values.is_empty(), "Missing source hashes")?;
-        Ok(values)
-    }
     data(
         sha256(&saved.manifest_sha256) && sha256(&expected.manifest_sha256),
         "Manifest hash",
-    )?;
-    let saved_hashes = hashes(
-        saved
-            .source_hashes
-            .iter()
-            .map(|h| (h.file.as_str(), h.sha256.as_str())),
-    )?;
-    let expected_hashes = hashes(
-        expected
-            .source_hashes
-            .iter()
-            .map(|h| (h.file.as_str(), h.sha256.as_str())),
-    )?;
-    let source_hashes = hashes(
-        reference
-            .source_hashes
-            .iter()
-            .map(|h| (h.file.as_str(), h.sha256.as_str())),
     )?;
     if saved.app_id != expected.app_id
         || saved.build_id != expected.build_id
         || expected.app_id != reference.app_id
         || expected.build_id != reference.build_id
         || saved.manifest_sha256 != expected.manifest_sha256
-        || saved_hashes != expected_hashes
-        || expected_hashes != source_hashes
     {
         return Err(SaveError::IncompatibleSources(
-            "Build, manifest, or source-file hashes".into(),
+            "Build or manifest hash".into(),
         ));
     }
     Ok(())
@@ -1035,7 +998,7 @@ fn fits(
 /// Source rim item `rim` accepts source tire item `tire`.
 fn tire_fits(reference: &ReferenceManifest, rim: r::ItemId, tire: r::ItemId) -> bool {
     let part = |id| reference.wheel_parts.iter().find(|p| p.item == id);
-    let kind = |id| reference.items.iter().find(|i| i.id == id).map(|i| &i.kind);
+    let kind = |id| reference.item(id).map(|i| &i.kind);
     let (Some(rim_part), Some(tire_part)) = (part(rim), part(tire)) else {
         return false;
     };
@@ -1048,16 +1011,11 @@ fn tire_fits(reference: &ReferenceManifest, rim: r::ItemId, tire: r::ItemId) -> 
         )
 }
 fn pickup_rule(reference: &ReferenceManifest, id: r::ItemId) -> Option<&r::PickupReference> {
-    reference
-        .items
-        .iter()
-        .find(|i| i.id == id)
-        .and_then(|i| i.pickup.as_ref())
+    reference.item(id).and_then(|i| i.pickup.as_ref())
 }
 /// The item is the root of a part or wheel assembly.
 fn assembly_root(reference: &ReferenceManifest, id: r::ItemId) -> bool {
-    reference.parts.iter().any(|p| p.item == id)
-        || reference.wheel_parts.iter().any(|p| p.item == id)
+    reference.item_part(id).is_some() || reference.wheel_parts.iter().any(|p| p.item == id)
 }
 /// The item is in the world or with the player, not in a slot or on an owner.
 fn detached(location: &ItemLocationSave) -> bool {

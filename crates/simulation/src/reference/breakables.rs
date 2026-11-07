@@ -84,6 +84,7 @@ pub struct GibConstants {
 }
 
 impl GibConstants {
+    #[cfg(feature = "validate")]
     pub fn validate(&self) -> Result<(), ReferenceError> {
         require(
             self.source.file == "level1"
@@ -105,6 +106,7 @@ impl ReferenceManifest {
 }
 
 impl BreakableReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             finite(&[

@@ -109,9 +109,6 @@ impl RendererReadinessAccess<'_, '_> {
             self.submissions.main_token(),
         )
     }
-    pub(crate) fn graph_ready(&self, content: RendererContentCheck) -> bool {
-        self.graph_blocker(content).is_none()
-    }
     /// The first condition that holds the graph proof.
     pub(crate) fn graph_blocker(&self, content: RendererContentCheck) -> Option<&'static str> {
         match self.request(content) {

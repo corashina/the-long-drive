@@ -122,51 +122,38 @@ fn overflow() -> ReferenceError {
     ReferenceError("Fixed Bevy reservation overflow".into())
 }
 
-pub fn png_staging(encoded: usize, width: u32) -> Result<usize, ReferenceError> {
-    encoded
-        .checked_mul(3)
-        .and_then(|n| n.checked_add(2 * 1024 * 1024))
-        .and_then(|n| n.checked_add((width as usize).checked_mul(128)?))
-        .ok_or_else(overflow)
-}
-/// Sequential chain overlap includes the retained base reader during each later read.
-pub fn png_chain_staging(
-    mips: &[super::TextureMip],
-    mip_count: u32,
-    catalog: &FileCatalog,
-) -> Result<usize, ReferenceError> {
+/// Decoded RGBA8 levels, in ascending authored mip order.
+pub fn rgba_payload(width: u32, height: u32, count: u32) -> Result<usize, ReferenceError> {
     require(
-        !mips.is_empty() && mips.len() == mip_count as usize,
-        "PNG chain mip count",
+        width > 0 && height > 0 && count > 0 && count <= 32 - width.max(height).leading_zeros(),
+        "RGBA8 extent or mip count",
     )?;
-    let mut previous: Option<(u32, u32)> = None;
-    let mut base = 0;
-    let mut staging = 0;
-    for (index, mip) in mips.iter().enumerate() {
-        let receipt = catalog.file(&mip.file)?;
-        require(
-            receipt.image_size == Some([mip.width, mip.height]),
-            "PNG chain receipt dimensions",
-        )?;
-        if let Some((width, height)) = previous {
-            require(
-                (width > 1 || height > 1)
-                    && mip.width == (width / 2).max(1)
-                    && mip.height == (height / 2).max(1),
-                "PNG chain mip progression",
-            )?;
-        }
-        let encoded = receipt.bytes as usize;
-        let input = png_staging(encoded, mip.width)?;
-        if index == 0 {
-            base = encoded;
-            staging = input;
-        } else {
-            staging = staging.max(base.checked_add(input).ok_or_else(overflow)?);
-        }
-        previous = Some((mip.width, mip.height));
-    }
-    Ok(staging)
+    (0..count).try_fold(0usize, |sum, level| {
+        ((width >> level).max(1) as usize)
+            .checked_mul((height >> level).max(1) as usize)
+            .and_then(|n| n.checked_mul(4))
+            .and_then(|n| n.checked_add(sum))
+            .ok_or_else(overflow)
+    })
+}
+pub fn validate_rgba(texture: &super::TextureRecord) -> Result<usize, ReferenceError> {
+    let super::TextureStorage::Rgba8 {
+        width,
+        height,
+        input,
+    } = &texture.storage
+    else {
+        return Err(ReferenceError("Expected RGBA8 storage".into()));
+    };
+    input.validate()?;
+    let bytes = rgba_payload(*width, *height, texture.sampler.mip_count)?;
+    require(
+        input.file.ends_with(".rgba")
+            && input.image_size.is_none()
+            && input.bytes as usize == bytes,
+        "RGBA8 receipt bytes",
+    )?;
+    Ok(bytes)
 }
 /// Original single-layer BC blocks, in ascending authored mip order.
 pub fn bc_payload(
@@ -189,6 +176,46 @@ pub fn bc_payload(
             .ok_or_else(overflow)
     })
 }
+/// Fills the top mip of a BC1 or BC3 chain from mip 1 with nearest sampling.
+/// Each mip 1 block gives four top blocks with the same endpoints, so no block is decoded.
+pub fn upscale_bc(block: usize, width: u32, height: u32, mip1: &[u8], top: &mut [u8]) {
+    let (columns, rows) = (width as usize / 4, height as usize / 4);
+    let source_columns = ((width as usize / 2).max(1)).div_ceil(4);
+    // Two 2-bit color indices of one source row half become one 4-pixel row.
+    let color = |row: u8, half: usize| {
+        let pair = row >> (4 * half);
+        let (a, b) = (pair & 3, (pair >> 2) & 3);
+        a | a << 2 | b << 4 | b << 6
+    };
+    for y in 0..rows {
+        for x in 0..columns {
+            let source = &mip1[((y / 2) * source_columns + x / 2) * block..][..block];
+            let target = &mut top[(y * columns + x) * block..][..block];
+            let (half_x, half_y) = (x % 2, (y % 2) * 2);
+            if block == 16 {
+                // BC3 alpha: two endpoints, then 4 rows of four 3-bit indices.
+                let mut bits = [0; 8];
+                bits[..6].copy_from_slice(&source[2..8]);
+                let indices = u64::from_le_bytes(bits);
+                let mut out = 0u64;
+                for row in 0..4 {
+                    let line = indices >> (12 * (half_y + row / 2)) & 0xfff;
+                    let pair = line >> (6 * half_x);
+                    let (a, b) = (pair & 7, (pair >> 3) & 7);
+                    out |= (a | a << 3 | b << 6 | b << 9) << (12 * row);
+                }
+                target[..2].copy_from_slice(&source[..2]);
+                target[2..8].copy_from_slice(&out.to_le_bytes()[..6]);
+            }
+            let (source, target) = (&source[block - 8..], &mut target[block - 8..]);
+            target[..4].copy_from_slice(&source[..4]);
+            for row in 0..4 {
+                target[4 + row] = color(source[4 + half_y + row / 2], half_x);
+            }
+        }
+    }
+}
+
 pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, ReferenceError> {
     use super::{NativeBcFormat, TextureEncoding, TextureStorage};
     let TextureStorage::NativeBc {
@@ -201,6 +228,7 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
         dimension,
         mips_stripped,
         input,
+        top,
     } = &texture.storage
     else {
         return Err(ReferenceError("Expected native BC storage".into()));
@@ -210,8 +238,10 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
         (texture.encoding == texture.source_encoding
             && match texture.encoding {
                 TextureEncoding::Rgba => !normal,
-                // A DXT5nm normal keeps X in alpha and Y in green.
-                TextureEncoding::Ag => normal && *format == NativeBcFormat::Bc3,
+                // A DXT5nm normal keeps X in alpha and Y in green. The player shader uses R * A.
+                TextureEncoding::Ag | TextureEncoding::Rag => {
+                    normal && *format == NativeBcFormat::Bc3
+                }
                 _ => false,
             })
             && matches!(
@@ -234,60 +264,101 @@ pub fn validate_native_bc(texture: &super::TextureRecord) -> Result<usize, Refer
     } else {
         "linear"
     };
+    // Crunch sources keep their crunch data. The game unpacks it to BC in a worker.
+    let suffix = if native_crunch(*source_format) {
+        "crn"
+    } else {
+        "bc"
+    };
     require(
         input.file
             == format!(
-                "reference/texture-{}-{}-{space}.bc",
+                "reference/texture-{}-{}-{space}.{suffix}",
                 texture.source.file, texture.source.path_id
             ),
         "Native BC source identity",
     )?;
     input.validate()?;
     let bytes = bc_payload(*format, *width, *height, *mip_count)?;
+    // A texture with more than one mip keeps its top mip in a second file.
+    // Crunch: the first file holds the tables and levels 1+, the second the level 0 data.
+    let top_bytes = match top {
+        None => 0,
+        Some(top) => {
+            top.validate()?;
+            require(
+                top.file.strip_suffix(&format!(".top.{suffix}"))
+                    == input.file.strip_suffix(&format!(".{suffix}"))
+                    && top.image_size.is_none()
+                    && if native_crunch(*source_format) {
+                        top.bytes > 0
+                    } else {
+                        top.bytes as usize == bc_payload(*format, *width, *height, 1)?
+                    },
+                "Native BC top mip receipt",
+            )?;
+            top.bytes as usize
+        }
+    };
     require(
-        input.image_size.is_none() && input.bytes as usize == bytes,
+        top.is_some() == (*mip_count > 1)
+            && input.image_size.is_none()
+            && if native_crunch(*source_format) {
+                input.bytes as usize > CRUNCH_HEADER_BYTES
+            } else {
+                input.bytes as usize + top_bytes == bytes
+            },
         "Native BC receipt bytes",
     )?;
     Ok(bytes)
 }
+/// Unity crunched DXT1 and DXT5.
+pub fn native_crunch(source_format: u32) -> bool {
+    matches!(source_format, 28 | 29)
+}
+/// Smallest crunch header with one level.
+const CRUNCH_HEADER_BYTES: usize = 74;
 /// Validate metadata and receipts before scheduling any checked input.
+/// The staging is the checked reader's copy of the raw input. Only crunch input is decoded.
 pub fn primary_staging(
     texture: &super::TextureRecord,
     catalog: &FileCatalog,
 ) -> Result<usize, ReferenceError> {
     match &texture.storage {
-        super::TextureStorage::PngChain { mips } => {
-            png_chain_staging(mips, texture.sampler.mip_count, catalog)
+        super::TextureStorage::Rgba8 { input, .. } => {
+            let bytes = validate_rgba(texture)?;
+            require(catalog.file(&input.file)? == input, "RGBA8 catalog receipt")?;
+            Ok(bytes)
         }
-        super::TextureStorage::NativeBc { width, input, .. } => {
+        super::TextureStorage::NativeBc {
+            input,
+            top,
+            source_format,
+            ..
+        } => {
             let bytes = validate_native_bc(texture)?;
-            require(
-                catalog.file(&input.file)? == input,
-                "Native BC catalog receipt",
-            )?;
-            png_staging(bytes, *width)
+            for receipt in std::iter::once(input).chain(top) {
+                require(
+                    catalog.file(&receipt.file)? == receipt,
+                    "Native BC catalog receipt",
+                )?;
+            }
+            if !native_crunch(*source_format) {
+                return Ok(bytes);
+            }
+            // Both crunch inputs and the worker output, before it moves into the level vector.
+            Ok(bytes + input.bytes as usize + top.as_ref().map_or(0, |t| t.bytes as usize))
         }
     }
 }
 
-pub fn png_cpu(pixels: usize, max_staging: usize) -> Result<usize, ReferenceError> {
+/// The final level vector, the reader input, and the upload copies.
+pub fn primary_cpu(pixels: usize, max_staging: usize) -> Result<usize, ReferenceError> {
     pixels
         .checked_mul(2)
         .and_then(|n| n.checked_add(max_staging.checked_mul(2)?))
         .ok_or_else(overflow)
 }
-pub fn png_pixels(mips: &[super::TextureMip]) -> Result<usize, ReferenceError> {
-    require(!mips.is_empty(), "fixed PNG mip count")?;
-    mips.iter().try_fold(0usize, |sum, mip| {
-        require(mip.width > 0 && mip.height > 0, "fixed PNG mip extent")?;
-        (mip.width as usize)
-            .checked_mul(mip.height as usize)
-            .and_then(|n| n.checked_mul(4))
-            .and_then(|n| n.checked_add(sum))
-            .ok_or_else(overflow)
-    })
-}
-
 macro_rules! fixed_shaders {
     ($($name:literal),* $(,)?) => {
         pub const FIXED_SHADER_PATHS: [&str; 43] = [$(concat!("shaders/", $name)),*];
@@ -364,4 +435,35 @@ pub fn shader_input(path: &str) -> Result<FixedReservation, ReferenceError> {
         gpu: 0,
         staging: bytes.checked_mul(2).ok_or_else(overflow)?,
     })
+}
+
+#[cfg(test)]
+mod upscale_tests {
+    #[test]
+    fn upscale_repeats_each_mip1_pixel_on_2x2_top_pixels() {
+        // An 8x8 BC3 top mip: one 4x4 mip 1 block gives four top blocks.
+        let mut source = [0u8; 16];
+        source[..2].copy_from_slice(&[200, 10]);
+        // Alpha index of pixel i is i % 8.
+        let alpha: u64 = (0..16).map(|i| (i % 8) << (3 * i)).sum();
+        source[2..8].copy_from_slice(&alpha.to_le_bytes()[..6]);
+        source[8..12].copy_from_slice(&[1, 2, 3, 4]);
+        // Color index of pixel i is i % 4.
+        let color: u32 = (0..16).map(|i| (i % 4) << (2 * i)).sum();
+        source[12..].copy_from_slice(&color.to_le_bytes());
+        let mut top = [0u8; 64];
+        super::upscale_bc(16, 8, 8, &source, &mut top);
+        for (y, x) in (0..8).flat_map(|y| (0..8).map(move |x| (y, x))) {
+            let block = &top[((y / 4) * 2 + x / 4) * 16..][..16];
+            let pixel = (y % 4) * 4 + x % 4;
+            let expected = ((y / 2) * 4 + x / 2) as u64;
+            let mut bits = [0; 8];
+            bits[..6].copy_from_slice(&block[2..8]);
+            assert_eq!(u64::from_le_bytes(bits) >> (3 * pixel) & 7, expected % 8);
+            let color = u32::from_le_bytes(block[12..].try_into().unwrap());
+            assert_eq!(color >> (2 * pixel) & 3, expected as u32 % 4);
+            assert_eq!(&block[..2], &[200, 10]);
+            assert_eq!(&block[8..12], &[1, 2, 3, 4]);
+        }
+    }
 }

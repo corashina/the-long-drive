@@ -24,22 +24,41 @@ pub enum GrassPoll {
     Planned(GrassJobId, GrassAllocation),
     Ready(GrassJobId),
 }
+/// One job at a time. State names match `web/grass.js`.
+#[derive(Clone, Copy, Debug, Default)]
+enum GrassJob {
+    #[default]
+    Idle,
+    Planning(GrassJobId),
+    Planned(GrassJobId, GrassAllocation),
+    Emitting(GrassJobId, GrassAllocation),
+    Ready(GrassJobId, GrassAllocation),
+    Canceling(GrassJobId),
+}
+impl GrassJob {
+    fn id(self) -> Option<GrassJobId> {
+        match self {
+            Self::Idle => None,
+            Self::Planning(id)
+            | Self::Planned(id, _)
+            | Self::Emitting(id, _)
+            | Self::Ready(id, _)
+            | Self::Canceling(id) => Some(id),
+        }
+    }
+}
 #[derive(Default)]
 pub struct GrassWorker {
-    job: Option<GrassJobId>,
-    ready: bool,
+    job: GrassJob,
     last_revision: u64,
-    plan: Option<GrassAllocation>,
-    approved: bool,
-    canceled: bool,
     transport: Option<crate::browser::GrassTransport>,
 }
 impl GrassWorker {
     pub fn busy(&self) -> bool {
-        self.job.is_some()
+        !matches!(self.job, GrassJob::Idle)
     }
     pub fn owns(&self, id: GrassJobId) -> bool {
-        self.job == Some(id)
+        self.job.id() == Some(id)
     }
     pub fn initialize(&mut self) -> Result<bool, ReferenceError> {
         if self.transport.is_none() {
@@ -79,7 +98,7 @@ impl GrassWorker {
             .map_err(js_error)
     }
     pub fn submit(&mut self, id: GrassJobId, view: GrassView) -> Result<(), ReferenceError> {
-        if self.job.is_some() || id.revision <= self.last_revision {
+        if !matches!(self.job, GrassJob::Idle) || id.revision <= self.last_revision {
             return Err(error("Actor is busy"));
         }
         self.packing_started()?;
@@ -92,11 +111,7 @@ impl GrassWorker {
             .grass_submit(&id.bytes(), &input)
             .map_err(js_error)?;
         self.last_revision = id.revision;
-        self.ready = false;
-        self.job = Some(id);
-        self.plan = None;
-        self.approved = false;
-        self.canceled = false;
+        self.job = GrassJob::Planning(id);
         Ok(())
     }
     pub fn poll(&mut self) -> Result<GrassPoll, ReferenceError> {
@@ -105,10 +120,7 @@ impl GrassWorker {
         };
         match t.grass_poll().map_err(js_error)? {
             -1 => {
-                self.job = None;
-                self.plan = None;
-                self.approved = false;
-                self.canceled = false;
+                self.job = GrassJob::Idle;
                 Ok(GrassPoll::Idle)
             }
             -2 => Ok(GrassPoll::Busy),
@@ -122,27 +134,27 @@ impl GrassWorker {
                     output_bytes: words[3] as usize,
                     gpu_bytes: words[4] as usize,
                 };
-                self.plan = Some(p);
-                Ok(GrassPoll::Planned(
-                    self.job.ok_or_else(|| error("Plan has no owner"))?,
-                    p,
-                ))
+                let (GrassJob::Planning(id) | GrassJob::Planned(id, _)) = self.job else {
+                    return Err(error("Plan has no owner"));
+                };
+                self.job = GrassJob::Planned(id, p);
+                Ok(GrassPoll::Planned(id, p))
             }
             1 => {
-                self.ready = true;
-                Ok(GrassPoll::Ready(
-                    self.job.ok_or_else(|| error("Output has no owner"))?,
-                ))
+                let (GrassJob::Emitting(id, p) | GrassJob::Ready(id, p)) = self.job else {
+                    return Err(error("Output has no owner"));
+                };
+                self.job = GrassJob::Ready(id, p);
+                Ok(GrassPoll::Ready(id))
             }
             _ => Err(error("Invalid actor state")),
         }
     }
     pub fn approve(&mut self, id: GrassJobId, bytes: usize) -> Result<(), ReferenceError> {
-        if self.job != Some(id)
-            || self.approved
-            || self.canceled
-            || self.plan.is_none_or(|p| p.output_bytes != bytes)
-        {
+        let GrassJob::Planned(owner, plan) = self.job else {
+            return Err(error("Invalid plan approval"));
+        };
+        if owner != id || plan.output_bytes != bytes {
             return Err(error("Invalid plan approval"));
         }
         self.transport
@@ -150,43 +162,41 @@ impl GrassWorker {
             .unwrap()
             .grass_approve(&id.bytes(), bytes as f64)
             .map_err(js_error)?;
-        self.approved = true;
+        self.job = GrassJob::Emitting(id, plan);
         Ok(())
     }
     pub fn consume(&mut self, id: GrassJobId) -> Result<GrassMeshData, ReferenceError> {
-        if self.job != Some(id) || !self.approved || self.canceled || !self.ready {
+        let GrassJob::Ready(owner, p) = self.job else {
+            return Err(error("Invalid output owner"));
+        };
+        if owner != id {
             return Err(error("Invalid output owner"));
         }
-        let output = {
-            let p = self.plan.unwrap();
-            let mut o = GrassMeshData {
-                anchors: vec![[0.; 3]; p.vertices],
-                uvs: vec![[0.; 2]; p.vertices],
-                blades: vec![[0.; 4]; p.vertices],
-                patches: vec![0; p.vertices],
-                indices: vec![0; p.indices],
-            };
-            self.transport
-                .as_ref()
-                .unwrap()
-                .grass_read(
-                    o.anchors.as_flattened_mut(),
-                    o.uvs.as_flattened_mut(),
-                    o.blades.as_flattened_mut(),
-                    &mut o.patches,
-                    &mut o.indices,
-                )
-                .map_err(js_error)?;
-            o
+        let mut output = GrassMeshData {
+            anchors: vec![[0.; 3]; p.vertices],
+            uvs: vec![[0.; 2]; p.vertices],
+            blades: vec![[0.; 4]; p.vertices],
+            patches: vec![0; p.vertices],
+            indices: vec![0; p.indices],
         };
-        self.ready = false;
-        self.job = None;
-        self.plan = None;
-        self.approved = false;
+        self.transport
+            .as_ref()
+            .unwrap()
+            .grass_read(
+                output.anchors.as_flattened_mut(),
+                output.uvs.as_flattened_mut(),
+                output.blades.as_flattened_mut(),
+                &mut output.patches,
+                &mut output.indices,
+            )
+            .map_err(js_error)?;
+        self.job = GrassJob::Idle;
         Ok(output)
     }
     pub fn discard(&mut self) {
-        self.canceled = true;
+        if let Some(id) = self.job.id() {
+            self.job = GrassJob::Canceling(id);
+        }
         if let Some(t) = &self.transport {
             t.grass_discard();
         }
@@ -216,10 +226,7 @@ impl GrassWorker {
         if let Some(t) = self.transport.take() {
             t.grass_dispose();
         }
-        self.job = None;
-        self.plan = None;
-        self.approved = false;
-        self.canceled = false;
+        self.job = GrassJob::Idle;
     }
 }
 impl Drop for GrassWorker {

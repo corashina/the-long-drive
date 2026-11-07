@@ -1,5 +1,6 @@
 //! Scene instances of the human monsters. The bone rows pose the Animator nodes of a live human
 //! and the ragdoll bones of a dead one.
+use super::bind_state::BindState;
 use super::creatures::CreatureScene;
 use super::reference::ReferenceVisuals;
 use super::scene_nodes::SceneGraph;
@@ -14,11 +15,7 @@ use std::collections::HashMap;
 
 struct Instance {
     root: Entity,
-    ready: bool,
-    bound: bool,
-    /// Binding failed. The human stays hidden and binding does not run again.
-    failed: bool,
-    shown: bool,
+    state: BindState,
     /// Rig node index and entity.
     nodes: Vec<(usize, Entity)>,
     primitives: Vec<Entity>,
@@ -93,8 +90,9 @@ pub(crate) fn sync(
                     move |event: On<WorldInstanceReady>, mut humans: ResMut<HumanVisuals>| {
                         if let Some(instance) = humans.instances.get_mut(&id)
                             && instance.root == event.entity
+                            && instance.state == BindState::Loading
                         {
-                            instance.ready = true;
+                            instance.state = BindState::Loaded;
                         }
                     },
                 )
@@ -103,10 +101,7 @@ pub(crate) fn sync(
                 row.id,
                 Instance {
                     root,
-                    ready: false,
-                    bound: false,
-                    failed: false,
-                    shown: false,
+                    state: BindState::Loading,
                     nodes: Vec::with_capacity(rig.len()),
                     primitives: Vec::new(),
                     pose: rig.pose(),
@@ -115,13 +110,10 @@ pub(crate) fn sync(
             );
             continue;
         };
-        if !instance.ready {
+        if matches!(instance.state, BindState::Loading | BindState::Failed) {
             continue;
         }
-        if instance.failed {
-            continue;
-        }
-        if !instance.bound {
+        if instance.state == BindState::Loaded {
             let binding = graph.bind_instance(&mut commands, manifest, instance.root, r.asset);
             instance.nodes.extend(
                 binding
@@ -136,7 +128,7 @@ pub(crate) fn sync(
                     rig.len(),
                     binding.failure()
                 );
-                instance.failed = true;
+                instance.state = BindState::Failed;
                 continue;
             }
             instance.primitives = binding.primitives;
@@ -146,9 +138,9 @@ pub(crate) fn sync(
             {
                 *transform = Transform::IDENTITY;
             }
-            instance.bound = true;
+            instance.state = BindState::Bound;
         }
-        if !instance.shown {
+        if instance.state == BindState::Bound {
             // Show the human once its meshes use source materials, as other source meshes do.
             if instance.primitives.is_empty()
                 || !instance
@@ -158,7 +150,7 @@ pub(crate) fn sync(
             {
                 continue;
             }
-            instance.shown = true;
+            instance.state = BindState::Shown;
             if let Ok(mut v) = visibility.get_mut(instance.root) {
                 *v = Visibility::Inherited;
             }

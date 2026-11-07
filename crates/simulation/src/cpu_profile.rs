@@ -17,7 +17,14 @@ pub enum Stage {
     Input,
     TerrainInputPreparation,
     TerrainResultAllocation,
+    /// `First` to `RunFixedMainLoop`.
+    MainPreUpdate,
+    /// `Update` and `SpawnScene`.
     MainUpdate,
+    /// `PostUpdate` to the end of visibility: transforms, bounds, frusta, visibility.
+    MainVisibility,
+    /// The rest of `PostUpdate`, and `Last`.
+    MainPostUpdate,
     Extract,
     Specialize,
     Queue,
@@ -25,8 +32,19 @@ pub enum Stage {
     Encode,
     Submit,
     Cleanup,
+    StepConditions,
+    StepNetwork,
+    StepWorld,
+    StepSurvival,
+    StepInteraction,
+    StepVehicles,
+    StepCreatures,
+    StepRapier,
+    StepItems,
+    StepAudio,
+    StepPersistent,
 }
-const COUNT: usize = 18;
+const COUNT: usize = 32;
 const NAMES: [&str; COUNT] = [
     "Startup",
     "AssetDecode",
@@ -38,7 +56,10 @@ const NAMES: [&str; COUNT] = [
     "Input",
     "TerrainInputPreparation",
     "TerrainResultAllocation",
+    "MainPreUpdate",
     "MainUpdate",
+    "MainVisibility",
+    "MainPostUpdate",
     "Extract",
     "Specialize",
     "Queue",
@@ -46,6 +67,17 @@ const NAMES: [&str; COUNT] = [
     "Encode",
     "Submit",
     "Cleanup",
+    "StepConditions",
+    "StepNetwork",
+    "StepWorld",
+    "StepSurvival",
+    "StepInteraction",
+    "StepVehicles",
+    "StepCreatures",
+    "StepRapier",
+    "StepItems",
+    "StepAudio",
+    "StepPersistent",
 ];
 #[derive(Clone, Copy)]
 struct Measurement {
@@ -74,15 +106,40 @@ impl Timer {
     pub fn new(stage: Stage) -> Self {
         Self {
             stage,
-            start: enabled().then(crate::host::game_now),
+            start: enabled().then(now),
         }
+    }
+    /// Ends the current span and starts a span of `stage`.
+    pub fn next(&mut self, stage: Stage) {
+        let start = enabled().then(now);
+        if let (Some(old), Some(new)) = (self.start, start) {
+            record(self.stage, new - old);
+        }
+        self.stage = stage;
+        self.start = start;
     }
 }
 impl Drop for Timer {
     fn drop(&mut self) {
         let Some(start) = self.start else { return };
-        record(self.stage, crate::host::game_now() - start);
+        record(self.stage, now() - start);
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn now() -> f64 {
+    crate::host::game_now()
+}
+
+/// Native tests read the profile with the process clock.
+#[cfg(not(target_arch = "wasm32"))]
+fn now() -> f64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs_f64()
+        * 1000.
 }
 
 /// Adds one span of `duration` milliseconds to `stage`. Callers check `enabled` first.
@@ -96,7 +153,7 @@ pub fn record(stage: Stage, duration: f64) {
     row.max_ms = row.max_ms.max(duration);
 }
 
-#[wasm_bindgen::prelude::wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn cpu_profile(value: bool) {
     ENABLED.store(false, Ordering::Relaxed);
     if value {
@@ -111,7 +168,7 @@ pub fn cpu_profile(value: bool) {
     ENABLED.store(value, Ordering::Relaxed);
 }
 
-#[wasm_bindgen::prelude::wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn cpu_profile_audit() -> String {
     let values = VALUES.lock().unwrap();
     let measurements: Vec<_> = values
@@ -139,7 +196,9 @@ pub fn cpu_profile_audit() -> String {
         serde_json::from_str(&crate::world::stream_profile::streaming_profile_audit())
             .expect("streaming profile serializes");
     serde_json::json!({"enabled": enabled(), "stages": NAMES, "measurements": measurements,
-        "nested_stages": ["AssetDecode", "TerrainInputPreparation", "TerrainResultAllocation"],
+        "nested_stages": ["AssetDecode", "TerrainInputPreparation", "TerrainResultAllocation",
+            "StepConditions", "StepWorld", "StepSurvival", "StepInteraction", "StepVehicles",
+            "StepCreatures", "StepRapier", "StepItems", "StepAudio", "StepPersistent"],
         "stage_totals_are_exclusive": false, "streaming": streaming,
         "retainedBytes": std::mem::size_of_val(&*values)})
     .to_string()

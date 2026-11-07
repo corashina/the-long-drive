@@ -1,3 +1,4 @@
+import {gunzip} from './gzip.js';
 // Multiplayer peers of source `sns` and `snl`. PeerJS runs on the page thread, because Chrome has no WebRTC in workers.
 // The peers form a star like the source. Guests talk only to the host. The host forwards guest messages to the other guests.
 // Each guest has a `reliable` connection for the session messages and the save, and a `pose` connection for
@@ -5,7 +6,7 @@
 // A batch is packets with a u16 length each, like the Rust inbox. One frame sends one batch per connection,
 // so the message count does not grow with the packet count.
 // Bit `RELIABLE` of an outbound packet length sends the packet on `reliable` as `{t:'sim',data}`, like source `EP2PSendReliable`.
-// The save goes gzipped, because the JSON is large and compresses well.
+// The save goes gzipped, as it is stored, because the JSON is large and compresses well.
 // A guest loads the host world for many seconds with a busy page thread, so silence until `ready` uses `LOAD_TIMEOUT_MS`.
 export const RELIABLE=0x8000;
 // The largest `pose` message. A larger message splits into IP fragments, and the loss of one drops all of it.
@@ -19,10 +20,9 @@ export const STATUS={
 };
 export function roomCode(random=Math.random){return Array.from({length:6},()=>LETTERS[Math.floor(random()*LETTERS.length)]).join('');}
 export function validCode(code){return typeof code==='string'&&code.length===6&&[...code].every(c=>LETTERS.includes(c));}
+// A peer record `link` goes 'connected' -> 'welcomed' (after `hello` and the save chunks) -> 'ready' (the guest runs the world).
+const linked=p=>p!=null&&p.link!=='connected';
 const bytes=data=>data instanceof Uint8Array?data:new Uint8Array(data);
-const transform=(data,stream)=>new Response(new Blob([data]).stream().pipeThrough(stream)).arrayBuffer().then(b=>new Uint8Array(b));
-export const gzip=data=>transform(data,new CompressionStream('gzip'));
-export const gunzip=data=>transform(data,new DecompressionStream('gzip'));
 // Splits a frame outbox into the unreliable and the reliable batch. Each length loses bit `RELIABLE`.
 export function splitOutbox(outbox){
  let sizes=[0,0];
@@ -60,7 +60,7 @@ export function chatText(text){
  return new TextDecoder().decode(encoded.subarray(0,CHAT_BYTES)).replace(/�$/,'');
 }
 
-// `Peer`: the PeerJS class. `capture()`: the host save record as a string.
+// `Peer`: the PeerJS class. `capture()`: the gzip bytes of the host save.
 // Voice (source `SVoice`, host forwards). Each peer sends its microphone in a PeerJS media call. A guest calls the host.
 // The host calls each guest once per other speaker, with that speaker's stream and `metadata.slot`.
 // Events: `voice(slot,stream|null)`, `packet(bytes)`, `leave(slot)`, `looks(Map slot→{name,outfit})`, `chat({name,text})`, `status(text)`,
@@ -93,12 +93,12 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   else stop(error?.message??String(error));
  }
  // Host: send to every guest except `except`.
- function broadcast(message,except=-1){for(const g of guests.values())if(g.slot!==except&&g.welcomed)g.reliable.send(message);}
+ function broadcast(message,except=-1){for(const g of guests.values())if(g.slot!==except&&linked(g))g.reliable.send(message);}
  function removeGuest(id){
   const g=guests.get(id);if(!g)return;
   guests.delete(id);g.reliable?.close();g.pose?.close();closeVoice(g);
   for(const other of guests.values())unrelay(other,g.slot);
-  if(g.welcomed){emit('voice',g.slot,null);broadcast({t:'leave',slot:g.slot});emit('leave',g.slot);setLook(g.slot,null);}
+  if(linked(g)){emit('voice',g.slot,null);broadcast({t:'leave',slot:g.slot});emit('leave',g.slot);setLook(g.slot,null);}
  }
  async function hello(g,m){
   const refuse=reason=>{g.reliable.send({t:'refuse',reason});setTimeout(()=>removeGuest(g.id),500);};
@@ -109,12 +109,12 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   if(free===undefined)return refuse('full');
   g.slot=free;
   let save;
-  try{save=await gzip(new TextEncoder().encode(await capture()));}catch{return refuse('save');}
+  try{save=await capture();}catch{return refuse('save');}
   if(!guests.has(g.id))return;
   const chunks=Math.ceil(save.length/CHUNK);
   g.reliable.send({t:'welcome',slot:free,max,chunks,looks:[...looks]});
   for(let i=0;i<chunks;i++)g.reliable.send({t:'save',i,data:save.subarray(i*CHUNK,(i+1)*CHUNK)});
-  g.welcomed=true;
+  g.link='welcomed';
   if(mic)relay(g,0,mic);
   for(const other of guests.values())if(other!==g&&other.voiceIn)relay(g,other.slot,other.voiceIn);
   const look={name:chatText(m.name)||`Player ${free+1}`,outfit:m.outfit??null};
@@ -123,24 +123,24 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  function hostMessage(g,m){
   g.seen=now();
   if(m.t==='hello'&&g.slot===undefined)return void hello(g,m);
-  if(!g.welcomed)return;
+  if(!linked(g))return;
   if(m.t==='look'){const look={name:chatText(m.name)||looks.get(g.slot)?.name,outfit:m.outfit??null};setLook(g.slot,look);broadcast({t:'look',slot:g.slot,...look},g.slot);}
   else if(m.t==='chat'){const text=chatText(m.text);if(!text)return;broadcast({t:'chat',slot:g.slot,text},g.slot);emit('chat',{name:looks.get(g.slot)?.name??'',text});}
   else if(m.t==='ping')g.reliable.send({t:'pong',at:m.at});
   else if(m.t==='pong'){g.ping=Math.round(now()-m.at);peers();}
   else if(m.t==='leave')removeGuest(g.id);
-  else if(m.t==='ready')g.ready=true;
+  else if(m.t==='ready')g.link='ready';
   else if(m.t==='sim')hostBatch(g,m.data,true);
  }
  // Host: a guest batch goes on as one message to each other guest.
  function hostBatch(g,data,reliable=false){
   g.seen=now();
-  if(!g.welcomed)return;
+  if(!linked(g))return;
   const batch=stamp(data,g.slot);
   if(!batch)return;
   const message=reliable?{t:'sim',data:batch}:null;
   for(const other of guests.values()){
-   if(other===g||!other.welcomed)continue;
+   if(other===g||!linked(other))continue;
    if(reliable)other.reliable.send(message);else if(other.pose?.open)other.pose.send(batch);
   }
   emit('packets',batch);
@@ -152,12 +152,12 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  function unrelay(g,from){g.voiceOut.get(from)?.close();g.voiceOut.delete(from);}
  // Host: a guest microphone. It plays here and goes to the other guests.
  function hostCall(call){
-  const g=guests.get(call.peer);if(!g?.welcomed){call.close();return;}
+  const g=guests.get(call.peer);if(!linked(g)){call.close();return;}
   g.voiceCall?.close();g.voiceCall=call;call.answer();
   call.on('stream',stream=>{
    if(g.voiceCall!==call)return;
    g.voiceIn=stream;emit('voice',g.slot,stream);
-   for(const other of guests.values())if(other!==g&&other.welcomed)relay(other,g.slot,stream);
+   for(const other of guests.values())if(other!==g&&linked(other))relay(other,g.slot,stream);
   });
   call.on('close',()=>{
    if(g.voiceCall!==call)return;
@@ -168,12 +168,12 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
  // Guest: the voice of one speaker from the host.
  function guestCall(call){
   const from=call.metadata?.slot;
-  if(!host?.welcomed||call.peer!==host.reliable.peer||!Number.isInteger(from)||from===slot){call.close();return;}
+  if(!linked(host)||call.peer!==host.reliable.peer||!Number.isInteger(from)||from===slot){call.close();return;}
   host.voices.get(from)?.close();host.voices.set(from,call);call.answer();
   call.on('stream',stream=>{if(host?.voices.get(from)===call)emit('voice',from,stream);});
   call.on('close',()=>{if(host?.voices.get(from)!==call)return;host.voices.delete(from);emit('voice',from,null);});
  }
- function callHost(){micCall?.close();micCall=mic&&host?.welcomed?peer.call(host.reliable.peer,mic):null;}
+ function callHost(){micCall?.close();micCall=mic&&linked(host)?peer.call(host.reliable.peer,mic):null;}
  function accept(conn){
   const id=conn.peer;
   if(conn.label==='pose'){
@@ -181,7 +181,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
    g.pose=conn;conn.on('data',data=>hostBatch(g,data));return;
   }
   if(guests.has(id)){conn.close();return;}
-  const g={id,reliable:conn,pose:null,slot:undefined,welcomed:false,ready:false,seen:now(),ping:null,voiceCall:null,voiceIn:null,voiceOut:new Map()};
+  const g={id,reliable:conn,pose:null,slot:undefined,link:'connected',seen:now(),ping:null,voiceCall:null,voiceIn:null,voiceOut:new Map()};
   guests.set(id,g);
   conn.on('data',m=>hostMessage(g,m));
   conn.on('close',()=>removeGuest(id));
@@ -192,10 +192,10 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   // A late tick means this page thread stalled. Messages can wait in the queue behind it, so silence is not proof.
   if(stalled){for(const g of guests.values())g.seen=t;if(host)host.seen=t;}
   if(role===ROLE.HOST){
-   for(const g of [...guests.values()]){if(t-g.seen>(g.ready?TIMEOUT_MS:LOAD_TIMEOUT_MS))removeGuest(g.id);else if(g.welcomed)g.reliable.send({t:'ping',at:t});}
+   for(const g of [...guests.values()]){if(t-g.seen>(g.link==='ready'?TIMEOUT_MS:LOAD_TIMEOUT_MS))removeGuest(g.id);else if(linked(g))g.reliable.send({t:'ping',at:t});}
   }else if(role===ROLE.GUEST&&host){
-   if(!host.welcomed){if(t-joinStarted>JOIN_TIMEOUT_MS)stop(STATUS.connect);return;}
-   if(t-host.seen>(host.ready?TIMEOUT_MS:LOAD_TIMEOUT_MS))return stop(STATUS.hostLeft);
+   if(!linked(host)){if(t-joinStarted>JOIN_TIMEOUT_MS)stop(STATUS.connect);return;}
+   if(t-host.seen>(host.link==='ready'?TIMEOUT_MS:LOAD_TIMEOUT_MS))return stop(STATUS.hostLeft);
    host.reliable.send({t:'ping',at:t});
   }
  }
@@ -203,7 +203,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   host.seen=now();
   if(m.t==='refuse')return stop(STATUS[m.reason]??STATUS.connect);
   if(m.t==='welcome'){
-   slot=m.slot;max=m.max;host.welcomed=true;host.chunks=Array(m.chunks);host.received=0;
+   slot=m.slot;max=m.max;host.link='welcomed';host.chunks=Array(m.chunks);host.received=0;
    for(const [s,look] of m.looks)looks.set(s,look);
    looks.set(slot,{name:me.name,outfit:me.outfit});emit('looks',new Map(looks));
    host.pose=peer.connect(host.reliable.peer,{label:'pose',reliable:false,serialization:'raw'});
@@ -263,7 +263,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
    peer.on('open',()=>{
     role=ROLE.GUEST;room=code;lastTick=now();timer=setTimer(tick,TICK_MS);
     const reliable=peer.connect(PREFIX+code,{label:'reliable',reliable:true,serialization:'binary'});
-    host={reliable,pose:null,welcomed:false,ready:false,seen:now(),ping:null,chunks:null,received:0,voices:new Map()};
+    host={reliable,pose:null,link:'connected',seen:now(),ping:null,chunks:null,received:0,voices:new Map()};
     reliable.on('open',()=>reliable.send({t:'hello',name:me.name,outfit:me.outfit,build:buildId,exportHash,password:pass}));
     reliable.on('data',guestMessage);
     reliable.on('close',()=>{if(role===ROLE.GUEST)stop(STATUS.hostLeft);});
@@ -271,17 +271,17 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   },
   // The guest runs the host world. Silence counts as leaving again after this.
   ready(){
-   if(role!==ROLE.GUEST||!host?.welcomed||host.ready)return;
-   host.ready=true;host.seen=now();host.reliable.send({t:'ready'});
+   if(role!==ROLE.GUEST||host?.link!=='welcomed')return;
+   host.link='ready';host.seen=now();host.reliable.send({t:'ready'});
   },
   // The local microphone stream, or null. It keeps across sessions.
   voice(stream){
    if(stream===mic)return;mic=stream;
-   if(role===ROLE.HOST){for(const g of guests.values()){if(!g.welcomed)continue;unrelay(g,0);if(mic)relay(g,0,mic);}}
+   if(role===ROLE.HOST){for(const g of guests.values()){if(!linked(g))continue;unrelay(g,0);if(mic)relay(g,0,mic);}}
    else if(role===ROLE.GUEST)callHost();
   },
   leave(){
-   if(role===ROLE.GUEST&&host?.welcomed)host.reliable.send({t:'leave'});
+   if(role===ROLE.GUEST&&linked(host))host.reliable.send({t:'leave'});
    stop();
   },
   // The outbound simulation packets of one frame, each with a u16 length. Bit `RELIABLE` of the length picks `reliable`.
@@ -290,24 +290,24 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
    // The split copies, because the next frame reuses the outbox buffer.
    const [fast,sure]=splitOutbox(outbox);
    if(fast.length)datagrams(fast,part=>{
-    if(role===ROLE.HOST){for(const g of guests.values())if(g.welcomed&&g.pose?.open)g.pose.send(part);}
+    if(role===ROLE.HOST){for(const g of guests.values())if(linked(g)&&g.pose?.open)g.pose.send(part);}
     else if(host?.pose?.open)host.pose.send(part);
    });
    if(!sure.length)return;
    const message={t:'sim',data:sure};
-   if(role===ROLE.HOST){for(const g of guests.values())if(g.welcomed)g.reliable.send(message);}
-   else if(host?.welcomed)host.reliable.send(message);
+   if(role===ROLE.HOST){for(const g of guests.values())if(linked(g))g.reliable.send(message);}
+   else if(linked(host))host.reliable.send(message);
   },
   look(outfit,name=me.name){
    me={name:chatText(name)||me.name,outfit};
    if(role===ROLE.OFF)return;
    setLook(slot,me);
    const message={t:'look',slot,name:me.name,outfit};
-   if(role===ROLE.HOST)broadcast(message);else if(host?.welcomed)host.reliable.send(message);
+   if(role===ROLE.HOST)broadcast(message);else if(linked(host))host.reliable.send(message);
   },
   chat(value){
    const text=chatText(value);if(!text||role===ROLE.OFF)return;
-   if(role===ROLE.HOST)broadcast({t:'chat',slot:0,text});else if(host?.welcomed)host.reliable.send({t:'chat',text});
+   if(role===ROLE.HOST)broadcast({t:'chat',slot:0,text});else if(linked(host))host.reliable.send({t:'chat',text});
    emit('chat',{name:me.name,text});
   },
  };
