@@ -7,7 +7,7 @@ use crate::reference::{ReferenceError, SourceId, Transform, WorldReference};
 pub struct SpawnedContent {
     pub inputs: super::spawn_state::SpawnInitialization,
     pub placement: Placement,
-    pub appearance: Vec<super::NodeAppearance>,
+    pub appearance: super::spawn_appearance::Appearance,
     /// Road pole cable of a road building. It is stream input. `bake_cables` copies it to `appearance`.
     pub cable: Vec<super::NodeAppearance>,
     pub lights: Vec<super::WorldLight>,
@@ -316,7 +316,7 @@ impl<'a> SpawnEvaluation<'a> {
                     self.push(SpawnedContent {
                         inputs: super::spawn_state::SpawnInitialization::default(),
                         placement: child.clone(),
-                        appearance: Vec::new(),
+                        appearance: Default::default(),
                         cable: Vec::new(),
                         lights: Vec::new(),
                         fluid,

@@ -77,7 +77,7 @@ impl SpawnEvaluation<'_> {
                     self.push(SpawnedContent {
                         inputs: super::spawn_state::SpawnInitialization::default(),
                         placement: child.clone(),
-                        appearance: Vec::new(),
+                        appearance: Default::default(),
                         cable: Vec::new(),
                         lights: Vec::new(),
                         fluid: None,
@@ -156,7 +156,7 @@ impl SpawnEvaluation<'_> {
                     self.push(SpawnedContent {
                         inputs: super::spawn_state::SpawnInitialization::default(),
                         placement: child.clone(),
-                        appearance: Vec::new(),
+                        appearance: Default::default(),
                         cable: Vec::new(),
                         lights: Vec::new(),
                         fluid,

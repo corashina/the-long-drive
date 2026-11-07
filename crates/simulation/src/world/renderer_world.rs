@@ -3,6 +3,7 @@
 //! changes into a `WorldDelta`. The renderer applies the delta to its own copy.
 use super::{PublishedSurface, SurfaceKey, WorldRequest, WorldStream};
 use crate::reference::{ReferenceError, ReferenceManifest, SourceId, WorldReference};
+use crate::world::list_delta::ListDelta;
 use crate::world::{
     GeneratedId, IdIndex, NodeAppearance, Placement, StartupTerrain, SupplyDefinition, SupplyPoint,
     WorldBounds, WorldLayer, WorldLight, WorldOrigin, WorldSurface,
@@ -79,6 +80,8 @@ struct PlacementValues {
 }
 struct ContentValues {
     appearance: Vec<NodeAppearance>,
+    /// `Appearance::revision` of the copied appearance. The renderer copy keeps 0.
+    revision: u64,
     mark: u64,
 }
 /// Changes of the renderer copy in one sync. A flag marks a replaced list.
@@ -99,12 +102,11 @@ pub struct WorldDelta {
     prepared: Option<(WorldRequest, SurfaceKey, Option<RendererSurface>)>,
     lights_changed: bool,
     lights: Vec<WorldLight>,
-    structures_changed: bool,
-    structures: Vec<RendererStructure>,
-    pending_changed: bool,
-    pending: Vec<Placement>,
+    structures: ListDelta<RendererStructure>,
+    pending: ListDelta<Placement>,
     /// Values of new placements. A changed placement list drops the values of missing placements.
     placements: Vec<(GeneratedId, PlacementValues)>,
+    initialized_changed: bool,
     initialized: Vec<bool>,
     /// New or changed content appearance.
     contents: Vec<(GeneratedId, Vec<NodeAppearance>)>,
@@ -115,6 +117,8 @@ pub struct WorldDelta {
     startup: Option<StartupTerrain>,
     supplies_changed: bool,
     supplies: Vec<RendererSupply>,
+    /// Marks new required structures, required lights and replay lists.
+    required_changed: bool,
     required_structures: Vec<GeneratedId>,
     required_lights: Vec<GeneratedId>,
     replay: Vec<GeneratedId>,
@@ -147,11 +151,11 @@ impl WorldDelta {
         self.prepared = None;
         self.lights_changed = false;
         self.lights.clear();
-        self.structures_changed = false;
         self.structures.clear();
-        self.pending_changed = false;
         self.pending.clear();
         self.placements.clear();
+        self.initialized_changed = false;
+        self.initialized.clear();
         self.contents.clear();
         self.removed_contents.clear();
         self.cables_changed = false;
@@ -160,6 +164,10 @@ impl WorldDelta {
         self.startup = None;
         self.supplies_changed = false;
         self.supplies.clear();
+        self.required_changed = false;
+        self.required_structures.clear();
+        self.required_lights.clear();
+        self.replay.clear();
         self.holds_changed = false;
         self.holds.clear();
     }
@@ -174,6 +182,7 @@ pub struct RendererWorld {
     prepared: Option<(WorldRequest, RendererSurface)>,
     lights: Vec<WorldLight>,
     structures: Vec<RendererStructure>,
+    structure_index: IdIndex,
     supplies: Vec<RendererSupply>,
     startup: Option<StartupTerrain>,
     surface_revision: u64,
@@ -228,6 +237,7 @@ impl RendererWorld {
             prepared: None,
             lights: Vec::new(),
             structures: Vec::new(),
+            structure_index: IdIndex::default(),
             supplies: Vec::new(),
             startup: None,
             surface_revision: 0,
@@ -561,23 +571,44 @@ impl WorldStream {
         world.membership = membership;
         delta.membership = membership;
         if structures_changed {
-            world.structures.clear();
-            world
-                .structures
-                .extend(self.structures.iter().map(|s| RendererStructure {
+            let index = &world.structure_index;
+            delta.structures.diff(
+                &mut world.structures,
+                &self.structures,
+                |old, s| {
+                    index
+                        .position(old, |o| &o.placement.id, &s.placement.id)
+                        .filter(|&i| {
+                            let o = &old[i];
+                            o.fixed_decoration == s.fixed_decoration
+                                && o.cpu_bytes == s.cpu_bytes
+                                && o.placement == s.placement
+                        })
+                },
+                |s| RendererStructure {
                     fixed_decoration: s.fixed_decoration,
                     cpu_bytes: s.cpu_bytes,
                     placement: s.placement.clone(),
-                }));
-            delta.structures_changed = true;
-            delta.structures.clone_from(&world.structures);
+                },
+            );
+            world
+                .structure_index
+                .rebuild(&world.structures, |s| &s.placement.id);
         }
         let mut pick_changed = pending_changed;
         if pending_changed {
-            world.pending.clone_from(&self.wanted_structures);
+            let index = &world.pending_index;
+            delta.pending.diff(
+                &mut world.pending,
+                &self.wanted_structures,
+                |old, p| {
+                    index
+                        .position(old, |o| &o.id, &p.id)
+                        .filter(|&i| old[i] == *p)
+                },
+                Placement::clone,
+            );
             world.pending_index.rebuild(&world.pending, |p| &p.id);
-            delta.pending_changed = true;
-            delta.pending.clone_from(&world.pending);
         }
         if structures_changed || pending_changed {
             world.mark += 1;
@@ -610,13 +641,18 @@ impl WorldStream {
             }
             world.placements.retain(|_, values| values.mark == mark);
         }
+        let mut initialized_changed = world.initialized.len() != world.pending.len();
         world.initialized.resize(world.pending.len(), false);
         for (initialized, placement) in world.initialized.iter_mut().zip(&world.pending) {
             let value = self.contents.initialized(&placement.id);
-            pick_changed |= *initialized != value;
+            initialized_changed |= *initialized != value;
             *initialized = value;
         }
-        delta.initialized.clone_from(&world.initialized);
+        if initialized_changed || pending_changed {
+            pick_changed = true;
+            delta.initialized_changed = true;
+            delta.initialized.clone_from(&world.initialized);
+        }
         self.sync_renderer_contents(world, delta);
         let mut count = 0;
         for road in &self.selected_roads {
@@ -666,6 +702,7 @@ impl WorldStream {
             delta.supplies_changed = true;
             delta.supplies.clone_from(&world.supplies);
         }
+        let mut required_changed = false;
         if crate::world::required::select(
             &mut world.required_structures,
             self.required.structures.iter(),
@@ -673,9 +710,10 @@ impl WorldStream {
             world
                 .required_index
                 .rebuild(&world.required_structures, |id| id);
-            pick_changed = true;
+            required_changed = true;
         }
-        crate::world::required::select(&mut world.required_lights, self.required.lights.iter());
+        required_changed |=
+            crate::world::required::select(&mut world.required_lights, self.required.lights.iter());
         if crate::world::required::select(
             &mut world.replay,
             self.replay_roots.iter().map(|root| &root.id).chain(
@@ -685,13 +723,17 @@ impl WorldStream {
             ),
         ) {
             world.replay_index.rebuild(&world.replay, |id| id);
-            pick_changed = true;
+            required_changed = true;
         }
-        delta
-            .required_structures
-            .clone_from(&world.required_structures);
-        delta.required_lights.clone_from(&world.required_lights);
-        delta.replay.clone_from(&world.replay);
+        if required_changed {
+            pick_changed = true;
+            delta.required_changed = true;
+            delta
+                .required_structures
+                .clone_from(&world.required_structures);
+            delta.required_lights.clone_from(&world.required_lights);
+            delta.replay.clone_from(&world.replay);
+        }
         let required_ready = self.required_ready();
         pick_changed |= world.required_ready != required_ready;
         world.required_ready = required_ready;
@@ -743,24 +785,29 @@ impl WorldStream {
                 Some(values) if values.mark == mark => continue,
                 Some(values) => {
                     values.mark = mark;
-                    if values.appearance != content.appearance {
-                        values.appearance.clone_from(&content.appearance);
-                        delta
-                            .contents
-                            .push((id.clone(), content.appearance.clone()));
+                    let revision = content.appearance.revision();
+                    if values.revision != revision {
+                        values.revision = revision;
+                        if values.appearance != *content.appearance {
+                            values.appearance.clone_from(&content.appearance);
+                            delta
+                                .contents
+                                .push((id.clone(), content.appearance.to_vec()));
+                        }
                     }
                 }
                 None => {
                     world.contents.insert(
                         id.clone(),
                         ContentValues {
-                            appearance: content.appearance.clone(),
+                            appearance: content.appearance.to_vec(),
+                            revision: content.appearance.revision(),
                             mark,
                         },
                     );
                     delta
                         .contents
-                        .push((id.clone(), content.appearance.clone()));
+                        .push((id.clone(), content.appearance.to_vec()));
                 }
             }
             count += 1;
@@ -819,14 +866,16 @@ impl RendererWorld {
             self.lights.clone_from(&delta.lights);
         }
         self.membership = delta.membership;
-        if delta.structures_changed {
-            self.structures.clone_from(&delta.structures);
+        if delta.structures.changed() {
+            delta.structures.apply(&mut self.structures);
+            self.structure_index
+                .rebuild(&self.structures, |s| &s.placement.id);
         }
-        if delta.pending_changed {
-            self.pending.clone_from(&delta.pending);
+        if delta.pending.changed() {
+            delta.pending.apply(&mut self.pending);
             self.pending_index.rebuild(&self.pending, |p| &p.id);
         }
-        if delta.structures_changed || delta.pending_changed {
+        if delta.structures.changed() || delta.pending.changed() {
             // Placement values of the new lists. Each list has a placement value.
             self.mark += 1;
             let mark = self.mark;
@@ -845,12 +894,15 @@ impl RendererWorld {
         for (id, values) in &delta.placements {
             self.placements.insert(id.clone(), values.clone());
         }
-        self.initialized.clone_from(&delta.initialized);
+        if delta.initialized_changed {
+            self.initialized.clone_from(&delta.initialized);
+        }
         for (id, appearance) in &delta.contents {
             self.contents.insert(
                 id.clone(),
                 ContentValues {
                     appearance: appearance.clone(),
+                    revision: 0,
                     mark: 0,
                 },
             );
@@ -867,9 +919,9 @@ impl RendererWorld {
         if delta.supplies_changed {
             self.supplies.clone_from(&delta.supplies);
         }
-        self.required_lights.clone_from(&delta.required_lights);
-        if self.pick_revision != delta.pick_revision {
-            self.pick_revision = delta.pick_revision;
+        self.pick_revision = delta.pick_revision;
+        if delta.required_changed {
+            self.required_lights.clone_from(&delta.required_lights);
             self.required_structures
                 .clone_from(&delta.required_structures);
             self.required_index
