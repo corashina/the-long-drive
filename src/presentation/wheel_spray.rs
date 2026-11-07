@@ -4,15 +4,13 @@
 use super::{
     readiness::RendererStateHandle,
     render_targets::{DEPTH_FORMAT, HDR_FORMAT},
-    surface_graph::{SourceSurface, SourceSurfaceStage, SurfaceViewTargets},
-    surface_views::{SourceSurfaceView, WORLD_VIEWS},
     view_frame::SourceViewFrame,
 };
 use bevy::render::{
     Render, RenderApp, RenderSystems,
     extract_resource::{ExtractResource, ExtractResourcePlugin},
     render_resource::{binding_types::uniform_buffer_sized, *},
-    renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
+    renderer::{RenderDevice, RenderQueue},
 };
 use bevy::{ecs as bevy_ecs, prelude::*, render as bevy_render};
 use simulation::boundary::{StateBlock, WheelSprayRow};
@@ -69,7 +67,7 @@ struct SprayParams {
 }
 
 #[derive(Resource)]
-struct SprayPass {
+pub struct SprayPass {
     pipeline: CachedRenderPipelineId,
     uniforms: super::uniform_slots::UniformSlots<SprayParams>,
     ring: Buffer,
@@ -90,19 +88,12 @@ pub fn install(app: &mut App) {
     app.init_resource::<SprayInput>()
         .add_plugins(ExtractResourcePlugin::<SprayInput>::default())
         .add_systems(PostUpdate, snapshot);
-    app.sub_app_mut(RenderApp)
-        .add_systems(
-            Render,
-            prepare
-                .after(RenderSystems::PrepareResources)
-                .before(RenderSystems::Render),
-        )
-        .add_systems(
-            SourceSurface,
-            draw.in_set(SourceSurfaceStage::Weather)
-                .run_if(super::frame_graph::surface_ready)
-                .run_if(super::shadow_queue::collector_encoded),
-        );
+    app.sub_app_mut(RenderApp).add_systems(
+        Render,
+        prepare
+            .after(RenderSystems::PrepareResources)
+            .before(RenderSystems::Render),
+    );
 }
 
 fn snapshot(
@@ -309,51 +300,19 @@ impl SprayPass {
             instances: 0,
         }
     }
-}
 
-/// Draws into the world view color after AO. The last transparent pass resolves it.
-fn draw(
-    view: ViewQuery<(&SourceSurfaceView, &SurfaceViewTargets)>,
-    pass: Option<Res<SprayPass>>,
-    cache: Res<PipelineCache>,
-    mut context: RenderContext,
-) {
-    let (source, targets) = view.into_inner();
-    let Some(spray) = pass.filter(|p| p.instances > 0) else {
-        return;
-    };
-    if source.index >= WORLD_VIEWS {
-        return;
+    /// The pipeline when this frame has something to draw.
+    pub fn pipeline<'a>(&self, cache: &'a PipelineCache) -> Option<&'a RenderPipeline> {
+        if self.instances == 0 {
+            return None;
+        }
+        cache.get_render_pipeline(self.pipeline)
     }
-    let Some(pipeline) = cache.get_render_pipeline(spray.pipeline) else {
-        return;
-    };
-    let targets = &targets.0;
-    let depth = targets.multisample_depth.as_ref().unwrap_or(&targets.depth);
-    let mut render = context
-        .command_encoder()
-        .begin_render_pass(&RenderPassDescriptor {
-            label: Some("weather_spray"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: targets.colors.attachment(),
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations {
-                    load: LoadOp::Load,
-                    store: StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                view: &depth.attachment,
-                depth_ops: Some(Operations {
-                    load: LoadOp::Load,
-                    store: StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            ..default()
-        });
-    render.set_pipeline(pipeline);
-    render.set_bind_group(0, &spray.group, &[]);
-    render.draw(0..6, 0..spray.instances);
+
+    /// Records the draw into the shared weather pass.
+    pub fn encode(&self, render: &mut wgpu::RenderPass<'_>, pipeline: &RenderPipeline) {
+        render.set_pipeline(pipeline);
+        render.set_bind_group(0, &self.group, &[]);
+        render.draw(0..6, 0..self.instances);
+    }
 }

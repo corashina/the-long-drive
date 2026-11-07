@@ -3,15 +3,13 @@
 use super::{
     readiness::RendererStateHandle,
     render_targets::{DEPTH_FORMAT, HDR_FORMAT},
-    surface_graph::{SourceSurface, SourceSurfaceStage, SurfaceViewTargets},
-    surface_views::{SourceSurfaceView, WORLD_VIEWS},
     view_frame::SourceViewFrame,
 };
 use bevy::render::{
     Render, RenderApp, RenderSystems,
     extract_resource::{ExtractResource, ExtractResourcePlugin},
     render_resource::{binding_types::uniform_buffer, *},
-    renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
+    renderer::{RenderDevice, RenderQueue},
 };
 use bevy::{ecs as bevy_ecs, prelude::*, render as bevy_render};
 use simulation::boundary::BoltFrame;
@@ -39,7 +37,7 @@ struct BoltParams {
 }
 
 #[derive(Resource)]
-struct BoltPass {
+pub struct BoltPass {
     pipeline: CachedRenderPipelineId,
     uniforms: super::uniform_slots::UniformSlots<BoltParams>,
     group: BindGroup,
@@ -51,19 +49,12 @@ pub fn install(app: &mut App) {
     app.init_resource::<BoltInput>()
         .add_plugins(ExtractResourcePlugin::<BoltInput>::default())
         .add_systems(PostUpdate, snapshot);
-    app.sub_app_mut(RenderApp)
-        .add_systems(
-            Render,
-            prepare
-                .after(RenderSystems::PrepareResources)
-                .before(RenderSystems::Render),
-        )
-        .add_systems(
-            SourceSurface,
-            draw.in_set(SourceSurfaceStage::Weather)
-                .run_if(super::frame_graph::surface_ready)
-                .run_if(super::shadow_queue::collector_encoded),
-        );
+    app.sub_app_mut(RenderApp).add_systems(
+        Render,
+        prepare
+            .after(RenderSystems::PrepareResources)
+            .before(RenderSystems::Render),
+    );
 }
 
 fn snapshot(sim: Res<super::sim_frame::SimFrameResource>, mut input: ResMut<BoltInput>) {
@@ -201,51 +192,19 @@ impl BoltPass {
             visible: false,
         }
     }
-}
 
-/// Draws into the world view color after AO. The last transparent pass resolves it.
-fn draw(
-    view: ViewQuery<(&SourceSurfaceView, &SurfaceViewTargets)>,
-    pass: Option<Res<BoltPass>>,
-    cache: Res<PipelineCache>,
-    mut context: RenderContext,
-) {
-    let (source, targets) = view.into_inner();
-    let Some(bolt) = pass.filter(|p| p.visible) else {
-        return;
-    };
-    if source.index >= WORLD_VIEWS {
-        return;
+    /// The pipeline when this frame has something to draw.
+    pub fn pipeline<'a>(&self, cache: &'a PipelineCache) -> Option<&'a RenderPipeline> {
+        if !self.visible {
+            return None;
+        }
+        cache.get_render_pipeline(self.pipeline)
     }
-    let Some(pipeline) = cache.get_render_pipeline(bolt.pipeline) else {
-        return;
-    };
-    let targets = &targets.0;
-    let depth = targets.multisample_depth.as_ref().unwrap_or(&targets.depth);
-    let mut render = context
-        .command_encoder()
-        .begin_render_pass(&RenderPassDescriptor {
-            label: Some("weather_bolt"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: targets.colors.attachment(),
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations {
-                    load: LoadOp::Load,
-                    store: StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                view: &depth.attachment,
-                depth_ops: Some(Operations {
-                    load: LoadOp::Load,
-                    store: StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            ..default()
-        });
-    render.set_pipeline(pipeline);
-    render.set_bind_group(0, &bolt.group, &[]);
-    render.draw(0..SEGMENTS * 6, 0..1);
+
+    /// Records the draw into the shared weather pass.
+    pub fn encode(&self, render: &mut wgpu::RenderPass<'_>, pipeline: &RenderPipeline) {
+        render.set_pipeline(pipeline);
+        render.set_bind_group(0, &self.group, &[]);
+        render.draw(0..SEGMENTS * 6, 0..1);
+    }
 }
