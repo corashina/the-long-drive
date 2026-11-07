@@ -1,12 +1,12 @@
 //! The player ragdoll is the ragdoll prototype (`fpscontroller.prefabRagdol`) with the outfit character (`CopyFrom`).
-//! It shows while the frame has ragdoll rows. Each body node takes its body pose under the prefab root.
+//! It shows while the frame has ragdoll rows. A dead remote player has its own instance. Each body node takes its body pose under the prefab root.
 //! Character 1 nodes take the body pose of the character 0 joint with the same name.
 //! Nodes without a body keep their local pose under their parent. The GPU skins the meshes.
 use super::materials::SourceMaterial;
 use super::outfit::Outfit;
 use super::player_body::{
-    BoundQuery, Identity, OutfitQuery, character_nodes, character_renderer, dress, materials_bound,
-    outfit_slot,
+    BoundQuery, Identity, NodeQuery, OutfitQuery, character_nodes, character_renderer, dress,
+    materials_bound, outfit_slot,
 };
 use super::reference::ReferenceVisuals;
 use super::renderers::AuthoredRenderer;
@@ -20,9 +20,17 @@ use bevy::world_serialization::{WorldAssetRoot, WorldInstanceReady};
 use simulation::boundary::PoseRow;
 use std::collections::HashMap;
 
+/// The local player ragdoll instance.
 #[derive(Resource, Default)]
 pub struct RagdollBody {
     scene: Option<Entity>,
+}
+
+/// One ragdoll asset instance, on its scene entity.
+#[derive(Component, Default)]
+pub struct RagdollInstance {
+    /// `OutfitSlot::figure`.
+    figure: u8,
     /// Prefab root. It follows the root body.
     root: Option<Entity>,
     /// Body node entities of each character in `RagdollReference::bodies` order.
@@ -41,9 +49,12 @@ fn bind(
     event: On<WorldInstanceReady>,
     mut commands: Commands,
     reference: Res<RuntimeReference>,
-    mut ragdoll: ResMut<RagdollBody>,
+    mut instances: Query<&mut RagdollInstance>,
     graph: SceneGraph,
 ) {
+    let Ok(mut ragdoll) = instances.get_mut(event.entity) else {
+        return;
+    };
     let manifest = &reference.0;
     let record = &manifest.clothing.ragdoll;
     let characters = &record.characters;
@@ -92,7 +103,7 @@ fn bind(
                 .map_err(|e| e.to_string())
                 .and_then(|e| {
                     outfit_slot(
-                        0,
+                        ragdoll.figure,
                         manifest,
                         characters,
                         &record.invisible_material,
@@ -139,6 +150,35 @@ fn bind(
     ragdoll.root_body = root_body;
 }
 
+/// Spawns a hidden ragdoll instance. None until the ragdoll glTF loads.
+pub(super) fn spawn(
+    commands: &mut Commands,
+    reference: &RuntimeReference,
+    visuals: &ReferenceVisuals,
+    gltfs: &Assets<bevy::gltf::Gltf>,
+    figure: u8,
+) -> Option<Entity> {
+    let asset = reference.0.clothing.ragdoll.asset;
+    let gltf = visuals
+        .gltfs
+        .iter()
+        .find(|(id, _)| *id == asset)
+        .and_then(|(_, handle)| gltfs.get(handle))?;
+    let scene = commands
+        .spawn((
+            WorldAssetRoot(gltf.scenes[0].clone()),
+            Transform::default(),
+            Visibility::Hidden,
+            RagdollInstance {
+                figure,
+                ..default()
+            },
+        ))
+        .observe(bind)
+        .id();
+    Some(scene)
+}
+
 pub(crate) fn sync(
     mut commands: Commands,
     reference: Res<RuntimeReference>,
@@ -151,36 +191,62 @@ pub(crate) fn sync(
     slots: OutfitQuery,
     bound: BoundQuery,
     mut ragdoll: ResMut<RagdollBody>,
-    mut nodes: Query<(
-        &mut Transform,
-        &mut Visibility,
-        Has<MeshMaterial3d<SourceMaterial>>,
-    )>,
+    mut instances: Query<&mut RagdollInstance>,
+    mut nodes: NodeQuery,
 ) {
     if !visuals.bound {
         return;
     }
-    let record = &reference.0.clothing.ragdoll;
     let Some(scene) = ragdoll.scene else {
-        let Some(gltf) = visuals
-            .gltfs
-            .iter()
-            .find(|(id, _)| *id == record.asset)
-            .and_then(|(_, handle)| gltfs.get(handle))
-        else {
-            return;
-        };
-        let scene = commands
-            .spawn((
-                WorldAssetRoot(gltf.scenes[0].clone()),
-                Transform::default(),
-                Visibility::Hidden,
-            ))
-            .observe(bind)
-            .id();
-        ragdoll.scene = Some(scene);
+        ragdoll.scene = spawn(&mut commands, &reference, &visuals, &gltfs, 0);
         return;
     };
+    let Ok(mut instance) = instances.get_mut(scene) else {
+        return;
+    };
+    let style = Style {
+        outfit: &outfit,
+        redress: outfit.is_changed(),
+        slots: &slots,
+        materials: &materials,
+        bound: &bound,
+    };
+    // The ragdoll moves with the camera interpolation, as the player body does.
+    show(
+        &mut commands,
+        &reference,
+        scene,
+        &mut instance,
+        &frame.frame.ragdoll,
+        &style,
+        &mut nodes,
+        |row| super::transform(drive.rendered_body_pose(row.pose())),
+    );
+}
+
+/// The outfit of one ragdoll instance and the queries that dress it.
+pub(super) struct Style<'a, 'w, 's> {
+    pub outfit: &'a Outfit,
+    /// The outfit changed since the last dress.
+    pub redress: bool,
+    pub slots: &'a OutfitQuery<'w, 's>,
+    pub materials: &'a Assets<SourceMaterial>,
+    pub bound: &'a BoundQuery<'w, 's>,
+}
+
+/// Shows `scene` at `rows`, or hides it when `rows` does not hold every body.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn show(
+    commands: &mut Commands,
+    reference: &RuntimeReference,
+    scene: Entity,
+    ragdoll: &mut RagdollInstance,
+    rows: &[PoseRow],
+    style: &Style,
+    nodes: &mut NodeQuery,
+    world: impl Fn(&PoseRow) -> Transform,
+) {
+    let record = &reference.0.clothing.ragdoll;
     let Some(root) = ragdoll.root.filter(|_| !ragdoll.bodies[0].is_empty()) else {
         return;
     };
@@ -189,25 +255,24 @@ pub(crate) fn sync(
         if !materials_bound(
             &ragdoll.primitives,
             |p| nodes.get(p).is_ok_and(|(_, _, source)| source),
-            &bound,
+            style.bound,
         ) {
             return;
         }
         ragdoll.ready = true;
     }
     // `SpawnRagdol` enables every ragdoll renderer. `CopyFrom` keeps those of the outfit character.
-    if !ragdoll.dressed || outfit.is_changed() {
+    if !ragdoll.dressed || style.redress {
         dress(
-            &mut commands,
-            &outfit,
+            commands,
+            style.outfit,
             &ragdoll.primitives,
             false,
-            &slots,
-            &materials,
+            style.slots,
+            style.materials,
         );
         ragdoll.dressed = true;
     }
-    let rows = &frame.frame.ragdoll;
     let active = rows.len() == record.bodies.len();
     if let Ok((_, mut visibility, _)) = nodes.get_mut(scene) {
         visibility.set_if_neq(if active {
@@ -220,8 +285,6 @@ pub(crate) fn sync(
     if !active || !visible(&rows[ragdoll.root_body]) {
         return;
     }
-    // The ragdoll moves with the camera interpolation, as the player body does.
-    let world = |row: &PoseRow| super::transform(drive.rendered_body_pose(row.pose()));
     // The root keeps the root body at its rest pose in root space.
     let rest = &record.bodies[ragdoll.root_body].pose;
     let body = world(&rows[ragdoll.root_body]);
@@ -237,7 +300,7 @@ pub(crate) fn sync(
         scale,
     });
     let inverse = rotation.inverse();
-    for ((entity, row), b) in ragdoll.bodies[outfit.character]
+    for ((entity, row), b) in ragdoll.bodies[style.outfit.character]
         .iter()
         .zip(rows)
         .zip(&record.bodies)
