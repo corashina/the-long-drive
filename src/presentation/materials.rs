@@ -1963,7 +1963,7 @@ pub struct MaterialCache {
     outfits: HashMap<(source::AssetId, u8, u8, u8, bool, u32), OutfitMaterials>,
 }
 /// `playermodeloutfitscript.Refresh` makes one copy of the segment material with its own color.
-/// The invisible material of a disabled segment is the converted shared material.
+/// A disabled segment draws with the invisible material.
 fn late_outfit_materials(
     slot: &OutfitSlot,
     asset: source::AssetId,
