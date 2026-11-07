@@ -320,24 +320,14 @@ fn got_ignition(runtime: &mut GarageRuntime, m: &CarIgnitionMessage) {
     }
 }
 
-/// The car pose that the renderer shows: the car root item between the last two steps.
+/// The car pose that the renderer shows: the chassis between the last two steps.
 fn shown_car(runtime: &GarageRuntime, key: &ObjectKey, alpha: f32) -> VehiclePose {
-    let area = &runtime.area;
-    if let ObjectKey::Generated(id) = key
-        && let Some(item) = area.items.generated_item_id(id)
-        && let Some((_, previous, current)) =
-            area.item_render_poses.iter().find(|(i, ..)| *i == item)
-    {
-        let p = Vec3::from_array(previous.position).lerp(Vec3::from_array(current.position), alpha);
-        let r =
-            Quat::from_array(previous.rotation).slerp(Quat::from_array(current.rotation), alpha);
-        return VehiclePose {
-            position: p.to_array(),
-            rotation: r.to_array(),
-        };
-    }
     let chassis = runtime.physics.chassis_handle(key);
-    crate::vehicle::from_rapier(runtime.physics.rapier().bodies[chassis].position())
+    crate::vehicle::from_rapier(&runtime.physics.presented_pose_or(
+        chassis,
+        alpha,
+        rapier3d::math::Pose::IDENTITY,
+    ))
 }
 
 /// Source `snTempPlayerSync.UpdPos` sitting: the world pose of car `car` for seat `seat`.
