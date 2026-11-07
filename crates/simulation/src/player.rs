@@ -1095,6 +1095,10 @@ impl PlayerState {
     pub fn seated(&self) -> bool {
         self.occupancy.is_some()
     }
+    /// `Death2` ran and no respawn followed.
+    pub fn dead(&self) -> bool {
+        self.dead
+    }
     /// The item that holds the occupied seat.
     pub fn seat_item(&self) -> Option<ItemId> {
         self.occupancy.as_ref().map(|seat| seat.item)
