@@ -42,6 +42,33 @@ enum Pending {
         ticket: Option<PipelineTicket>,
     },
 }
+/// Worker copy of the instance's patch dataset, with its charged bytes.
+#[derive(Clone, Copy)]
+enum Dataset {
+    None,
+    /// Sent to the worker. `copies` stay staged until the worker reports it installed.
+    Installing {
+        cache: usize,
+        copies: usize,
+    },
+    Cached {
+        cache: usize,
+    },
+}
+impl Dataset {
+    fn cache(self) -> usize {
+        match self {
+            Dataset::None => 0,
+            Dataset::Installing { cache, .. } | Dataset::Cached { cache } => cache,
+        }
+    }
+    fn copies(self) -> usize {
+        match self {
+            Dataset::Installing { copies, .. } => copies,
+            _ => 0,
+        }
+    }
+}
 struct Instance {
     continuation: Option<crate::ownership::renderer_pending::PipelineContinuation>,
     upload: Option<Arc<crate::presentation::fixed_assets::MeshUpload>>,
@@ -61,8 +88,7 @@ struct Instance {
     pending_cpu: usize,
     pending_gpu: usize,
     metadata: usize,
-    cache_cpu: usize,
-    install_cpu: usize,
+    dataset: Dataset,
     ready: bool,
 }
 #[derive(Resource, Default)]
@@ -245,8 +271,7 @@ impl GrassJobs {
             pending_cpu: 0,
             pending_gpu: 0,
             metadata,
-            cache_cpu: 0,
-            install_cpu: 0,
+            dataset: Dataset::None,
             ready: false,
         });
         Ok(())
@@ -284,11 +309,10 @@ impl GrassJobs {
         next.active_cpu -= self.actor_cpu;
         self.actor_cpu = 0;
         for i in &mut self.instances {
-            next.active_cpu -= i.cache_cpu + i.install_cpu;
-            next.staging_bytes -= i.install_cpu;
-            next.jobs -= usize::from(i.install_cpu > 0);
-            i.cache_cpu = 0;
-            i.install_cpu = 0;
+            next.active_cpu -= i.dataset.cache() + i.dataset.copies();
+            next.staging_bytes -= i.dataset.copies();
+            next.jobs -= usize::from(matches!(i.dataset, Dataset::Installing { .. }));
+            i.dataset = Dataset::None;
             if matches!(i.pending, Some(Pending::Worker { .. })) {
                 next.active_cpu -= i.pending_cpu;
                 next.staging_bytes -= i.pending_cpu;
@@ -381,7 +405,7 @@ impl GrassJobs {
             .instances
             .iter()
             .map(|i| {
-                i.install_cpu
+                i.dataset.copies()
                     + if matches!(i.pending, Some(Pending::Worker { .. })) {
                         i.pending_cpu
                     } else {
@@ -420,21 +444,22 @@ impl GrassJobs {
                     Some(ledger.claim_grass(stream.frame().request, instance.entity.to_bits()));
                 instance.pending = Some(Pending::Queued);
             }
-            if instance.install_cpu > 0 && self.worker.installed(instance.entity.to_bits())? {
-                let bytes = instance.install_cpu;
+            if let Dataset::Installing { cache, copies } = instance.dataset
+                && self.worker.installed(instance.entity.to_bits())?
+            {
                 let mut next = ledger.allocation();
-                next.active_cpu -= bytes;
-                next.staging_bytes -= bytes;
+                next.active_cpu -= copies;
+                next.staging_bytes -= copies;
                 next.jobs -= 1;
                 ledger.set_allocation(next)?;
-                instance.install_cpu = 0;
+                instance.dataset = Dataset::Cached { cache };
             }
             if writers_ready
                 && candidate == Some(index)
                 && matches!(instance.pending, Some(Pending::Queued))
                 && ledger.available_external_jobs() > 0
             {
-                if instance.cache_cpu == 0 {
+                if matches!(instance.dataset, Dataset::None) {
                     let encoded = grass_mesh::dataset_encoded_len(&instance.patches)
                         .map_err(ReferenceError)?;
                     // Decoded Vec, Arc conversion overlap, encoded main/JS/WASM copies, and metadata.
@@ -461,8 +486,7 @@ impl GrassJobs {
                     next.jobs += 1;
                     next.grass_worker_cache_bytes += cache;
                     ledger.set_allocation(next)?;
-                    instance.cache_cpu = cache;
-                    instance.install_cpu = copies;
+                    instance.dataset = Dataset::Installing { cache, copies };
                     self.revision = self
                         .revision
                         .checked_add(1)
@@ -782,7 +806,7 @@ impl GrassJobs {
             }
         }
         let entity_bits = self.instances[index].entity.to_bits();
-        if self.instances[index].cache_cpu > 0 {
+        if !matches!(self.instances[index].dataset, Dataset::None) {
             if !self.worker.retiring(entity_bits)? {
                 return Ok(false);
             }
@@ -802,8 +826,10 @@ impl GrassJobs {
         }
         self.worker
             .publication_ended(instance.entity.to_bits(), false);
-        let mut cpu =
-            instance.metadata + instance.pending_cpu + instance.cache_cpu + instance.install_cpu;
+        let mut cpu = instance.metadata
+            + instance.pending_cpu
+            + instance.dataset.cache()
+            + instance.dataset.copies();
         let mut gpu = instance.pending_gpu;
         if let Some(old) = instance.accepted {
             cpu += old.cpu;
@@ -819,9 +845,9 @@ impl GrassJobs {
         next.active_cpu = next.active_cpu.saturating_sub(cpu);
         next.staging_bytes = next
             .staging_bytes
-            .saturating_sub(instance.pending_cpu + instance.install_cpu);
-        next.grass_worker_cache_bytes -= instance.cache_cpu;
-        next.jobs -= usize::from(instance.install_cpu > 0);
+            .saturating_sub(instance.pending_cpu + instance.dataset.copies());
+        next.grass_worker_cache_bytes -= instance.dataset.cache();
+        next.jobs -= usize::from(matches!(instance.dataset, Dataset::Installing { .. }));
         next.active_gpu = next.active_gpu.saturating_sub(gpu);
         next.jobs = next.jobs.saturating_sub(usize::from(matches!(
             instance.pending,
