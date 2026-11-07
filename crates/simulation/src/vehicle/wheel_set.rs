@@ -366,47 +366,53 @@ mod tests {
     fn fast_car_stops_pitching() {
         use crate::vehicle::{PhysicsWorld, collider_profile};
         use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
-        let mut physics = PhysicsWorld::empty(1, 2);
-        physics.insert_collider(
-            ColliderBuilder::cuboid(10.0, 0.1, 500.0).translation(Vector::new(0.0, -0.1, -490.0)),
-        );
-        // The wheels roll forward along -z.
-        let speed = 40.0;
-        let body = physics.insert_body(
-            RigidBodyBuilder::dynamic()
-                .translation(Vector::new(0.0, 0.435, 0.0))
-                .linvel(Vector::new(0.0, 0.0, -speed))
-                .angvel(Vector::new(0.5, 0.0, 0.0)),
-        );
-        physics.insert_collider_with_parent(
-            ColliderBuilder::cuboid(0.8, 0.3, 2.0)
-                .translation(Vector::new(0.0, 0.5, 0.5))
-                .mass(820.0)
-                .build(),
-            body,
-        );
         let car = crate::vehicle::car_prototype_fixture();
         let collider = &car.vehicle.as_ref().unwrap().wheels[0].collider;
-        let mounts: Vec<_> = [(-0.7, -1.2), (0.7, -1.2), (-0.7, 1.2), (0.7, 1.2)]
-            .iter()
-            .map(|&(x, z)| WheelMount {
-                connection: Vector::new(x, 0.0, z),
-                collider,
-                profile: collider_profile(collider),
-            })
-            .collect();
-        let mut set = WheelSet::new(body, &mounts);
-        for wheel in &mut set.wheels {
-            wheel.omega = speed / wheel.profile.radius;
+        for speed in [40.0, 70.0] {
+            let mut physics = PhysicsWorld::empty(1, 2);
+            physics.insert_collider(
+                ColliderBuilder::cuboid(10.0, 0.1, 500.0)
+                    .translation(Vector::new(0.0, -0.1, -490.0)),
+            );
+            // The wheels roll forward along -z.
+            let body = physics.insert_body(
+                RigidBodyBuilder::dynamic()
+                    .translation(Vector::new(0.0, 0.435, 0.0))
+                    .linvel(Vector::new(0.0, 0.0, -speed))
+                    .angvel(Vector::new(0.5, 0.0, 0.0)),
+            );
+            physics.insert_collider_with_parent(
+                ColliderBuilder::cuboid(0.8, 0.3, 2.0)
+                    .translation(Vector::new(0.0, 0.5, 0.5))
+                    .mass(820.0)
+                    .build(),
+                body,
+            );
+            let mounts: Vec<_> = [(-0.7, -1.2), (0.7, -1.2), (-0.7, 1.2), (0.7, 1.2)]
+                .iter()
+                .map(|&(x, z)| WheelMount {
+                    connection: Vector::new(x, 0.0, z),
+                    collider,
+                    profile: collider_profile(collider),
+                })
+                .collect();
+            let mut set = WheelSet::new(body, &mounts);
+            for wheel in &mut set.wheels {
+                wheel.omega = speed / wheel.profile.radius;
+            }
+            let mut lowest = f32::MAX;
+            for _ in 0..400 {
+                physics.step_wheel_set(&mut set, &[WheelTorques::default(); 4], &[0.0; 4]);
+                physics.step_physics();
+                lowest = lowest.min(physics.rapier().bodies[body].translation().y);
+            }
+            let body = &physics.rapier().bodies[body];
+            assert!(lowest > 0.4, "{speed} m/s: {lowest}");
+            assert!(
+                body.angvel().x.abs() < 0.01,
+                "{speed} m/s: {}",
+                body.angvel().x
+            );
         }
-        let mut lowest = f32::MAX;
-        for _ in 0..400 {
-            physics.step_wheel_set(&mut set, &[WheelTorques::default(); 4], &[0.0; 4]);
-            physics.step_physics();
-            lowest = lowest.min(physics.rapier().bodies[body].translation().y);
-        }
-        let body = &physics.rapier().bodies[body];
-        assert!(lowest > 0.4, "{lowest}");
-        assert!(body.angvel().x.abs() < 0.01, "{}", body.angvel().x);
     }
 }
