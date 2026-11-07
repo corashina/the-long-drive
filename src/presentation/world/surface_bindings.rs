@@ -193,7 +193,6 @@ impl SourceWorldVisuals {
                 receive,
                 tier,
             )?);
-            terrain.get_mut(&material).unwrap().preparation = cache.preparation.clone();
             self.bind_terrain(tier, material, layer, shadow_mode);
             facts.push(crate::world::RendererFact::BindPrototype(
                 record.source.clone(),

@@ -1,8 +1,5 @@
 //! Shadow draws share the surface alpha data, without surface lighting textures.
-use super::{
-    gpu_prepare::GpuPreparation,
-    materials::{SourceMaterial, SourceUniform, specular::SpecularMaterial},
-};
+use super::materials::{SourceMaterial, SourceUniform, specular::SpecularMaterial};
 use bevy::asset::{AssetEvent, AssetId, UntypedAssetId};
 use bevy::ecs::{
     self as bevy_ecs,
@@ -24,7 +21,6 @@ use std::collections::BTreeMap;
 
 struct Input {
     revision: u64,
-    preparation: GpuPreparation,
     data: SourceUniform,
     batch: super::shadow_batch::CasterBatchState,
     texture: Option<AssetId<Image>>,
@@ -32,7 +28,6 @@ struct Input {
 }
 struct SpecularInput {
     revision: u64,
-    preparation: GpuPreparation,
     batch: super::shadow_batch::CasterBatchState,
 }
 #[derive(Resource, Default)]
@@ -92,7 +87,6 @@ fn extract(
                     id,
                     Input {
                         revision,
-                        preparation: material.preparation.clone(),
                         data: material.caster_data(),
                         batch: material.shadow_batch_state(),
                         color: material.retained_color.clone(),
@@ -125,7 +119,6 @@ fn extract_specular(
                     id,
                     SpecularInput {
                         revision,
-                        preparation: material.preparation.clone(),
                         batch: material.shadow_batch_state(),
                     },
                 );
@@ -153,9 +146,6 @@ fn prepare(
         output.revision = inputs.revision;
     }
     for (&id, input) in &inputs.materials {
-        if input.preparation.cancelled() {
-            continue;
-        }
         let image = match input.texture {
             Some(id) => {
                 let Some(image) = images.get(id) else {
@@ -177,7 +167,6 @@ fn prepare(
         }) {
             continue;
         }
-        let _scope = input.preparation.scope(&device);
         if let Some(material) = output.materials.get_mut(&id) {
             if material.revision != input.revision || material.color_revision != color_revision {
                 material.uniform.set(data);
@@ -186,10 +175,6 @@ fn prepare(
                 material.color_revision = color_revision;
             }
             if material.image == identity {
-                if input.preparation.isolated() {
-                    queue.submit([]);
-                    input.preparation.submitted(&queue);
-                }
                 continue;
             }
         }
@@ -207,10 +192,6 @@ fn prepare(
                 (120, uniform.binding().unwrap()),
             )),
         );
-        if input.preparation.isolated() {
-            queue.submit([]);
-            input.preparation.submitted(&queue);
-        }
         output.materials.insert(
             id,
             Material {
@@ -248,9 +229,6 @@ pub fn shadow_material(world: &World, id: UntypedAssetId) -> Option<UntypedAsset
         else {
             return Some(id);
         };
-        if input.preparation.cancelled() {
-            return Some(id);
-        }
         // Bevy removes the old PreparedMaterial before preparing an extracted update.
         // A present material therefore represents this revision, including after retries.
         let prepared = world
@@ -266,9 +244,6 @@ pub fn shadow_material(world: &World, id: UntypedAssetId) -> Option<UntypedAsset
     let Some(input) = world.resource::<Inputs>().materials.get(&typed) else {
         return Some(id);
     };
-    if input.preparation.cancelled() {
-        return Some(id);
-    }
     let prepared = world
         .resource::<CasterMaterials>()
         .materials

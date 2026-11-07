@@ -341,7 +341,7 @@ impl SourceMaterials {
         let (jobs, staging) = self.primary_loading(chains, server);
         let (cpu, gpu) = self.primary_bytes();
         self.account_primary(ledger, cpu, gpu, jobs, self.pending_primary(), staging)?;
-        if !self.preparation.cancelled() && failure.is_none() && stream.frame().failure.is_none() {
+        if failure.is_none() && stream.frame().failure.is_none() {
             for index in 0..self.textures.len() {
                 let texture = &self.textures[index];
                 // A stalled image loads its chain again into the same image.
@@ -404,9 +404,7 @@ impl SourceMaterials {
                 );
             }
         }
-        if !self.preparation.cancelled() {
-            self.texture_bytes += assemble_textures(&mut self.textures, chains, images);
-        }
+        self.texture_bytes += assemble_textures(&mut self.textures, chains, images);
         let (jobs, staging) = self.primary_loading(chains, server);
         let (cpu, gpu) = self.primary_bytes();
         self.account_primary(ledger, cpu, gpu, jobs, self.pending_primary(), staging)?;
@@ -624,7 +622,7 @@ impl SourceMaterials {
         images: &mut Assets<Image>,
         batches: &mut Assets<crate::presentation::texture_batches::SourceTextureBatch>,
     ) -> Result<(), ReferenceError> {
-        if self.preparation.cancelled() || stream.frame().failure.is_some() {
+        if stream.frame().failure.is_some() {
             self.world_textures.cancel();
         }
         self.account_deferred(
@@ -632,9 +630,7 @@ impl SourceMaterials {
             self.world_textures.jobs(),
             self.world_textures.staging_bytes(),
         )?;
-        let result =
-            self.world_textures
-                .prepare(server, images, batches, &self.preparation, ledger);
+        let result = self.world_textures.prepare(server, images, batches, ledger);
         self.account_deferred(
             ledger,
             self.world_textures.jobs(),

@@ -64,9 +64,6 @@ pub struct SurfacePasses {
     partners: HashMap<CachedRenderPipelineId, Companions>,
 }
 impl SurfacePasses {
-    pub fn revisit(&mut self, id: CachedRenderPipelineId) {
-        self.inspected = self.inspected.min(id.id());
-    }
     pub fn companion_state(
         &self,
         base: CachedRenderPipelineId,
@@ -111,23 +108,15 @@ impl SurfacePasses {
                 .count(),
         )
     }
-    pub fn ready(
-        &self,
-        cache: &PipelineCache,
-        owners: &super::pipeline_ownership::PipelineOwners,
-    ) -> bool {
+    pub fn ready(&self, cache: &PipelineCache) -> bool {
         // A base that the inspection has not seen has no partner yet.
         !self.partners.is_empty()
             && self.inspected >= cache.pipelines().count()
-            && self
-                .partners
-                .iter()
-                .filter(|(base, _)| !owners.base_isolated(**base))
-                .all(|(base, companions)| {
-                    std::iter::once(*base)
-                        .chain(companions.ids())
-                        .all(|id| cache.get_render_pipeline(id).is_some())
-                })
+            && self.partners.iter().all(|(base, companions)| {
+                std::iter::once(*base)
+                    .chain(companions.ids())
+                    .all(|id| cache.get_render_pipeline(id).is_some())
+            })
     }
 }
 fn flag(definitions: &[ShaderDefVal], name: &str) -> bool {
@@ -141,16 +130,14 @@ pub(crate) fn inspect_created_surface_passes(
     passes: ResMut<SurfacePasses>,
     cache: Res<PipelineCache>,
     status: Res<RendererStateHandle>,
-    owners: Res<super::pipeline_ownership::PipelineOwners>,
 ) {
-    prepare_surface_passes(passes, cache, status, owners);
+    prepare_surface_passes(passes, cache, status);
 }
 /// Inspect only newly prepared descriptors. Pipeline clones occur once per new source variant.
 pub(crate) fn prepare_surface_passes(
     mut passes: ResMut<SurfacePasses>,
     cache: Res<PipelineCache>,
     status: Res<RendererStateHandle>,
-    owners: Res<super::pipeline_ownership::PipelineOwners>,
 ) {
     if status.failure().is_some() {
         return;
@@ -159,7 +146,7 @@ pub(crate) fn prepare_surface_passes(
     for (index, pipeline) in cache.pipelines().enumerate().skip(first) {
         passes.inspected = index + 1;
         let base_id = CachedRenderPipelineId::new(index);
-        if passes.partners.contains_key(&base_id) || owners.cancelled(base_id) {
+        if passes.partners.contains_key(&base_id) {
             continue;
         }
         let PipelineDescriptor::RenderPipelineDescriptor(descriptor) = &pipeline.descriptor else {
@@ -174,42 +161,22 @@ pub(crate) fn prepare_surface_passes(
         {
             continue;
         }
-        let base = CachedRenderPipelineId::new(index);
-        let queue = |build: &dyn Fn() -> RenderPipelineDescriptor| {
-            owners
-                .queue_companion(&cache, base, || Some(build()))
-                .map_err(|error| {
-                    if !owners.fail(base, error.0.clone()) {
-                        status.fail(error.0);
-                    }
-                })
-        };
         let mut companions = Companions::default();
         // Installed Unlit/Color and stained glass have no ForwardAdd pass. Single-pass surfaces include it.
         if flag(&fragment.shader_defs, "SOURCE_STANDARD")
             && !flag(&fragment.shader_defs, "SOURCE_FORWARD_ONE")
         {
-            let Ok(add) = queue(&|| additive(descriptor)) else {
-                continue;
-            };
-            companions.add = add;
+            companions.add = Some(cache.queue_render_pipeline(additive(descriptor)));
         }
         if prepass_base(descriptor, &fragment.shader_defs) {
-            let Ok(depth) = queue(&|| depth_prepass(descriptor)) else {
-                continue;
-            };
-            let Ok(equal) = queue(&|| equal_depth(descriptor)) else {
-                continue;
-            };
-            companions.prepass = depth.zip(equal).map(|(depth, equal)| [depth, equal]);
+            companions.prepass = Some([
+                cache.queue_render_pipeline(depth_prepass(descriptor)),
+                cache.queue_render_pipeline(equal_depth(descriptor)),
+            ]);
         }
-        passes.partners.insert(base, companions);
+        passes.partners.insert(base_id, companions);
     }
-    for (base, companions) in passes
-        .partners
-        .iter()
-        .filter(|(base, _)| !owners.base_isolated(**base))
-    {
+    for (base, companions) in &passes.partners {
         for id in std::iter::once(*base).chain(companions.ids()) {
             match cache.get_render_pipeline_state(id) {
                 CachedPipelineState::Err(

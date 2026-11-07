@@ -4,9 +4,9 @@ use bevy_material::descriptor::{
 };
 
 use crate::{
-    Extract,
     render_resource::*,
     renderer::{RenderAdapter, RenderDevice, WgpuWrapper},
+    Extract,
 };
 use alloc::{borrow::Cow, sync::Arc};
 use bevy_asset::{AssetEvent, AssetId, Assets, Handle};
@@ -207,8 +207,6 @@ pub struct PipelineCache {
     device: RenderDevice,
     pipelines: Vec<CachedPipeline>,
     waiting_pipelines: HashSet<CachedPipelineId>,
-    held_pipelines: Mutex<HashSet<CachedPipelineId>>,
-    owned_queue: Arc<Mutex<OwnedQueueBudget>>,
     new_pipelines: Mutex<Vec<CachedPipeline>>,
     /// Listed pipelines. A later queue of an equal descriptor returns the listed ID.
     prewarmed_render: Mutex<Vec<(RenderPipelineDescriptor, CachedRenderPipelineId)>>,
@@ -221,80 +219,7 @@ pub struct PipelineCache {
     needs_shader_reload: bool,
 }
 
-#[derive(Default)]
-struct OwnedQueueBudget {
-    slots: usize,
-    active: bool,
-    used: bool,
-    descriptor_limit: usize,
-    bytes: usize,
-}
-/// Reserves one persistent descriptor slot before material specialization.
-/// Drop ends the queue scope. Existing specialization cache hits consume no slot.
-pub struct OwnedRenderPipelineQueue(Arc<Mutex<OwnedQueueBudget>>);
-impl Drop for OwnedRenderPipelineQueue {
-    fn drop(&mut self) {
-        self.0.lock().unwrap().active = false;
-    }
-}
-fn descriptor_owned_bytes(d: &RenderPipelineDescriptor) -> usize {
-    fn label(v: &Cow<'static, str>) -> usize {
-        match v {
-            Cow::Owned(s) => s.capacity(),
-            _ => 0,
-        }
-    }
-    fn defs(v: &Vec<ShaderDefVal>) -> usize {
-        v.capacity() * size_of::<ShaderDefVal>()
-            + v.iter()
-                .map(|v| match v {
-                    ShaderDefVal::Bool(s, _)
-                    | ShaderDefVal::Int(s, _)
-                    | ShaderDefVal::UInt(s, _) => s.capacity(),
-                })
-                .sum::<usize>()
-    }
-    size_of::<RenderPipelineDescriptor>()
-        + d.label.as_ref().map_or(0, label)
-        + d.layout.capacity() * size_of::<BindGroupLayoutDescriptor>()
-        + d.layout
-            .iter()
-            .map(|l| label(&l.label) + l.entries.capacity() * size_of::<BindGroupLayoutEntry>())
-            .sum::<usize>()
-        + defs(&d.vertex.shader_defs)
-        + d.vertex.entry_point.as_ref().map_or(0, label)
-        + d.vertex.buffers.capacity() * size_of::<bevy_mesh::VertexBufferLayout>()
-        + d.vertex
-            .buffers
-            .iter()
-            .map(|v| v.attributes.capacity() * size_of::<VertexAttribute>())
-            .sum::<usize>()
-        + d.fragment.as_ref().map_or(0, |f| {
-            defs(&f.shader_defs)
-                + f.entry_point.as_ref().map_or(0, label)
-                + f.targets.capacity() * size_of::<Option<ColorTargetState>>()
-        })
-}
-
 impl PipelineCache {
-    /// Reserve one owned queue slot. The caller admits the fixed lifetime budget first.
-    /// The scope must contain at most one queue call and must not overlap another scope.
-    pub fn owned_render_pipeline_queue(
-        &self,
-        max_slots: usize,
-        max_bytes: usize,
-        descriptor_limit: usize,
-    ) -> Result<OwnedRenderPipelineQueue, &'static str> {
-        let mut budget = self.owned_queue.lock().unwrap();
-        assert!(!budget.active);
-        if budget.slots >= max_slots || budget.bytes + descriptor_limit > max_bytes {
-            return Err("Owned pipeline metadata capacity exhausted");
-        }
-        budget.active = true;
-        budget.used = false;
-        budget.descriptor_limit = descriptor_limit;
-        Ok(OwnedRenderPipelineQueue(self.owned_queue.clone()))
-    }
     /// Returns an iterator over the pipelines in the pipeline cache.
     pub fn pipelines(&self) -> impl Iterator<Item = &CachedPipeline> {
         self.pipelines.iter()
@@ -339,8 +264,6 @@ impl PipelineCache {
             layout_cache: default(),
             bindgroup_layout_cache: default(),
             waiting_pipelines: default(),
-            held_pipelines: default(),
-            owned_queue: default(),
             new_pipelines: default(),
             prewarmed_render: default(),
             prewarmed_compute: default(),
@@ -476,13 +399,12 @@ impl PipelineCache {
         &self,
         descriptor: RenderPipelineDescriptor,
     ) -> CachedRenderPipelineId {
-        if !self.owned_queue.lock().unwrap().active
-            && let Some((_, id)) = self
-                .prewarmed_render
-                .lock()
-                .unwrap()
-                .iter()
-                .find(|(listed, _)| *listed == descriptor)
+        if let Some((_, id)) = self
+            .prewarmed_render
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(listed, _)| *listed == descriptor)
         {
             return *id;
         }
@@ -491,29 +413,9 @@ impl PipelineCache {
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         let id = CachedRenderPipelineId::new(self.pipelines.len() + new_pipelines.len());
-        let mut descriptor = descriptor;
-        let mut state = CachedPipelineState::Queued;
-        let mut budget = self.owned_queue.lock().unwrap();
-        if budget.active {
-            assert!(
-                !budget.used,
-                "Owned queue scope must contain at most one descriptor"
-            );
-            budget.used = true;
-            budget.slots += 1;
-            self.held_pipelines.lock().unwrap().insert(id.id());
-            let charge = descriptor_owned_bytes(&descriptor) * 3 + 1024;
-            budget.bytes += charge.min(budget.descriptor_limit);
-            if charge > budget.descriptor_limit {
-                descriptor = RenderPipelineDescriptor::default();
-                state = CachedPipelineState::Err(ShaderCacheError::CreateShaderModule(
-                    "Owned pipeline descriptor exceeds admitted metadata slot".into(),
-                ));
-            }
-        }
         new_pipelines.push(CachedPipeline {
             descriptor: PipelineDescriptor::RenderPipelineDescriptor(Box::new(descriptor)),
-            state,
+            state: CachedPipelineState::Queued,
         });
         id
     }
@@ -556,13 +458,11 @@ impl PipelineCache {
         id
     }
 
-    /// Queue a listed render pipeline. Later queues of an equal descriptor return this ID,
-    /// except inside an owned queue scope.
+    /// Queue a listed render pipeline. Later queues of an equal descriptor return this ID.
     pub fn prewarm_render_pipeline(
         &self,
         descriptor: RenderPipelineDescriptor,
     ) -> CachedRenderPipelineId {
-        assert!(!self.owned_queue.lock().unwrap().active);
         let id = self.queue_render_pipeline(descriptor.clone());
         let mut listed = self.prewarmed_render.lock().unwrap();
         if listed.iter().all(|(_, listed)| *listed != id) {
@@ -780,64 +680,6 @@ impl PipelineCache {
         )
     }
 
-    /// Count descriptors, including entries not yet published to `pipelines()`.
-    pub fn queued_pipeline_count(&self) -> usize {
-        self.pipelines.len() + self.new_pipelines.lock().unwrap().len()
-    }
-
-    /// Keep this ID out of automatic preparation, including shader reload retries.
-    /// The caller must own this ID exclusively. Shared accepted IDs must not be held.
-    pub fn hold_render_pipeline(&self, id: CachedRenderPipelineId) {
-        self.held_pipelines.lock().unwrap().insert(id.id());
-    }
-
-    /// Whether an exclusive owner controls preparation of this ID.
-    pub fn render_pipeline_is_held(&self, id: CachedRenderPipelineId) -> bool {
-        self.held_pipelines.lock().unwrap().contains(&id.id())
-    }
-
-    fn publish_queued_descriptors(&mut self) {
-        for pipeline in self.new_pipelines.lock().unwrap().drain(..) {
-            let id = self.pipelines.len();
-            self.pipelines.push(pipeline);
-            self.waiting_pipelines.insert(id);
-        }
-    }
-
-    /// Prepare exactly one held ID synchronously, within the caller's GPU error scope.
-    /// Retryable failures remain held and require another explicit call.
-    pub fn prepare_held_render_pipeline(&mut self, id: CachedRenderPipelineId) {
-        assert!(self.render_pipeline_is_held(id));
-        self.publish_queued_descriptors();
-        let mut pipelines = mem::take(&mut self.pipelines);
-        let synchronous = self.synchronous_pipeline_compilation;
-        self.synchronous_pipeline_compilation = true;
-        self.process_pipeline(&mut pipelines[id.id()], id.id());
-        self.synchronous_pipeline_compilation = synchronous;
-        self.waiting_pipelines.remove(&id.id());
-        self.pipelines = pipelines;
-    }
-
-    /// Drop a held GPU pipeline and retain its stable descriptor ID for later re-use.
-    /// Automatic preparation stays disabled until the owner releases this ID.
-    pub fn retire_held_render_pipeline(&mut self, id: CachedRenderPipelineId) {
-        assert!(self.render_pipeline_is_held(id));
-        self.publish_queued_descriptors();
-        if !matches!(self.pipelines[id.id()].state, CachedPipelineState::Err(_)) {
-            self.pipelines[id.id()].state = CachedPipelineState::Queued;
-        }
-        self.waiting_pipelines.remove(&id.id());
-    }
-
-    /// Return an accepted or explicitly reclaimed ID to normal cache processing.
-    pub fn release_held_render_pipeline(&mut self, id: CachedRenderPipelineId) {
-        self.publish_queued_descriptors();
-        self.held_pipelines.lock().unwrap().remove(&id.id());
-        if !matches!(self.pipelines[id.id()].state, CachedPipelineState::Ok(_)) {
-            self.waiting_pipelines.insert(id.id());
-        }
-    }
-
     /// Process the pipeline queue and create all pending pipelines if possible.
     ///
     /// This is generally called automatically during the [`RenderSystems::Render`] step, but can
@@ -861,9 +703,6 @@ impl PipelineCache {
         }
 
         for id in waiting_pipelines {
-            if self.held_pipelines.lock().unwrap().contains(&id) {
-                continue;
-            }
             self.process_pipeline(&mut pipelines[id], id);
         }
 

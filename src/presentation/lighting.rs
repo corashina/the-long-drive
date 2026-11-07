@@ -1125,7 +1125,6 @@ fn upload_lighting(
 }
 fn check_pipelines(
     cache: Res<PipelineCache>,
-    isolation: Res<super::pipeline_ownership::PipelineOwners>,
     gpu: Res<LightingGpu>,
     extracted: Res<ExtractedLighting>,
     material_pipelines: Res<bevy::pbr::SpecializedMaterialPipelineCache>,
@@ -1163,10 +1162,7 @@ fn check_pipelines(
             pending_pipelines += 1;
         }
     };
-    for (index, pipeline) in cache.pipelines().enumerate() {
-        if isolation.isolated(CachedRenderPipelineId::new(index)) {
-            continue;
-        }
+    for pipeline in cache.pipelines() {
         if let PipelineDescriptor::RenderPipelineDescriptor(descriptor) = &pipeline.descriptor {
             if descriptor
                 .fragment

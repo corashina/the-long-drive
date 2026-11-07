@@ -191,7 +191,6 @@ impl SourceTexture {
 }
 #[derive(Resource, Clone)]
 pub struct SourceMaterials {
-    pub preparation: super::gpu_prepare::GpuPreparation,
     pub(crate) generated: super::world::shared_materials::SharedMaterials<
         super::world::instance_materials::SharedBinding,
     >,
@@ -576,7 +575,6 @@ pub fn load_materials(
         textures.push(entry);
     }
     let mut source = SourceMaterials {
-        preparation: default(),
         generated: default(),
         world_textures: world_textures::WorldTextures::default(),
         world_primary: primary::PrimaryOwnership::default(),
@@ -1064,7 +1062,6 @@ fn make_material(
         .find(|texture| texture.slot == "_MainTex");
     SourceMaterial {
         retained_color: None,
-        preparation: default(),
         base: StandardMaterial {
             base_color_channel: main.map_or(bevy::mesh::UvChannel::Uv0, |texture| {
                 if texture.uv_channel == 0 {
@@ -1355,7 +1352,6 @@ use bevy::ecs::system::SystemParamItem;
 #[derive(Asset, TypePath, Clone, Debug, Default)]
 pub struct SourceMaterial {
     pub(crate) retained_color: Option<RetainedColor>,
-    pub preparation: super::gpu_prepare::GpuPreparation,
     pub base: StandardMaterial,
     pub extension: SourceExtension,
 }
@@ -1505,32 +1501,13 @@ impl AsBindGroup for SourceMaterial {
             self.extension.bind_group_data(),
         )
     }
-    fn as_bind_group(
-        &self,
-        descriptor: &BindGroupLayoutDescriptor,
-        device: &RenderDevice,
-        cache: &PipelineCache,
-        param: &mut SystemParamItem<Self::Param>,
-    ) -> Result<PreparedBindGroup, AsBindGroupError> {
-        crate::presentation::gpu_prepare::bind_group(
-            self,
-            &self.preparation,
-            descriptor,
-            device,
-            cache,
-            param,
-        )
-    }
     fn unprepared_bind_group(
         &self,
         layout: &BindGroupLayout,
         device: &RenderDevice,
         params: &mut SystemParamItem<Self::Param>,
-        direct: bool,
+        _: bool,
     ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
-        if self.preparation.isolated() && !direct {
-            return Err(AsBindGroupError::CreateBindGroupDirectly);
-        }
         let mut prepared = self
             .base
             .unprepared_bind_group(layout, device, &mut params.0, true)?;
@@ -2369,9 +2346,7 @@ pub fn authored_material(
             source.world_primary_admitted(key),
         );
     };
-    let mut material = make_material(record, reflected, mask, source);
-    material.preparation = source.preparation.clone();
-    material
+    make_material(record, reflected, mask, source)
 }
 impl SourceMaterials {
     pub(crate) fn shareable_generated_primary(&self, identity: (source::AssetId, u32)) -> bool {

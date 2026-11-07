@@ -43,7 +43,6 @@ pub struct TerrainUniform {
 }
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct TerrainMaterial {
-    pub preparation: crate::presentation::gpu_prepare::GpuPreparation,
     pub source: SourceId,
     uploaded:
         std::sync::Arc<std::sync::Mutex<std::collections::HashSet<bevy::asset::AssetId<Image>>>>,
@@ -130,7 +129,6 @@ impl TerrainMaterial {
         }
         let arrays = std::array::from_fn(|index| banks.get(index).unwrap_or(&banks[0]).1.clone());
         Ok(Self {
-            preparation: default(),
             source: record.source.clone(),
             uploaded: textures.upload_receipts(),
             uniform: TerrainUniform {
@@ -249,32 +247,13 @@ impl AsBindGroup for TerrainMaterial {
     fn bind_group_data(&self) -> u8 {
         self.array_count
     }
-    fn as_bind_group(
-        &self,
-        descriptor: &BindGroupLayoutDescriptor,
-        device: &RenderDevice,
-        cache: &PipelineCache,
-        param: &mut SystemParamItem<Self::Param>,
-    ) -> Result<PreparedBindGroup, AsBindGroupError> {
-        crate::presentation::gpu_prepare::bind_group(
-            self,
-            &self.preparation,
-            descriptor,
-            device,
-            cache,
-            param,
-        )
-    }
     fn unprepared_bind_group(
         &self,
         layout: &BindGroupLayout,
         device: &RenderDevice,
         params: &mut SystemParamItem<Self::Param>,
-        direct: bool,
+        _: bool,
     ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
-        if self.preparation.isolated() && !direct {
-            return Err(AsBindGroupError::CreateBindGroupDirectly);
-        }
         let extension = SourceReceiver {
             receiver_mask: self.receiver_mask,
         };

@@ -32,7 +32,6 @@ pub struct GrassUniform {
 }
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct GrassMaterial {
-    pub preparation: crate::presentation::gpu_prepare::GpuPreparation,
     pub session: u64,
     pub source: SourceId,
     pub uniform: GrassUniform,
@@ -120,7 +119,6 @@ impl GrassMaterial {
             return Err(ReferenceError("Unsupported Grass culling state".into()));
         }
         Ok(Self {
-            preparation: default(),
             session,
             source: record.source.clone(),
             receiver_mask,
@@ -235,32 +233,13 @@ impl AsBindGroup for GrassMaterial {
     fn bind_group_data(&self) -> u8 {
         self.cull
     }
-    fn as_bind_group(
-        &self,
-        descriptor: &BindGroupLayoutDescriptor,
-        device: &RenderDevice,
-        cache: &PipelineCache,
-        param: &mut SystemParamItem<Self::Param>,
-    ) -> Result<PreparedBindGroup, AsBindGroupError> {
-        crate::presentation::gpu_prepare::bind_group(
-            self,
-            &self.preparation,
-            descriptor,
-            device,
-            cache,
-            param,
-        )
-    }
     fn unprepared_bind_group(
         &self,
         layout: &BindGroupLayout,
         device: &RenderDevice,
         params: &mut SystemParamItem<Self::Param>,
-        direct: bool,
+        _: bool,
     ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
-        if self.preparation.isolated() && !direct {
-            return Err(AsBindGroupError::CreateBindGroupDirectly);
-        }
         let gpu = params
             .1
             .0

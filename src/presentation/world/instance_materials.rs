@@ -269,20 +269,6 @@ impl InstanceMaterials<'_> {
             }
             InstanceMaterial::Primary(self.primary.add(material))
         };
-        match &visible {
-            InstanceMaterial::Primary(h) => {
-                self.primary.get_mut(h).unwrap().preparation = self.cache.preparation.clone()
-            }
-            InstanceMaterial::Specular(h) => {
-                self.specular.get_mut(h).unwrap().preparation = self.cache.preparation.clone()
-            }
-            InstanceMaterial::Impostor(h) => {
-                self.impostors.get_mut(h).unwrap().preparation = self.cache.preparation.clone()
-            }
-            InstanceMaterial::Grass(h) => {
-                self.grass.get_mut(h).unwrap().preparation = self.cache.preparation.clone()
-            }
-        }
         if let Some(key) = &shared {
             self.cache.generated.insert(
                 key.clone(),
