@@ -55,11 +55,13 @@ test('loading shows a total percent, step counts, and keeps them on failure',t=>
  assert.equal(formatBudget(3,2,'jobs'),'3 / 2');
 });
 
-test('a Join reload shows the room, its players and the join steps',t=>{
+test('a join shows the room, its players and the join steps',t=>{
  let now=0;t.mock.method(performance,'now',()=>now);
  const nodes=mockDocument(t);
- const loading=createLoading('KQXPTR');t.after(()=>loading.finish());
+ const loading=createLoading();t.after(()=>loading.finish());
  const steps=nodes.get('#loading-steps').children;
+ assert.equal(steps[3].hidden,true);
+ loading.join('KQXPTR');
  assert.equal(nodes.get('#loading-room').hidden,false);
  assert.equal(nodes.get('#loading-room-code').textContent,'KQXPTR');
  assert.deepEqual(steps.map(step=>step.hidden),Array(9).fill(false));
@@ -69,11 +71,14 @@ test('a Join reload shows the room, its players and the join steps',t=>{
  loading.players([{name:'Ana',host:true,you:false},{name:'Bo',host:false,you:true}]);
  assert.equal(nodes.get('#loading-room-host').textContent,'Ana');
  assert.deepEqual(nodes.get('#loading-room-players').children.map(item=>item.textContent),['Ana','Bo (you)']);
- loading.joinFailed('Host left.');
- assert.equal(steps[4].dataset.state,'failed');
- assert.equal(nodes.get('#loading-room-error').textContent,'Host left. Loading the garage instead.');
+ // A new join restarts the join steps. Singleplayer after a failed join hides them.
+ loading.join('ABCDEF');
+ assert.equal(steps[4].dataset.state,'waiting');
+ loading.join('');
+ assert.equal(nodes.get('#loading-room').hidden,true);
+ assert.equal(steps[3].hidden,true);
  // Later loads of the page do not join.
- loading.finish();loading.start(true);
+ loading.join('KQXPTR');loading.finish();loading.start(true);
  assert.equal(nodes.get('#loading-room').hidden,true);
  assert.equal(steps[3].hidden,true);
 });

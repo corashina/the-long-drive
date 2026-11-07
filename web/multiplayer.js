@@ -4,18 +4,21 @@ import {MODES,createVoiceOutput,talkState} from './voice.js';
 import {MOUSE_BUTTONS} from './bindings.js';
 import {playerChips} from './room-card.js';
 // The source keeps the voice settings with the multiplayer settings (`snl.SaveSettings`), not with `S`.
-const NAME_KEY='the-long-slop.player-name',VOICE_KEY='the-long-slop.voice-chat',CHAT_SHOW_MS=10000;
+export const NAME_KEY='the-long-slop.player-name';
+// The URL parameter of an invite link. The boot choice then opens the join form with this room code.
+export const ROOM_PARAM='room';
+const VOICE_KEY='the-long-slop.voice-chat',CHAT_SHOW_MS=10000;
 
-// `room`: the room of a Join reload. `joined(save,error)` takes its host world JSON, or null and why.
-// `reloadJoin(room)` starts the page again to join `room`. `loading`: the loading card, which shows the join. `audio`: the AudioController.
+// `reloadJoin(room)` starts the page again to join `room`. `join(room)` joins without a reload, before a world loads. `loading`: the loading card, which shows the join. `audio`: the AudioController.
 // `voiceKeys()`: the codes of the `voicechat` action. `media`: `navigator.mediaDevices`.
-export function createMultiplayer({document,target,Peer,buildId,exportHash,simulation,saveSession,menu,outfit,storage,room:joinRoom=null,joined=()=>{},reloadJoin,loading,audio,voiceKeys=()=>[],media}){
+export function createMultiplayer({document,target,Peer,buildId,exportHash,simulation,saveSession,menu,outfit,storage,reloadJoin,loading,audio,voiceKeys=()=>[],media}){
  const $=selector=>document.querySelector(selector);
- const name=$('#net-name'),hostPassword=$('#net-host-password'),joinPassword=$('#net-join-password'),hostHint=$('#net-host-hint'),session=$('#net-session'),count=$('#net-count'),copyButton=$('#net-code-copy'),max=$('#net-max'),room=$('#net-room'),code=$('#net-code'),status=$('#net-status');
+ const name=$('#net-name'),hostPassword=$('#net-host-password'),joinPassword=$('#net-join-password'),hostHint=$('#net-host-hint'),session=$('#net-session'),count=$('#net-count'),copyButton=$('#net-code-copy'),linkButton=$('#net-link-copy'),max=$('#net-max'),room=$('#net-room'),code=$('#net-code'),status=$('#net-status');
  const hostButton=$('#net-host-start'),joinButton=$('#net-join-start'),leaveButton=$('#net-leave'),players=$('#net-players'),hostName=$('#net-host-name');
  const log=$('#net-chat-log'),line=$('#net-chat-line'),labels=$('#net-labels'),labelNodes=new Map();
  const voiceOn=$('#net-voice'),voiceMode=$('#net-voice-mode'),micIcon=$('#net-mic');
- let looksJson=null,names=new Map();
+ // The settle function of the pending `join(room)`, or null.
+ let looksJson=null,names=new Map(),joining=null;
  try{name.value=storage()?.getItem(NAME_KEY)??'';}catch{}
  const storeName=()=>{try{storage()?.setItem(NAME_KEY,name.value);}catch{}};
  // Voice chat starts off, so the game asks for the microphone only after the player turns it on. Source `ResetSettings` has it on.
@@ -29,7 +32,7 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
   const off=net.role===ROLE.OFF;
   hostButton.disabled=!off||!menu.model.started||menu.model.pending;
   hostHint.hidden=menu.model.started||!off;
-  session.hidden=!net.code;if(code.textContent!==net.code){code.textContent=net.code;copyButton.textContent='Copy code';}
+  session.hidden=!net.code;if(code.textContent!==net.code){code.textContent=net.code;copyButton.textContent='Copy code';linkButton.textContent='Copy link';}
   joinButton.disabled=!off||menu.model.pending;
   for(const node of [name,hostPassword,max,room,joinPassword])node.disabled=!off;
   syncMic();
@@ -82,8 +85,8 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
   },
   download:(chunks,total)=>{loading.step('connect',1);loading.step('host',chunks,total,Math.floor(100*chunks/total)+'%');},
   chat,
-  // A failed Join shows on the loading card, and the menu shows it after the garage loads.
-  status:text=>{if(joinRoom&&net.role===ROLE.OFF){joinRoom=null;status.textContent=text;loading.joinFailed(text);joined(null,text);}else say(text);},
+  // A failed `join(room)` goes back to the boot choice, which shows why.
+  status:text=>{if(joining&&net.role===ROLE.OFF){const settle=joining;joining=null;settle({error:text});}else say(text);},
   peers:list=>{
    count.textContent=`Players ${list.length} / ${net.max}`;
    hostName.textContent=list.find(p=>p.slot===0)?.name??'';
@@ -95,8 +98,8 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
    paint();
   },
   save:bytes=>{
-   if(!joinRoom)return;
-   joinRoom=null;joined(bytes,'');paint();
+   if(!joining)return;
+   const settle=joining;joining=null;settle({save:bytes});paint();
   },
  }});
  // Rust reads the peer outfits after each change, like `gameOutfit`.
@@ -110,7 +113,10 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
  });
  joinButton.addEventListener('click',()=>{storeName();say('Connecting…');reloadJoin({code:room.value.trim().toUpperCase(),name:name.value,password:joinPassword.value});});
  for(const node of [room,joinPassword])node.addEventListener('keydown',event=>{if(event.code==='Enter'&&!joinButton.disabled)joinButton.click();});
- copyButton.addEventListener('click',()=>{document.defaultView?.navigator?.clipboard?.writeText(net.code).then(()=>{copyButton.textContent='Copied';},()=>{});});
+ const copy=(button,text)=>{document.defaultView?.navigator?.clipboard?.writeText(text).then(()=>{button.textContent='Copied';},()=>{});};
+ copyButton.addEventListener('click',()=>copy(copyButton,net.code));
+ // The invite link opens the boot choice with the room code filled in.
+ linkButton.addEventListener('click',()=>{const url=new URL(document.defaultView.location.href);url.search='';url.hash='';url.searchParams.set(ROOM_PARAM,net.code);copy(linkButton,url.href);});
  leaveButton.addEventListener('click',()=>{net.leave();say('Left the game.');});
  // Enter opens the chat line while playing. Enter sends it, Escape closes it.
  target.addEventListener('keydown',event=>{
@@ -125,7 +131,6 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
  target.addEventListener('pagehide',()=>net.leave());
  for(const id of ['#multiplayer','#start-multiplayer'])$(id).addEventListener('click',paint);
  paint();
- if(joinRoom){room.value=joinRoom.code;joinPassword.value=joinRoom.password;loading.step('connect',0);net.join({...joinRoom,outfit:outfit.outfit});}
  return {
   get role(){return net.role;},
   // The game input pauses while the chat line is open.
@@ -139,6 +144,14 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
    output.frame();
   },
   look:value=>net.look(value,name.value),
+  // Joins `{code,name,password}` before a world loads. Resolves with `{save}` (the host world JSON) or `{error}`.
+  join(value){
+   name.value=value.name;room.value=value.code;joinPassword.value=value.password;
+   loading.join(value.code);loading.step('connect',0);
+   const done=new Promise(resolve=>{joining=resolve;});
+   net.join({...value,outfit:outfit.outfit});
+   return done;
+  },
   leave:()=>net.leave(),
   ready:()=>net.ready(),
   paint,

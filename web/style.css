@@ -26,7 +26,7 @@ button {font:inherit;position:absolute;padding:0;border:0;color:#fff;cursor:poin
 /* English buttons and headings use Title Case. language.js sets the page language. Save names and key names keep their case. */
 :root:lang(en) :is(button:not(.save-tile,.key-cell),.menu-panel > h2,#appearance-title,.menu-screen h3,.menu-screen legend,.menu-screen label,#appearance-screen label,.wheel-bind > span) {text-transform:capitalize;}
 :root:lang(en) :is(.menu-screen,#appearance-screen) label :is(output,small) {text-transform:none;}
-:is(.menu-panel > h2,#appearance-title,.menu-screen h3,#loading-details h2) {text-wrap:balance;}
+:is(.menu-panel > h2,#appearance-title,.menu-screen h3,#boot-choice h2,#loading-details h2) {text-wrap:balance;}
 button:hover:enabled {filter:brightness(1.18);}
 button:active:enabled {filter:brightness(.85);}
 button:disabled {opacity:.45;cursor:default;}
@@ -114,7 +114,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #mouse-driving label {grid-template-columns:minmax(0,1fr) minmax(80px,1fr) 4.5em;gap:4px 10px;padding-right:calc(4px + 10px + var(--row-reset) + 12px + var(--row-toggle));}
 .menu-screen input[type=range] {width:150px;accent-color:var(--paint);}
 .menu-screen output {min-width:4.5em;text-align:right;color:var(--dust);}
-.menu-screen :is(select,input[type=number],input[type=text],input[type=password]),.menu-screen button:not([role=tab],.save-tile) {position:static;min-width:0;height:32px;padding:0 12px;background:var(--shoulder);border:1px solid var(--edge);color:var(--bleach);font:inherit;text-shadow:none;border-radius:3px;}
+.menu-screen :is(select,input[type=number],input[type=text],input[type=password]),.menu-screen button:not([role=tab],.save-tile),#boot-choice :is(input,button) {position:static;min-width:0;height:32px;padding:0 12px;background:var(--shoulder);border:1px solid var(--edge);color:var(--bleach);font:inherit;text-shadow:none;border-radius:3px;}
 :is(.menu-screen,.appearance-panel) option {background-color:var(--shoulder);color:var(--bleach);}
 /* Dropdowns and fields in a row share one width, so their edges line up. Lone action buttons fill their row. */
 :root {--select-width:12em;}
@@ -183,9 +183,9 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #save-toggles label {display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;padding:2px 4px;border-bottom:1px solid var(--seam-soft);cursor:pointer;}
 #save-toggles label input {order:1;}
 #runtime-error {position:absolute;left:16px;right:16px;top:16px;margin:0;padding:16px;background:#4b211d;color:#fff;overflow-wrap:anywhere;}
-#loading-details {position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100% - 48px));max-height:calc(100% - 170px);overflow:auto;overscroll-behavior:contain;padding:24px 22px 20px;border-radius:6px;background:var(--asphalt-glass);color:var(--bleach);font:400 16px/1.45 var(--menu-font);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
-#loading-details::before {content:"";position:sticky;display:block;top:-24px;height:4px;margin:-24px -22px 20px;background:var(--lane);}
-#loading-details h2 {margin:0 0 12px;font-size:22px;font-weight:800;text-align:center;}
+#boot-choice,#loading-details {position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100% - 48px));max-height:calc(100% - 170px);overflow:auto;overscroll-behavior:contain;padding:24px 22px 20px;border-radius:6px;background:var(--asphalt-glass);color:var(--bleach);font:400 16px/1.45 var(--menu-font);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
+#boot-choice::before,#loading-details::before {content:"";position:sticky;display:block;top:-24px;height:4px;margin:-24px -22px 20px;background:var(--lane);}
+#boot-choice h2,#loading-details h2 {margin:0 0 12px;font-size:22px;font-weight:800;text-align:center;}
 /* Room card: the join loading card and the multiplayer screen show the room the same way. */
 .room-card {margin:0 0 18px;padding:0 0 16px;border-bottom:1px solid var(--seam);text-align:center;}
 .room-card[hidden] {display:none;}
@@ -198,7 +198,19 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .room-players li {padding:1px 10px;border-radius:3px;background:var(--shoulder);border:1px solid var(--seam);}
 .room-players .ping {margin-left:8px;color:var(--dust);}
 .room-actions {display:flex;justify-content:center;gap:8px;margin-top:14px;}
-#loading-details #loading-room-error {margin:14px 0 0;color:var(--paint-hi);font-weight:700;}
+/* Boot choice: Singleplayer or Multiplayer before a world loads. The loading card shows after the choice. */
+#boot-choice[hidden],#boot-choice [hidden] {display:none;}
+#boot-choice:not([hidden]) ~ #loading-details {display:none;}
+#boot-modes {display:grid;gap:10px;margin-top:6px;}
+#boot-modes button {height:44px;font-weight:700;}
+#boot-modes button:first-child,#boot-choice #boot-join-start {background:var(--paint);border-color:var(--paint);color:var(--ink);font-weight:700;}
+#boot-join {display:flex;flex-direction:column;gap:6px;}
+#boot-join label {display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;padding:2px 4px;border-bottom:1px solid var(--seam-soft);}
+#boot-join input {width:var(--select-width);max-width:100%;}
+#boot-error {margin:6px 0 0;color:var(--paint-hi);font-weight:700;}
+.boot-actions {display:flex;justify-content:space-between;gap:8px;margin-top:8px;}
+.boot-actions button:last-child {padding:0 24px;}
+.boot-hint {margin:8px 0 0;color:var(--dust);font-size:14px;}
 #loading-steps li[data-state=failed] {color:var(--paint-hi);}
 #loading-details progress {display:block;width:100%;height:10px;accent-color:var(--paint);}
 #loading-details p:not(.room-card p) {margin:10px 0 0;white-space:pre-line;}
@@ -257,7 +269,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #autosave-notice {position:absolute;right:16px;top:16px;margin:0;color:#fff;font-family:Arial,sans-serif;text-shadow:2px 2px 2px #000;pointer-events:none;}
 #action-notice {position:absolute;left:0;bottom:20px;margin:0;color:#fff;text-shadow:2px 2px 2px #000;}
 @media(max-width:799px) {
- #loading-details {max-height:calc(100dvh - 240px);}
+ #boot-choice,#loading-details {max-height:calc(100dvh - 240px);}
  #runtime-error {max-height:180px;overflow:auto;}
  .key-row {grid-template-columns:repeat(3,minmax(0,1fr));}
  .key-row span {grid-column:1/-1;}
