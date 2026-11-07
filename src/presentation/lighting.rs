@@ -1129,8 +1129,18 @@ fn check_pipelines(
     extracted: Res<ExtractedLighting>,
     material_pipelines: Res<bevy::pbr::SpecializedMaterialPipelineCache>,
     mut last: Local<usize>,
+    mut settled: Local<Option<usize>>,
     mut audit: ResMut<LightingPipelineAudit>,
 ) {
+    // After Ready, only a new pipeline can change the result.
+    let pipelines = cache.pipelines().count();
+    if *settled == Some(pipelines)
+        && !extracted.warming
+        && *gpu.status.lock().unwrap() == RenderingState::Ready
+    {
+        return;
+    }
+    *settled = None;
     *audit = LightingPipelineAudit {
         cookies: gpu.cookies.is_some(),
         prepared: extracted.prepared,
@@ -1213,6 +1223,7 @@ fn check_pipelines(
         && !matches!(*gpu.status.lock().unwrap(), RenderingState::Failed(_))
     {
         *gpu.status.lock().unwrap() = RenderingState::Ready;
+        *settled = Some(pipelines);
     }
 }
 

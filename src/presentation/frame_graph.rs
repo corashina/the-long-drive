@@ -1473,7 +1473,7 @@ static AUDIT_WATCHED: AtomicBool = AtomicBool::new(false);
 pub fn watch_render_audit(on: bool) {
     AUDIT_WATCHED.store(on, Ordering::Relaxed);
 }
-fn audit_watched() -> bool {
+pub(crate) fn audit_watched() -> bool {
     AUDIT_WATCHED.load(Ordering::Relaxed)
 }
 #[derive(Default)]

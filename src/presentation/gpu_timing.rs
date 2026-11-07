@@ -1,6 +1,7 @@
 //! F3 GPU time of the world view stages, from the WebGPU `timestamp-query` feature.
 //! An empty compute pass writes one timestamp at each stage edge. Probe faces are not timed.
 //! Without the feature, F3 shows no GPU line.
+//! Frames write marks only while F3, the bench or the Auto scene scale reads them.
 use super::{
     surface_graph::{SourceSurface, SourceSurfaceStage},
     surface_views::{SourceSurfaceView, WORLD_VIEWS},
@@ -12,7 +13,7 @@ use bevy::render::{
 use bevy::{ecs as bevy_ecs, prelude::*};
 use std::sync::{
     Arc,
-    atomic::{AtomicU8, AtomicU32, Ordering},
+    atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering},
 };
 
 /// Shadow atlas, opaque, after opaque (depth resolve, AO), transparent, postprocessing.
@@ -27,10 +28,20 @@ const COPIED: u8 = 1;
 const MAPPING: u8 = 2;
 const MAPPED: u8 = 3;
 
-/// Average milliseconds of each stage. NaN bits until the first window completes.
+/// Average milliseconds of each stage. NaN bits until the first window of a watch completes.
 static STAGE_MS: [AtomicU32; STAGES] = [const { AtomicU32::new(u32::MAX) }; STAGES];
 /// Completed F3 windows.
 static WINDOWS: AtomicU32 = AtomicU32::new(0);
+/// The Auto scene scale reads the windows.
+static AUTO_SCALE: AtomicBool = AtomicBool::new(false);
+
+/// Auto scene scale on or off.
+pub fn watch_for_scale(on: bool) {
+    AUTO_SCALE.store(on, Ordering::Relaxed);
+}
+fn watched() -> bool {
+    AUTO_SCALE.load(Ordering::Relaxed) || super::frame_graph::audit_watched()
+}
 
 /// The count of completed F3 windows. A new count means new `stage_ms` values.
 pub fn windows() -> u32 {
@@ -57,6 +68,8 @@ struct GpuTiming {
     written: AtomicU8,
     state: Arc<AtomicU8>,
     period_ns: f32,
+    /// Marks are on in this frame.
+    active: bool,
     sums: [f64; STAGES],
     frames: u32,
 }
@@ -117,6 +130,7 @@ fn init(mut commands: Commands, device: Res<RenderDevice>, queue: Res<RenderQueu
         written: AtomicU8::new(0),
         state: Arc::new(AtomicU8::new(IDLE)),
         period_ns: queue.get_timestamp_period(),
+        active: false,
         sums: [0.; STAGES],
         frames: 0,
     });
@@ -128,7 +142,9 @@ fn mark<const N: u32>(
     timing: Option<Res<GpuTiming>>,
     mut context: RenderContext,
 ) {
-    let Some(timing) = timing else { return };
+    let Some(timing) = timing.filter(|timing| timing.active) else {
+        return;
+    };
     if view.into_inner().index >= WORLD_VIEWS {
         return;
     }
@@ -175,8 +191,22 @@ fn map(timing: Option<Res<GpuTiming>>) {
 }
 
 /// Adds a mapped frame to the window. A full window publishes its averages.
+/// A new watch starts an empty window and drops the frame mapped before it.
 fn read(timing: Option<ResMut<GpuTiming>>) {
     let Some(mut timing) = timing else { return };
+    let watched = watched();
+    let started = watched && !timing.active;
+    if timing.active != watched {
+        timing.active = watched;
+    }
+    if started {
+        timing.written.store(0, Ordering::Relaxed);
+        timing.sums = [0.; STAGES];
+        timing.frames = 0;
+        for value in &STAGE_MS {
+            value.store(u32::MAX, Ordering::Relaxed);
+        }
+    }
     if timing.state.load(Ordering::Acquire) != MAPPED {
         return;
     }
@@ -189,6 +219,9 @@ fn read(timing: Option<ResMut<GpuTiming>>) {
     }
     timing.readback.unmap();
     timing.state.store(IDLE, Ordering::Release);
+    if started || !watched {
+        return;
+    }
     let timing = &mut *timing;
     for (stage, sum) in timing.sums.iter_mut().enumerate() {
         // Some drivers reorder or reset timestamps. Count a negative span as zero.

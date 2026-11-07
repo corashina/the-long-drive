@@ -95,6 +95,8 @@ pub(crate) fn upload(mut views: Query<&mut CasterViews>, queue: Res<RenderQueue>
 #[derive(Resource, Default)]
 pub struct CasterPasses {
     inspected: usize,
+    /// Pipeline count when every variant was last Ok. A new pipeline clears it.
+    settled: usize,
     classified: HashSet<CachedRenderPipelineId>,
     variants: HashMap<CachedRenderPipelineId, Option<CachedRenderPipelineId>>,
     /// Active caster pipelines by descriptor. Bases that differ only in surface state share one.
@@ -169,12 +171,7 @@ impl CasterPasses {
         self.variants.get(&base).copied().flatten()
     }
     pub fn ready(&self, cache: &PipelineCache) -> bool {
-        !self.variants.is_empty()
-            && self
-                .variants
-                .values()
-                .flatten()
-                .all(|id| cache.get_render_pipeline(*id).is_some())
+        !self.variants.is_empty() && self.settled == cache.pipelines().count()
     }
     /// Called during preparation. It clones the descriptors only once for each new source surface variant.
     pub(crate) fn prepare(
@@ -277,18 +274,27 @@ impl CasterPasses {
             self.active.push((*descriptor, id));
             self.variants.insert(base_id, Some(id));
         }
+        let count = cache.pipelines().count();
+        if self.settled == count {
+            return;
+        }
+        let mut settled = true;
         for id in self.variants.values().flatten() {
             match cache.get_render_pipeline_state(*id) {
+                CachedPipelineState::Ok(_) => {}
                 CachedPipelineState::Err(
                     ShaderCacheError::ShaderNotLoaded(_)
                     | ShaderCacheError::ShaderImportNotYetAvailable,
-                ) => {}
+                ) => settled = false,
                 CachedPipelineState::Err(error) => {
                     status.fail(format!("Source caster pipeline: {error}"));
                     return;
                 }
-                _ => {}
+                _ => settled = false,
             }
+        }
+        if settled {
+            self.settled = count;
         }
     }
 }
