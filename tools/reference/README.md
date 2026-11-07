@@ -53,6 +53,9 @@ The game file is the manifest as postcard, then `world.receipts` as postcard. On
 The export also writes `catalog.json` (`content_base` and `file_catalog`). Deploy reads it.
 The export also writes the exporter JSON as `manifest.json.gz`. The tools read it. The game does not.
 Runtime verification checks that JSON, encodes it again and compares the result to `manifest.bin.gz`.
+The encoding must give the same bytes for the same JSON. Use `BTreeMap`, not `HashMap`, in manifest types.
+If the manifest file, verification or package step fails, the export keeps the derived runtime in `web/assets/runtime-failed`.
+`--retry-package` repeats only those steps on it, in minutes. The next full export deletes it.
 Do not check the manifest from a decoded `manifest.bin.gz`: f32 fields decode to other float text.
 The export compiles that command in the background while runtime derivation runs.
 It uses the game's `ReferenceManifest` contract, the existing Cargo volumes, and a read-only checkout mount.

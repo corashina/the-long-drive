@@ -56,6 +56,9 @@ def derive_reference(snapshot: Snapshot, library: LibraryReceipt, output: Path) 
     for protected in (snapshot.manifest_path.parent.resolve(), reader.root):
         if target.is_relative_to(protected) or protected.is_relative_to(target):
             raise ValueError('Runtime output overlaps accepted library storage')
+    import shutil
+    # A new derivation replaces the kept runtime of a failed one.
+    shutil.rmtree(target.parent / FAILED_RUNTIME, ignore_errors=True)
     from .library.storage import RUNTIME_BYTES, check_space, tree_bytes
     audio_bound = sum(f['bytes'] for entry in reader.exports.values()
         if entry['details']['type'] == 'AudioClip' for f in entry['files'])
@@ -66,16 +69,43 @@ def derive_reference(snapshot: Snapshot, library: LibraryReceipt, output: Path) 
     try:
         with timed('Runtime derivation'):
             _export_selected(LibrarySource(reader), staged, reader, snapshot)
+    except BaseException:
+        shutil.rmtree(staged)
+        raise
+    package_reference(staged, library, output)
+
+
+# A derived runtime whose package or verification failed. `--retry-package` repeats those steps on it.
+FAILED_RUNTIME = 'runtime-failed'
+
+
+def package_reference(staged: Path, library, output: Path) -> None:
+    """Make the game manifest file, verify the runtime, publish its package and promote it."""
+    from .runtime_package import publish_package, write_runtime_manifest
+    try:
+        with timed('Runtime manifest'):
+            write_runtime_manifest(staged)
         with timed('Runtime verification'):
             verify_reference(staged, library)
-        from .runtime_package import publish_package
         with timed('Runtime package'):
             publish_package(staged, output.parent)
     except BaseException:
-        import shutil
-        shutil.rmtree(staged)
+        failed = output.parent / FAILED_RUNTIME
+        if staged != failed:
+            import shutil
+            shutil.rmtree(failed, ignore_errors=True)
+            staged.rename(failed)
+        print(f'Kept the derived runtime in {failed}. `--retry-package` repeats the package and verification.', flush=True)
         raise
     promote_reference(staged, output)
+
+
+def retry_package(library, output: Path) -> None:
+    from .runtime_package import MANIFEST
+    failed = output.parent / FAILED_RUNTIME
+    if not (failed / MANIFEST).is_file():
+        raise ValueError(f'No derived runtime to retry in {failed}')
+    package_reference(failed, library, output)
 
 
 def promote_reference(staged: Path, accepted: Path) -> None:
@@ -702,6 +732,8 @@ def main(argv=None):
     parser.add_argument('--output', type=Path, default=Path('web/assets/reference'))
     parser.add_argument('--stage', choices=('runtime', 'source', 'catalog', 'library'), default='runtime')
     parser.add_argument('--verify', action='store_true')
+    parser.add_argument('--retry-package', action='store_true',
+        help=f'Repeat the runtime package and verification on the kept {FAILED_RUNTIME} output')
     arguments = parser.parse_args(argv)
     if arguments.stage in ('library', 'runtime') and arguments.steam_root:
         steam = arguments.steam_root.resolve()
@@ -710,6 +742,8 @@ def main(argv=None):
             parser.error('Keep runtime and library output separate from the Steam installation')
     if arguments.library_root and arguments.stage != 'runtime':
         parser.error('--library-root requires --stage runtime')
+    if arguments.retry_package and (arguments.stage != 'runtime' or arguments.verify):
+        parser.error('--retry-package requires --stage runtime and no --verify')
     if arguments.stage == 'source':
         stage_source(arguments.steam_root, verify=arguments.verify)
     elif arguments.stage == 'catalog':
@@ -739,6 +773,8 @@ def main(argv=None):
             from .runtime_package import verify_package, package_dir, read_catalog
             catalog = read_catalog(arguments.output)
             verify_package(catalog, arguments.output.parent / 'runtime' / package_dir(catalog))
+        elif arguments.retry_package:
+            retry_package(receipt, arguments.output)
         else:
             from .library.archive import load_snapshot
             with timed('Runtime export'), contract_build():
