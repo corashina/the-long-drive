@@ -206,6 +206,19 @@ fn owned_binding_bytes(
 /// Startup group of the loose start house items (source `StartSpawnItems`).
 const START_ITEMS: &str = "StartSpawnItems";
 
+/// The stream state that `support_gap` reads. `WorldStream::support_key` makes it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SupportKey {
+    ready: bool,
+    request: (u64, u64),
+    plan: u64,
+    roads: (usize, usize),
+    support: u64,
+    structures: u64,
+    wanted: u64,
+    lights: u64,
+}
+
 pub struct WorldStream {
     required: super::required::RequiredSelection,
     static_controls: Vec<super::contents::ContentInstance>,
@@ -335,6 +348,8 @@ pub struct WorldStream {
     content_select: Option<ContentSelect>,
     /// Bumps when `lights` membership changes.
     light_revision: u64,
+    /// Bumps when roads, surfaces, ground patches or a light reach change. See `support_key`.
+    support_revision: u64,
     /// Bumps when `replay_indices` changes. `replay_previous` is the reused compare buffer.
     replay_revision: u64,
     replay_previous: Vec<super::changes::ChangeRecordIndex>,
@@ -960,6 +975,7 @@ impl WorldStream {
             prop_select: None,
             content_select: None,
             light_revision: 0,
+            support_revision: 0,
             replay_revision: 0,
             replay_previous: Vec::new(),
             helper_key: None,
@@ -2673,6 +2689,7 @@ impl WorldStream {
             self.next_road = 0;
             self.next_geometry = 0;
             self.wanted_roads.clear();
+            self.support_changed();
             self.wanted_lights.clear();
             self.road_points.clear();
             self.ground.roads_changed();
@@ -2869,6 +2886,7 @@ impl WorldStream {
                     return work;
                 }
                 self.wanted_roads.push(index);
+                self.support_changed();
                 append_road_points(
                     &mut self.road_points,
                     segment,
@@ -2998,6 +3016,7 @@ impl WorldStream {
                 light,
                 cable,
             });
+            self.support_changed();
         }
         let retained = self
             .selected_roads
@@ -3023,6 +3042,7 @@ impl WorldStream {
                 return work;
             }
             self.wanted_roads.push(index);
+            self.support_changed();
             append_road_points(
                 &mut self.road_points,
                 segment,
@@ -3877,6 +3897,7 @@ impl WorldStream {
         self.surface_index
             .insert(work.published.key, self.surfaces.len());
         self.surfaces.push(work.published);
+        self.support_changed();
         if road {
             self.road_worker.publication_ended(true);
         }
@@ -3930,6 +3951,9 @@ impl WorldStream {
                 }
                 keep
             });
+            if removed.contains(&true) {
+                self.support_changed();
+            }
             self.surface_index.clear();
             for (i, surface) in self.surfaces.iter().enumerate() {
                 self.surface_index.entry(surface.key).or_insert(i);
@@ -3952,6 +3976,22 @@ impl WorldStream {
     }
     pub fn supports(&self, swept: WorldBounds) -> bool {
         self.support_gap(swept).is_none()
+    }
+    pub(super) fn support_changed(&mut self) {
+        self.support_revision = self.support_revision.wrapping_add(1);
+    }
+    /// Equal keys give equal `supports` answers for equal bounds.
+    pub fn support_key(&self) -> SupportKey {
+        SupportKey {
+            ready: self.initial_generation_ready,
+            request: (self.request.session, self.request.revision),
+            plan: self.plan_revision,
+            roads: (self.next_road, self.road_candidates.len()),
+            support: self.support_revision,
+            structures: self.structure_revision,
+            wanted: self.wanted_structures.revision(),
+            lights: self.light_revision,
+        }
     }
     /// The first missing part of the world in `swept`, or None when it is loaded.
     pub fn support_gap(&self, swept: WorldBounds) -> Option<SupportGap<'_>> {

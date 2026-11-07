@@ -42,8 +42,9 @@ pub enum Stage {
     StepRapier,
     StepItems,
     StepAudio,
+    StepPersistent,
 }
-const COUNT: usize = 31;
+const COUNT: usize = 32;
 const NAMES: [&str; COUNT] = [
     "Startup",
     "AssetDecode",
@@ -76,6 +77,7 @@ const NAMES: [&str; COUNT] = [
     "StepRapier",
     "StepItems",
     "StepAudio",
+    "StepPersistent",
 ];
 #[derive(Clone, Copy)]
 struct Measurement {
@@ -196,7 +198,7 @@ pub fn cpu_profile_audit() -> String {
     serde_json::json!({"enabled": enabled(), "stages": NAMES, "measurements": measurements,
         "nested_stages": ["AssetDecode", "TerrainInputPreparation", "TerrainResultAllocation",
             "StepConditions", "StepWorld", "StepSurvival", "StepInteraction", "StepVehicles",
-            "StepCreatures", "StepRapier", "StepItems", "StepAudio"],
+            "StepCreatures", "StepRapier", "StepItems", "StepAudio", "StepPersistent"],
         "stage_totals_are_exclusive": false, "streaming": streaming,
         "retainedBytes": std::mem::size_of_val(&*values)})
     .to_string()

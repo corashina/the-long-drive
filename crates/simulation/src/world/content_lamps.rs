@@ -540,6 +540,7 @@ impl WorldStream {
     }
     /// The only writer of a published light pose. Lights of an item content follow the item.
     pub(super) fn sync_moving_lamps(&mut self, items: &crate::interaction::items::ItemStore) {
+        let mut moved_any = false;
         for content in self.contents.active() {
             let Some(item) = content.item.and_then(|id| items.get(id)) else {
                 continue;
@@ -558,7 +559,9 @@ impl WorldStream {
                     let offset =
                         std::array::from_fn(|i| (source.pose.position[i] - old.position[i]) as f32);
                     let moved = crate::world::placement::rotate(rotation, offset);
-                    light.pose.position = std::array::from_fn(|i| position[i] + moved[i] as f64);
+                    let target = std::array::from_fn(|i| position[i] + moved[i] as f64);
+                    moved_any |= light.pose.position != target;
+                    light.pose.position = target;
                     light.pose.rotation =
                         crate::world::placement::multiply(rotation, source.pose.rotation);
                     light.item = Some(crate::world::ItemLight {
@@ -571,6 +574,9 @@ impl WorldStream {
                     });
                 }
             }
+        }
+        if moved_any {
+            self.support_changed();
         }
     }
     pub fn advance_generated_lamps(&mut self, dt: f32) {
