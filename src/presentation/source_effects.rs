@@ -32,6 +32,7 @@ pub(crate) struct EffectInput {
     frame: u32,
     delta_seconds: f32,
     grading_temperature: Option<f32>,
+    grade: simulation::lighting::WeatherGrade,
     dead_weight: f32,
     glasses: Option<u32>,
     binoculars: bool,
@@ -71,6 +72,7 @@ fn snapshot_input(
     }
     input.delta_seconds = sim.frame.state.perf.frame_seconds();
     input.grading_temperature = sim.frame.lighting.cycle.grading_temperature;
+    input.grade = sim.frame.lighting.cycle.grade;
     input.dead_weight = sim.frame.state.dead_weight;
     // Source `PPVSunGlasses.enabled = !otherView()`.
     let other_view = sim.frame.state.flags & simulation::boundary::StateBlock::OTHER_VIEW != 0;
@@ -491,6 +493,7 @@ fn encode_post(
             token: frame.main_token,
             delta_seconds: input.delta_seconds,
             grading_temperature: input.grading_temperature,
+            grade: input.grade,
             dead_weight: input.dead_weight,
             glasses: input.glasses,
             binoculars: input.binoculars,

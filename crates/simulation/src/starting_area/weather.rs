@@ -225,6 +225,7 @@ impl GarageRuntime {
             &reference.weather,
             self.weather.influence(),
             self.weather.mix(),
+            &self.weather.sample().look(),
         );
         self.advance_tumbleweeds(reference, dt);
         let bindings = &mut self.weather_bindings;
