@@ -734,6 +734,10 @@ pub(super) fn process_pair(
                 max_extent,
                 max_drift,
             });
+        } else {
+            // A full update without recycling drops the reference pose, so a later
+            // recycle never measures drift from a pose older than these contacts.
+            rigid.recycle_state = None;
         }
     }
 
