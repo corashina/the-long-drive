@@ -1723,9 +1723,8 @@ impl WorldStream {
         {
             self.discard_unreserved_surface();
         }
-        if self.ready.is_none() {
-            self.prepare_surface(should_yield);
-        }
+        // A full slot still runs jobs. Each job holds its result until the slot frees.
+        self.prepare_surface(should_yield);
         if let Err(error) = self.offer_surface() {
             self.failure = Some(error.0);
         }
@@ -3087,7 +3086,7 @@ impl WorldStream {
     fn prepare_road(&mut self) {
         let _timer = super::stream_profile::Timer::new(super::stream_profile::Stage::Road);
         if let Some(work) = &self.road_work {
-            if !work.completed || work.canceled {
+            if !work.completed || work.canceled || self.ready.is_some() {
                 return;
             }
             if !same_request(work.request, self.request)
@@ -3133,7 +3132,11 @@ impl WorldStream {
         }
         let required_ready = self.required_ready();
         let Some(index) = self.wanted_roads.iter().copied().find(|id| {
-            (self.required.roads.contains(id) || required_ready) && self.road_surface(*id).is_none()
+            (self.required.roads.contains(id) || required_ready)
+                && !self.surface_claimed(SurfaceKey {
+                    layer: WorldLayer::Road,
+                    unit: [i64::from(*id), 0],
+                })
         }) else {
             self.next_geometry = self.wanted_roads.len();
             return;
@@ -3297,9 +3300,10 @@ impl WorldStream {
     fn prepare_terrain(&mut self, mut should_yield: impl FnMut() -> bool) {
         let _timer = super::stream_profile::Timer::new(super::stream_profile::Stage::Terrain);
         let had_pending = self.terrain_execution.has_pending();
+        let take = self.ready.is_none();
         match self
             .terrain_execution
-            .advance(self.request, &mut should_yield)
+            .advance(self.request, take, &mut should_yield)
         {
             Ok(Some(CompletedTerrain { metadata, surface })) => {
                 self.ready = Some(PreparedSurface {
@@ -3342,11 +3346,11 @@ impl WorldStream {
             let Some(key) = self
                 .wanted_tiles
                 .iter()
-                .find(|key| self.local_collision_pending(**key))
+                .find(|key| self.local_collision_pending(**key) && !self.surface_claimed(**key))
                 .or_else(|| {
                     self.wanted_tiles.iter().find(|key| {
                         (self.required.terrain.contains(key) || required_ready)
-                            && !self.has_surface(**key)
+                            && !self.surface_claimed(**key)
                     })
                 })
                 .copied()
@@ -3393,7 +3397,11 @@ impl WorldStream {
                 },
                 input,
             );
-            if let Err(error) = self.terrain_execution.advance(self.request, should_yield) {
+            // A just queued job cannot finish in this call.
+            if let Err(error) = self
+                .terrain_execution
+                .advance(self.request, false, should_yield)
+            {
                 self.failure = Some(error.0);
             }
         }
@@ -3541,6 +3549,10 @@ impl WorldStream {
     }
     fn has_surface(&self, key: SurfaceKey) -> bool {
         self.surface_index.contains_key(&key)
+    }
+    /// True if `key` is published or waits in the `ready` slot.
+    fn surface_claimed(&self, key: SurfaceKey) -> bool {
+        self.has_surface(key) || self.ready.as_ref().is_some_and(|w| w.published.key == key)
     }
     fn road_surface(&self, index: u32) -> Option<&PublishedSurface> {
         self.surface(SurfaceKey {

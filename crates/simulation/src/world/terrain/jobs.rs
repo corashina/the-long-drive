@@ -17,6 +17,8 @@ struct PendingTerrain {
 enum Submission {
     Queued,
     Submitted(JobId),
+    /// The finished result, held until the stream takes it.
+    Completed(WorldSurface),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -44,7 +46,7 @@ impl TerrainExecution {
         self.pending.is_some()
     }
 
-    /// Key and input of the running job.
+    /// Key and input of the running or held job.
     pub(in crate::world) fn input(&self) -> Option<(SurfaceKey, TileInput)> {
         self.pending
             .as_ref()
@@ -88,9 +90,12 @@ impl TerrainExecution {
         });
     }
 
+    /// Polls the worker and submits a queued job. Returns the finished result if `take`.
+    /// Otherwise holds it, so the worker can finish while the stream's surface slot is full.
     pub(in crate::world) fn advance(
         &mut self,
         request: WorldRequest,
+        take: bool,
         should_yield: impl FnMut() -> bool,
     ) -> Result<Option<CompletedTerrain>, ReferenceError> {
         let mut poll = self.worker.poll(should_yield)?;
@@ -104,24 +109,37 @@ impl TerrainExecution {
             return Ok(None);
         }
         if let TerrainPoll::Ready(id) = poll {
-            let owner = self.pending.as_ref().is_some_and(|pending| {
-                matches!(&pending.submission, Submission::Submitted(job) if *job == JobId(id))
-            });
-            if owner {
-                let pending = self.pending.take().unwrap();
-                let mut surface = WorldSurface::default();
-                self.worker.read(
-                    pending.metadata.key.unit,
-                    pending.metadata.tile,
-                    &mut surface,
-                );
-                return Ok(Some(CompletedTerrain {
-                    metadata: pending.metadata,
-                    surface,
-                }));
+            match &mut self.pending {
+                Some(pending) if matches!(&pending.submission, Submission::Submitted(job) if *job == JobId(id)) =>
+                {
+                    let mut surface = WorldSurface::default();
+                    self.worker.read(
+                        pending.metadata.key.unit,
+                        pending.metadata.tile,
+                        &mut surface,
+                    );
+                    pending.submission = Submission::Completed(surface);
+                }
+                _ => {
+                    self.worker.discard();
+                    poll = TerrainPoll::Idle;
+                }
             }
-            self.worker.discard();
-            poll = TerrainPoll::Idle;
+        }
+        if take
+            && self
+                .pending
+                .as_ref()
+                .is_some_and(|pending| matches!(pending.submission, Submission::Completed(_)))
+        {
+            let pending = self.pending.take().unwrap();
+            let Submission::Completed(surface) = pending.submission else {
+                unreachable!()
+            };
+            return Ok(Some(CompletedTerrain {
+                metadata: pending.metadata,
+                surface,
+            }));
         }
         if poll == TerrainPoll::Idle
             && let Some(pending) = &mut self.pending
