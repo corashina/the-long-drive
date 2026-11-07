@@ -14,7 +14,6 @@ use crate::{
     world::RendererWorld,
 };
 use bevy::{ecs as bevy_ecs, ecs::system::SystemParam, prelude::*};
-use grass_mesh::GrassView;
 #[derive(Clone)]
 pub enum InstanceMaterial {
     Primary(Handle<SourceMaterial>),
@@ -144,7 +143,6 @@ impl InstanceMaterials<'_> {
         receive: bool,
         reflected: bool,
         source_position: Vec3,
-        view: GrassView,
         gpu: bool,
     ) -> Result<Option<RendererMaterial>, ReferenceError> {
         let mask = 1u32 << layer;
@@ -182,7 +180,7 @@ impl InstanceMaterials<'_> {
             match record.shader.name.as_str() {
                 "Stix Games/Grass" => InstanceMaterial::Grass(
                     self.grass
-                        .add(GrassMaterial::from_source(session, record, view, mask)?),
+                        .add(GrassMaterial::from_source(session, record, mask)?),
                 ),
                 "Hidden/Amplify Impostors/Octahedron Impostor"
                 | "Impostors/Custom/Colored Barrels" => {

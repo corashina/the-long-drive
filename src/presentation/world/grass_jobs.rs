@@ -70,13 +70,17 @@ pub struct GrassJobs {
     instances: Vec<Instance>,
     /// Instance index by entity.
     index: HashMap<Entity, usize>,
-    /// Camera view of this frame. Every instance expands for it.
+    /// Camera view of this frame. An instance expands again when its view no longer covers it.
     view: GrassView,
     /// Per parent, whether a job is pending, and the stale instance that may start next.
     groups: HashMap<Entity, (bool, Option<(u64, usize)>)>,
     worker: GrassWorker,
     actor_cpu: usize,
     revision: u64,
+}
+/// Whether the instance needs a new expansion for this view.
+fn stale(accepted: Option<GrassView>, view: &GrassView) -> bool {
+    !accepted.is_some_and(|accepted| accepted.covers(view))
 }
 fn allocation(
     ledger: &mut PresentationLedger,
@@ -196,7 +200,7 @@ impl GrassJobs {
             }
             if group_idle
                 && instance.pending.is_none()
-                && instance.accepted_view != Some(self.view)
+                && stale(instance.accepted_view, &self.view)
                 && ledger.can_request_independent(1)
             {
                 instance.continuation =
@@ -392,14 +396,14 @@ impl GrassJobs {
         for (index, i) in self.instances.iter().enumerate() {
             let group = self.groups.entry(i.parent).or_default();
             group.0 |= i.pending.is_some();
-            if i.accepted_view != Some(view) {
+            if stale(i.accepted_view, &view) {
                 let key = (i.last_started, index);
                 group.1 = Some(group.1.map_or(key, |first| first.min(key)));
             }
         }
         for index in 0..self.instances.len() {
             let needs_child = self.instances[index].pending.is_none()
-                && self.instances[index].accepted_view != Some(view);
+                && stale(self.instances[index].accepted_view, &view);
             let group_idle = needs_child
                 && self.groups[&self.instances[index].parent]
                     == (false, Some((self.instances[index].last_started, index)));
@@ -409,7 +413,7 @@ impl GrassJobs {
             }
             if group_idle
                 && instance.pending.is_none()
-                && instance.accepted_view != Some(view)
+                && stale(instance.accepted_view, &view)
                 && ledger.can_request_independent(1)
             {
                 instance.continuation =
@@ -584,10 +588,6 @@ impl GrassJobs {
                     unreachable!()
                 };
                 let (id, view) = (*id, *view);
-                let mut material = materials
-                    .get(&instance.material)
-                    .ok_or_else(|| ReferenceError("Missing Grass material owner".into()))?
-                    .clone();
                 let output = self.worker.consume(id)?;
                 // The view or the distance can leave no blades. An empty mesh never uploads, so
                 // the instance draws nothing and is ready at once.
@@ -634,14 +634,22 @@ impl GrassJobs {
                 instance.pending_cpu -= released;
                 let mut mesh = Mesh::new(
                     PrimitiveTopology::TriangleList,
-                    RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+                    RenderAssetUsages::RENDER_WORLD,
                 );
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, output.anchors);
                 mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, output.uvs);
                 mesh.insert_attribute(BLADE_ATTRIBUTE, output.blades);
                 mesh.insert_indices(Indices::U32(output.indices));
-
-                material.uniform.camera = view.position.extend(view.screen_height);
+                // The material holds no view, so a rebuild keeps the accepted material.
+                let material = match &instance.accepted {
+                    Some(accepted) => accepted.material.clone(),
+                    None => materials.add(
+                        materials
+                            .get(&instance.material)
+                            .ok_or_else(|| ReferenceError("Missing Grass material owner".into()))?
+                            .clone(),
+                    ),
+                };
                 let mesh = uploads.add(meshes, mesh);
                 let upload = fixed.watch_meshes(std::iter::once(mesh.clone()));
                 instance
@@ -652,7 +660,7 @@ impl GrassJobs {
                 instance.upload = Some(upload);
                 instance.pending = Some(Pending::Upload {
                     mesh,
-                    material: materials.add(material),
+                    material,
                     view,
                     ticket: None,
                 });
@@ -698,7 +706,9 @@ impl GrassJobs {
                     };
                     if let Some(old) = instance.accepted.take() {
                         meshes.remove(old.mesh.id());
-                        materials.remove(old.material.id());
+                        if old.material != material {
+                            materials.remove(old.material.id());
+                        }
                         let mut next = ledger.allocation();
                         next.active_cpu = next.active_cpu.saturating_sub(old.cpu);
                         next.active_gpu = next.active_gpu.saturating_sub(old.gpu);
