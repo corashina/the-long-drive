@@ -1,6 +1,6 @@
 mod finalize;
 
-use super::{GarageRuntime, StartingArea};
+use super::{GarageRuntime, SessionPhase, StartingArea};
 use crate::reference::ReferenceManifest;
 use crate::save::*;
 use crate::vehicle::{PhysicsWorld, capture_body_save};
@@ -540,8 +540,7 @@ impl GarageRuntime {
             seat: saved.player.seat.clone(),
         });
         candidate.clear_input();
-        candidate.menu = true;
-        candidate.started = true;
+        candidate.phase = SessionPhase::Paused;
         Ok(candidate)
     }
     pub fn capture_save(

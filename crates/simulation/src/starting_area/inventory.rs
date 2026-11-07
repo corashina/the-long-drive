@@ -388,7 +388,7 @@ impl GarageRuntime {
             equipment_input::EquipAction,
         };
         let dead = self.needs_output().dead;
-        if !self.started
+        if !self.started()
             || self.paused()
             || self.recovering
             || !self.world_supported()

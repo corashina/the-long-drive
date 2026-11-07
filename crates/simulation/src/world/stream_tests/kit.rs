@@ -236,8 +236,7 @@ pub(crate) fn load_garage() -> (ReferenceManifest, GarageRuntime) {
     assert_eq!(reference.build_id, 11140890);
     let mut run = ready(&reference);
     assert!(run.world_supported());
-    run.started = true;
-    run.menu = false;
+    run.phase = crate::starting_area::SessionPhase::Playing;
     (reference, run)
 }
 
@@ -355,8 +354,7 @@ pub(crate) fn restore(
         }
     }
     assert!(!run.restore_pending(), "restore stays pending");
-    run.started = true;
-    run.menu = false;
+    run.phase = crate::starting_area::SessionPhase::Playing;
 }
 
 /// A started runtime from `saved` with the restore done.
