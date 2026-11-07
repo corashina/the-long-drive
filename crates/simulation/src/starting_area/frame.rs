@@ -327,6 +327,10 @@ impl GarageRuntime {
         }
         frame.weather = crate::boundary::WeatherFrame {
             rain: mix.rain,
+            heavy: self
+                .weather
+                .sample()
+                .weight(crate::weather::WeatherKind::Thunderstorm),
             flash: mix.flash,
             wetness: mix.wetness,
             shelter: self.weather.shelter,

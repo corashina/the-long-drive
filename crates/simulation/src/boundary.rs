@@ -951,6 +951,8 @@ pub struct FrameLighting {
 pub struct WeatherFrame {
     /// `WeatherMix::rain`, 0..1.
     pub rain: f32,
+    /// Thunderstorm weight at the player, 0..1. Rain streaks are longer and faster.
+    pub heavy: f32,
     /// `WeatherMix::flash`, 0..1.
     pub flash: f32,
     /// `WeatherMix::wetness`, 0..1. Wet surface shaders read it.
@@ -959,7 +961,7 @@ pub struct WeatherFrame {
     pub shelter: crate::weather::Shelter,
     /// Wind velocity without the gust, meters per second along world `x`, `z`.
     pub wind: [f32; 2],
-    /// Wind speed factor, 0.5 to 2.
+    /// Wind speed factor, 0.5 to 2, wider in a thunderstorm.
     pub gust: f32,
     /// The lightning bolt while it shows.
     pub bolt: Option<BoltFrame>,
