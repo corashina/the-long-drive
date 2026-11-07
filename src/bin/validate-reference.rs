@@ -1,13 +1,10 @@
 //! Validate runtime manifests with the same contract as the game.
 //! `validate-reference <file>` checks a gzip manifest file. The build checks the file it ships.
 //! `--encode` reads the exporter JSON and writes the validated manifest file to stdout.
-//! `--decode` reads the unpacked manifest file and writes its exporter JSON to stdout. The export tools read it.
 //! `--crunch` reads stored crunch textures and checks that the game unpacker gives the exporter's BC blocks.
 use sha2::{Digest, Sha256};
 use std::io::{self, Read, Write};
-use the_long_slop::reference::{
-    ReferenceManifest, decode_manifest, encode_manifest, read_manifest,
-};
+use the_long_slop::reference::{ReferenceManifest, encode_manifest, read_manifest};
 
 fn validate_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let start = std::time::Instant::now();
@@ -25,13 +22,6 @@ fn encode() -> Result<(), Box<dyn std::error::Error>> {
     let content = encode_manifest(&content)?;
     ReferenceManifest::from_manifest(&content)?;
     io::stdout().lock().write_all(&content)?;
-    Ok(())
-}
-
-fn decode() -> Result<(), Box<dyn std::error::Error>> {
-    let mut content = Vec::new();
-    io::stdin().read_to_end(&mut content)?;
-    io::stdout().lock().write_all(&decode_manifest(&content)?)?;
     Ok(())
 }
 
@@ -81,12 +71,9 @@ fn check_crunch() -> Result<(), Box<dyn std::error::Error>> {
 fn main() {
     let result = match std::env::args().nth(1).as_deref() {
         Some("--encode") => encode(),
-        Some("--decode") => decode(),
         Some("--crunch") => check_crunch(),
         Some(path) if !path.starts_with('-') => validate_file(path),
-        _ => Err(
-            "Usage: validate-reference <manifest.bin.gz> | --encode | --decode | --crunch".into(),
-        ),
+        _ => Err("Usage: validate-reference <manifest.bin.gz> | --encode | --crunch".into()),
     };
     if let Err(error) = result {
         eprintln!("Runtime manifest contract: {error}");

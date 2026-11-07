@@ -9,6 +9,8 @@ from pathlib import Path, PurePosixPath
 
 MAX_U32 = 2**32 - 1
 MAX_STAGING = 32 * 1024 * 1024
+# The exporter manifest JSON. The tools read it. Gzip at rest.
+MANIFEST = 'manifest.json.gz'
 # `content_base` and `file_catalog` of the manifest. Deploy reads them here.
 CATALOG = 'catalog.json'
 # A start pack holds at most this many entry bytes. Its gzip file stays under the Pages 25 MiB limit.
@@ -23,8 +25,9 @@ RUNTIME_MANIFEST = 'manifest.bin.gz'
 def write_manifest(output: Path, manifest: dict) -> None:
     from .export import encode_runtime_manifest
     content = json.dumps(manifest, separators=(',', ':'), allow_nan=False).encode()
-    runtime = encode_runtime_manifest(content)
     # mtime 0 keeps the file bytes the same for the same manifest.
+    (output / MANIFEST).write_bytes(gzip.compress(content, compresslevel=9, mtime=0))
+    runtime = encode_runtime_manifest(content)
     (output / RUNTIME_MANIFEST).write_bytes(gzip.compress(runtime, compresslevel=9, mtime=0))
     catalog = {'content_base': manifest['content_base'], 'file_catalog': manifest['file_catalog']}
     (output / CATALOG).write_text(json.dumps(catalog, separators=(',', ':'), allow_nan=False), encoding='utf-8')
@@ -32,6 +35,10 @@ def write_manifest(output: Path, manifest: dict) -> None:
 
 def runtime_manifest_bytes(output: Path) -> bytes:
     return gzip.decompress((output / RUNTIME_MANIFEST).read_bytes())
+
+
+def manifest_bytes(output: Path) -> bytes:
+    return gzip.decompress((output / MANIFEST).read_bytes())
 
 
 def read_catalog(output: Path) -> dict:
@@ -122,7 +129,7 @@ def build_prototype_plan(document: dict, receipts: dict) -> dict:
 
 
 def build_file_catalog(manifest: dict, output: Path) -> dict:
-    excluded = {CATALOG, RUNTIME_MANIFEST, 'library-selection.json'}
+    excluded = {MANIFEST, CATALOG, RUNTIME_MANIFEST, 'library-selection.json'}
     files = {f'reference/{path.name}': file_receipt(path, f'reference/{path.name}')
              for path in sorted(output.iterdir()) if path.is_file()
              and path.name not in excluded and not path.name.endswith('-evidence.json')

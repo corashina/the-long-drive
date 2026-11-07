@@ -1005,13 +1005,6 @@ pub fn encode_manifest(json: &[u8]) -> Result<Vec<u8>, ReferenceError> {
     postcard::to_extend(&manifest.world.receipts, bytes).map_err(error)
 }
 
-/// The exporter JSON of the manifest file. The export tools read it.
-#[cfg(feature = "validate")]
-pub fn decode_manifest(bytes: &[u8]) -> Result<Vec<u8>, ReferenceError> {
-    serde_json::to_vec(&ReferenceManifest::from_runtime(bytes)?)
-        .map_err(|e| ReferenceError(e.to_string()))
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReferenceManifest {

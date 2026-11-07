@@ -41,7 +41,7 @@ const webPath = path => path.split(sep).join('/');
 // The game reads only `manifest.bin.gz` from `assets/reference`. `material-evidence.json` alone is over 25 MiB.
 // `catalog.json` holds the package `content_base` and `file_catalog` for this script.
 const excluded = path => path === 'assets/library' || path === 'assets/runtime' || path.startsWith('assets/runtime-') || path === 'pkg'
-  || /^assets\/reference\/(([\w-]+-evidence|library-selection|catalog)\.json)$/.test(path);
+  || /^assets\/reference\/(([\w-]+-evidence|library-selection|catalog)\.json|manifest\.json\.gz)$/.test(path);
 
 async function sha256(path) {
   const hash = createHash('sha256');

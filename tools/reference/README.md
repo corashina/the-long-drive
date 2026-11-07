@@ -51,8 +51,9 @@ The export sends the exporter JSON to the native `validate-reference --encode` c
 That command validates it and makes `manifest.bin.gz`, the game manifest file.
 The game file is the manifest as postcard, then `world.receipts` as postcard. Only the checks read the receipts.
 The export also writes `catalog.json` (`content_base` and `file_catalog`). Deploy reads it.
-Tools that need the full JSON decode `manifest.bin.gz` with `validate-reference --decode`.
-Runtime verification decodes `manifest.bin.gz`, encodes the JSON again and compares the result to the file.
+The export also writes the exporter JSON as `manifest.json.gz`. The tools read it. The game does not.
+Runtime verification checks that JSON, encodes it again and compares the result to `manifest.bin.gz`.
+Do not check the manifest from a decoded `manifest.bin.gz`: f32 fields decode to other float text.
 The export compiles that command in the background while runtime derivation runs.
 It uses the game's `ReferenceManifest` contract, the existing Cargo volumes, and a read-only checkout mount.
 The checks are behind the `validate` feature of the `simulation` crate. Native builds enable it. WASM builds do not.
