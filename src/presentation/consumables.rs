@@ -1,3 +1,4 @@
+use super::bind_state::BindState;
 use super::materials::SourceMaterial;
 use super::reference::ReferenceVisuals;
 use super::scene_nodes::SceneGraph;
@@ -16,10 +17,7 @@ pub(crate) struct ConsumableScene;
 
 struct FoodInstance {
     root: Entity,
-    ready: bool,
-    bound: bool,
-    /// Binding failed. The food stays hidden and binding does not run again.
-    failed: bool,
+    state: BindState,
     source_materials_bound: bool,
     nodes: Vec<(NodeId, Entity)>,
     primitives: Vec<Entity>,
@@ -214,17 +212,16 @@ impl FoodInstance {
                     };
                     if let Some(instance) = instance
                         && instance.root == event.entity
+                        && instance.state == BindState::Loading
                     {
-                        instance.ready = true;
+                        instance.state = BindState::Loaded;
                     }
                 },
             )
             .id();
         Self {
             root,
-            ready: false,
-            bound: false,
-            failed: false,
+            state: BindState::Loading,
             source_materials_bound: false,
             nodes: Vec::new(),
             primitives: Vec::new(),
@@ -243,22 +240,19 @@ impl FoodInstance {
         graph: &SceneGraph,
         source_materials: &Query<(), With<MeshMaterial3d<SourceMaterial>>>,
     ) -> bool {
-        if !self.ready {
+        if matches!(self.state, BindState::Loading | BindState::Failed) {
             return false;
         }
-        if self.failed {
-            return false;
-        }
-        if !self.bound {
+        if self.state == BindState::Loaded {
             let binding = graph.bind_instance(commands, manifest, self.root, asset);
             if !binding.complete() {
                 error!("Food asset {}: {}", asset.0, binding.failure());
-                self.failed = true;
+                self.state = BindState::Failed;
                 return false;
             }
             self.nodes = binding.nodes;
             self.primitives = binding.primitives;
-            self.bound = true;
+            self.state = BindState::Bound;
         }
         if !self.source_materials_bound {
             if self.primitives.is_empty()

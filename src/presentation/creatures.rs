@@ -1,5 +1,6 @@
 //! Scene instances of the rabbits. Live nodes take the Animator frames of their row. Dead
 //! rabbits take their bone rows. The GPU skins the meshes. Evil rabbits swap the eye material.
+use super::bind_state::BindState;
 use super::materials::{SourceMaterial, SourceMaterials, authored_material};
 use super::reference::ReferenceVisuals;
 use super::scene_nodes::SceneGraph;
@@ -19,11 +20,7 @@ pub(crate) struct CreatureScene;
 
 struct Instance {
     root: Entity,
-    ready: bool,
-    bound: bool,
-    /// Binding failed. The rabbit stays hidden and binding does not run again.
-    failed: bool,
-    shown: bool,
+    state: BindState,
     /// Rig node index and entity.
     nodes: Vec<(usize, Entity)>,
     primitives: Vec<Entity>,
@@ -129,8 +126,9 @@ pub(crate) fn sync(
                         }
                         if let Some(instance) = creatures.instances.get_mut(&id)
                             && instance.root == event.entity
+                            && instance.state == BindState::Loading
                         {
-                            instance.ready = true;
+                            instance.state = BindState::Loaded;
                         }
                     },
                 )
@@ -139,10 +137,7 @@ pub(crate) fn sync(
                 row.id,
                 Instance {
                     root,
-                    ready: false,
-                    bound: false,
-                    failed: false,
-                    shown: false,
+                    state: BindState::Loading,
                     nodes: Vec::with_capacity(rig.len()),
                     primitives: Vec::new(),
                     eyes: Vec::new(),
@@ -153,13 +148,10 @@ pub(crate) fn sync(
             );
             continue;
         };
-        if !instance.ready {
+        if matches!(instance.state, BindState::Loading | BindState::Failed) {
             continue;
         }
-        if instance.failed {
-            continue;
-        }
-        if !instance.bound {
+        if instance.state == BindState::Loaded {
             let binding = graph.bind_instance(&mut commands, manifest, instance.root, r.asset);
             instance.nodes.extend(
                 binding
@@ -174,7 +166,7 @@ pub(crate) fn sync(
                     rig.len(),
                     binding.failure()
                 );
-                instance.failed = true;
+                instance.state = BindState::Failed;
                 continue;
             }
             let eye_nodes: Vec<Entity> = r
@@ -194,9 +186,9 @@ pub(crate) fn sync(
                     instance.eyes.push(primitive);
                 }
             }
-            instance.bound = true;
+            instance.state = BindState::Bound;
         }
-        if !instance.shown {
+        if instance.state == BindState::Bound {
             // Show the rabbit once its meshes use source materials, as other source meshes do.
             if instance.primitives.is_empty()
                 || !instance
@@ -206,7 +198,7 @@ pub(crate) fn sync(
             {
                 continue;
             }
-            instance.shown = true;
+            instance.state = BindState::Shown;
         }
         let visible = row.flags & PoseRow::VISIBLE != 0;
         if let Ok(mut v) = visibility.get_mut(instance.root) {
