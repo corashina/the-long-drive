@@ -119,7 +119,7 @@ window.gamePerformance=since=>performancePanel.snapshot(since);
 // The failure message after a startup or runtime failure, else null. `gameFailure` reports a failure.
 window.gameFailureMessage=()=>failure;
 // The start menu model, for `tests/bench/fps.mjs`. Null before the interface loads.
-window.gameMenu=()=>menu?{state:menu.model.state,started:menu.model.started,pending:menu.model.pending,ready:menu.model.readyFlag,status:menu.model.status,error:menu.model.error}:null;
+window.gameMenu=()=>menu?{state:menu.model.state,started:menu.model.started,pending:menu.model.pending,ready:menu.model.isReady(),status:menu.model.status,error:menu.model.error}:null;
 // Test sandbox (`simulation::sandbox`), for `tests/bench/fps.mjs`. Only a `?sandbox` page has it.
 if(new URLSearchParams(location.search).has('sandbox'))window.gameSandbox=actions=>simulation.sandbox(JSON.stringify(actions)).then(JSON.parse);
 const measurementWaiters=[];

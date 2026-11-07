@@ -1,4 +1,4 @@
-use super::GarageRuntime;
+use super::{GarageRuntime, SessionPhase};
 use crate::fluids::{contact_drink_transfer, drink_transfer};
 use crate::interaction::items::{FoodLook, ItemLocation};
 use crate::reference::{ConsumptionEffect, ItemId, NodeId, ReferenceError, ReferenceManifest};
@@ -671,7 +671,7 @@ impl GarageRuntime {
         self.survival.output()
     }
     pub fn advance_needs(&mut self, reference: &ReferenceManifest, dt: f32, need_scale: f32) {
-        if !self.started || self.paused() {
+        if !self.started() || self.paused() {
             return;
         }
         self.simulation_seconds += f64::from(dt);
@@ -685,7 +685,7 @@ impl GarageRuntime {
         );
         self.announce_death(reference);
         if self.needs_output().menu_due {
-            self.menu = true;
+            self.phase = SessionPhase::Paused;
         }
     }
     pub(super) fn draw_survival(&mut self) -> f32 {

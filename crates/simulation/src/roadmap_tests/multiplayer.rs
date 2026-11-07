@@ -1002,8 +1002,7 @@ fn tp_mp2_the_guest_starts_before_the_host_car_spawns() {
         !guest.vehicles.contains_key(&key),
         "the car is not spawned yet"
     );
-    guest.started = true;
-    guest.menu = false;
+    guest.phase = crate::starting_area::SessionPhase::Playing;
     let mut out = SimFrame::default();
     for _ in 0..600 {
         frame(&mut guest, &reference);

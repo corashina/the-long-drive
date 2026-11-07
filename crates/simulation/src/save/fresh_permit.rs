@@ -11,7 +11,7 @@ impl FreshSessionPermit {
         runtime: &crate::starting_area::GarageRuntime,
         generation: u32,
     ) -> Result<Self, super::SaveError> {
-        if runtime.started {
+        if runtime.started() {
             return Err(super::SaveError::ReconstructionFailure(
                 "The session has started".into(),
             ));
@@ -28,7 +28,7 @@ impl FreshSessionPermit {
         runtime: &mut crate::starting_area::GarageRuntime,
         generation: u32,
     ) -> Result<(), super::SaveError> {
-        if runtime.started
+        if runtime.started()
             || !self.matches(
                 request_id,
                 runtime.stream.frame().request.session,
@@ -40,8 +40,7 @@ impl FreshSessionPermit {
             ));
         }
         runtime.clear_input();
-        runtime.started = true;
-        runtime.menu = true;
+        runtime.phase = crate::starting_area::SessionPhase::Paused;
         Ok(())
     }
 

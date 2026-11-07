@@ -583,5 +583,5 @@ impl Net {
 /// is back first. Attachments to far owners can stay deferred for the whole session, so they do
 /// not count.
 fn settled(runtime: &GarageRuntime) -> bool {
-    runtime.started && runtime.world_supported()
+    runtime.started() && runtime.world_supported()
 }

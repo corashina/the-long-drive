@@ -6,6 +6,7 @@ use crate::driver::SimDriver;
 use crate::reference::ReferenceManifest;
 use crate::save::fresh_permit::FreshSessionPermit;
 use crate::save::{SaveError, SourceStamp};
+use crate::starting_area::SessionPhase;
 use crate::world::GameMode;
 use serde::{Deserialize, Serialize};
 
@@ -192,7 +193,7 @@ impl SimDriver {
                     .prepared
                     .take()
                     .ok_or_else(|| invalid("Prepared session is missing"))?;
-                let result = if self.ready {
+                let result = if self.ready() {
                     permit.commit(*id, &mut self.runtime, epoch)
                 } else {
                     Err(invalid("The garage is not ready"))
@@ -209,10 +210,10 @@ impl SimDriver {
                 #[cfg(target_arch = "wasm32")]
                 let _profile =
                     crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::SavePrepare);
-                if !self.ready {
+                if !self.ready() {
                     return Err(invalid("The garage is not ready"));
                 }
-                if !capture.autosave && self.runtime.started && !self.runtime.menu {
+                if !capture.autosave && self.runtime.phase == SessionPhase::Playing {
                     return Err(invalid("Pause the game first"));
                 }
                 // Source guests have no save. The host world is the only world.
@@ -242,10 +243,10 @@ impl SimDriver {
                 #[cfg(target_arch = "wasm32")]
                 let _profile =
                     crate::cpu_profile::Timer::new(crate::cpu_profile::Stage::SavePrepare);
-                if !self.ready {
+                if !self.ready() {
                     return Err(invalid("The garage is not ready"));
                 }
-                if self.runtime.started && !self.runtime.menu {
+                if self.runtime.phase == SessionPhase::Playing {
                     return Err(invalid("Pause the game first"));
                 }
                 if self.save.prepared.is_some() {
@@ -254,7 +255,7 @@ impl SimDriver {
                 let runtime = &self.runtime;
                 // A new game starts the garage world. The browser reloads the page for a
                 // started game or another game mode, so the garage has the new mode.
-                if runtime.started
+                if runtime.started()
                     || runtime.stream.mode() != mode
                     || !runtime
                         .distances

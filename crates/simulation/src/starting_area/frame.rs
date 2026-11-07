@@ -1,5 +1,5 @@
 //! Renderer data of one tick.
-use super::GarageRuntime;
+use super::{GarageRuntime, SessionPhase};
 use crate::boundary::{
     BudgetRow, Change, CigaretteRow, ConditionRow, CreatureBoneRow, CreatureRow, HumanRow,
     PlaneRow, PoseRow, SimFrame, StateBlock, ValveRow,
@@ -19,8 +19,8 @@ impl GarageRuntime {
         let metrics = self.stream.metrics();
         let mut flags = 0;
         for (on, flag) in [
-            (self.started, StateBlock::STARTED),
-            (self.menu, StateBlock::PAUSED),
+            (self.started(), StateBlock::STARTED),
+            (self.phase == SessionPhase::Paused, StateBlock::PAUSED),
             (self.area.player.seated(), StateBlock::SEATED),
             (self.sleeping(), StateBlock::SLEEPING),
             (self.needs_output().dead, StateBlock::DEAD),
@@ -196,7 +196,7 @@ impl GarageRuntime {
         self.fill_hud(reference, frame);
         self.fill_audio(reference, alpha, self.render_input, &mut frame.audio);
         frame.budgets.clear();
-        if !self.started {
+        if !self.started() {
             let stream = &self.stream;
             frame.budgets.extend(
                 stream
@@ -296,7 +296,7 @@ impl GarageRuntime {
             });
         }
         let lighting = &self.lighting;
-        if self.started {
+        if self.started() {
             frame.lighting.cycle.clone_from(lighting.cycle.output());
         } else {
             frame.lighting.cycle = self
@@ -453,8 +453,8 @@ impl GarageRuntime {
             .collect();
         serde_json::json!({
             "supported": self.world_supported(),
-            "started": self.started,
-            "menu": self.menu,
+            "started": self.started(),
+            "menu": self.phase == SessionPhase::Paused,
             "paused": self.paused(),
             "recovering": self.recovering,
             "sleeping": self.sleeping(),

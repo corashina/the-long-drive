@@ -33,8 +33,7 @@ impl Session {
                 init.mode,
                 init.draw_distance,
             )?;
-            runtime.started = true;
-            runtime.menu = true;
+            runtime.phase = crate::starting_area::SessionPhase::Paused;
             Ok::<_, SaveError>(runtime)
         });
         let mut runtime = match saved {
