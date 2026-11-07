@@ -61,6 +61,7 @@ impl MotionTrack {
         if self.attribute == 2 { 4 } else { 3 }
     }
     /// Finite, ordered keys in [0, stop] with one row of `width` per key.
+    #[cfg(feature = "validate")]
     pub fn keys_valid(&self, stop_time: f32) -> bool {
         let n = self.times.len();
         let w = self.width();
@@ -82,6 +83,7 @@ impl MotionTrack {
     }
 }
 /// Parameter names in source order: five attack triggers, Speed, Hit.
+#[cfg(feature = "validate")]
 const PARAMETER_NAMES: [&str; 7] = [
     "AttackLeft",
     "AttackRight",
@@ -92,11 +94,13 @@ const PARAMETER_NAMES: [&str; 7] = [
     "Hit",
 ];
 /// (attribute, custom_type): position and rotation tracks.
+#[cfg(feature = "validate")]
 const TRACK_TYPES: [(u32, u32); 2] = [(1, 0), (4, 4)];
 impl MeleeMotion {
     pub fn is_shovel(&self) -> bool {
         source_is(&self.controller, "sharedassets1.assets", 4515)
     }
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         self.validate_structure(m)?;
         if self.is_shovel() {
@@ -104,6 +108,7 @@ impl MeleeMotion {
         }
         Ok(())
     }
+    #[cfg(feature = "validate")]
     fn validate_structure(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             source_is(&self.handler, "level1", 74298)
@@ -244,6 +249,7 @@ impl MeleeMotion {
         Ok(())
     }
     /// Checked source values of the shovel controller.
+    #[cfg(feature = "validate")]
     fn validate_shovel(&self) -> Result<(), ReferenceError> {
         require(
             self.clip_slots.len() == 6
@@ -356,10 +362,13 @@ impl MeleeMotion {
         Ok(())
     }
 }
+#[cfg(feature = "validate")]
 const CLIPS: [i64; 6] = [3998, 4001, 3999, 3997, 4002, 4003];
+#[cfg(feature = "validate")]
 const STATES: [u32; 6] = [
     2008834259, 2530234843, 3863879828, 1326377276, 1368685456, 3895914711,
 ];
+#[cfg(feature = "validate")]
 const PARAMETERS: [(&str, u32, u32); 7] = [
     ("AttackLeft", 2717246184, 0),
     ("AttackRight", 1504273457, 1),
@@ -369,6 +378,7 @@ const PARAMETERS: [(&str, u32, u32); 7] = [
     ("Speed", 3471299058, 0),
     ("Hit", 1654612129, 5),
 ];
+#[cfg(feature = "validate")]
 const RECEIPTS: [(u64, &str, &str); 6] = [
     (
         9870,
@@ -402,6 +412,7 @@ const RECEIPTS: [(u64, &str, &str); 6] = [
     ),
 ];
 
+#[cfg(feature = "validate")]
 const CLIP_TIMES: [f32; 6] = [
     0.6666666865348816,
     0.0,
@@ -410,6 +421,7 @@ const CLIP_TIMES: [f32; 6] = [
     0.5833333134651184,
     0.6666666865348816,
 ];
+#[cfg(feature = "validate")]
 const STATE_BINDINGS: [(&str, u32, f32); 6] = [
     ("katana_idle", 3361416310, 1.0),
     ("AttackLeft", 2717246184, 1.0),
@@ -418,6 +430,7 @@ const STATE_BINDINGS: [(&str, u32, f32); 6] = [
     ("shovel_AttackBack", 815580648, 1.0),
     ("shovel_AttackStab", 2302561967, 1.0),
 ];
+#[cfg(feature = "validate")]
 fn checked_any_transitions() -> Vec<MotionTransition> {
     vec![
         MotionTransition {
@@ -557,6 +570,7 @@ fn checked_any_transitions() -> Vec<MotionTransition> {
         },
     ]
 }
+#[cfg(feature = "validate")]
 fn checked_idle_transitions() -> Vec<MotionTransition> {
     vec![
         MotionTransition {

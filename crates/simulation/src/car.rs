@@ -363,20 +363,18 @@ impl VehicleRuntime {
 
 /// A `carscript` one-shot sound of car `key` at its chassis. `pick` selects it.
 pub(crate) fn car_sound(
-    audio: &mut Option<crate::audio::AudioState>,
+    audio: &mut crate::audio::AudioState,
     physics: &PhysicsWorld,
     reference: &ReferenceManifest,
     key: &ObjectKey,
     prototype: usize,
     pick: impl Fn(&crate::reference::CarAudioReference) -> Option<crate::reference::CarShotReference>,
 ) {
-    let (Some(audio), Some(shot)) = (
-        audio.as_mut(),
-        world_vehicle(reference, prototype)
-            .audio
-            .as_ref()
-            .and_then(pick),
-    ) else {
+    let Some(shot) = world_vehicle(reference, prototype)
+        .audio
+        .as_ref()
+        .and_then(pick)
+    else {
         return;
     };
     audio.car_shot(

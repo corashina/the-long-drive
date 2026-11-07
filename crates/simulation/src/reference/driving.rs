@@ -1,5 +1,8 @@
-use super::{ReferenceError, SourceId, Transform, finite, require};
+#[cfg(feature = "validate")]
+use super::{ReferenceError, finite, require};
+use super::{SourceId, Transform};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "validate")]
 use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +127,7 @@ pub struct WheelFrictionCurve {
 }
 
 impl WheelFrictionCurve {
+    #[cfg(feature = "validate")]
     pub(super) fn valid(&self) -> bool {
         finite(&[
             self.extremum_slip,
@@ -150,6 +154,7 @@ pub struct WheelHubReference {
 }
 
 impl DrivingReference {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self) -> Result<(), ReferenceError> {
         require(
             self.source.file == "level0" && self.source.path_id == 16865,

@@ -286,6 +286,7 @@ pub struct GunCrosshair {
 }
 
 impl GunsReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             self.source.file == "level1" && finite(&self.ammo_mass) && finite(&self.ammo_velocity),
@@ -322,6 +323,7 @@ impl GunsReference {
 }
 
 impl GunReference {
+    #[cfg(feature = "validate")]
     fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let error = |field: &str| {
             ReferenceError(format!(
@@ -337,7 +339,7 @@ impl GunReference {
             .find(|p| p.source == self.prototype.0)
             .ok_or_else(|| error("world prototype"))?;
         let node = |s: &SourceId| prototype.nodes.iter().any(|n| n.source == *s);
-        let clip = |s: &SourceId| m.audio.gameplay.clip(s).is_some();
+        let clip = |s: &SourceId| m.audio.clip(s).is_some();
 
         check((self.ammo.r#type as usize) < AMMO_TYPES, "ammo type")?;
         let mut nodes = vec![&self.muzzle];

@@ -733,18 +733,17 @@ impl GarageRuntime {
         );
         self.area.pose.set_hand(interaction.melee.hand());
         for sound in interaction.melee.take_sounds() {
-            if let Some(audio) = &mut self.audio {
-                audio.survival_event(crate::audio::SurvivalAudioEvent {
-                    session: audio.session,
-                    emitter: 0,
-                    kind: crate::audio::AudioKind::MeleeHit,
-                    action: crate::audio::AudioAction::Start,
-                    clip: sound.clip,
-                    gain: sound.gain,
-                    pitch: 1.,
-                    position: sound.position,
-                });
-            }
+            let audio = &mut self.audio;
+            audio.survival_event(crate::audio::SurvivalAudioEvent {
+                session: audio.session,
+                emitter: 0,
+                kind: crate::audio::AudioKind::MeleeHit,
+                action: crate::audio::AudioAction::Start,
+                clip: sound.clip,
+                gain: sound.gain,
+                pitch: 1.,
+                position: sound.position,
+            });
         }
         while let Some(item) = self.area.interaction.melee.take_cut() {
             if self.cut_food(reference, item, true).is_err() {
@@ -759,18 +758,17 @@ impl GarageRuntime {
     /// mainscript.PlayClipAtPoint for spray bottle clips.
     fn play_small_item_sounds(&mut self) {
         for (clip, gain, position) in self.stream.take_small_item_sounds() {
-            if let Some(audio) = &mut self.audio {
-                audio.survival_event(crate::audio::SurvivalAudioEvent {
-                    session: audio.session,
-                    emitter: 0,
-                    kind: crate::audio::AudioKind::ItemHit,
-                    action: crate::audio::AudioAction::Start,
-                    clip,
-                    gain,
-                    pitch: 1.,
-                    position,
-                });
-            }
+            let audio = &mut self.audio;
+            audio.survival_event(crate::audio::SurvivalAudioEvent {
+                session: audio.session,
+                emitter: 0,
+                kind: crate::audio::AudioKind::ItemHit,
+                action: crate::audio::AudioAction::Start,
+                clip,
+                gain,
+                pitch: 1.,
+                position,
+            });
         }
     }
 }

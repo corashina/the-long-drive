@@ -1,7 +1,11 @@
 //! Recovered source light and realtime capture records.
+#[cfg(feature = "validate")]
+use super::NodeRecord;
+#[cfg(feature = "validate")]
 use super::reflections::CUBE_BASES;
-use super::{NodeId, NodeRecord, ReferenceError, SourceId, Transform, finite, require};
+use super::{NodeId, ReferenceError, SourceId, Transform, finite, require};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "validate")]
 use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,6 +125,7 @@ impl WorldProbeReference {
             && self.mip_extents == shared.mip_extents
     }
 }
+#[cfg(feature = "validate")]
 pub(super) fn valid_pose(pose: &Transform) -> bool {
     finite(&pose.translation)
         && finite(&pose.rotation)
@@ -129,6 +134,7 @@ pub(super) fn valid_pose(pose: &Transform) -> bool {
         && pose.scale.iter().all(|v| *v != 0.)
 }
 impl LightRecord {
+    #[cfg(feature = "validate")]
     pub fn validate(
         &self,
         nodes: &[NodeRecord],
@@ -184,6 +190,7 @@ impl LightRecord {
     }
 }
 impl ProbeRecord {
+    #[cfg(feature = "validate")]
     pub fn validate(&self) -> Result<(), ReferenceError> {
         let label = format!("probe {}:{}", self.source.file, self.source.path_id);
         require(self.source.is_set(), &format!("{label}: source"))?;
@@ -253,6 +260,7 @@ impl RendererRecord {
             &format!("renderer {}:{}", self.source.file, self.source.path_id),
         )
     }
+    #[cfg(feature = "validate")]
     pub fn validate_template(&self) -> Result<(), ReferenceError> {
         self.validate()?;
         let shadow_only = self.source.file == "sharedassets1.assets"

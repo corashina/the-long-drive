@@ -63,6 +63,7 @@ impl FollowerReference {
             }
         }
     }
+    #[cfg(feature = "validate")]
     fn valid(&self, nodes: usize) -> bool {
         let n = |v: u32| (v as usize) < nodes && v != 0;
         let set = |flag: bool, v: Option<u32>| !flag || v.is_some_and(n);
@@ -125,6 +126,7 @@ impl FollowerReference {
 }
 
 impl WorldFollowersReference {
+    #[cfg(feature = "validate")]
     pub(super) fn valid(&self, p: &WorldPrototypeReference) -> bool {
         let wheels = p
             .vehicle

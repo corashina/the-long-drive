@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 
+# The manifest checks. Only the native `validate-reference` bin and native tests enable them.
+[features]
+validate = []
+
 [dependencies]
 bevy_platform = "=0.19.1"
 base64 = "=0.22.1"

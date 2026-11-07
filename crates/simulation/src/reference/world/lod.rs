@@ -22,6 +22,7 @@ pub struct WorldDitherReference {
     pub alpha: [u8; 16],
 }
 impl WorldLodReference {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self, records: &WorldRecords) -> Result<(), ReferenceError> {
         let record = checked_record(records, &self.quality, &["QualitySettings"])?;
         require(

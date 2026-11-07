@@ -1,7 +1,7 @@
 //! Checked row and mip descriptors. Raw bytes use the checked source asset reader.
-use super::{
-    ChunkFormat, FileCatalog, FileReceipt, LightingTextureRecord, ReferenceError, SourceId, require,
-};
+#[cfg(feature = "validate")]
+use super::FileCatalog;
+use super::{ChunkFormat, FileReceipt, LightingTextureRecord, ReferenceError, SourceId, require};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_BATCH_BYTES: usize = 1024 * 1024;
@@ -159,6 +159,7 @@ impl TextureBatchDescriptor {
 
 impl LightingTextureRecord {
     /// Batch metadata must partition the existing ordered checked chunks exactly.
+    #[cfg(feature = "validate")]
     pub fn validate_batch_receipts(&self, catalog: &FileCatalog) -> Result<(), ReferenceError> {
         self.validate_chunk_receipts(catalog)?;
         let mut index = 0;

@@ -151,6 +151,7 @@ pub struct FlyerReference {
     pub wing: MotionClip,
 }
 impl FlyerReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let ranges = [
             self.time_range,
@@ -169,7 +170,7 @@ impl FlyerReference {
                     .all(|v| v.is_finite() && *v > 0.),
             "flyer values",
         )?;
-        let audio = &m.audio.gameplay;
+        let audio = &m.audio;
         require(
             !self.clips.is_empty() && self.clips.iter().all(|id| audio.has_clip(*id)),
             "flyer clips",
@@ -232,6 +233,7 @@ pub struct SkySpin {
     pub degrees_per_second: f32,
 }
 impl SkyReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let range = self.spawn_time_range;
         require(
@@ -312,6 +314,7 @@ impl SkyReference {
     }
 }
 impl GroundUfoReference {
+    #[cfg(feature = "validate")]
     fn validate(&self, sky: &SkyReference) -> Result<(), ReferenceError> {
         let range = |r: [f32; 2]| finite(&r) && 0. <= r[0] && r[0] <= r[1];
         require(

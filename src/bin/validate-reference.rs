@@ -1,26 +1,27 @@
 //! Validate runtime manifests with the same contract as the game.
+//! `validate-reference <file>` checks a gzip manifest file. The build checks the file it ships.
 //! `--encode` reads the exporter JSON and writes the validated manifest file to stdout.
 //! `--crunch` reads stored crunch textures and checks that the game unpacker gives the exporter's BC blocks.
 use sha2::{Digest, Sha256};
 use std::io::{self, Read, Write};
-use the_long_slop::reference::{MAX_MANIFEST_BYTES, ReferenceManifest, encode_manifest};
+use the_long_slop::reference::{ReferenceManifest, encode_manifest, read_manifest};
 
-fn validate(encode: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn validate_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let start = std::time::Instant::now();
+    ReferenceManifest::from_manifest(&read_manifest(path)?)?;
+    eprintln!(
+        "Runtime manifest contract: {path} passed in {:.2?}",
+        start.elapsed()
+    );
+    Ok(())
+}
+
+fn encode() -> Result<(), Box<dyn std::error::Error>> {
     let mut content = Vec::new();
-    io::stdin()
-        .take(if encode {
-            u64::MAX
-        } else {
-            MAX_MANIFEST_BYTES as u64 + 1
-        })
-        .read_to_end(&mut content)?;
-    if encode {
-        content = encode_manifest(&content)?;
-    }
+    io::stdin().read_to_end(&mut content)?;
+    let content = encode_manifest(&content)?;
     ReferenceManifest::from_manifest(&content)?;
-    if encode {
-        io::stdout().lock().write_all(&content)?;
-    }
+    io::stdout().lock().write_all(&content)?;
     Ok(())
 }
 
@@ -69,10 +70,10 @@ fn check_crunch() -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() {
     let result = match std::env::args().nth(1).as_deref() {
-        None => validate(false),
-        Some("--encode") => validate(true),
+        Some("--encode") => encode(),
         Some("--crunch") => check_crunch(),
-        Some(other) => Err(format!("Unknown argument: {other}").into()),
+        Some(path) if !path.starts_with('-') => validate_file(path),
+        _ => Err("Usage: validate-reference <manifest.bin.gz> | --encode | --crunch".into()),
     };
     if let Err(error) = result {
         eprintln!("Runtime manifest contract: {error}");

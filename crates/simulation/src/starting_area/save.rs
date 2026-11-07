@@ -515,10 +515,12 @@ impl GarageRuntime {
         candidate.area.commit_poses(&candidate.physics, true);
         candidate.refresh_powertrains();
         // Car sounds sync each engine's running edge on their first step.
-        if let Some(audio) = &mut candidate.audio {
-            audio.bind_game(reference, &candidate.area, &candidate.physics);
-            audio.sync_lamps(&reference.lighting, &candidate.lighting);
-        }
+        candidate
+            .audio
+            .bind_game(reference, &candidate.area, &candidate.physics);
+        candidate
+            .audio
+            .sync_lamps(&reference.lighting, &candidate.lighting);
         candidate.startup_aligned = true;
         candidate.pending_restore = Some(PendingRestore {
             items: saved

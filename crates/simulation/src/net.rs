@@ -199,9 +199,8 @@ impl Net {
         for handle in self.dropped.drain(..) {
             runtime.physics.remove_body(handle);
         }
-        if let Some(audio) = &mut runtime.audio {
-            audio.broadcasts.set_remote(self.role == NetRole::Guest);
-        }
+        let audio = &mut runtime.audio;
+        audio.broadcasts.set_remote(self.role == NetRole::Guest);
         self.prepare(runtime);
         if self.role == NetRole::Off {
             runtime.area.interaction.in_use.clear();

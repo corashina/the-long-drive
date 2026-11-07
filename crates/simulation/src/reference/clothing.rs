@@ -147,12 +147,14 @@ pub struct WearableVariant {
     pub profile: Option<u32>,
     pub disable_lens_flare: Option<bool>,
 }
+#[cfg(feature = "validate")]
 fn sid(path_id: i64) -> SourceId {
     SourceId {
         file: "sharedassets1.assets".into(),
         path_id,
     }
 }
+#[cfg(feature = "validate")]
 fn scene(path_id: i64) -> SourceId {
     SourceId {
         file: "level1".into(),
@@ -160,6 +162,7 @@ fn scene(path_id: i64) -> SourceId {
     }
 }
 impl ClothingReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             self.outfit_source == scene(70544)
@@ -481,6 +484,7 @@ impl ClothingReference {
     }
 }
 
+#[cfg(feature = "validate")]
 fn validate_selected_glasses(
     w: &WearableReference,
     m: &ReferenceManifest,
@@ -668,6 +672,7 @@ impl CharacterSegmentReference {
     }
 }
 impl SkinAccessorReference {
+    #[cfg(feature = "validate")]
     fn validate(&self, shape: &str, components: &[u32]) -> Result<(), ReferenceError> {
         let size = match self.component_type {
             5121 => 1,
@@ -690,6 +695,7 @@ impl SkinAccessorReference {
     }
 }
 impl ClothingReference {
+    #[cfg(feature = "validate")]
     fn validate_characters(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             self.characters.len() == 2 && self.selected_character == 0,
@@ -733,6 +739,7 @@ impl ClothingReference {
     }
 }
 
+#[cfg(feature = "validate")]
 const CHARACTER_RENDERERS: &[&[(i64, i64, i64, &[i64])]] = &[
     &[
         (58557, 32922, 473, &[75, 74, 59, 55, 58, 61, 57, 60, 73]),
@@ -761,6 +768,7 @@ const CHARACTER_RENDERERS: &[&[(i64, i64, i64, &[i64])]] = &[
         (41622, 40180, 645, &[58, 54]),
     ],
 ];
+#[cfg(feature = "validate")]
 const CHARACTER_JOINTS: &[&[i64]] = &[
     &[
         26068, 29799, 36277, 36234, 27719, 38049, 32657, 37442, 38141, 26362, 32161, 28124, 24366,
@@ -778,6 +786,7 @@ const CHARACTER_JOINTS: &[&[i64]] = &[
     ],
 ];
 
+#[cfg(feature = "validate")]
 const CHARACTER_SEGMENTS: &[&[(&str, u32, i64, bool, [f32; 4], &[(i64, u32)])]] = &[
     &[
         (
@@ -995,6 +1004,7 @@ const CHARACTER_SEGMENTS: &[&[(&str, u32, i64, bool, [f32; 4], &[(i64, u32)])]] 
 
 impl CharacterReference {
     /// Source-independent links: local renderers, material dependencies, skins and segment slots.
+    #[cfg(feature = "validate")]
     pub fn validate_structure(
         &self,
         m: &ReferenceManifest,
@@ -1065,6 +1075,7 @@ impl CharacterReference {
         Ok(())
     }
 
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let c = self;
         let i = match (c.source.file.as_str(), c.source.path_id) {
@@ -1230,6 +1241,7 @@ impl CharacterReference {
     }
 }
 
+#[cfg(feature = "validate")]
 const CHARACTER_HSV: &[&[[f32; 3]]] = &[
     &[
         [0.07456142192883357, 0.5428572514227523, 0.2745097875595093],

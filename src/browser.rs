@@ -55,8 +55,6 @@ extern "C" {
     /// Pending `DisplaySettings` JSON, or none.
     #[wasm_bindgen(js_namespace = window, js_name = gameDisplaySettings)]
     pub fn game_display_settings() -> Option<String>;
-    #[wasm_bindgen(js_name = gameAudioError)]
-    pub fn game_audio_error(message: &str);
     /// One frame of audio calls, encoded by `src/app/audio.rs`.
     #[wasm_bindgen(js_namespace = window, js_name = gameAudioFrame)]
     pub fn game_audio_frame(batch: &[f64]);

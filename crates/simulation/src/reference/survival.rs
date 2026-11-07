@@ -238,22 +238,26 @@ pub struct SleepReference {
     pub evidence: ManagedEvidence,
 }
 impl NeedValues {
+    #[cfg(feature = "validate")]
     fn values(self) -> [f32; 4] {
         [self.hp, self.food, self.water, self.bowel]
     }
 }
 impl ConsumptionEffect {
+    #[cfg(feature = "validate")]
     fn valid(self) -> bool {
         finite(&[self.food, self.water, self.bowel, self.hp])
     }
 }
 impl ManagedEvidence {
+    #[cfg(feature = "validate")]
     pub(super) fn valid(&self) -> bool {
         self.assembly_sha256 == "9919a9eeddcce23bb4ff86e890437f32b4a3ef3c10af2efe3b8d889d894dd62e"
             && !self.methods.is_empty()
     }
 }
 impl SurvivalReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             self.evidence.valid() && self.source.file == "level1" && self.source.path_id == 73239,
@@ -452,8 +456,7 @@ impl SurvivalReference {
         let h = &self.hum;
         let tunes = m
             .audio
-            .gameplay
-            .binding(crate::audio::AudioKind::Hum as u32)
+            .survival_row(crate::audio::AudioKind::Hum as u32)
             .clips
             .len();
         require(
@@ -485,6 +488,7 @@ impl SurvivalReference {
     }
 }
 impl SleepReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, _: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             self.evidence.valid()
@@ -586,6 +590,7 @@ pub struct CigaretteEmberReference {
     pub lerp: f32,
 }
 impl CigaretteConsumptionReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, p: &ItemPrototype, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let sid = |path_id| SourceId {
             file: "sharedassets1.assets".into(),
@@ -950,6 +955,7 @@ impl CigaretteConsumptionReference {
     }
 }
 
+#[cfg(feature = "validate")]
 const CIGARETTE_METHODS: &[&str] = &[
     "public void UpdParts(bool _updMulti)\n\t{\n\t\tif (continous)\n\t\t{\n\t\t\tfor (int i = 0; i < parts.Length; i++)\n\t\t\t{\n\t\t\t\tparts[i].transform.position = Vector3.Lerp(end[i].position, start[i].position, hp);\n\t\t\t\tparts[i].transform.rotation = Quaternion.Lerp(end[i].rotation, start[i].rotation, hp);\n\t\t\t\tparts[i].transform.localScale = Vector3.Lerp(end[i].localScale, start[i].localScale, hp);\n\t\t\t}\n\t\t}\n\t\telse if (moreParts)",
     "if (!ateOnce)\n\t\t{\n\t\t\thp = 1f;",

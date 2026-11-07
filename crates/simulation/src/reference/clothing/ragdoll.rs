@@ -100,11 +100,13 @@ pub struct RagdollPosePair {
     pub live: NodeId,
 }
 
+#[cfg(feature = "validate")]
 fn unit(v: &[f32; 3]) -> bool {
     finite(v) && (v.iter().map(|x| x * x).sum::<f32>() - 1.).abs() < 1e-4
 }
 
 impl JointLimit {
+    #[cfg(feature = "validate")]
     fn valid(&self) -> bool {
         finite(&[self.limit, self.bounciness, self.contact_distance])
             && self.bounciness >= 0.
@@ -113,6 +115,7 @@ impl JointLimit {
 }
 
 impl JointSpring {
+    #[cfg(feature = "validate")]
     fn valid(&self) -> bool {
         finite(&[self.spring, self.damper]) && self.spring >= 0. && self.damper >= 0.
     }
@@ -141,6 +144,7 @@ impl RagdollReference {
         None
     }
 
+    #[cfg(feature = "validate")]
     pub fn validate(
         &self,
         m: &ReferenceManifest,

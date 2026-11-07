@@ -60,6 +60,7 @@ pub struct SkidReference {
     pub particles: [ParticleReference; 2],
 }
 
+#[cfg(feature = "validate")]
 pub(super) fn validate(m: &ReferenceManifest) -> Result<(), ReferenceError> {
     let world = m
         .world

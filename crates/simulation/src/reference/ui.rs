@@ -88,6 +88,7 @@ impl UiReference {
             .position(|s| s.source == *source)
             .map(|i| i as u32)
     }
+    #[cfg(feature = "validate")]
     pub fn validate(&self) -> Result<(), ReferenceError> {
         require(
             !self.sprites.is_empty() && !self.pairs.is_empty(),

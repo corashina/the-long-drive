@@ -168,9 +168,7 @@ impl GarageRuntime {
             .cycle
             .compose_weather(&reference.weather, self.weather.influence());
         self.advance_tumbleweeds(reference, dt);
-        let Some(audio) = &mut self.audio else {
-            return;
-        };
+        let audio = &mut self.audio;
         use crate::audio::AudioKind;
         audio.remove_storm_loops(self.weather.storms());
         // sandstormscript.Update: source.volume = defVolume * llerp.

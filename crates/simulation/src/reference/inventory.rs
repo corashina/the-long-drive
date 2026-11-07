@@ -18,6 +18,7 @@ pub struct InventoryReference {
 }
 
 impl InventoryReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, _manifest: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
             self.source.file == "level1"

@@ -38,6 +38,7 @@ pub struct PlateLayoutReference {
 }
 impl PlateLayoutReference {
     /// Finite TextMeshPro values with the source alignment: Center=2, Middle=512, Bold.
+    #[cfg(feature = "validate")]
     pub(super) fn valid(&self) -> bool {
         let l = self;
         finite(&l.bounds)
@@ -150,6 +151,7 @@ pub struct PlateShaderPassReference {
     pub state: MaterialState,
 }
 impl PlateRecord {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, manifest: &ReferenceManifest) -> Result<(), ReferenceError> {
         let valid_source = |s: &SourceId| source_valid(s, &manifest.source_hashes);
         let resource = |r: &PlateResourceReference| {

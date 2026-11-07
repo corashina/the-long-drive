@@ -1,4 +1,5 @@
 //! Source `settingsscript` Settings screen sliders and toggles, by `setting` field name.
+#[cfg(feature = "validate")]
 use super::{ReferenceError, require};
 use serde::{Deserialize, Serialize};
 
@@ -95,6 +96,7 @@ impl SettingsReference {
         self.toggles[name].default
     }
 
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self) -> Result<(), ReferenceError> {
         let s = &self.sliders;
         for slider in [

@@ -105,9 +105,9 @@ impl GarageRuntime {
         );
         let chassis = self.physics.rapier().bodies[self.physics.chassis_handle(key)].position();
         let point = chassis * Vector::from_array(blood.point);
-        if let (Some(clip), Some(audio)) = (clip, &mut self.audio) {
+        if let Some(clip) = clip {
             let position = self.stream.origin.absolute(point.to_array());
-            audio.point_clip(clip, position);
+            self.audio.point_clip(clip, position);
         }
     }
 

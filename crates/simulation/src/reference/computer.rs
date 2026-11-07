@@ -89,9 +89,12 @@ pub struct DisplaySwitchReference {
     pub volume: f32,
 }
 
+#[cfg(feature = "validate")]
 const COMPUTER_ITEM: u32 = 73;
+#[cfg(feature = "validate")]
 const DISPLAY_ITEM: u32 = 152;
 
+#[cfg(feature = "validate")]
 fn checked(ok: bool, field: &str) -> Result<(), ReferenceError> {
     if ok {
         Ok(())
@@ -101,6 +104,7 @@ fn checked(ok: bool, field: &str) -> Result<(), ReferenceError> {
 }
 
 impl ComputerRecord {
+    #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         let prototype = |item: u32, name: &str, source: &SourceId| {
             m.world

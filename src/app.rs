@@ -90,12 +90,12 @@ thread_local! {
 }
 
 #[wasm_bindgen]
-/// Parses the reference while the simulation worker parses and checks its copy.
+/// Parses the reference while the simulation worker parses its copy.
 /// Returns the shell JSON for the browser interface.
 pub fn prepare(manifest: &[u8]) -> Result<String, JsValue> {
     let _profile = cpu_profile::Timer::new(cpu_profile::Stage::Startup);
     console_error_panic_hook::set_once();
-    let reference = ReferenceManifest::from_checked_runtime(manifest).map_err(js_error)?;
+    let reference = ReferenceManifest::from_runtime(manifest).map_err(js_error)?;
     let shell = crate::manifest_shell::shell(&reference).map_err(js_error)?;
     PREPARED.set(Some(Prepared { reference }));
     Ok(shell)
@@ -114,14 +114,10 @@ pub fn run() -> Result<(), JsValue> {
         reference.drop_top_mips();
     }
     let reference = Arc::new(reference);
-    // The simulation worker checks the reference. Systems need these resources.
+    // The build checks the reference. Systems need these resources.
     let materials = presentation::materials::load_materials(&reference).map_err(js_error)?;
     let fixed_assets =
         presentation::fixed_assets::SourceFixedAssets::new(&reference).map_err(js_error)?;
-    // The audio bridge exists only after `prepare`.
-    if let Err(error) = reference.audio.playback() {
-        game_audio_error(&error.to_string());
-    }
     let mut ledger = crate::ownership::PresentationLedger::default();
     let (fixed, graph) = crate::ownership::fixed::admit_control(
         &mut ledger,

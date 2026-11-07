@@ -9,6 +9,7 @@ pub struct WorldInitialMaterial {
     pub material: SourceId,
 }
 impl WorldInitialMaterial {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(&self, records: &WorldRecords) -> Result<(), ReferenceError> {
         let controller = checked_record(records, &self.controller, &["headlightscript"])?;
         let renderer = checked_record(records, &self.renderer, &["MeshRenderer"])?;

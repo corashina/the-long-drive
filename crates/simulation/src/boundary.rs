@@ -1055,7 +1055,7 @@ pub struct SimFrame {
     pub brush_poses: Vec<PoseRow>,
     /// Spray colors, in `ConditionRecord::sprays` order.
     pub spray_colors: Vec<[f32; 4]>,
-    /// Browser audio calls. Empty without audio.
+    /// Browser audio calls.
     pub audio: Vec<AudioCall>,
     /// World budgets in `BUDGET_LABELS` order. Empty after the start.
     pub budgets: Vec<BudgetRow>,

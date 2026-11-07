@@ -50,6 +50,7 @@ pub struct CarBloodReference {
 }
 
 impl CrashReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self) -> Result<(), ReferenceError> {
         let ranges = [self.blood, self.horn, self.fall_off];
         require(
@@ -63,6 +64,7 @@ impl CrashReference {
 }
 
 impl CarCrashReference {
+    #[cfg(feature = "validate")]
     pub fn valid(&self) -> bool {
         finite(&[self.multiplier, self.blood, self.horn, self.fall_off])
     }

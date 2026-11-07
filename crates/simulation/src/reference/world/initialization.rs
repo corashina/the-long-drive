@@ -33,6 +33,7 @@ pub struct WorldInitField {
     pub value: WorldValue,
 }
 impl WorldInitialization {
+    #[cfg(feature = "validate")]
     pub(super) fn validate(
         &self,
         world: &WorldReference,

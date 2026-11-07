@@ -116,8 +116,8 @@ impl SmallItems {
             ],
             firing: None,
             clips: [
-                reference.audio.gameplay.clip_id(&s.set_clip),
-                reference.audio.gameplay.clip_id(&s.reset_clip),
+                reference.audio.clip_id(&s.set_clip),
+                reference.audio.clip_id(&s.reset_clip),
             ],
             time: 0.,
             sounds: Vec::with_capacity(8),

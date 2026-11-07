@@ -1,8 +1,12 @@
 //! Source material bindings and authored texture levels.
 
-use super::{AssetId, AssetRecord, AssetUsage, ReferenceError, SourceId, finite, require};
+use super::{AssetId, ReferenceError, SourceId, require};
+#[cfg(feature = "validate")]
+use super::{AssetRecord, AssetUsage, finite};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
+#[cfg(feature = "validate")]
+use std::collections::HashSet;
 
 pub const MATERIAL_TEXTURE_SLOTS: [&str; 9] = [
     "_MainTex",
@@ -394,6 +398,7 @@ pub struct SamplerRecord {
     pub mip_count: u32,
 }
 
+#[cfg(feature = "validate")]
 pub(super) fn safe_path(path: &str) -> bool {
     path.starts_with("reference/")
         && !path.contains(['\\', ':', '?', '#', '\0'])
@@ -401,6 +406,7 @@ pub(super) fn safe_path(path: &str) -> bool {
             .split('/')
             .all(|part| !part.is_empty() && part != "." && part != "..")
 }
+#[cfg(feature = "validate")]
 fn known_slot(slot: &str) -> bool {
     matches!(
         slot,
@@ -417,6 +423,7 @@ fn known_slot(slot: &str) -> bool {
 }
 
 impl RenderingRecord {
+    #[cfg(feature = "validate")]
     pub fn validate(
         &self,
         assets: &[AssetRecord],

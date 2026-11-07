@@ -1,5 +1,7 @@
 //! Source `settingsscript.DDSmin` and `DDSmax`. The runtime resolves them for the chosen value.
-use super::{ReferenceError, SourceId, require};
+use super::SourceId;
+#[cfg(feature = "validate")]
+use super::{ReferenceError, require};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -58,6 +60,7 @@ setting!(
 );
 
 impl DrawDistanceReference {
+    #[cfg(feature = "validate")]
     pub fn validate(&self) -> Result<(), ReferenceError> {
         for (set, setting) in [("minimum", &self.minimum), ("maximum", &self.maximum)] {
             for (name, value) in setting.values() {
