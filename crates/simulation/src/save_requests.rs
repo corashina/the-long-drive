@@ -35,6 +35,8 @@ pub struct CaptureRequest {
     /// ISO date of the save.
     pub date: String,
     pub autosave: bool,
+    /// The world for a joining guest. Its player starts in the garage.
+    pub guest: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -222,9 +224,12 @@ impl SimDriver {
                 if !capture.autosave {
                     self.clear_input();
                 }
-                let snapshot =
+                let mut snapshot =
                     self.runtime
                         .capture_save(reference, &self.save.source, &capture.date)?;
+                if capture.guest {
+                    crate::starting_area::garage_start(reference, &mut snapshot.player);
+                }
                 serde_json::to_string(&CaptureResult {
                     save: &snapshot,
                     summary: CaptureSummary {
