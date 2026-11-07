@@ -71,10 +71,23 @@ enum Action {
         kind: crate::weather::WeatherKind,
         radius: Option<f32>,
     },
+    /// Moves the day cycle to the middle of a time of day. Host only.
+    #[serde(rename = "set_time")]
+    SetTime { phase: TimeOfDay },
     /// Answers the player, the day cycle, the cars and the items within `radius` metres.
     State { radius: f32 },
     /// Answers the worker CPU profile. `window.gameCpuProfile(true)` starts it and clears it.
     Profile,
+}
+
+/// A `set_time` target. Each is the middle of its cycle phase, noon is the middle of the day.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum TimeOfDay {
+    Dawn,
+    Noon,
+    Dusk,
+    Midnight,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -305,6 +318,20 @@ fn apply(
             let player = player_xz(runtime);
             runtime.weather.cells.add(kind, player, radius);
             Ok(("Cell spawned.".into(), weather(runtime)))
+        }
+        Action::SetTime { phase } => {
+            if runtime.net_guest {
+                return Err("The host owns the time.".into());
+            }
+            let c = &reference.lighting.cycle;
+            let seconds = match phase {
+                TimeOfDay::Dawn => c.dawn_seconds / 2.,
+                TimeOfDay::Noon => (c.dawn_seconds + c.day_seconds - c.dusk_seconds) / 2.,
+                TimeOfDay::Dusk => c.day_seconds - c.dusk_seconds / 2.,
+                TimeOfDay::Midnight => c.day_seconds + c.night_seconds / 2.,
+            };
+            runtime.lighting.cycle.set_cycle_seconds(f64::from(seconds));
+            Ok(("Time set.".into(), weather(runtime)))
         }
         Action::State { radius } => Ok(("State.".into(), state(runtime, reference, radius))),
         Action::Profile => profile(),
@@ -964,8 +991,13 @@ fn player_xz(runtime: &GarageRuntime) -> [f64; 2] {
 fn weather(runtime: &GarageRuntime) -> Value {
     let weather = &runtime.weather;
     let wind = &weather.wind;
+    let cycle = runtime.lighting.cycle.output();
     json!({
         "kind": weather.kind(),
+        "next": weather.forecast.next,
+        "next_in": weather.forecast.wait,
+        "phase": crate::weather::DayPart::new(cycle.phase, cycle.progress),
+        "time": runtime.lighting.cycle.cycle_seconds(),
         "kinds": crate::weather::WeatherKind::ALL,
         "player": player_xz(runtime),
         "rain": weather.mix().rain,

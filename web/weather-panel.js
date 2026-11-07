@@ -1,5 +1,6 @@
 // F4 weather test panel: a map of the cells near the player, wind, temperature, the lock select and a cell spawn.
 // The sandbox `weather` action locks a kind. `spawn_cell` adds a full-strength cell at the player. In every build.
+// `set_time` moves the day cycle to dawn, noon, dusk or midnight. The forecast line shows the next kind and its wait.
 // `guest` is true for a multiplayer guest. The host owns the weather, so a guest cannot set it.
 const REFRESH_MS=1000;
 // Map radius in meters. The map is x to the right and z down.
@@ -9,15 +10,18 @@ const ARROW_SCALE=4;
 // Cell colors by kind. The kind list comes from the forecast reply. Other kinds are grey.
 const COLORS={clear:'#ffd84a',cloudy:'#c8c8c8',rain:'#3c8cff',thunderstorm:'#b44cff',fog:'#9fb7a8'};
 
+const name=kind=>kind[0].toUpperCase()+kind.slice(1);
+
 export function createWeatherPanel(simulation,guest){
  const root=document.querySelector('#weather-panel'),select=document.querySelector('#weather-kind'),values=document.querySelector('#weather-values');
+ const time=document.querySelector('#weather-time'),forecast=document.querySelector('#weather-forecast');
  const spawnKind=document.querySelector('#weather-spawn-kind'),spawn=document.querySelector('#weather-spawn'),map=document.querySelector('#weather-map');
  const context=map.getContext('2d'),half=map.width/2,scale=half/MAP_RANGE;
  let timer=0,waiting=false,kinds=null;
  // Fills both selects one time, from the first reply.
  function addKinds(list){
   kinds=list;
-  for(const target of [select,spawnKind])for(const kind of list)target.add(new Option(kind[0].toUpperCase()+kind.slice(1),kind));
+  for(const target of [select,spawnKind])for(const kind of list)target.add(new Option(name(kind),kind));
  }
  function draw({cells,player,wind}){
   context.clearRect(0,0,map.width,map.height);
@@ -44,8 +48,9 @@ export function createWeatherPanel(simulation,guest){
   if(!reply?.ok){values.textContent=reply?.message??'No reply.';return;}
   const data=reply.data;
   if(!kinds)addKinds(data.kinds);
-  const {kind,rain,locked,cells,wind,temperature,wetness}=data;
-  values.textContent='Here: '+kind+'\nRain: '+rain.toFixed(2)+'  Wet: '+wetness.toFixed(2)
+  const {kind,rain,locked,cells,wind,temperature,wetness,next,next_in,phase,time:seconds}=data;
+  forecast.textContent='Now: '+name(kind)+'. Next: '+name(next)+' in ~'+Math.ceil(next_in/60)+' min.';
+  values.textContent='Time: '+phase+' ('+Math.round(seconds)+' s)\nHere: '+kind+'\nRain: '+rain.toFixed(2)+'  Wet: '+wetness.toFixed(2)
    +'\nWind: '+wind.speed.toFixed(1)+' m/s x'+wind.gust.toFixed(2)+'\nTemperature: '+temperature.toFixed(1)+' °C'
    +'\nCells: '+cells.length+'\nLocked: '+(locked?'yes':'no');
   if(document.activeElement!==select)select.value=locked?kind:'';
@@ -59,13 +64,18 @@ export function createWeatherPanel(simulation,guest){
  }
  // One refresh at a time.
  function refresh(){
-  select.disabled=spawnKind.disabled=spawn.disabled=guest();
+  select.disabled=time.disabled=spawnKind.disabled=spawn.disabled=guest();
   if(!waiting)send({action:'forecast'});
  }
  select.addEventListener('change',()=>{
   if(guest())return;
   send({action:'weather',kind:select.value||null});
   select.blur();
+ });
+ time.addEventListener('change',()=>{
+  if(guest()||!time.value)return;
+  send({action:'set_time',phase:time.value});
+  time.value='';time.blur();
  });
  spawn.addEventListener('click',()=>{
   if(guest()||!spawnKind.value)return;
