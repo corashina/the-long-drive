@@ -1,3 +1,5 @@
+import {playerChips} from './room-card.js';
+
 export function formatBudget(used,limit,unit){
  return unit==='bytes'
   ? (used/1048576).toFixed(1)+' / '+(limit/1048576).toFixed(1)+' MiB'
@@ -91,7 +93,7 @@ export function createLoading(room=''){
   players(list){
    if(!active||!joining)return;
    roomHost.textContent=list.find(p=>p.host)?.name??'';
-   roomPlayers.replaceChildren(...list.map(p=>{const item=document.createElement('li');item.textContent=p.you?p.name+' (you)':p.name;return item;}));
+   roomPlayers.replaceChildren(...playerChips(document,list));
   },
   /** The join stopped with `message`. The game loads the garage instead. */
   joinFailed(message){
