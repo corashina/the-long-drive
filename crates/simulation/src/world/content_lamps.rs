@@ -499,6 +499,7 @@ impl WorldStream {
             self.changes.set_replay(&object, origin, &binding.parent);
         }
     }
+    /// The only writer of a published light pose. Lights of an item content follow the item.
     pub(super) fn sync_moving_lamps(&mut self, items: &crate::interaction::items::ItemStore) {
         for content in self.contents.active() {
             let Some(item) = content.item.and_then(|id| items.get(id)) else {
@@ -601,7 +602,6 @@ impl WorldStream {
                 if let Some(current) = self.lights.iter_mut().find(|l| l.id == light.id) {
                     current.enabled = light.enabled;
                     current.intensity = light.intensity;
-                    current.pose = light.pose;
                 }
             }
         }

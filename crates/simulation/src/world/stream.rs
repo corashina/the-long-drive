@@ -2157,7 +2157,6 @@ impl WorldStream {
                 if let Some(current) = found.map(|i| &mut self.lights[i]) {
                     current.enabled = light.enabled;
                     current.intensity = light.intensity;
-                    current.pose = light.pose;
                 } else {
                     self.light_index.push(&light.id, self.lights.len());
                     self.lights.push(light.clone());
@@ -2178,6 +2177,7 @@ impl WorldStream {
         true
     }
     /// Live light state of the wanted contents. Light membership did not change.
+    /// `sync_moving_lamps` owns the light pose. A content light keeps its spawn pose.
     fn refresh_content_lights(&mut self) {
         let (lights, index) = (&mut self.lights, &self.light_index);
         for content in self
@@ -2190,7 +2190,6 @@ impl WorldStream {
                     let current = &mut lights[i];
                     current.enabled = light.enabled;
                     current.intensity = light.intensity;
-                    current.pose = light.pose;
                 }
             }
         }
