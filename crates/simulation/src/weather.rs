@@ -19,7 +19,7 @@ pub use condition::*;
 pub use forecast::{DayPart, Forecast, ForecastSnapshot};
 pub use lightning::{BOLT_SECONDS, Bolt, CLOSE_DISTANCE, Lightning, STRIKE_DISTANCE, Thunder};
 pub use shelter::{Shelter, vehicle_roof};
-pub use spray::{MAX_SPRAY, SPRAY_DISTANCE, spray_amount};
+pub use spray::{MAX_SPRAY, SPRAY_DISTANCE, SPRAY_GROUND, spray_amount};
 pub use tumbleweeds::{ImportantObject, Tumbleweeds};
 pub use wind::{MIN_DRIFT, Wind};
 
@@ -202,7 +202,11 @@ impl WeatherState {
         if guest {
             self.forecast.wait = (self.forecast.wait - total).max(0.);
         } else if !self.cells.locked() {
-            if self.forecast.advance(total, part, biome_at(xz)).is_some() {
+            if self
+                .forecast
+                .advance(total, part, || biome_at(xz))
+                .is_some()
+            {
                 self.cells.release();
             }
             if !self.cells.aimed() {

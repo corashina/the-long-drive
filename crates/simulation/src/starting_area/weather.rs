@@ -304,13 +304,17 @@ impl GarageRuntime {
         let wind = &self.weather.wind;
         let blend = 1. - (1. - WIND_INSIDE) * (1. - shelter[0]);
         let gain = (wind.speed * wind.gust / WIND_FULL).min(1.) * blend;
-        let row = audio
-            .reference
-            .survival
-            .iter()
-            .find(|b| b.kind == AudioKind::Wind as u32)
-            .expect("validated wind audio");
-        audio.source_loop(AudioKind::Wind, 0, row.gain[0] * gain, player);
+        if gain > 0. {
+            let row = audio
+                .reference
+                .survival
+                .iter()
+                .find(|b| b.kind == AudioKind::Wind as u32)
+                .expect("validated wind audio");
+            audio.source_loop(AudioKind::Wind, 0, row.gain[0] * gain, player);
+        } else {
+            audio.stop_survival_loop(AudioKind::Wind, 0);
+        }
         audio.remove_storm_loops(self.weather.storms());
         // sandstormscript.Update: source.volume = defVolume * llerp.
         let volume = audio

@@ -387,6 +387,9 @@ impl GarageRuntime {
     /// Wheels on the ground of fast cars near the player, when the ground is wet.
     fn fill_wheel_spray(&self, wetness: f32, frame: &mut SimFrame) {
         frame.wheel_spray.clear();
+        if wetness <= weather::SPRAY_GROUND {
+            return;
+        }
         let player =
             rapier3d::math::Vector::from_array(self.area.player.body_pose(&self.physics).position);
         let bodies = &self.physics.rapier().bodies;
