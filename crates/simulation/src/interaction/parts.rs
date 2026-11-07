@@ -317,22 +317,19 @@ impl PartAttachments {
     pub fn capture_save(
         &self,
         ids: &crate::save::IdentityMap,
+        items: &crate::interaction::items::ItemStore,
     ) -> Result<Vec<crate::save::PartAttachment>, crate::save::SaveError> {
         let mut records = self
             .slots
             .iter()
-            .filter(|slot| ids.part_slots.values().any(|id| *id == slot.reference.id))
+            .filter(|slot| ids.part_slots.contains(slot.reference.id))
             .map(|slot| {
                 Ok(crate::save::PartAttachment {
-                    slot: crate::save::identity::source_key(&ids.part_slots, slot.reference.id)?,
+                    slot: ids.part_slots.source(slot.reference.id)?,
                     part: slot
                         .part
-                        .filter(|part| {
-                            ids.items
-                                .values()
-                                .any(|id| *id == self.parts[*part].reference.item)
-                        })
-                        .map(|part| ids.item_instance(self.parts[part].reference.item))
+                        .filter(|part| ids.items.contains(self.parts[*part].reference.item))
+                        .map(|part| ids.item_instance(items, self.parts[part].reference.item))
                         .transpose()?,
                 })
             })

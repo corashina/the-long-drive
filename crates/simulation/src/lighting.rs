@@ -884,11 +884,10 @@ impl LightingState {
         reference: &crate::reference::LightingRecord,
         ids: &crate::save::IdentityMap,
     ) -> Result<crate::save::LightingSnapshot, crate::save::SaveError> {
-        use crate::save::{LocalPose, SwitchMotionSave, SwitchPoseSnapshot, identity::source_key};
+        use crate::save::{LocalPose, SwitchMotionSave, SwitchPoseSnapshot};
         let mut controllers = Vec::with_capacity(self.controllers.len());
         for (index, c) in reference.controllers.iter().enumerate() {
-            let mut saved =
-                self.controllers[index].capture_save(source_key(&ids.controllers, c.id)?);
+            let mut saved = self.controllers[index].capture_save(ids.controllers.source(c.id)?);
             saved.switch_motion = self.pose_progress[index].map(|m| match m {
                 SwitchMotion::Initial => SwitchMotionSave::Initial,
                 SwitchMotion::Moving(progress) => SwitchMotionSave::Moving { progress },
@@ -902,7 +901,7 @@ impl LightingState {
                         crate::save::SaveError::InvalidLinks("Missing switch pose".into())
                     })?;
                 saved.switch_poses.push(SwitchPoseSnapshot {
-                    node: source_key(&ids.nodes, pose.node)?,
+                    node: ids.nodes.source(pose.node)?,
                     pose: LocalPose {
                         position: current.local_pose.translation,
                         rotation: current.local_pose.rotation,

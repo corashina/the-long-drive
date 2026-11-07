@@ -103,7 +103,7 @@ impl PersistentWorld {
                 records.push(Record::new(Key::Assembly(identities.item(root)?)));
             }
         }
-        for &id in identities.bodies.values() {
+        for id in identities.bodies.ids() {
             records.push(Record::new(Key::Source(id)));
         }
         for body in &snapshot.bodies {

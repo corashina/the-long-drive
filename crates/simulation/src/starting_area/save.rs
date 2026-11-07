@@ -11,7 +11,6 @@ pub(super) struct PendingRestore {
     items: Vec<ItemSnapshot>,
     carry: Option<CarrySnapshot>,
     inventory: Option<InventorySnapshot>,
-    ids: IdentityMap,
     ready: bool,
     motion: Vec<BodySnapshot>,
     /// A saved item seat. It waits for the world item seat binding.
@@ -43,7 +42,7 @@ impl GarageRuntime {
         let Some(pending) = &mut self.pending_restore else {
             return Ok(true);
         };
-        let ids = &mut pending.ids;
+        let ids = &self.ids;
         let before = pending.items.len();
         let mut index = 0;
         // The immutable imported item set bounds the imported edges.
@@ -69,7 +68,7 @@ impl GarageRuntime {
                 food: self
                     .area
                     .items
-                    .get(ids.item(&item.instance)?)
+                    .get(ids.bound_item(&self.area.items, &item.instance)?)
                     .and_then(|i| i.food)
                     .map(|food| crate::world::changes::FoodSnapshot {
                         source: reference.survival.foods[food.prototype_index]
@@ -81,7 +80,7 @@ impl GarageRuntime {
                 fluids: self
                     .area
                     .items
-                    .get(ids.item(&item.instance)?)
+                    .get(ids.bound_item(&self.area.items, &item.instance)?)
                     .and_then(|item| item.fluid.as_ref())
                     .map(crate::fluids::FluidSnapshot::from),
                 valve: None,
@@ -103,7 +102,7 @@ impl GarageRuntime {
                 mechanism: None,
             };
             if crate::world::stream::content_bindings::restore_item(
-                ids.item(&item.instance)?,
+                ids.bound_item(&self.area.items, &item.instance)?,
                 &snapshot,
                 reference,
                 &mut self.area.items,
@@ -130,14 +129,13 @@ impl GarageRuntime {
         if !self.stream.saved_bindings_ready(&self.area.items) {
             return Ok(false);
         }
-        ids.bind_generated(&self.area.items);
         if let Some(inventory) = &pending.inventory {
             // Generated locations depend on bindings which do not exist in from_save.
             for (slot, instance) in inventory.slots.iter().enumerate() {
                 let Some(instance @ InstanceId::Generated { .. }) = instance else {
                     continue;
                 };
-                let Ok(id) = ids.item(instance) else {
+                let Ok(id) = ids.bound_item(&self.area.items, instance) else {
                     return Ok(false);
                 };
                 let state = self.area.items.get(id).ok_or_else(|| {
@@ -161,7 +159,7 @@ impl GarageRuntime {
                 }
             }
             if let Some(instance @ InstanceId::Generated { .. }) = &inventory.equipped {
-                let Ok(id) = ids.item(instance) else {
+                let Ok(id) = ids.bound_item(&self.area.items, instance) else {
                     return Ok(false);
                 };
                 let state = self.area.items.get(id).unwrap();
@@ -188,7 +186,7 @@ impl GarageRuntime {
                     item: instance @ InstanceId::Generated { .. },
                 }) = saved
                 {
-                    let Ok(item) = ids.item(instance) else {
+                    let Ok(item) = ids.bound_item(&self.area.items, instance) else {
                         return Ok(false);
                     };
                     *id = Some(item);
@@ -202,7 +200,7 @@ impl GarageRuntime {
             self.area.update_glasses(&self.stream);
         }
         if let Some(carry) = &pending.carry {
-            let Ok(id) = ids.item(&carry.item) else {
+            let Ok(id) = ids.bound_item(&self.area.items, &carry.item) else {
                 return Ok(false);
             };
             if self.area.items.get(id).and_then(|i| i.body).is_none() {
@@ -210,7 +208,7 @@ impl GarageRuntime {
             }
             self.area.interaction.restore_carry_save(
                 carry,
-                &ids,
+                ids,
                 &self.area.items,
                 &mut self.physics,
             )?;
@@ -258,15 +256,15 @@ impl GarageRuntime {
         mode: crate::world::GameMode,
         draw_distance: f32,
     ) -> Result<Self, SaveError> {
-        saved.validate(reference, expected)?;
         let ids = IdentityMap::new(reference)?;
+        saved.validate(reference, expected, &ids)?;
         // The saved start car keeps its start placement.
         let mode = crate::world::GameMode {
             start_car: crate::world::StartCarChoice::Field(saved.world.start_car),
             ..mode
         };
         let mut candidate =
-            Self::new_candidate(reference, false, saved.world.seed, mode, draw_distance)?;
+            Self::new_candidate(reference, ids, false, saved.world.seed, mode, draw_distance)?;
         candidate
             .area
             .interaction
@@ -280,7 +278,7 @@ impl GarageRuntime {
         candidate
             .area
             .items
-            .restore_save(&ids, &saved.items, reference)?;
+            .restore_save(&candidate.ids, &saved.items, reference)?;
         candidate
             .wheels
             .refresh_conditions(&candidate.area.interaction.conditions);
@@ -288,7 +286,7 @@ impl GarageRuntime {
             .wheels
             .restore_save(&mut candidate.area.items, &mut candidate.physics)?;
         candidate.area.interaction.parts.restore_save(
-            &ids,
+            &candidate.ids,
             &saved.attachments.parts,
             &mut candidate.area.items,
             &mut candidate.area.interaction.mechanisms,
@@ -297,7 +295,7 @@ impl GarageRuntime {
         candidate
             .area
             .interaction
-            .restore_save(&saved.mechanisms, &ids);
+            .restore_save(&saved.mechanisms, &candidate.ids);
         candidate
             .area
             .interaction
@@ -306,7 +304,7 @@ impl GarageRuntime {
         candidate
             .area
             .items
-            .restore_save(&ids, &saved.items, reference)?;
+            .restore_save(&candidate.ids, &saved.items, reference)?;
         candidate.area.inventory.selected = saved.inventory.selected;
         for (slot, instance) in candidate
             .area
@@ -318,7 +316,7 @@ impl GarageRuntime {
             *slot = instance
                 .as_ref()
                 .filter(|i| matches!(i, InstanceId::Initial { .. }))
-                .map(|id| ids.item(id))
+                .map(|id| candidate.ids.item(id))
                 .transpose()?;
         }
         candidate.stream.restore_save(&saved.world)?;
@@ -414,7 +412,7 @@ impl GarageRuntime {
         candidate
             .stream
             .request_at(saved.player.pose.position, vehicle, vehicle);
-        candidate.persistent_world = PersistentWorld::restore(saved, &ids)?;
+        candidate.persistent_world = PersistentWorld::restore(saved, &candidate.ids)?;
         finalize::RestoreFinalizer {
             area: &mut candidate.area,
             physics: &mut candidate.physics,
@@ -422,7 +420,7 @@ impl GarageRuntime {
             persistent: &mut candidate.persistent_world,
             stream: &mut candidate.stream,
         }
-        .initial(reference, &ids, saved)?;
+        .initial(reference, &candidate.ids, saved)?;
         candidate.area.player.restore_save(
             &saved.player,
             &candidate.stream.origin,
@@ -441,7 +439,7 @@ impl GarageRuntime {
         {
             candidate.area.interaction.restore_carry_save(
                 carry,
-                &ids,
+                &candidate.ids,
                 &candidate.area.items,
                 &mut candidate.physics,
             )?;
@@ -452,7 +450,7 @@ impl GarageRuntime {
             .as_ref()
             .filter(|i| matches!(i, InstanceId::Initial { .. }))
         {
-            let id = ids.item(instance)?;
+            let id = candidate.ids.item(instance)?;
             candidate.area.interaction.equipment.equip(
                 id,
                 crate::interaction::equipment::EquipmentPlacement::Immediate,
@@ -464,7 +462,7 @@ impl GarageRuntime {
             let id = match worn {
                 Some(WornSnapshot::Item {
                     item: instance @ InstanceId::Initial { .. },
-                }) => ids.item(instance)?,
+                }) => candidate.ids.item(instance)?,
                 Some(WornSnapshot::Spawned { serial }) => {
                     candidate
                         .area
@@ -513,7 +511,7 @@ impl GarageRuntime {
         candidate.driven_km = saved.progress.driven_km;
         candidate
             .lighting
-            .restore_save(&reference.lighting, &ids, &saved.lighting)?;
+            .restore_save(&reference.lighting, &candidate.ids, &saved.lighting)?;
         candidate.area.commit_poses(&candidate.physics, true);
         candidate.refresh_powertrains();
         // Car sounds sync each engine's running edge on their first step.
@@ -535,7 +533,6 @@ impl GarageRuntime {
                 .clone()
                 .filter(|c| matches!(c.item, InstanceId::Generated { .. })),
             inventory: Some(saved.inventory.clone()),
-            ids: IdentityMap::new(reference)?,
             ready: false,
             motion: saved.bodies.clone(),
             seat: saved.player.seat.clone(),
@@ -561,8 +558,7 @@ impl GarageRuntime {
                 "The player is dead".into(),
             ));
         }
-        let mut ids = IdentityMap::new(reference)?;
-        ids.bind_generated(&self.area.items);
+        let ids = &self.ids;
         let origin = &self.stream.origin;
         let mut required: Vec<_> = self
             .pending_restore
@@ -611,7 +607,7 @@ impl GarageRuntime {
             },
             driving_assists: self.driving_assists,
             schema_version: SAVE_SCHEMA_VERSION,
-            inventory: self.area.capture_inventory(&ids)?,
+            inventory: self.area.capture_inventory(ids)?,
             saved_at: saved_at.into(),
             source: source.clone(),
             world,
@@ -627,35 +623,41 @@ impl GarageRuntime {
                 {
                     None
                 } else {
-                    self.area.interaction.capture_carry_save(&ids)?
+                    self.area
+                        .interaction
+                        .capture_carry_save(ids, &self.area.items)?
                 },
             )?,
             needs: self.survival.capture_save(),
             hearing: self.hearing.capture_save(),
             bodies: self.area.capture_save(
                 reference,
-                &ids,
+                ids,
                 origin,
                 &self.physics,
                 &self.persistent_world,
             )?,
             items: self.area.items.capture_save(
-                &ids,
+                ids,
                 origin,
                 &self.physics,
                 &self.area.interaction,
                 reference,
             )?,
             attachments: AttachmentsSnapshot {
-                parts: self.area.interaction.parts.capture_save(&ids)?,
+                parts: self
+                    .area
+                    .interaction
+                    .parts
+                    .capture_save(ids, &self.area.items)?,
             },
-            mechanisms: self.area.interaction.capture_save(&ids)?,
+            mechanisms: self.area.interaction.capture_save(ids)?,
             progress: ProgressSnapshot {
                 selected_vehicle: self.vehicle.clone(),
                 start_attempts: self.attempts.to_string(),
                 driven_km: self.driven_km,
             },
-            lighting: self.lighting.capture_save(&reference.lighting, &ids)?,
+            lighting: self.lighting.capture_save(&reference.lighting, ids)?,
             spawned: self.area.spawned.capture_save(
                 reference,
                 &self.area.items,
@@ -682,7 +684,6 @@ impl GarageRuntime {
             }
         }
         snapshot.player.since_wake = self.sleep.since_wake(self.simulation_seconds);
-        snapshot.validate(reference, source)?;
         Ok(snapshot)
     }
 }
@@ -771,7 +772,7 @@ impl StartingArea {
                 .get(handle)
                 .ok_or_else(|| SaveError::InvalidLinks("Missing detached body".into()))?;
             let identity = BodyIdentity::Assembly {
-                root: ids.item_instance(item.id)?,
+                root: ids.item_instance(&self.items, item.id)?,
             };
             records.push(
                 world

@@ -491,6 +491,8 @@ pub struct GarageRuntime {
     pub audio: Option<crate::audio::AudioState>,
     pub persistent_world: crate::save::PersistentWorld,
     pending_restore: Option<save::PendingRestore>,
+    /// Source identities for save capture and restore. One map per session.
+    ids: crate::save::IdentityMap,
     pub lighting: crate::lighting::LightingState,
     /// The main depth of field focus.
     pub focus: crate::depth_of_field::Focus,
@@ -580,7 +582,9 @@ impl GarageRuntime {
         mode: crate::world::GameMode,
         draw_distance: f32,
     ) -> Result<Self, ReferenceError> {
-        Self::new_candidate(reference, true, mode.seed, mode, draw_distance)
+        let ids =
+            crate::save::IdentityMap::new(reference).map_err(|e| ReferenceError(e.to_string()))?;
+        Self::new_candidate(reference, ids, true, mode.seed, mode, draw_distance)
     }
     /// Test runtime in the default game mode at the export default draw distance.
     #[cfg(test)]
@@ -593,6 +597,7 @@ impl GarageRuntime {
     }
     fn new_candidate(
         reference: &ReferenceManifest,
+        ids: crate::save::IdentityMap,
         stream_world: bool,
         seed: i32,
         mode: crate::world::GameMode,
@@ -717,6 +722,7 @@ impl GarageRuntime {
             audio,
             persistent_world: crate::save::PersistentWorld::new(reference),
             pending_restore: None,
+            ids,
             physics,
             area,
             stream,

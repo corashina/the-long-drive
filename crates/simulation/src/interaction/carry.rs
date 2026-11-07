@@ -337,12 +337,13 @@ impl CarryState {
     pub fn capture_save(
         &self,
         ids: &crate::save::IdentityMap,
+        items: &crate::interaction::items::ItemStore,
     ) -> Result<Option<crate::save::CarrySnapshot>, crate::save::SaveError> {
         self.held
             .as_ref()
             .map(|held| {
                 Ok(crate::save::CarrySnapshot {
-                    item: ids.item_instance(held.item)?,
+                    item: ids.item_instance(items, held.item)?,
                     offset: held.offset.to_array(),
                     rotation: held.rotation.to_array(),
                     local_grip: crate::save::LocalPose {

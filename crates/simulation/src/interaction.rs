@@ -384,8 +384,9 @@ impl InteractionState {
     pub fn capture_carry_save(
         &self,
         ids: &crate::save::IdentityMap,
+        items: &items::ItemStore,
     ) -> Result<Option<crate::save::CarrySnapshot>, crate::save::SaveError> {
-        self.carry.capture_save(ids)
+        self.carry.capture_save(ids, items)
     }
     pub fn retained_binding_bytes(&self) -> usize {
         use memory::{map, set, vector};
