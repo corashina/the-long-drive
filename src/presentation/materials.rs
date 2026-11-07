@@ -1975,8 +1975,36 @@ pub struct MaterialCache {
     pub variants: std::collections::HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>,
     pub converted:
         std::collections::HashMap<(AssetId<StandardMaterial>, u32), Handle<SourceMaterial>>,
+    /// Outfit materials of the figures that bind after loading, such as a guest that joins during play.
+    /// Key: asset, figure, character, segment, reflected, mask. A figure that comes back takes the same materials.
+    outfits: HashMap<(source::AssetId, u8, u8, u8, bool, u32), OutfitMaterials>,
 }
-pub fn bind_materials(
+/// `playermodeloutfitscript.Refresh` makes one copy of the segment material with its own color.
+/// A disabled segment draws with the invisible material.
+fn late_outfit_materials(
+    slot: &OutfitSlot,
+    asset: source::AssetId,
+    reflected: bool,
+    mask: u32,
+    authored: &SourceMaterials,
+    retained: &RetainedColors,
+    materials: &mut Assets<SourceMaterial>,
+) -> OutfitMaterials {
+    let mut segment = authored_material((asset, slot.material), reflected, mask, authored);
+    retain(&mut segment, retained);
+    OutfitMaterials {
+        segment: materials.add(segment),
+        invisible: slot.invisible.map(|invisible| {
+            materials.add(authored_material(
+                (asset, invisible),
+                reflected,
+                mask,
+                authored,
+            ))
+        }),
+    }
+}
+pub(crate) fn bind_materials(
     mut commands: Commands,
     visuals: Res<super::reference::ReferenceVisuals>,
     originals: Res<Assets<StandardMaterial>>,
@@ -1996,14 +2024,17 @@ pub fn bind_materials(
             &GlobalTransform,
             Option<&GltfExtras>,
             Option<&super::renderer_visibility::SourceRenderer>,
+            Option<&OutfitSlot>,
         ),
         (With<Mesh3d>, Without<super::sky::SkyMesh>),
     >,
+    retained: Res<RetainedColors>,
 ) {
     if !visuals.bound || !renderer_meshes.bound || !authored.textures_ready() {
         return;
     }
-    for (entity, handle, layers, shadow_mode, parent, extras, global, primitive, renderer) in &query
+    for (entity, handle, layers, shadow_mode, parent, extras, global, primitive, renderer, slot) in
+        &query
     {
         if shadow_mode.is_none()
             && parent.is_some_and(|parent| imported_nodes.contains(parent.parent()))
@@ -2069,6 +2100,42 @@ pub fn bind_materials(
                     .insert((sort, bevy::render::batching::NoAutomaticBatching));
             }
         }
+        // A figure that binds after loading takes its own outfit materials here.
+        let material = match (slot, extras) {
+            (Some(slot), Some(extras)) => {
+                let identity: MaterialIdentity = serde_json::from_str(&extras.value)
+                    .expect("validated source material identity");
+                let reflected = global.affine().matrix3.determinant() < 0.;
+                let outfit = cache
+                    .outfits
+                    .entry((
+                        identity.asset,
+                        slot.figure,
+                        slot.character,
+                        slot.segment,
+                        reflected,
+                        mask,
+                    ))
+                    .or_insert_with(|| {
+                        late_outfit_materials(
+                            slot,
+                            identity.asset,
+                            reflected,
+                            mask,
+                            &authored,
+                            &retained,
+                            &mut materials,
+                        )
+                    });
+                let segment = outfit.segment.clone();
+                commands.entity(entity).insert(OutfitMaterials {
+                    segment: segment.clone(),
+                    invisible: outfit.invisible.clone(),
+                });
+                segment
+            }
+            _ => material,
+        };
         commands
             .entity(entity)
             .remove::<MeshMaterial3d<StandardMaterial>>()
