@@ -227,11 +227,9 @@ pub(crate) fn prepare_sky(
         return;
     }
     if let Some(pass) = existing {
-        if let Some(error) = super::postprocessing::named_pipeline_failure(
-            &cache,
-            &pass.pipelines,
-            "Source sky pipeline",
-        ) {
+        if let Some(error) =
+            super::fullscreen::failure(&cache, &pass.pipelines, "Source sky pipeline")
+        {
             status.fail(error);
         }
         return;

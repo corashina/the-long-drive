@@ -135,31 +135,10 @@ struct ImpostorFragment {
 }
 
 #ifndef PREPASS_PIPELINE
-#import "shaders/source_lighting.wgsl"::{lamp_lighting, receiver, cookie_uv_gradient, cookies, cookie_sampler, attenuation, default_cookie, default_sampler, attenuation_sampler}
+#import "shaders/source_lighting.wgsl"::{lamp_lighting, source_brdf, receiver, cookie_uv_gradient, cookies, cookie_sampler, attenuation, default_cookie, default_sampler, attenuation_sampler}
 #import source_view_lighting::{lighting, diffuse_sh, direct_attenuation, lamp_shadow, fog_factor, sun_cookie, sun_cookie_sampler}
 
 
-fn pow5(value: f32) -> f32 { let square = value * value; return square * square * value; }
-
-// Unity 2021.3 BRDF1_Unity_PBS, Linear color space, desktop GGX branch.
-fn source_brdf(diffuse: vec3<f32>, specular: vec3<f32>, smoothness: f32, normal: vec3<f32>, view: vec3<f32>, light: vec3<f32>) -> vec3<f32> {
-    let half_sum = light + view;
-    let half_dir = half_sum * inverseSqrt(max(dot(half_sum, half_sum), 0.001));
-    let nv = abs(dot(normal, view));
-    let nl = clamp(dot(normal, light), 0.0, 1.0);
-    let nh = clamp(dot(normal, half_dir), 0.0, 1.0);
-    let lh = clamp(dot(light, half_dir), 0.0, 1.0);
-    let perceptual = 1.0 - smoothness;
-    let roughness = max(perceptual * perceptual, 0.002);
-    let fd90 = 0.5 + 2.0 * lh * lh * perceptual;
-    let disney = (1.0 + (fd90 - 1.0) * pow5(1.0 - nl)) * (1.0 + (fd90 - 1.0) * pow5(1.0 - nv));
-    let visibility = 0.5 / (nl * (nv * (1.0 - roughness) + roughness) + nv * (nl * (1.0 - roughness) + roughness) + 0.00001);
-    let a2 = roughness * roughness;
-    let d = (nh * a2 - nh) * nh + 1.0;
-    var specular_term = max(0.0, visibility * a2 / (d * d + 0.0000001) * nl);
-    let fresnel = specular + (vec3(1.0) - specular) * pow5(1.0 - lh);
-    return diffuse * disney * nl + specular_term * fresnel;
-}
 
 
 #import bevy_pbr::{pbr_types::pbr_input_new}
@@ -228,7 +207,7 @@ fn fragment(in:ImpostorOutput)->ImpostorFragment {
     let diffuse=albedo*(1.-max(specular.r,max(specular.g,specular.b)));
     var light=diffuse*diffuse_sh(normal)*occlusion+emission;
     let depth=max(-position.z,0.);
-    light+=source_brdf(diffuse,specular,smoothness,pbr.N,pbr.V,lighting.direction_to_sun.xyz)*lighting.sun_radiance.rgb*direct_attenuation(pbr.world_position.xyz,depth,impostor.renderer.z != 0u);
+    light+=source_brdf(diffuse,specular,smoothness,pbr.N,pbr.V,lighting.direction_to_sun.xyz, true)*lighting.sun_radiance.rgb*direct_attenuation(pbr.world_position.xyz,depth,impostor.renderer.z != 0u);
     let world_dx = dpdx(pbr.world_position);
     let world_dy = dpdy(pbr.world_position);
     for (var i = 0u; i < lamp_lighting.counts.x; i += 1u) {
@@ -266,7 +245,7 @@ fn fragment(in:ImpostorOutput)->ImpostorFragment {
                 weight *= textureSampleGrad(cookies, cookie_sampler, array_uv, i32(lamp.cookie_rect.x) - 3, uv_dx * scale, uv_dy * scale).a;
             }
         }
-        light += source_brdf(diffuse, specular, smoothness, pbr.N, pbr.V, direction) * lamp.color.rgb * weight;
+        light += source_brdf(diffuse, specular, smoothness, pbr.N, pbr.V, direction, true) * lamp.color.rgb * weight;
     }
     let clip_z=(view.clip_from_world*pbr.world_position).z;
     let fog=fog_factor(clip_z,lighting.near_far.x,lighting.near_far.y);

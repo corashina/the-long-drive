@@ -1,5 +1,6 @@
 //! One persistent interleaved AO draw per scale over the source depth phase arrays.
 use super::ao_depth::{AoDepthPass, AoDepthTarget};
+use crate::presentation::fullscreen::{self, FullscreenPass};
 use crate::presentation::uniform_slots::UniformSlots;
 use bevy::prelude::*;
 use bevy::render::{
@@ -124,26 +125,13 @@ impl AoRenderPass {
         // Pipeline descriptors do not depend on the physical extent.
         let pipeline = previous.map_or_else(
             || {
-                cache.queue_render_pipeline(RenderPipelineDescriptor {
-                    label: Some("source_ao_interleaved".into()),
-                    layout: vec![layout],
-                    vertex: VertexState {
-                        shader: shader.clone(),
-                        entry_point: Some("vertex".into()),
-                        ..default()
-                    },
-                    fragment: Some(FragmentState {
-                        shader,
-                        entry_point: Some("render".into()),
-                        targets: vec![Some(ColorTargetState {
-                            format: TextureFormat::R8Unorm,
-                            blend: None,
-                            write_mask: ColorWrites::RED,
-                        })],
-                        ..default()
-                    }),
-                    ..default()
-                })
+                cache.queue_render_pipeline(fullscreen::descriptor(
+                    "source_ao_interleaved",
+                    &layout,
+                    &shader,
+                    "render",
+                    vec![fullscreen::target(TextureFormat::R8Unorm, ColorWrites::RED)],
+                ))
             },
             |pass| pass.pipeline,
         );
@@ -157,12 +145,6 @@ impl AoRenderPass {
             thickness: sample_thickness,
             atlas_width: depth.tiled.iter().map(|t| t.extent[0]).collect(),
         })
-    }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        cache.get_render_pipeline(self.pipeline).is_some()
-    }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        super::named_pipeline_failure(cache, &[self.pipeline], "Source AO interleaved pipeline")
     }
     pub fn encode(
         &mut self,
@@ -188,25 +170,22 @@ impl AoRenderPass {
             self.uniforms.set(i, &self.params[i]);
         }
         self.uniforms.upload(queue);
-        for i in 0..self.output.len() {
-            let colors = [Some(RenderPassColorAttachment {
-                view: &self.output[i].view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations {
-                    load: LoadOp::Clear(Default::default()),
-                    store: StoreOp::Store,
-                },
-            })];
-            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("source_ao_interleaved"),
-                color_attachments: &colors,
-                ..default()
-            });
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, &self.bindings[i], &[]);
-            pass.draw(0..3, 0..1);
+        for (output, binding) in self.output.iter().zip(&self.bindings) {
+            fullscreen::draw(
+                encoder,
+                "source_ao_interleaved",
+                pipeline,
+                binding,
+                &[&output.view],
+                fullscreen::CLEAR,
+            );
         }
         Ok(true)
+    }
+}
+impl FullscreenPass for AoRenderPass {
+    const NAME: &'static str = "Source AO interleaved pipeline";
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        std::slice::from_ref(&self.pipeline)
     }
 }

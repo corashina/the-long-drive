@@ -244,11 +244,9 @@ pub(crate) fn prepare_clouds(
     antialiasing: Res<super::antialiasing::Antialiasing>,
 ) {
     if let Some(pass) = existing {
-        if let Some(error) = super::postprocessing::named_pipeline_failure(
-            &cache,
-            &[pass.pipeline],
-            "Source cloud pipeline",
-        ) {
+        if let Some(error) =
+            super::fullscreen::failure(&cache, &[pass.pipeline], "Source cloud pipeline")
+        {
             status.fail(error);
         }
         return;

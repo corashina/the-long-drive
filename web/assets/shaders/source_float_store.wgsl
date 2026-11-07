@@ -37,3 +37,5 @@ fn source_sat(value: f32) -> f32 {
     else if magnitude > 0x3f800000u { result = 0x3f800000u; }
     return bitcast<f32>(result);
 }
+fn sat3(v: vec3<f32>) -> vec3<f32> { return vec3(source_sat(v.x), source_sat(v.y), source_sat(v.z)); }
+fn positive(v: vec3<f32>) -> vec3<f32> { return vec3(source_max(v.x, 0.), source_max(v.y, 0.), source_max(v.z, 0.)); }

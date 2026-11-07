@@ -1,4 +1,5 @@
 //! Source AO depth storage. Allocate once per physical extent and scale count.
+use crate::presentation::fullscreen::{self, FullscreenPass};
 use crate::presentation::uniform_slots::UniformSlots;
 use bevy::prelude::*;
 use bevy::render::{
@@ -170,35 +171,16 @@ impl AoDepthPass {
                         1 => ("downsample", &[TextureFormat::R32Float]),
                         _ => ("tile_depth", &[TextureFormat::Rgba16Float; 4]),
                     };
-                    cache.queue_render_pipeline(RenderPipelineDescriptor {
-                        label: Some(format!("source_ao_{entry}_{index}").into()),
-                        layout: vec![if index == 0 {
-                            copy_layout.clone()
-                        } else {
-                            layout.clone()
-                        }],
-                        vertex: VertexState {
-                            shader: shader.clone(),
-                            entry_point: Some("vertex".into()),
-                            ..default()
-                        },
-                        fragment: Some(FragmentState {
-                            shader: shader.clone(),
-                            entry_point: Some(entry.into()),
-                            targets: formats
-                                .iter()
-                                .map(|&format| {
-                                    Some(ColorTargetState {
-                                        format,
-                                        blend: None,
-                                        write_mask: ColorWrites::ALL,
-                                    })
-                                })
-                                .collect(),
-                            ..default()
-                        }),
-                        ..default()
-                    })
+                    cache.queue_render_pipeline(fullscreen::descriptor(
+                        format!("source_ao_{entry}_{index}"),
+                        if index == 0 { &copy_layout } else { &layout },
+                        &shader,
+                        entry,
+                        formats
+                            .iter()
+                            .map(|&format| fullscreen::target(format, ColorWrites::ALL))
+                            .collect(),
+                    ))
                 })
             },
             |pass| pass.pipelines,
@@ -247,14 +229,6 @@ impl AoDepthPass {
             uniforms,
         })
     }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        self.pipelines
-            .iter()
-            .all(|&id| cache.get_render_pipeline(id).is_some())
-    }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        super::named_pipeline_failure(cache, &self.pipelines, "Source AO depth pipeline")
-    }
     pub fn encode(
         &mut self,
         encoder: &mut CommandEncoder,
@@ -301,29 +275,21 @@ impl AoDepthPass {
         cache: &PipelineCache,
         pipeline: usize,
         binding: usize,
-        views: &[&TextureView],
+        views: &[&WgpuTextureView],
     ) {
-        let attachments: [Option<RenderPassColorAttachment>; 4] = std::array::from_fn(|index| {
-            views.get(index).map(|&view| RenderPassColorAttachment {
-                view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations {
-                    load: LoadOp::Clear(Default::default()),
-                    store: StoreOp::Store,
-                },
-            })
-        });
-        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("source_ao_depth"),
-            color_attachments: &attachments[..views.len()],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        pass.set_pipeline(cache.get_render_pipeline(self.pipelines[pipeline]).unwrap());
-        pass.set_bind_group(0, &self.bindings[binding], &[]);
-        pass.draw(0..3, 0..1);
+        fullscreen::draw(
+            encoder,
+            "source_ao_depth",
+            cache.get_render_pipeline(self.pipelines[pipeline]).unwrap(),
+            &self.bindings[binding],
+            views,
+            fullscreen::CLEAR,
+        );
+    }
+}
+impl FullscreenPass for AoDepthPass {
+    const NAME: &'static str = "Source AO depth pipeline";
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        &self.pipelines
     }
 }

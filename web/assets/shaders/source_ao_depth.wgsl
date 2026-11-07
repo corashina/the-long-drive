@@ -1,3 +1,4 @@
+#import source_float_store::half_store
 // Installed MultiScaleVO depth-copy and selected downsample kernels.
 // Four RGBA16F attachments retain sixteen scalar half-float phases.
 struct DepthParams {
@@ -12,22 +13,7 @@ fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     let uv = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
     return vec4(uv * 2.0 - vec2(1.0), 0.0, 1.0);
 }
-// D3D11.3 sections 3.2.2 and 22.4.9. Typed half stores truncate.
-// Return an exactly representable half value before the attachment conversion.
-fn half_store_bits(bits: u32) -> u32 {
-    let magnitude = bits & 0x7fffffffu;
-    let sign = bits & 0x80000000u;
-    if magnitude >= 0x7f800000u { return bits; }
-    if magnitude >= 0x477fe000u { return sign | 0x477fe000u; }
-    if magnitude >= 0x38800000u { return bits & 0xffffe000u; }
-    if magnitude < 0x33800000u { return sign; }
-    let discarded = 126u - (magnitude >> 23u);
-    return bits & ~((1u << discarded) - 1u);
-}
-fn half_store(value: f32) -> f32 {
-    // Keep branch merges integer-valued. ANGLE folds signed float zero returns.
-    return bitcast<f32>(half_store_bits(bitcast<u32>(value)));
-}
+// D3D11.3 sections 3.2.2 and 22.4.9: typed half stores truncate. `half_store` returns an exact half value.
 fn load_zero(p: vec2<i32>) -> f32 {
     if any(p < vec2(0)) || any(p >= vec2<i32>(textureDimensions(input_depth))) {
         return 0.0;

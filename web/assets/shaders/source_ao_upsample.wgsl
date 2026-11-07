@@ -1,3 +1,4 @@
+#import source_float_store::source_sat
 // Installed MultiScaleVOUpSample kernels 3 and 0, expressed as three fragment passes.
 // The native shared float caches become R32F halos. Raw inputs clamp before blur.
 struct UpsampleParams {
@@ -64,14 +65,6 @@ fn vertical(@builtin(position) position: vec4<f32>) -> @location(0) f32 {
     }
     return smart_blur(ao,inverse);
 }
-// D3D11.3 section 3.2.3.6. NaN becomes 0, and infinities clamp before UNorm storage.
-fn unorm_bits(bits: u32) -> u32 {
-    let magnitude = bits & 0x7fffffffu;
-    if magnitude > 0x7f800000u || (bits & 0x80000000u) != 0u { return 0u; }
-    if magnitude > 0x3f800000u { return 0x3f800000u; }
-    return bits;
-}
-fn unorm_value(value: f32) -> f32 { return bitcast<f32>(unorm_bits(bitcast<u32>(value))); }
 @fragment
 fn bilateral(@builtin(position) position: vec4<f32>) -> @location(0) f32 {
     let pixel=vec2<i32>(position.xy);
@@ -98,5 +91,6 @@ fn bilateral(@builtin(position) position: vec4<f32>) -> @location(0) f32 {
     }
     var high=1.0;
     if params.control.x!=0u { high=textureLoad(high_ao,pixel,0).r; }
-    return unorm_value((high*(dot(values,weights)+params.settings.x))/(dot(weights,vec4(1.0))+params.settings.x));
+    // D3D11.3 section 3.2.3.6: UNorm storage. The bit saturate maps NaN to 0.
+    return source_sat((high*(dot(values,weights)+params.settings.x))/(dot(weights,vec4(1.0))+params.settings.x));
 }

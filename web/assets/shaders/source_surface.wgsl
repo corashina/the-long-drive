@@ -15,7 +15,7 @@
 
 #import source_view_lighting::{lighting, diffuse_sh, indirect_specular, direct_attenuation, lamp_shadow, fog_factor, sun_cookie, sun_cookie_sampler}
 
-#import "shaders/source_lighting.wgsl"::{lamp_lighting, object_first_light, receiver, cookie_uv_gradient, cookies, cookie_sampler, attenuation, default_cookie, default_sampler, attenuation_sampler}
+#import "shaders/source_lighting.wgsl"::{lamp_lighting, source_brdf, object_first_light, receiver, cookie_uv_gradient, cookies, cookie_sampler, attenuation, default_cookie, default_sampler, attenuation_sampler}
 
 struct SourceUniform {
     color: vec4<f32>,
@@ -81,28 +81,6 @@ fn source_normal(sampled: vec4<f32>, scale: f32) -> vec3<f32> {
     let rg = vec2(sampled.r * sampled.a, sampled.g);
     let xy = (rg * 2.0 - 1.0) * scale;
     return vec3(xy, sqrt(1.0 - clamp(dot(xy, xy), 0.0, 1.0)));
-}
-fn pow5(value: f32) -> f32 { let square = value * value; return square * square * value; }
-
-// Unity 2021.3 BRDF1_Unity_PBS, Linear color space, desktop GGX branch.
-fn source_brdf(diffuse: vec3<f32>, specular: vec3<f32>, smoothness: f32, normal: vec3<f32>, view: vec3<f32>, light: vec3<f32>) -> vec3<f32> {
-    let half_sum = light + view;
-    let half_dir = half_sum * inverseSqrt(max(dot(half_sum, half_sum), 0.001));
-    let nv = abs(dot(normal, view));
-    let nl = clamp(dot(normal, light), 0.0, 1.0);
-    let nh = clamp(dot(normal, half_dir), 0.0, 1.0);
-    let lh = clamp(dot(light, half_dir), 0.0, 1.0);
-    let perceptual = 1.0 - smoothness;
-    let roughness = max(perceptual * perceptual, 0.002);
-    let fd90 = 0.5 + 2.0 * lh * lh * perceptual;
-    let disney = (1.0 + (fd90 - 1.0) * pow5(1.0 - nl)) * (1.0 + (fd90 - 1.0) * pow5(1.0 - nv));
-    let visibility = 0.5 / (nl * (nv * (1.0 - roughness) + roughness) + nv * (nl * (1.0 - roughness) + roughness) + 0.00001);
-    let a2 = roughness * roughness;
-    let d = (nh * a2 - nh) * nh + 1.0;
-    var specular_term = max(0.0, visibility * a2 / (d * d + 0.0000001) * nl);
-    if source_flag(6u) { specular_term = 0.0; }
-    let fresnel = specular + (vec3(1.0) - specular) * pow5(1.0 - lh);
-    return diffuse * disney * nl + specular_term * fresnel;
 }
 
 struct SourceBase {
@@ -310,7 +288,7 @@ fn fragment(
     let view_depth = -(mesh_view_bindings::view.view_from_world * in.world_position).z;
     let receive_shadows = (u32(source_renderer.y) & 2u) != 0u;
     let sun_attenuation = direct_attenuation(in.world_position.xyz,view_depth,receive_shadows);
-    var direct = source_brdf(diffuse,specular,smoothness,pbr.N,pbr.V,lighting.direction_to_sun.xyz)*lighting.sun_radiance.xyz*sun_attenuation;
+    var direct = source_brdf(diffuse,specular,smoothness,pbr.N,pbr.V,lighting.direction_to_sun.xyz, !source_flag(6u))*lighting.sun_radiance.xyz*sun_attenuation;
     let world_dx = dpdx(in.world_position);
     let world_dy = dpdy(in.world_position);
     // Visit low bits first. Floating-point accumulation keeps source slot order.
@@ -356,7 +334,7 @@ fn fragment(
                 weight *= textureSampleGrad(cookies, cookie_sampler, array_uv, i32(lamp.cookie_rect.x) - 3, uv_dx * scale, uv_dy * scale).a;
             }
         }
-        direct += source_brdf(diffuse, specular, smoothness, pbr.N, pbr.V, direction) * lamp.color.rgb * weight;
+        direct += source_brdf(diffuse, specular, smoothness, pbr.N, pbr.V, direction, !source_flag(6u)) * lamp.color.rgb * weight;
     }
     let added = vec4(direct * fog, output_alpha);
 #ifdef SOURCE_FORWARD_ADD

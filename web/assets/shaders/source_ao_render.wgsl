@@ -1,3 +1,4 @@
+#import source_float_store
 // Installed MultiScaleVORender_interleaved, kernel1.
 // Scalar source slices map to RGBA phase X and array layer phase Y.
 struct AoParams {
@@ -65,14 +66,6 @@ fn pattern(center: vec2<i32>, phase: vec2<i32>, offset: vec2<i32>, inv_depth: f3
     }
     return result;
 }
-// D3D11.3 section 3.2.3.6. NaN becomes 0, and infinities clamp before UNorm storage.
-fn unorm_bits(bits: u32) -> u32 {
-    let magnitude = bits & 0x7fffffffu;
-    if magnitude > 0x7f800000u || (bits & 0x80000000u) != 0u { return 0u; }
-    if magnitude > 0x3f800000u { return 0x3f800000u; }
-    return bits;
-}
-fn unorm_value(value: f32) -> f32 { return bitcast<f32>(unorm_bits(bitcast<u32>(value))); }
 @fragment
 fn render(@builtin(position) position: vec4<f32>) -> @location(0) f32 {
     let pixel = vec2<i32>(position.xy);
@@ -87,5 +80,6 @@ fn render(@builtin(position) position: vec4<f32>) -> @location(0) f32 {
     result = fma(pattern(center, phase, vec2(3,3), inv_depth, 11u) * params.weights[2].w, 0.5, result);
     result = fma(pattern(center, phase, vec2(1,3), inv_depth, 6u) * params.weights[1].z, 0.25, result);
     result = fma(pattern(center, phase, vec2(2,4), inv_depth, 10u) * params.weights[2].z, 0.25, result);
-    return unorm_value(fma(params.settings.y, result - 1.0, 1.0));
+    // D3D11.3 section 3.2.3.6: UNorm storage. The bit saturate maps NaN to 0.
+    return source_float_store::source_sat(fma(params.settings.y, result - 1.0, 1.0));
 }

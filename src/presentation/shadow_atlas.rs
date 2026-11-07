@@ -195,7 +195,7 @@ fn prepare_pipelines(
 ) {
     if let Some(pipelines) = pipelines {
         let ids = [pipelines.clear, pipelines.restore];
-        if let Some(error) = super::postprocessing::pipeline_failure(&cache, &ids) {
+        if let Some(error) = super::fullscreen::failure(&cache, &ids, super::fullscreen::EFFECT) {
             status.fail(error);
         }
         return;
