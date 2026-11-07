@@ -180,8 +180,11 @@ struct OpeningRules {
 }
 /// Source `tankcapscript.openSound`, `closeSound`, `tekerSound` and their volumes.
 /// `USE` and `TUNE` play them with `mainscript.PlayClipAtPoint` at the cap.
+/// `PlayFillSound` plays the `SSource` of the cap component `source` up to `fill_volume`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CapClips {
+    pub source: crate::reference::SourceId,
+    pub fill_volume: f32,
     pub open: Option<crate::reference::SourceId>,
     pub close: Option<crate::reference::SourceId>,
     pub tune: Option<crate::reference::SourceId>,
@@ -1225,6 +1228,8 @@ impl InteractionState {
                 reference.language.names.len(),
             )?,
             clips: Some(CapClips {
+                source: definition.cap.clone(),
+                fill_volume: number(cap_record, "maxVolume")?,
                 open: link(cap_record, "openSound"),
                 close: link(cap_record, "closeSound"),
                 tune: link(cap_record, "tekerSound"),
@@ -1372,6 +1377,31 @@ impl InteractionState {
     }
     pub fn opening_valves(&self) -> impl Iterator<Item = (OpeningId, f32)> + '_ {
         self.openings.iter().map(|o| (o.reference.id, o.valve))
+    }
+    /// Generated caps with their clips, cap item, flow and source fill flags.
+    pub fn generated_flows(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            OpeningId,
+            ItemId,
+            &CapClips,
+            Option<(bool, f32)>,
+            bool,
+            bool,
+        ),
+    > {
+        self.openings.iter().filter_map(|o| {
+            let clips = o.reference.clips.as_ref()?;
+            Some((
+                o.reference.id,
+                o.reference.cap,
+                clips,
+                o.flow,
+                o.fill_called,
+                o.empty_pour,
+            ))
+        })
     }
     /// The clips and the cap item of a generated cap.
     pub fn cap_clips(&self, id: OpeningId) -> Option<(&CapClips, ItemId)> {
