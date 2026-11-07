@@ -31,6 +31,7 @@ use lamps::LampSync;
 use message::{BodyMessage, BrokeMessage, Message, PoseMessage};
 use mounts::MountSync;
 use objects::ObjectIndex;
+use rapier3d::math::Vector;
 use remote::Remote;
 use state::StateSync;
 use world::WorldSync;
@@ -80,13 +81,14 @@ pub struct Net {
     figures: Vec<(u8, rapier3d::math::Pose)>,
     /// Peers that left since the last frame.
     left: Vec<u8>,
-    /// A new guest still stands on the host spot.
-    step_aside: bool,
+    /// The player stands on its base: the garage after a join, or the respawn base. It moves
+    /// to a free spot once the world there stands.
+    place: bool,
 }
 
 impl Net {
     pub fn set_session(&mut self, role: NetRole, slot: u8) {
-        self.step_aside = role == NetRole::Guest;
+        self.place = role == NetRole::Guest;
         self.role = role;
         self.slot = slot;
         self.items.slot = slot;
@@ -108,10 +110,8 @@ impl Net {
     }
     /// Marks `runtime` for the role before each step, also the first after a load. Source
     /// `isServerOrNoMulti`. A guest spawns no rabbits or weeds. Guest spawn serials start at
-    /// `slot << 24`, so a host spawn never takes the serial of a guest spawn. A new guest steps off
-    /// the host spot once its world stands. `world_supported` waits for the save restore, so the
-    /// saved seat is back first. Attachments to far owners can stay deferred for the whole session,
-    /// so they do not hold the step.
+    /// `slot << 24`, so a host spawn never takes the serial of a guest spawn. A player on its base
+    /// moves to a free spot once its world stands.
     pub fn prepare(&mut self, runtime: &mut GarageRuntime) {
         runtime.net_guest = self.role == NetRole::Guest;
         runtime.online = self.role != NetRole::Off;
@@ -121,10 +121,36 @@ impl Net {
                 .spawned
                 .reserve_serials(u32::from(self.slot) << 24);
         }
-        if self.step_aside && settled(runtime) {
-            self.step_aside = false;
-            runtime.step_aside(f32::from(self.slot) / MAX_PLAYERS as f32);
+        if self.place && settled(runtime) {
+            self.place = false;
+            let others: Vec<Vector> = self.figures.iter().map(|(_, p)| p.translation).collect();
+            runtime.place(f32::from(self.slot) / MAX_PLAYERS as f32, &others);
         }
+    }
+    /// The dead player respawns near the nearest living other player, or in the garage when
+    /// there is none. `prepare` then moves it to a free spot.
+    pub fn respawn(&mut self, reference: &ReferenceManifest, runtime: &mut GarageRuntime) {
+        if !runtime.needs_output().dead {
+            return;
+        }
+        let at = Vector::from_array(runtime.area.player.body_pose(&runtime.physics).position);
+        let base = self
+            .figures
+            .iter()
+            .filter(|(slot, _)| {
+                self.remotes
+                    .iter()
+                    .any(|r| r.slot == *slot && !r.smoothing.dead)
+            })
+            .map(|(_, pose)| *pose)
+            .min_by(|a, b| {
+                (a.translation - at)
+                    .length_squared()
+                    .total_cmp(&(b.translation - at).length_squared())
+            })
+            .unwrap_or_else(|| runtime.garage_spot(reference));
+        runtime.respawn(reference, base);
+        self.place = true;
     }
     pub fn role(&self) -> NetRole {
         self.role
@@ -514,10 +540,7 @@ impl Net {
 
 /// The world of `runtime` stands. `world_supported` waits for the save restore, so the saved seat
 /// is back first. Attachments to far owners can stay deferred for the whole session, so they do
-/// not count. The stream spawns the last seated car late, so the step also waits for it: the car
-/// must not spawn on the new spot.
+/// not count.
 fn settled(runtime: &GarageRuntime) -> bool {
-    runtime.started
-        && runtime.world_supported()
-        && (runtime.vehicle.is_none() || runtime.loaded_vehicle().is_some())
+    runtime.started && runtime.world_supported()
 }
