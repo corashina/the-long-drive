@@ -1,4 +1,5 @@
 //! Persistent source Gaussian cube filtering and final roughness remap.
+use super::fullscreen::{self, FullscreenPass, Samplers};
 use super::render_targets::{HDR_FORMAT, ProbeTargets};
 use crate::reference::reflections::{CUBE_BASES, source_filter_levels};
 use bevy::prelude::*;
@@ -21,11 +22,12 @@ struct FilterBinding {
     _uniform: UniformBuffer<FilterParams>,
     group: BindGroup,
 }
+const GAUSSIAN: usize = 0;
+const REMAP: usize = 1;
+const COPY: usize = 2;
+const CAPTURE: usize = 3;
 pub struct ProbeFilter {
-    gaussian: CachedRenderPipelineId,
-    remap: CachedRenderPipelineId,
-    copy: CachedRenderPipelineId,
-    capture: CachedRenderPipelineId,
+    pipelines: [CachedRenderPipelineId; 4],
     gaussian_bindings: [[FilterBinding; 6]; 6],
     remap_bindings: [[FilterBinding; 6]; 6],
     copy_bindings: [[FilterBinding; 6]; 7],
@@ -33,13 +35,14 @@ pub struct ProbeFilter {
 }
 impl ProbeFilter {
     pub fn pipelines(&self) -> [CachedRenderPipelineId; 4] {
-        [self.gaussian, self.remap, self.copy, self.capture]
+        self.pipelines
     }
     /// Buffers and bind groups are prepared once. Draws only borrow them.
     pub fn new(
         device: &RenderDevice,
         queue: &RenderQueue,
         cache: &PipelineCache,
+        samplers: &Samplers,
         shader: Handle<Shader>,
         targets: &ProbeTargets,
         capture: &TextureView,
@@ -64,28 +67,9 @@ impl ProbeFilter {
             ),
         );
         let pipeline = |entry: &'static str, layout: &BindGroupLayoutDescriptor| {
-            cache.queue_render_pipeline(RenderPipelineDescriptor {
-                label: Some(entry.into()),
-                layout: vec![layout.clone()],
-                vertex: VertexState {
-                    shader: shader.clone(),
-                    entry_point: Some("vertex".into()),
-                    ..default()
-                },
-                fragment: Some(FragmentState {
-                    shader: shader.clone(),
-                    entry_point: Some(entry.into()),
-                    targets: vec![Some(ColorTargetState {
-                        format: HDR_FORMAT,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    ..default()
-                }),
-                ..default()
-            })
+            fullscreen::queue(cache, entry, layout, &shader, entry, HDR_FORMAT)
         };
-        let [gaussian, remap, copy, capture_pipeline] = pipelines.unwrap_or_else(|| {
+        let pipelines = pipelines.unwrap_or_else(|| {
             [
                 pipeline("gaussian", &layout),
                 pipeline("remap", &layout),
@@ -93,13 +77,7 @@ impl ProbeFilter {
                 pipeline("capture", &capture_layout),
             ]
         });
-        let point = device.create_sampler(&SamplerDescriptor {
-            label: Some("source_probe_point"),
-            mag_filter: FilterMode::Nearest,
-            min_filter: FilterMode::Nearest,
-            mipmap_filter: MipmapFilterMode::Nearest,
-            ..default()
-        });
+        let point = &samplers.point;
         let linear = device.create_sampler(&SamplerDescriptor {
             label: Some("source_probe_trilinear"),
             mag_filter: FilterMode::Linear,
@@ -139,7 +117,7 @@ impl ProbeFilter {
                 } else {
                     &targets.auxiliary
                 };
-                make_binding(index + 1, face, &source.levels[index], &point, 0.)
+                make_binding(index + 1, face, &source.levels[index], point, 0.)
             })
         });
         let remap_bindings = std::array::from_fn(|index| {
@@ -155,7 +133,7 @@ impl ProbeFilter {
         });
         let copy_bindings = std::array::from_fn(|mip| {
             std::array::from_fn(|face| {
-                make_binding(mip, face, &targets.base.levels[mip], &point, 0.)
+                make_binding(mip, face, &targets.base.levels[mip], point, 0.)
             })
         });
         let capture_binding = device.create_bind_group(
@@ -164,27 +142,12 @@ impl ProbeFilter {
             &BindGroupEntries::with_indices(((3, capture),)),
         );
         Self {
-            gaussian,
-            remap,
-            copy,
-            capture: capture_pipeline,
+            pipelines,
             gaussian_bindings,
             remap_bindings,
             copy_bindings,
             capture_binding,
         }
-    }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        self.pipelines()
-            .into_iter()
-            .all(|id| cache.get_render_pipeline(id).is_some())
-    }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        super::postprocessing::named_pipeline_failure(
-            cache,
-            &self.pipelines(),
-            "Source probe pipeline",
-        )
     }
     pub fn capture_face(
         &self,
@@ -193,7 +156,7 @@ impl ProbeFilter {
         targets: &ProbeTargets,
         face: usize,
     ) -> bool {
-        let Some(pipeline) = cache.get_render_pipeline(self.capture) else {
+        let Some(pipeline) = cache.get_render_pipeline(self.pipelines[CAPTURE]) else {
             return false;
         };
         draw(
@@ -210,7 +173,7 @@ impl ProbeFilter {
         cache: &PipelineCache,
         targets: &ProbeTargets,
     ) -> bool {
-        let Some(pipeline) = cache.get_render_pipeline(self.copy) else {
+        let Some(pipeline) = cache.get_render_pipeline(self.pipelines[COPY]) else {
             return false;
         };
         for mip in 0..7 {
@@ -251,7 +214,7 @@ impl ProbeFilter {
         for mip in 2..7 {
             self.gaussian_mip(encoder, cache, targets, mip);
         }
-        let pipeline = cache.get_render_pipeline(self.copy).unwrap();
+        let pipeline = cache.get_render_pipeline(self.pipelines[COPY]).unwrap();
         for mip in [0, 2, 4, 6] {
             for face in 0..6 {
                 draw(
@@ -262,7 +225,7 @@ impl ProbeFilter {
                 );
             }
         }
-        let pipeline = cache.get_render_pipeline(self.remap).unwrap();
+        let pipeline = cache.get_render_pipeline(self.pipelines[REMAP]).unwrap();
         for index in 0..6 {
             for face in 0..6 {
                 draw(
@@ -287,7 +250,7 @@ impl ProbeFilter {
         } else {
             &targets.base
         };
-        let pipeline = cache.get_render_pipeline(self.gaussian).unwrap();
+        let pipeline = cache.get_render_pipeline(self.pipelines[GAUSSIAN]).unwrap();
         for face in 0..6 {
             draw(
                 encoder,
@@ -298,30 +261,24 @@ impl ProbeFilter {
         }
     }
 }
+impl FullscreenPass for ProbeFilter {
+    const NAME: &'static str = "Source probe pipeline";
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        &self.pipelines
+    }
+}
 fn draw(
     encoder: &mut CommandEncoder,
     pipeline: &RenderPipeline,
     group: &BindGroup,
     output: &TextureView,
 ) {
-    let attachments = [Some(RenderPassColorAttachment {
-        view: output,
-        depth_slice: None,
-        resolve_target: None,
-        ops: Operations {
-            load: LoadOp::Clear(LinearRgba::BLACK.into()),
-            store: StoreOp::Store,
-        },
-    })];
-    let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-        label: Some("source_probe_filter"),
-        color_attachments: &attachments,
-        depth_stencil_attachment: None,
-        timestamp_writes: None,
-        occlusion_query_set: None,
-        ..default()
-    });
-    pass.set_pipeline(pipeline);
-    pass.set_bind_group(0, group, &[]);
-    pass.draw(0..3, 0..1);
+    fullscreen::draw(
+        encoder,
+        "source_probe_filter",
+        pipeline,
+        group,
+        &[output],
+        Some(LinearRgba::BLACK),
+    );
 }

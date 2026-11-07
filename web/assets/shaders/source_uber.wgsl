@@ -1,4 +1,4 @@
-#import source_float_store::{half4, source_max, source_sat}
+#import source_float_store::{half4, sat3, source_max, source_sat}
 // Installed Uber4653 (main HDR), Uber4641 (main LDR) and Uber4251 (far and foreground), Linear project.
 // Installed Uber7101 (dead HDR: DISTORT, CHROMATIC_ABERRATION, VIGNETTE, GRAIN) for the volume effects.
 // Installed Custom/heathazeshader (blob 2) moves the main output. Here the Uber runs at the moved UV.
@@ -30,7 +30,6 @@ struct Params { extent: vec4<f32>, noise: vec4<f32>, bloom: vec4<f32>, tint: vec
 @group(0) @binding(14) var haze_noise: texture_2d<f32>;
 #endif
 fn f(bits:u32)->f32 { return bitcast<f32>(bits); }
-fn sat3(x:vec3<f32>)->vec3<f32> { return vec3(source_sat(x.x),source_sat(x.y),source_sat(x.z)); }
 fn safe_abs(x:vec3<f32>)->vec3<f32> { return vec3(source_max(abs(x.x),f(0x34000000u)),source_max(abs(x.y),f(0x34000000u)),source_max(abs(x.z),f(0x34000000u))); }
 fn linear_to_srgb(c:vec3<f32>)->vec3<f32> {
  let high=fma(exp2(log2(safe_abs(c))*f(0x3ed55555u)),vec3(f(0x3f870a3du)),vec3(f(0xbd6147aeu)));

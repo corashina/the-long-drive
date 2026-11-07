@@ -6,6 +6,7 @@ use super::surface_views::{
 use super::view_gate::{FrameFacts, ViewFacts, view_may_draw};
 use super::{
     frame_copy::FrameCopy,
+    fullscreen::{FullscreenPass, Samplers},
     lighting_assets::LightingRenderAssets,
     materials::RenderingState,
     probe_publication::ProbePublication,
@@ -165,7 +166,7 @@ impl HeldImage {
         cache: &PipelineCache,
         output: &WgpuTextureView,
     ) -> bool {
-        self.copy.encode(encoder, cache, output)
+        self.copy.encode(encoder, cache, output, 0, None)
     }
 }
 
@@ -324,6 +325,10 @@ impl Plugin for SourceFramePlugin {
                     .chain()
                     .in_set(RenderGraphSystems::Finish),
             );
+    }
+    // The render device exists from here on.
+    fn finish(&self, app: &mut App) {
+        app.sub_app_mut(RenderApp).init_resource::<Samplers>();
     }
 }
 
@@ -545,6 +550,7 @@ fn prepare_frame(
     sky_views: Query<&ExtractedView, With<SourceSkyCamera>>,
     frame: Res<SourceViewFrame>,
     antialiasing: Res<super::antialiasing::Antialiasing>,
+    samplers: Res<Samplers>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
@@ -656,10 +662,11 @@ fn prepare_frame(
         copy: FrameCopy::new(
             &device,
             &cache,
+            &samplers,
             assets.shaders.copy.clone(),
             &held_view,
             format,
-            "present",
+            &["present"],
         ),
         texture: held_texture,
         view: held_view,
@@ -683,6 +690,7 @@ fn prepare_mirror_copy(
     resources: Option<Res<SurfaceResources>>,
     assets: Option<Res<LightingRenderAssets>>,
     existing: Option<Res<MirrorCopy>>,
+    samplers: Res<Samplers>,
     device: Res<RenderDevice>,
     cache: Res<PipelineCache>,
     status: Res<RendererStateHandle>,
@@ -701,10 +709,11 @@ fn prepare_mirror_copy(
         copy: FrameCopy::new(
             &device,
             &cache,
+            &samplers,
             assets.shaders.copy.clone(),
             resources.targets.mirror.resolved.sampled.as_ref().unwrap(),
             TextureFormat::Rgba8Unorm,
-            "copy",
+            &["copy"],
         ),
     });
 }
@@ -1024,9 +1033,13 @@ fn finish_surface(
         ) else {
             return;
         };
-        mirrors
-            .copy
-            .encode(context.command_encoder(), &cache, &image.texture_view);
+        mirrors.copy.encode(
+            context.command_encoder(),
+            &cache,
+            &image.texture_view,
+            0,
+            None,
+        );
         return;
     }
     if source.index >= PROBE_START {
@@ -1621,6 +1634,7 @@ fn prepare_probe(
     assets: Option<Res<LightingRenderAssets>>,
     existing: Option<ResMut<ProbeFrame>>,
     frame: Res<SourceViewFrame>,
+    samplers: Res<Samplers>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
@@ -1667,6 +1681,7 @@ fn prepare_probe(
             &device,
             &queue,
             &cache,
+            &samplers,
             assets.shaders.probe.clone(),
             &surfaces.probes[index],
             surfaces.targets.capture.resolved.sampled.as_ref().unwrap(),

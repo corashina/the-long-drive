@@ -97,11 +97,8 @@ fn prepare(
         }));
         return;
     };
-    if let Some(error) = super::postprocessing::named_pipeline_failure(
-        &cache,
-        &[id],
-        "Source depth resolve pipeline",
-    ) {
+    if let Some(error) = super::fullscreen::failure(&cache, &[id], "Source depth resolve pipeline")
+    {
         status.fail(error);
     }
 }

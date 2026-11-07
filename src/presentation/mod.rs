@@ -62,6 +62,7 @@ pub(crate) mod crunch;
 pub mod depth_resolve;
 pub mod frame_copy;
 pub mod frame_graph;
+pub mod fullscreen;
 pub mod lighting_assets;
 pub mod lighting_scene;
 pub mod object_lighting;

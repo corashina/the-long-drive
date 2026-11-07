@@ -6,7 +6,6 @@ use super::{
     ao_render::AoRenderPass,
     ao_upsample::AoUpsamplePass,
     bloom::BloomPass,
-    copy::CopyPass,
     dof::DofPass,
     exposure::ExposurePass,
     grain::{GRAIN_BYTES, GrainPass},
@@ -16,6 +15,11 @@ use super::{
     uber::{MainInputs, UberPass},
 };
 use crate::display_settings::Lut;
+use crate::presentation::{
+    frame_copy::FrameCopy,
+    fullscreen::{self, FullscreenPass, Samplers},
+    render_targets::HDR_FORMAT,
+};
 use crate::reference::postprocessing::{
     DeadProfile, GlassesProfile, GradingSaturation, GradingSettings, Lens, PostprocessingRecord,
     Tonemapper,
@@ -153,7 +157,8 @@ pub struct SourcePostChain {
     pub resize_count: u32,
     /// The copy output without TAA. TAA reads the source and stops NaNs itself.
     initial: Option<ColorTarget>,
-    copy: CopyPass,
+    /// `copy`, then `copy_kill_nan`.
+    copy: FrameCopy,
     taa: Option<TaaPass>,
     dof: DofPass,
     /// The `DOF` volume lens, then the `tavcso` lens.
@@ -176,6 +181,7 @@ impl SourcePostChain {
         device: &RenderDevice,
         queue: &RenderQueue,
         cache: &PipelineCache,
+        samplers: &Samplers,
         shaders: &PostShaders,
         textures: &PostTextures<'_>,
         source: &TextureView,
@@ -216,7 +222,15 @@ impl SourcePostChain {
                     warn!("DeadV parameters that the port does not blend: {ignored:?}");
                 }
                 (
-                    CopyPass::new(device, cache, shaders.copy.clone(), source),
+                    FrameCopy::new(
+                        device,
+                        cache,
+                        samplers,
+                        shaders.copy.clone(),
+                        source,
+                        HDR_FORMAT,
+                        &["copy", "copy_kill_nan"],
+                    ),
                     None,
                     None,
                     None,
@@ -230,6 +244,7 @@ impl SourcePostChain {
             device,
             queue,
             cache,
+            samplers,
             shaders.dof.clone(),
             depth,
             motion
@@ -247,6 +262,7 @@ impl SourcePostChain {
                     device,
                     queue,
                     cache,
+                    samplers,
                     shaders.taa.clone(),
                     source,
                     depth,
@@ -303,6 +319,7 @@ impl SourcePostChain {
                 device,
                 queue,
                 cache,
+                samplers,
                 shaders.histogram.clone(),
                 scene,
                 extent[0],
@@ -327,6 +344,7 @@ impl SourcePostChain {
                 device,
                 queue,
                 cache,
+                samplers,
                 shaders.bloom.clone(),
                 scene,
                 exposure.views(),
@@ -342,6 +360,7 @@ impl SourcePostChain {
                     device,
                     queue,
                     cache,
+                    samplers,
                     shaders.lut.clone(),
                     &record.grading,
                 )?
@@ -353,6 +372,7 @@ impl SourcePostChain {
                         device,
                         queue,
                         cache,
+                        samplers,
                         shaders.lut_ldr.clone(),
                         textures.luts,
                         &grading,
@@ -395,6 +415,7 @@ impl SourcePostChain {
             device,
             queue,
             cache,
+            samplers,
             shaders.uber.clone(),
             scene,
             textures.noise,
@@ -535,7 +556,8 @@ impl SourcePostChain {
                 encoder,
                 cache,
                 dof_input.unwrap_or(&self.initial.as_ref().unwrap().view),
-                self.stop_nan,
+                usize::from(self.stop_nan),
+                fullscreen::CLEAR,
             );
         }
         if let Some(focus) = frame.focus {
@@ -703,6 +725,7 @@ impl SourceAoChain {
         device: &RenderDevice,
         queue: &RenderQueue,
         cache: &PipelineCache,
+        samplers: &Samplers,
         shaders: &PostShaders,
         camera_depth: &TextureView,
         extent: [u32; 2],
@@ -745,6 +768,7 @@ impl SourceAoChain {
             device,
             queue,
             cache,
+            samplers,
             shaders.ao_composite.clone(),
             &depth.copy.view,
             &upsample.output.last().unwrap().view,

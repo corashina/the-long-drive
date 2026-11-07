@@ -1,8 +1,9 @@
 //! Camera-local Uber output and persistent noise and exposure bindings.
 //! It also does the installed main camera heat haze (`postprocessingscript` with `Custom/heathazeshader`).
 //! The source haze moves the Uber output. Here the Uber runs at the moved UV, so no extra pass is necessary.
+use super::dither::DitherSequence;
 use super::grain::GRAIN_SIZE;
-use super::{dither::DitherSequence, pipeline_failure};
+use crate::presentation::fullscreen::{self, FullscreenPass, Samplers};
 use crate::presentation::render_targets::HELD_FORMAT;
 use crate::reference::{postprocessing::HeatHaze, stack_effects::StackEffects};
 use bevy::prelude::*;
@@ -76,6 +77,7 @@ impl UberPass {
         device: &RenderDevice,
         queue: &RenderQueue,
         cache: &PipelineCache,
+        samplers: &Samplers,
         shader: Handle<Shader>,
         source: &TextureView,
         noise: [&TextureView; 64],
@@ -141,27 +143,15 @@ impl UberPass {
                     if ldr {
                         shader_defs.push("SOURCE_UBER_LDR".into());
                     }
-                    cache.queue_render_pipeline(RenderPipelineDescriptor {
-                        label: Some("source_uber".into()),
-                        layout: vec![layout.clone()],
-                        vertex: VertexState {
-                            shader: shader.clone(),
-                            entry_point: Some("vertex".into()),
-                            ..default()
-                        },
-                        fragment: Some(FragmentState {
-                            shader: shader.clone(),
-                            entry_point: Some("uber".into()),
-                            shader_defs,
-                            targets: vec![Some(ColorTargetState {
-                                format: HELD_FORMAT,
-                                blend: None,
-                                write_mask: ColorWrites::ALL,
-                            })],
-                            ..default()
-                        }),
-                        ..default()
-                    })
+                    let mut descriptor = fullscreen::descriptor(
+                        "source_uber",
+                        &layout,
+                        &shader,
+                        "uber",
+                        vec![fullscreen::target(HELD_FORMAT, ColorWrites::ALL)],
+                    );
+                    descriptor.fragment.as_mut().unwrap().shader_defs = shader_defs;
+                    cache.queue_render_pipeline(descriptor)
                 })
             },
             |old| old.pipelines,
@@ -217,11 +207,6 @@ impl UberPass {
         }
         let mut uniform = UniformBuffer::from(params);
         uniform.write_buffer(device, queue);
-        let linear = device.create_sampler(&SamplerDescriptor {
-            min_filter: FilterMode::Linear,
-            mag_filter: FilterMode::Linear,
-            ..default()
-        });
         let point = device.create_sampler(&SamplerDescriptor {
             address_mode_u: AddressMode::Repeat,
             address_mode_v: AddressMode::Repeat,
@@ -240,7 +225,7 @@ impl UberPass {
                     uniform.binding().unwrap(),
                     source,
                     noise[i % 64],
-                    &linear,
+                    &samplers.linear,
                     &point,
                 ))
                 .to_vec();
@@ -374,14 +359,6 @@ impl UberPass {
             self.sequence = sequence;
         }
     }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        self.pipelines
-            .iter()
-            .all(|p| cache.get_render_pipeline(*p).is_some())
-    }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        pipeline_failure(cache, &self.pipelines)
-    }
     pub fn encode(
         &mut self,
         encoder: &mut CommandEncoder,
@@ -400,24 +377,20 @@ impl UberPass {
         self.pending = Some(sequence);
         self.uniform.get_mut().noise = Vec4::from_array(noise);
         self.uniform.write_buffer(device, queue);
-        let colors = [Some(RenderPassColorAttachment {
-            view: output,
-            depth_slice: None,
-            resolve_target: None,
-            ops: Operations {
-                load: LoadOp::Load,
-                store: StoreOp::Store,
-            },
-        })];
-        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("source_uber"),
-            color_attachments: &colors,
-            ..default()
-        });
         let pipeline = self.pipelines[usize::from(ldr)];
-        pass.set_pipeline(cache.get_render_pipeline(pipeline).unwrap());
-        pass.set_bind_group(0, &self.bindings[exposure_index * 64 + index], &[]);
-        pass.draw(0..3, 0..1);
+        fullscreen::draw(
+            encoder,
+            "source_uber",
+            cache.get_render_pipeline(pipeline).unwrap(),
+            &self.bindings[exposure_index * 64 + index],
+            &[output],
+            None,
+        );
         true
+    }
+}
+impl FullscreenPass for UberPass {
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        &self.pipelines
     }
 }

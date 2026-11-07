@@ -1,5 +1,5 @@
 //! Post stack v2 `GrainRenderer`: the colored grain lookup and its Halton offset for each grain frame.
-use super::pipeline_failure;
+use crate::presentation::fullscreen::{self, FullscreenPass};
 use bevy::prelude::*;
 use bevy::render::{
     render_resource::{binding_types::*, *},
@@ -52,26 +52,14 @@ impl GrainPass {
                 uniform_buffer::<Params>(false),
             ),
         );
-        let pipeline = cache.queue_render_pipeline(RenderPipelineDescriptor {
-            label: Some("source_grain".into()),
-            layout: vec![layout.clone()],
-            vertex: VertexState {
-                shader: shader.clone(),
-                entry_point: Some("vertex".into()),
-                ..default()
-            },
-            fragment: Some(FragmentState {
-                shader,
-                entry_point: Some("grain".into()),
-                targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::Rgba16Float,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                ..default()
-            }),
-            ..default()
-        });
+        let pipeline = fullscreen::queue(
+            cache,
+            "source_grain",
+            &layout,
+            &shader,
+            "grain",
+            TextureFormat::Rgba16Float,
+        );
         // `GrainNoiseParameters` are fixed. Each frame writes the phase.
         let mut uniform = UniformBuffer::from(Params {
             noise: Vec4::new(0., 12.9898, 78.233, 43758.547),
@@ -94,12 +82,6 @@ impl GrainPass {
     }
     pub fn output(&self) -> &TextureView {
         &self.view
-    }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        cache.get_render_pipeline(self.pipeline).is_some()
-    }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        pipeline_failure(cache, &[self.pipeline])
     }
     pub fn completed(&mut self) {
         if let Some(sample) = self.pending.take() {
@@ -125,24 +107,20 @@ impl GrainPass {
         });
         self.uniform.get_mut().noise.x = time % 10.;
         self.uniform.write_buffer(device, queue);
-        let colors = [Some(RenderPassColorAttachment {
-            view: &self.view,
-            depth_slice: None,
-            resolve_target: None,
-            ops: Operations {
-                load: LoadOp::Clear(default()),
-                store: StoreOp::Store,
-            },
-        })];
-        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("source_grain"),
-            color_attachments: &colors,
-            ..default()
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &self.binding, &[]);
-        pass.draw(0..3, 0..1);
+        fullscreen::draw(
+            encoder,
+            "source_grain",
+            pipeline,
+            &self.binding,
+            &[&self.view],
+            fullscreen::CLEAR,
+        );
         Some(offset)
+    }
+}
+impl FullscreenPass for GrainPass {
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        std::slice::from_ref(&self.pipeline)
     }
 }
 /// `HaltonSeq.Get`.

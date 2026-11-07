@@ -1,4 +1,5 @@
 //! Installed fast bloom pyramid, with persistent targets and source half stores.
+use crate::presentation::fullscreen::{self, FullscreenPass, Samplers};
 use crate::reference::postprocessing::BloomSettings;
 use bevy::prelude::*;
 use bevy::render::{
@@ -112,6 +113,7 @@ impl BloomPass {
         device: &RenderDevice,
         queue: &RenderQueue,
         cache: &PipelineCache,
+        samplers: &Samplers,
         shader: Handle<Shader>,
         source: &TextureView,
         exposure: [&TextureView; 2],
@@ -169,40 +171,18 @@ impl BloomPass {
             || {
                 std::array::from_fn(|i| {
                     let entry = ["prefilter", "downsample", "upsample"][i];
-                    cache.queue_render_pipeline(RenderPipelineDescriptor {
-                        label: Some(format!("source_bloom_{entry}").into()),
-                        layout: vec![bind_layout.clone()],
-                        vertex: VertexState {
-                            shader: shader.clone(),
-                            entry_point: Some("vertex".into()),
-                            ..default()
-                        },
-                        fragment: Some(FragmentState {
-                            shader: shader.clone(),
-                            entry_point: Some(entry.into()),
-                            targets: vec![Some(ColorTargetState {
-                                format: TextureFormat::Rgba16Float,
-                                blend: None,
-                                write_mask: ColorWrites::ALL,
-                            })],
-                            ..default()
-                        }),
-                        ..default()
-                    })
+                    fullscreen::queue(
+                        cache,
+                        format!("source_bloom_{entry}"),
+                        &bind_layout,
+                        &shader,
+                        entry,
+                        TextureFormat::Rgba16Float,
+                    )
                 })
             },
             |p| p.pipelines,
         );
-        let linear = device.create_sampler(&SamplerDescriptor {
-            label: Some("source_bloom_linear_clamp"),
-            min_filter: FilterMode::Linear,
-            mag_filter: FilterMode::Linear,
-            ..default()
-        });
-        let point = device.create_sampler(&SamplerDescriptor {
-            label: Some("source_exposure_point_clamp"),
-            ..default()
-        });
         let threshold = threshold_params(settings.threshold, settings.soft_knee);
         let clamp_value = gamma_to_linear(settings.clamp);
         let mut bindings = Vec::with_capacity(down.len() * 2 - 1);
@@ -223,8 +203,8 @@ impl BloomPass {
                         input,
                         higher,
                         exposure[exposure_index],
-                        &linear,
-                        &point,
+                        &samplers.linear,
+                        &samplers.point,
                     )),
                 )
             });
@@ -274,14 +254,6 @@ impl BloomPass {
             &self.up[0].view
         }
     }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        self.pipelines
-            .iter()
-            .all(|&p| cache.get_render_pipeline(p).is_some())
-    }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        super::named_pipeline_failure(cache, &self.pipelines, "Source bloom pipeline")
-    }
     pub fn encode(
         &self,
         encoder: &mut CommandEncoder,
@@ -298,24 +270,21 @@ impl BloomPass {
             } else {
                 (&self.up[2 * count - 2 - i], 2)
             };
-            let colors = [Some(RenderPassColorAttachment {
-                view: &target.view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations {
-                    load: LoadOp::Clear(default()),
-                    store: StoreOp::Store,
-                },
-            })];
-            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("source_bloom"),
-                color_attachments: &colors,
-                ..default()
-            });
-            pass.set_pipeline(cache.get_render_pipeline(self.pipelines[pipeline]).unwrap());
-            pass.set_bind_group(0, &self.bindings[i].groups[exposure_index], &[]);
-            pass.draw(0..3, 0..1);
+            fullscreen::draw(
+                encoder,
+                "source_bloom",
+                cache.get_render_pipeline(self.pipelines[pipeline]).unwrap(),
+                &self.bindings[i].groups[exposure_index],
+                &[&target.view],
+                fullscreen::CLEAR,
+            );
         }
         true
+    }
+}
+impl FullscreenPass for BloomPass {
+    const NAME: &'static str = "Source bloom pipeline";
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        &self.pipelines
     }
 }

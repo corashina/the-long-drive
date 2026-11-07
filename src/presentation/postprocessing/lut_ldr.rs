@@ -1,6 +1,7 @@
 //! Installed Lut2DBaker LutGenLDR: the LDR grading over a user LUT strip, baked into the 1024x32 ARGB32 strip.
 //! `postprocesscontrol` ILUT 1 and 2 select `LutC64` and `LutSepia`. Bake on change into persistent storage.
 use super::lut::{color_balance, trackball};
+use crate::presentation::fullscreen::{self, FullscreenPass, Samplers};
 use crate::reference::postprocessing::GradingSettings;
 use bevy::prelude::*;
 use bevy::render::{
@@ -87,6 +88,7 @@ impl LutLdrPass {
         device: &RenderDevice,
         queue: &RenderQueue,
         cache: &PipelineCache,
+        samplers: &Samplers,
         shader: Handle<Shader>,
         luts: [(&TextureView, [u32; 2]); 2],
         settings: &GradingSettings,
@@ -159,12 +161,7 @@ impl LutLdrPass {
             },
         );
         let curve_view = curves.create_view(&default());
-        let linear_clamp = device.create_sampler(&SamplerDescriptor {
-            label: Some("source_ldr_lut_linear_clamp"),
-            min_filter: FilterMode::Linear,
-            mag_filter: FilterMode::Linear,
-            ..default()
-        });
+        let linear_clamp = &samplers.linear;
         let layout = BindGroupLayoutDescriptor::new(
             "source_ldr_lut",
             &BindGroupLayoutEntries::sequential(
@@ -178,26 +175,14 @@ impl LutLdrPass {
                 ),
             ),
         );
-        let pipeline = cache.queue_render_pipeline(RenderPipelineDescriptor {
-            label: Some("source_ldr_lut".into()),
-            layout: vec![layout.clone()],
-            vertex: VertexState {
-                shader: shader.clone(),
-                entry_point: Some("vertex".into()),
-                ..default()
-            },
-            fragment: Some(FragmentState {
-                shader,
-                entry_point: Some("bake".into()),
-                targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::Rgba8Unorm,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                ..default()
-            }),
-            ..default()
-        });
+        let pipeline = fullscreen::queue(
+            cache,
+            "source_ldr_lut",
+            &layout,
+            &shader,
+            "bake",
+            TextureFormat::Rgba8Unorm,
+        );
         let mut uniform = UniformBuffer::from(Params::new(settings, user_extent));
         uniform.write_buffer(device, queue);
         let groups = luts.map(|(lut, _)| {
@@ -207,9 +192,9 @@ impl LutLdrPass {
                 &BindGroupEntries::sequential((
                     uniform.binding().unwrap(),
                     lut,
-                    &linear_clamp,
+                    linear_clamp,
                     &curve_view,
-                    &linear_clamp,
+                    linear_clamp,
                 )),
             )
         });
@@ -236,34 +221,24 @@ impl LutLdrPass {
     pub fn output(&self) -> &TextureView {
         &self.view
     }
-    pub fn ready(&self, cache: &PipelineCache) -> bool {
-        cache.get_render_pipeline(self.pipeline).is_some()
-    }
-    pub fn failure(&self, cache: &PipelineCache) -> Option<String> {
-        super::pipeline_failure(cache, &[self.pipeline])
-    }
     /// `lut` is ILUT - 1.
     pub fn encode(&self, encoder: &mut CommandEncoder, cache: &PipelineCache, lut: usize) -> bool {
         let Some(pipeline) = cache.get_render_pipeline(self.pipeline) else {
             return false;
         };
-        let colors = [Some(RenderPassColorAttachment {
-            view: &self.view,
-            depth_slice: None,
-            resolve_target: None,
-            ops: Operations {
-                load: LoadOp::Clear(default()),
-                store: StoreOp::Store,
-            },
-        })];
-        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("source_ldr_lut"),
-            color_attachments: &colors,
-            ..default()
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &self.groups[lut], &[]);
-        pass.draw(0..3, 0..1);
+        fullscreen::draw(
+            encoder,
+            "source_ldr_lut",
+            pipeline,
+            &self.groups[lut],
+            &[&self.view],
+            fullscreen::CLEAR,
+        );
         true
+    }
+}
+impl FullscreenPass for LutLdrPass {
+    fn pipeline_ids(&self) -> &[CachedRenderPipelineId] {
+        std::slice::from_ref(&self.pipeline)
     }
 }
