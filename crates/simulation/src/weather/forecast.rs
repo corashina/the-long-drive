@@ -90,7 +90,7 @@ pub struct Forecast {
     /// Game seconds until `next` is full at the player.
     pub wait: f32,
     random: StormRandom,
-    /// The last time of day and biome. `resume` picks with them.
+    /// The last time of day and the biome at the last change. `resume` picks with them.
     part: DayPart,
     biome: u8,
 }
@@ -120,14 +120,19 @@ impl Forecast {
     }
 
     /// Counts down `dt` game seconds. At 0 it returns the kind that is now full and picks the next.
-    /// One call gives one change at most.
-    pub fn advance(&mut self, dt: f32, part: DayPart, biome: u8) -> Option<WeatherKind> {
+    /// One call gives one change at most. It calls `biome` only at a change.
+    pub fn advance(
+        &mut self,
+        dt: f32,
+        part: DayPart,
+        biome: impl FnOnce() -> u8,
+    ) -> Option<WeatherKind> {
         self.part = part;
-        self.biome = biome;
         self.wait -= dt;
         if self.wait > 0. {
             return None;
         }
+        self.biome = biome();
         let arrived = self.next;
         self.resume(arrived);
         Some(arrived)
@@ -173,8 +178,8 @@ mod tests {
         let mut copy = Forecast::new(5);
         copy.restore(&forecast.snapshot());
         for _ in 0..20 {
-            forecast.advance(2000., DayPart::Dusk, 1);
-            copy.advance(2000., DayPart::Dusk, 1);
+            forecast.advance(2000., DayPart::Dusk, || 1);
+            copy.advance(2000., DayPart::Dusk, || 1);
             assert_eq!(forecast.snapshot(), copy.snapshot());
         }
     }
