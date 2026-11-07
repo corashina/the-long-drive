@@ -62,8 +62,8 @@ pub const VELOCITY: u8 = 19;
 pub const REMOVE: u8 = 48;
 /// Port only. The source sends an AI as a save item (`itemPosUpd`). Port rabbits are not items.
 pub const CREATURE: u8 = 64;
-/// Port only. The source shows no body of a dead peer.
-pub const RAGDOLL: u8 = 65;
+/// Port only. The source shows no body of a dead peer. `weather-types` takes 65 and 66.
+pub const RAGDOLL: u8 = 67;
 pub const HEADER: usize = 2;
 /// Outbox length prefix bit. With it, `web/net.js` sends the packet on the reliable connection.
 pub const RELIABLE: u16 = 0x8000;
