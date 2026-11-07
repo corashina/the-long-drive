@@ -6,7 +6,7 @@ export function formatBudget(used,limit,unit){
   : used.toLocaleString('en-US')+' / '+limit.toLocaleString('en-US');
 }
 
-// Weights follow the startup trace. Steps after `host` run at the same time. `join` steps show only in a Join reload.
+// Weights follow the startup trace. Steps after `host` run at the same time. `join` steps show only while the boot joins a room.
 export const STEPS=[
  {id:'download',label:'Download game data',weight:3,boot:true},
  {id:'code',label:'Start game code',weight:1,boot:true},
@@ -20,15 +20,14 @@ export const STEPS=[
 ];
 const MARK={waiting:'○',active:'●',done:'✓',failed:'✕'};
 
-// `room`: the room code of a Join reload, or ''. The card then shows the room, its players and the join steps.
-export function createLoading(room=''){
+// `join(code)` shows the room, its players and the join steps. The boot choice calls it.
+export function createLoading(){
  const root=document.querySelector('#loading-details'),heading=document.querySelector('#loading-phase');
  const bar=document.querySelector('#loading-progress'),list=document.querySelector('#loading-steps');
  const elapsed=document.querySelector('#loading-elapsed'),resources=document.querySelector('#loading-resources');
  const budgets=document.querySelector('#loading-budgets'),rows=new Map(),budgetValues=new Map();
  const roomNode=document.querySelector('#loading-room'),roomHost=document.querySelector('#loading-room-host');
- const roomPlayers=document.querySelector('#loading-room-players'),roomError=document.querySelector('#loading-room-error');
- document.querySelector('#loading-room-code').textContent=room;
+ const roomPlayers=document.querySelector('#loading-room-players'),roomCode=document.querySelector('#loading-room-code');
  const steps=STEPS.map(step=>{
   const node=document.createElement('li'),mark=document.createElement('span'),label=document.createElement('span'),count=document.createElement('span');
   label.textContent=step.label;node.append(mark,label,count);list.append(node);
@@ -69,8 +68,8 @@ export function createLoading(room=''){
  }
  function start(world=false){
   if(active)return;
-  // Only the first load of a Join reload joins. New game and Load reload the page.
-  joining=Boolean(room)&&!world;roomNode.hidden=!joining;roomError.hidden=true;
+  // Only the first load of a page joins. New game and Load reload the page.
+  if(world)joining=false;roomNode.hidden=!joining;
   active=true;worldOnly=world;percent=0;started=lastChange=performance.now();root.hidden=false;resources.hidden=true;
   budgetValues.clear();
   for(const node of rows.values())node.textContent='';
@@ -89,18 +88,19 @@ export function createLoading(room=''){
    const step=byId.get(id);
    update(set(id,done,total,note),state(step)==='done');
   },
-  /** The room players of a Join reload, `[{name,host,you}]`. */
+  /** Shows the join steps for room `code`, or hides them for ''. Each call restarts the join steps. */
+  join(code){
+   if(!active)return;
+   joining=Boolean(code);roomCode.textContent=code;roomNode.hidden=!joining;
+   roomHost.textContent='…';roomPlayers.replaceChildren();
+   for(const step of steps){step.node.hidden=!visible(step);step.shown='';if(step.join){step.done=0;step.total=0;step.note='';step.failed=false;}}
+   update(true,true);
+  },
+  /** The room players of the join, `[{name,host,you}]`. */
   players(list){
    if(!active||!joining)return;
    roomHost.textContent=list.find(p=>p.host)?.name??'';
    roomPlayers.replaceChildren(...playerChips(document,list));
-  },
-  /** The join stopped with `message`. The game loads the garage instead. */
-  joinFailed(message){
-   if(!active||!joining)return;
-   roomError.textContent=message+' Loading the garage instead.';roomError.hidden=false;
-   const step=steps.find(s=>s.join&&state(s)!=='done');
-   if(step)update(set(step.id,step.done,step.total,step.note,true),true);
   },
   progress(roads,roadTotal,assets,assetTotal,world,worldTotal,gates,gateTotal){
    if(!active)return;
