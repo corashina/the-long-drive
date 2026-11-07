@@ -1,6 +1,5 @@
 // Source startup lighting. Binding order matches SourceViewLighting.
 #define_import_path source_view_lighting
-#import weather_glass::GlassWater
 // Installed Hidden/Internal-ScreenSpaceShadows blobs 46 and 60, sampled at the fragment instead of a screen pass.
 struct SunShadow {
     world_to_shadow: array<mat4x4<f32>, 4>,
@@ -39,8 +38,6 @@ struct LightingUniform {
     lamp_shadows: array<LampShadow, 4>,
     // x=wetness, y=0, zw=world origin x and z modulo PUDDLE_PERIOD.
     weather_surface: vec4<f32>,
-    // Rain water on the seated car glass. Only the player view sets it.
-    water: GlassWater,
 }
 @group(1) @binding(0) var<uniform> lighting: LightingUniform;
 @group(1) @binding(1) var sun_cookie: texture_2d<f32>;

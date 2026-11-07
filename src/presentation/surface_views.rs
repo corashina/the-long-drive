@@ -144,10 +144,7 @@ pub(crate) fn prepare_views(
     antialiasing: Res<super::antialiasing::Antialiasing>,
     lamps: Res<super::lamp_shadows::LampShadows>,
     objects: Res<super::object_lighting::ObjectLightingGpu>,
-    (sun, water): (
-        Res<super::shadow_collector::SunShadow>,
-        Res<super::glass_water::GlassWater>,
-    ),
+    sun: Res<super::shadow_collector::SunShadow>,
 ) {
     if status.failure().is_some() {
         return;
@@ -200,10 +197,9 @@ pub(crate) fn prepare_views(
     {
         return;
     }
-    let Some(world_view) = frame.views[0] else {
+    if frame.views[0].is_none() {
         return;
-    };
-    let water = water.uniform(world_view.view_from_world.inverse().w_axis.truncate());
+    }
     let Some(atlas) = frame.atlas_size(0) else {
         status.fail("Source world atlas extent is invalid".into());
         return;
@@ -257,7 +253,7 @@ pub(crate) fn prepare_views(
             continue;
         }
         let target = &resources.targets.views[source.index];
-        let mut uniform = scene.for_view(
+        let uniform = scene.for_view(
             sun.fade,
             sun.fade_center,
             source.clip_from_world,
@@ -275,8 +271,6 @@ pub(crate) fn prepare_views(
             source.far,
             UVec2::new(target.colors.width, target.colors.height),
         ) {
-            // Only the player view sees water on the seated car glass.
-            Ok(value) if source.index == 0 => GlassViewUniform { water, ..value },
             Ok(value) => value,
             Err(error) => {
                 status.fail(error.into());
@@ -293,9 +287,6 @@ pub(crate) fn prepare_views(
                 status.fail(error.into());
                 return;
             }
-        }
-        if source.index == 0 {
-            uniform.water = water;
         }
         resources.lighting.set(source.index, &uniform);
         resources.glass.set(source.index, &glass_value);

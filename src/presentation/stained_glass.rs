@@ -59,8 +59,6 @@ pub struct GlassViewUniform {
     pub near_far: Vec4,
     /// Source D3D11 grab texels: (1/W,-1/H,W,H).
     pub grab_texel_size: Vec4,
-    /// Rain water on the seated car glass. Only the player view sets it.
-    pub water: super::glass_water::GlassWaterUniform,
 }
 impl GlassViewUniform {
     pub fn new(matrix: Mat4, near: f32, far: f32, extent: UVec2) -> Result<Self, &'static str> {
@@ -83,7 +81,6 @@ impl GlassViewUniform {
                 extent.x as f32,
                 extent.y as f32,
             ),
-            water: Default::default(),
         })
     }
 }
