@@ -1,6 +1,6 @@
 //! One remote player: source `snTempPlayerSync.player` smoothing and the `mpplayerscript` body.
 use super::SYNC_TIME;
-use super::body::{RemoteBody, Shapes};
+use super::body::{RemoteBody, Shapes, Stance};
 use super::message::{BodyMessage, PoseMessage};
 use crate::boundary::PoseRow;
 use crate::player::body::BodyState;
@@ -97,14 +97,7 @@ impl Remote {
                 RemoteBody::new(reference, shapes, to_rapier(pose), now, physics)
             });
             if std::mem::take(&mut self.smoothing.fresh) {
-                collision.update(
-                    reference,
-                    shapes,
-                    self.smoothing.seated,
-                    self.smoothing.dead,
-                    now,
-                    physics,
-                );
+                collision.update(reference, shapes, self.smoothing.stance, now, physics);
             }
             collision.place(physics, to_rapier(pose));
             self.written = shown.position;
@@ -171,11 +164,8 @@ pub struct Smoothing {
     next_time: f64,
     /// Figure Transform `T`.
     shown: Sample,
-    seated: bool,
-    /// The player is dead. The figure hides and its colliders are off.
-    pub dead: bool,
-    /// Source `seatId` and `seatId2` of a car seat. `last` is then relative to the car.
-    car: Option<(u64, u32)>,
+    /// On a car seat, `last` is relative to the car.
+    stance: Stance,
     pub duck: f32,
     start: Option<f64>,
     /// A pose came since the last `UpdCollider`.
@@ -186,7 +176,15 @@ impl Smoothing {
     /// Source `GotPos`. The first pose places the figure.
     pub fn got_pose(&mut self, m: &PoseMessage, now: f64) {
         let sample = Sample::of(m);
-        let seated = m.flags & PoseMessage::SEATED != 0;
+        let stance = if m.flags & PoseMessage::DEAD != 0 {
+            Stance::Dead
+        } else if m.flags & PoseMessage::SEATED != 0 {
+            Stance::Seated {
+                car: (m.flags & PoseMessage::IN_CAR != 0).then_some((m.car, m.seat)),
+            }
+        } else {
+            Stance::Standing
+        };
         if self.start.is_none() {
             *self = Self {
                 old: sample,
@@ -197,27 +195,21 @@ impl Smoothing {
                 last_time: now,
                 next_time: now,
                 shown: sample,
-                seated,
-                dead: false,
-                car: None,
+                stance: Stance::Standing,
                 duck: m.duck,
                 start: Some(now),
                 fresh: true,
             };
         }
-        let was_seated = self.seated;
-        let was_dead = self.dead;
-        self.seated = seated;
-        self.dead = m.flags & PoseMessage::DEAD != 0;
+        let was = std::mem::replace(&mut self.stance, stance);
         self.fresh = true;
-        self.car = (m.flags & PoseMessage::IN_CAR != 0).then_some((m.car, m.seat));
         self.duck = m.duck;
         self.old = self.last;
         self.old_time = self.last_time;
         self.last = sample;
-        if !seated {
+        if !stance.seated() {
             // A respawn places the figure at once, like getting out of a seat.
-            if was_seated || (was_dead && !self.dead) {
+            if was.seated() || (was == Stance::Dead && stance != Stance::Dead) {
                 self.old = sample;
                 self.next = sample;
                 self.previous_next = sample;
@@ -236,7 +228,15 @@ impl Smoothing {
 
     /// The car key and seat of a figure in a car.
     pub fn car(&self) -> Option<(u64, u32)> {
-        self.car
+        match self.stance {
+            Stance::Seated { car } => car,
+            Stance::Standing | Stance::Dead => None,
+        }
+    }
+
+    /// The player is dead. The figure hides and its colliders are off.
+    pub fn dead(&self) -> bool {
+        self.stance == Stance::Dead
     }
 
     /// Source `UpdPos`. `None` before the first pose.
@@ -249,11 +249,11 @@ impl Smoothing {
         let start = self.start?;
         // The source waits `readyToMove` here also in a car. The port seats the figure at once,
         // so a first pose relative to the car does not show at the world origin.
-        if now - start <= READY_DELAY && self.car.is_none() {
+        if now - start <= READY_DELAY && self.car().is_none() {
             return Some(self.shown);
         }
-        if self.seated {
-            match self.car {
+        if let Stance::Seated { car: seat } = self.stance {
+            match seat {
                 // In the source, the figure sits at `TransformPoint(lastPos)` of the car. A car that is
                 // not here leaves the figure where it is.
                 Some((key, seat)) => {
