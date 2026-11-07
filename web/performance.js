@@ -1,4 +1,6 @@
 const WINDOW_MS=2000,CAPACITY=4096;
+// `WeatherKind` order.
+const WEATHER=['clear','cloudy','rain','thunderstorm','fog'];
 
 export class FrameTimings {
  constructor(){
@@ -39,7 +41,7 @@ export class FrameTimings {
 export function gpuLine(stages){
  if(!stages)return '\nGPU ms: unavailable';
  const total=stages.reduce((a,b)=>a+b,0);
- return '\nGPU ms shadow / opaque / resolve+AO / transparent / post: '+stages.map(v=>v.toFixed(2)).join(' / ')+' (sum '+total.toFixed(2)+')';
+ return '\nGPU ms shadow / opaque / resolve+AO / weather / transparent / post: '+stages.map(v=>v.toFixed(2)).join(' / ')+' (sum '+total.toFixed(2)+')';
 }
 
 // Draws per pass in the world view, from the renderer audit. Null before the first graph.
@@ -78,7 +80,7 @@ export function createPerformance(readWasmBytes,wasmLimit,readRender,watchRender
   },
   // One world count against its cap. Rust sends the rows before `counters`.
   budget(index,name,used,limit,unit){budgets[index]='\n'+name+': '+used+' / '+limit+' '+unit;},
-  counters(steps,wheelContacts,bodies,colliders,storms,stormInfluence,stormParticles,entities,dynamicBodies,awakeBodies,ccdBodies,contactPairs){
+  counters(steps,wheelContacts,bodies,colliders,storms,stormInfluence,stormParticles,weatherKind,weatherCells,weatherRain,weatherWetness,entities,dynamicBodies,awakeBodies,ccdBodies,contactPairs){
    const sample=timings.summary(),worker=readWorker();
    bodyCounts={dynamicBodies,awakeBodies,ccdBodies,contactPairs};
    values.textContent=(sample?
@@ -91,6 +93,7 @@ export function createPerformance(readWasmBytes,wasmLimit,readRender,watchRender
     '\nBodies dynamic / awake / CCD: '+dynamicBodies+' / '+awakeBodies+' / '+ccdBodies+'\nContact pairs: '+contactPairs+
     budgets.join('')+'\nECS entities: '+entities+
     '\nStorms / strongest influence / particles: '+storms+' / '+stormInfluence.toFixed(2)+' / '+stormParticles+
+    '\nWeather '+WEATHER[weatherKind]+' cells '+weatherCells+' rain '+weatherRain.toFixed(2)+' wet '+weatherWetness.toFixed(2)+
     '\nWASM memory: '+mib(readWasmBytes())+' of '+mib(wasmLimit)+'\nJS heap: '+mib(performance.memory?.usedJSHeapSize)+
     renderLines(readRender());
   },

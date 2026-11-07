@@ -15,6 +15,9 @@ use bevy::{ecs as bevy_ecs, render as bevy_render};
 use simulation::boundary::SimFrame;
 
 pub const PROBE_COUNT: usize = crate::render_readiness::PROBE_COUNT;
+/// Period of the puddle noise in metres. It is `PUDDLE_PERIOD` in source_view_lighting.wgsl.
+/// The origin modulo this period keeps the puddles fixed in the world when the origin moves.
+const PUDDLE_PERIOD: f64 = 1024.;
 
 /// One probe in a slot: probe node entity, box size, box offset and capture near clip.
 #[derive(Clone, Copy, PartialEq)]
@@ -117,6 +120,8 @@ pub struct SceneLighting {
     pub ambient_sh: [Vec4; 7],
     pub sky: super::sky::SkyUniform,
     pub cloud_speed: Vec2,
+    /// `CycleOutput::cloud_wind`.
+    pub cloud_wind: Vec2,
     pub sun_rotation: Quat,
     pub sun_radiance: Vec4,
     pub direction_to_sun: Vec4,
@@ -127,6 +132,12 @@ pub struct SceneLighting {
     pub probe_center: [Vec4; PROBE_COUNT],
     pub probe_extents: [Vec4; PROBE_COUNT],
     pub source_time: Vec4,
+    /// Weather share of the sky that shows the fog color.
+    pub overcast: f32,
+    /// x=wetness, y=0, zw=world origin x and z modulo `PUDDLE_PERIOD`.
+    pub weather_surface: Vec4,
+    /// Sky darkening toward the wet cells. See `weather_shafts::sky_storm`.
+    pub storm: Vec4,
 }
 impl SceneLighting {
     pub fn for_view(
@@ -154,6 +165,7 @@ impl SceneLighting {
             near_far,
             sun_shadow,
             lamp_shadows,
+            weather_surface: self.weather_surface,
         }
     }
 }
@@ -318,6 +330,7 @@ fn scene_value(
             sim.lighting.cycle.clouds[0].speed,
             sim.lighting.cycle.clouds[1].speed,
         ),
+        cloud_wind: Vec2::from_array(sim.lighting.cycle.cloud_wind),
         ambient_sh,
         sun_rotation: rotation,
         sun_radiance: sun.color.truncate().extend(0.),
@@ -333,5 +346,19 @@ fn scene_value(
         probe_center: centers,
         probe_extents: sizes,
         source_time: Vec4::new(time * 0.05, time, time * 2., time * 3.),
+        overcast: sim.lighting.cycle.overcast,
+        weather_surface: Vec4::new(
+            sim.weather.wetness,
+            0.,
+            sim.state.origin[0].rem_euclid(PUDDLE_PERIOD) as f32,
+            sim.state.origin[2].rem_euclid(PUDDLE_PERIOD) as f32,
+        ),
+        storm: super::weather_shafts::sky_storm(
+            &sim.weather.cells,
+            Vec2::new(
+                sim.state.body_pose.position[0],
+                sim.state.body_pose.position[2],
+            ),
+        ),
     })
 }

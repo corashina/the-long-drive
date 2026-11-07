@@ -71,6 +71,7 @@ import {createFeedback} from './feedback.js';
 import {createLoading} from './loading.js';
 import {createStartupTrace} from './startup-trace.js';
 import {createPerformance} from './performance.js';
+import {createWeatherPanel} from './weather-panel.js';
 import {wasmMemoryFailure,wasmMemoryLimit} from './wasm-memory.js';
 import {loadUiAssets} from './ui-layout.js';
 import {createSimulation,installSimulationBridge} from './simulation.js';
@@ -115,6 +116,7 @@ window.gamePerformanceFrame=(physicsMs,worldMs,updateMs,renderMs)=>performancePa
 window.gamePerformanceBudget=performancePanel.budget;
 window.gamePerformanceCounters=performancePanel.counters;
 window.gamePerformance=since=>performancePanel.snapshot(since);
+createWeatherPanel(simulation,()=>multiplayer?.role===ROLE.GUEST);
 // The failure message after a startup or runtime failure, else null. `gameFailure` reports a failure.
 window.gameFailureMessage=()=>failure;
 // The start menu model, for `tests/bench/fps.mjs`. Null before the interface loads.

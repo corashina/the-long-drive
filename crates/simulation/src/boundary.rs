@@ -220,6 +220,12 @@ pub struct PerfBlock {
     pub storms: u32,
     pub storm_strength: f32,
     pub weather_particles: u32,
+    /// The `WeatherKind` value with the largest weight at the player.
+    pub weather_kind: u32,
+    /// Live weather cells.
+    pub weather_cells: u32,
+    pub weather_rain: f32,
+    pub weather_wetness: f32,
     pub dynamic_bodies: u32,
     /// Bodies that are not asleep.
     pub awake_bodies: u32,
@@ -835,6 +841,20 @@ pub struct ParticleRow {
     pub uv_draw: f32,
 }
 
+/// One wheel that throws spray. Values are relative to the stream origin.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct WheelSprayRow {
+    /// The ground contact of the wheel.
+    pub position: [f32; 3],
+    /// `weather::spray_amount`, 0..1.
+    pub amount: f32,
+    /// The car velocity in meters per second.
+    pub velocity: [f32; 3],
+    /// The wheel radius in meters.
+    pub radius: f32,
+}
+
 /// One particle system and its rows in `SimFrame::particles`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
@@ -921,6 +941,52 @@ pub fn car_particle_sources(
 pub struct FrameLighting {
     pub cycle: CycleOutput,
     pub road_lamp: LightOutput,
+}
+
+/// Weather of one tick for the renderer and the browser.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct WeatherFrame {
+    /// `WeatherMix::rain`, 0..1.
+    pub rain: f32,
+    /// Thunderstorm weight at the player, 0..1. Rain streaks are longer and faster.
+    pub heavy: f32,
+    /// `WeatherMix::flash`, 0..1.
+    pub flash: f32,
+    /// `WeatherMix::wetness`, 0..1. Wet surface shaders read it.
+    pub wetness: f32,
+    /// The rain cover of the player.
+    pub shelter: crate::weather::Shelter,
+    /// Wind velocity without the gust, meters per second along world `x`, `z`.
+    pub wind: [f32; 2],
+    /// Wind speed factor, 0.5 to 2, wider in a thunderstorm.
+    pub gust: f32,
+    /// The lightning bolt while it shows.
+    pub bolt: Option<BoltFrame>,
+    /// Cells with rain, first. The rest have `wet` 0.
+    pub cells: [WetCell; crate::weather::MAX_CELLS],
+}
+
+/// A lightning bolt. Points are relative to the render origin.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct BoltFrame {
+    /// The top point in the cloud.
+    pub start: [f32; 3],
+    /// The strike point on the ground.
+    pub end: [f32; 3],
+    /// Selects the jagged shape.
+    pub seed: u32,
+    /// Seconds since the strike.
+    pub age: f32,
+}
+
+/// One weather cell with rain, for the distant rain shafts and the sky.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct WetCell {
+    /// `x`, `z` relative to the render origin.
+    pub center: [f32; 2],
+    pub radius: f32,
+    /// The rain target times the life strength, 0..1.
+    pub wet: f32,
 }
 
 /// What the renderer needs to build a new handle's visual.
@@ -1033,6 +1099,8 @@ pub struct SimFrame {
     pub particles: Vec<ParticleRow>,
     /// Live bullet holes, oldest first.
     pub decals: Vec<DecalRow>,
+    /// Wheels that throw spray, at most `weather::MAX_SPRAY`.
+    pub wheel_spray: Vec<WheelSprayRow>,
     pub planes: Vec<PlaneRow>,
     pub creatures: Vec<CreatureRow>,
     pub creature_bones: Vec<CreatureBoneRow>,
@@ -1051,6 +1119,7 @@ pub struct SimFrame {
     /// World counts against their caps, in `BUDGET_LABELS` order.
     pub budgets: Vec<BudgetRow>,
     pub lighting: FrameLighting,
+    pub weather: WeatherFrame,
     /// Lights in `LightingRecord::lights` order.
     pub lights: Vec<LightOutput>,
     pub lamp_materials: Vec<LampMaterialOutput>,
@@ -1415,6 +1484,7 @@ frame_format! {
     rows particle_groups,
     rows particles,
     rows decals,
+    rows wheel_spray,
     rows planes,
     rows creatures,
     rows creature_bones,
@@ -1431,6 +1501,7 @@ frame_format! {
     rows node_materials,
     rows node_colors,
     value lighting,
+    value weather,
     list lights,
     list lamp_materials,
     list control_poses,

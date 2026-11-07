@@ -30,6 +30,8 @@ export const ROWS={
  ambient_occlusion:{values:LEVELS,default:0},
  // 0 high (a probe job each frame), 1 low (a probe job every 2nd frame), 2 off.
  reflections:{values:LEVELS,default:0},
+ // 0 high (6000 rain drops), 1 medium (3000), 2 low (1000).
+ rain:{values:LEVELS,default:0},
 };
 const NAMES=Object.keys(ROWS);
 const POSITIONS=1000;

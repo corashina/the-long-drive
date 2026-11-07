@@ -39,6 +39,16 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #performance {position:absolute;z-index:5;right:12px;top:12px;width:280px;max-width:calc(100% - 48px);max-height:calc(100% - 48px);overflow:hidden;padding:10px 12px;background:#000d;color:#fff;pointer-events:none;font:12px/1.45 monospace;font-variant-numeric:tabular-nums;}
 #performance-values {margin:0;font:inherit;white-space:pre-wrap;}
 #performance p {margin:8px 0 0;color:#bbb;font:11px/1.4 Arial,sans-serif;}
+/* F4 weather test panel, like the F3 overlay. The select takes clicks while the pointer is free. */
+#weather-panel {position:absolute;z-index:5;left:12px;top:12px;width:224px;padding:10px 12px;background:#000d;color:#fff;font:12px/1.45 monospace;font-variant-numeric:tabular-nums;}
+#weather-panel select {margin-left:6px;font:inherit;}
+#weather-panel div {margin:6px 0 0;}
+#weather-panel label {display:block;margin:4px 0 0;}
+#weather-panel div select {margin:0 6px 0 0;}
+#weather-panel button {font:inherit;}
+#weather-map {display:block;width:200px;height:200px;margin:0 0 8px;}
+#weather-values {margin:8px 0 0;font:inherit;white-space:pre-wrap;}
+#weather-panel p {margin:8px 0 0;color:#bbb;font:11px/1.4 Arial,sans-serif;}
 /* Pause menu: one column of buttons over the dimmed world. */
 .pause-menu {position:absolute;z-index:2;inset:0;display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100% - 32px));height:fit-content;max-height:calc(100dvh - 32px);margin:auto;overflow:auto;overscroll-behavior:contain;}
 .pause-menu button {position:static;height:46px;padding:0 18px;border-left-width:3px;border:1px solid var(--seam);border-radius:4px;background:var(--asphalt-glass);color:var(--bleach);font-size:18px;text-align:left;text-shadow:none;transition:background-color .15s,border-color .15s;}

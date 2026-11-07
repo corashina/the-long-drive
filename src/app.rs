@@ -690,6 +690,7 @@ fn prepare_world(
     views: Res<presentation::view_frame::SourceViewFrame>,
     epoch: Res<presentation::view_frame::SourceSceneEpoch>,
     windows: Query<&Window>,
+    mut grass_wind: Local<presentation::materials::grass::displacement::GrassWind>,
 ) {
     let drive = &mut *drive;
     drive.world_ms = sim.frame.state.perf.world_ms;
@@ -757,7 +758,7 @@ fn prepare_world(
         sim,
         grant,
         view,
-        frame.lighting.cycle.shader_time_seconds as f32,
+        grass_wind.advance(frame.lighting.cycle.shader_time_seconds, frame.weather.wind),
         lod_view,
         frame.lighting.road_lamp.enabled,
         &frame.lights,

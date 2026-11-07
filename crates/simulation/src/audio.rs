@@ -1593,6 +1593,14 @@ pub enum AudioKind {
     ComputerNote = 23,
     Horror = 24,
     Hum = 25,
+    /// Added weather clips. They are not in the source.
+    Rain = 26,
+    RainInside = 27,
+    Thunder = 28,
+    Wind = 29,
+    ThunderClose = 30,
+    /// Rain on a car roof. The player sits in a vehicle with a roof.
+    RainCar = 31,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]

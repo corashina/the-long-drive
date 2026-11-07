@@ -240,6 +240,13 @@ impl WorldPushReference {
 }
 
 impl WorldPrototypeReference {
+    /// The name of the root node, such as `Car02Full`.
+    pub fn root_name(&self) -> &str {
+        self.nodes
+            .iter()
+            .find(|n| n.parent.is_none())
+            .map_or("", |n| n.name.as_str())
+    }
     /// A node pose relative to the prototype root, with the node's own local scale.
     pub fn root_relative(&self, index: usize) -> (rapier3d::math::Pose, rapier3d::math::Vector) {
         use rapier3d::math::{Pose, Rotation, Vector};

@@ -43,7 +43,9 @@ export function createSimulation(worker,onFailure){
   // A batch of inbound packets, each with a u16 length. It goes with the next command.
   netPackets(batch){if(onNet)netIn.push(batch);},
   // A JSON array of `simulation::sandbox` actions. Resolves with the JSON array of replies.
+  // Call it only after `started`: a sandbox action before the start stops the game.
   sandbox(json){return new Promise(resolve=>{sandboxWaits.push(resolve);worker.postMessage({sandbox:json});});},
+  get started(){return started;},
   frameLength:()=>frame?frame.length:-1,
   read(out){out.set(frame);frame=null;},
   // Average tick time since the last read.

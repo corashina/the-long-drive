@@ -4,7 +4,7 @@ struct CloudParams {
     clip_from_world: mat4x4<f32>,
     uv: array<vec4<f32>, 4>,
     color: vec4<f32>,
-    // speed, source _Time.x, density, unused
+    // speed, source _Time.x, density, wind phase
     controls: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> cloud: CloudParams;
@@ -32,7 +32,7 @@ fn vertex(@location(0) position: vec3<f32>, @location(1) uv: vec2<f32>) -> Cloud
     var out: CloudVertex;
     let world = source_transform(cloud.world_from_local, vec4(position, 1.0));
     out.position = source_transform(cloud.clip_from_world, world);
-    let phase = cloud.controls.x * cloud.controls.y;
+    let phase = cloud.controls.x * cloud.controls.y + cloud.controls.w;
     let uv0 = fma(uv, cloud.uv[0].xy, cloud.uv[0].zw);
     let uv1 = fma(uv, cloud.uv[1].xy, cloud.uv[1].zw);
     let uv2 = fma(uv, cloud.uv[2].xy, cloud.uv[2].zw);

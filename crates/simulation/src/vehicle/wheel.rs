@@ -16,6 +16,13 @@ const SPIN_SUBSTEPS: usize = 20;
 const MIN_SLIP_SPEED: f32 = 1.0;
 /// wheelgraphicsscript uses this mass when the wheel data has none.
 const DEFAULT_WHEEL_MASS_KG: f32 = 20.0;
+/// Tire grip multiplier on a fully wet ground.
+const WET_GRIP: f32 = 0.85;
+
+/// Tire grip multiplier for weather wetness 0..1.
+pub(super) fn wet_grip(wetness: f32) -> f32 {
+    1.0 + (WET_GRIP - 1.0) * wetness.clamp(0.0, 1.0)
+}
 
 /// The parts mounted on one wheel slot.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -175,6 +182,8 @@ pub(super) struct WheelFrame {
     /// Chassis mass carried by this wheel.
     pub sprung_mass: f32,
     pub gravity: f32,
+    /// Weather grip multiplier on both stiffness values.
+    pub grip: f32,
 }
 
 /// Torque on one wheel. Motor torque has a sign. Brake torque is positive.
@@ -296,18 +305,19 @@ pub(super) fn solve(
     let vx = frame.velocity.dot(forward);
     let vy = frame.velocity.dot(side);
     let reference_speed = vx.abs().max(MIN_SLIP_SPEED);
-    let forward_peak = collider.forward_friction.extremum_value * profile.forward_stiffness * load;
-    let sideways_peak =
-        collider.sideways_friction.extremum_value * profile.sideways_stiffness * load;
+    let forward_stiffness = profile.forward_stiffness * frame.grip;
+    let sideways_stiffness = profile.sideways_stiffness * frame.grip;
+    let forward_peak = collider.forward_friction.extremum_value * forward_stiffness * load;
+    let sideways_peak = collider.sideways_friction.extremum_value * sideways_stiffness * load;
     let lateral = -friction(&collider.sideways_friction, (vy / reference_speed).atan())
-        * profile.sideways_stiffness
+        * sideways_stiffness
         * load;
     let mut fx_sum = 0.0;
     let mut fy_sum = 0.0;
     for _ in 0..SPIN_SUBSTEPS {
         let u = state.omega * profile.radius;
         let slip = (u - vx) / reference_speed.max(u.abs());
-        let mut fx = friction(&collider.forward_friction, slip) * profile.forward_stiffness * load;
+        let mut fx = friction(&collider.forward_friction, slip) * forward_stiffness * load;
         let mut fy = lateral;
         // For combined slip, keep the force pair inside the friction ellipse.
         let usage = ratio(fx, forward_peak).powi(2) + ratio(fy, sideways_peak).powi(2);
@@ -357,4 +367,62 @@ fn spin(state: &mut WheelState, motor: f32, reaction: f32, damping: f32, brake_s
         omega - brake_step.copysign(omega)
     };
     state.angle += state.omega * h;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_wetness_gives_wet_grip_force() {
+        let curve = WheelFrictionCurve {
+            extremum_slip: 0.4,
+            extremum_value: 1.0,
+            asymptote_slip: 0.8,
+            asymptote_value: 0.5,
+            stiffness: 1.0,
+        };
+        let collider = WheelColliderReference {
+            radius: 0.3,
+            suspension_distance: 0.3,
+            center: [0.0; 3],
+            spring: 25000.0,
+            damper: 1500.0,
+            target_position: 0.45,
+            forward_friction: curve,
+            sideways_friction: curve,
+            wheel_mass_kg: 20.0,
+            rotational_damping: 0.0,
+            force_application_distance_m: 0.0,
+        };
+        // A very heavy wheel keeps the same slip through the spin sub-steps.
+        let profile = WheelProfile {
+            radius: 0.3,
+            inertia: 1e9,
+            forward_stiffness: 1.0,
+            sideways_stiffness: 1.0,
+        };
+        let force = |wetness: f32| {
+            let mut state = WheelState::new(Vector::ZERO, profile, 0.1);
+            state.omega = 5.0 / 0.3;
+            state.contact = Some(WheelContact {
+                collider: ColliderHandle::invalid(),
+                point: Vector::ZERO,
+                normal: Vector::Y,
+            });
+            let frame = WheelFrame {
+                up: Vector::Y,
+                axle: Vector::X,
+                velocity: Vector::new(1.0, 0.0, -4.0),
+                sprung_mass: 200.0,
+                gravity: 9.81,
+                grip: wet_grip(wetness),
+            };
+            solve(&mut state, &collider, frame, WheelTorques::default(), 0.02).unwrap()
+        };
+        let (dry, wet) = (force(0.0), force(1.0));
+        assert!(dry.fx.abs() > 1.0 && dry.fy.abs() > 1.0);
+        assert!((wet.fx / dry.fx - 0.85).abs() < 1e-4);
+        assert!((wet.fy / dry.fy - 0.85).abs() < 1e-4);
+    }
 }

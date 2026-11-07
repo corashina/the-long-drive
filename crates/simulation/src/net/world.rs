@@ -1,13 +1,14 @@
-//! World messages: the host clock (`SendTime`), the radio stations (`SRadioChannel`), body sounds (`SSound`)
-//! and radio controls (`SRadio`).
+//! World messages: the host clock (`SendTime`), the radio stations (`SRadioChannel`), body sounds (`SSound`),
+//! radio controls (`SRadio`), and the port weather cells and lightning strikes.
 use super::NetRole;
 use super::message::{
     self, HEADER, Message, RADIO_CHANNEL, RadioChannelMessage, RadioMessage, SoundMessage,
-    TimeMessage,
+    StrikeMessage, TimeMessage, WeatherCellWire, WeatherCellsMessage,
 };
 use super::objects::{NetKey, ObjectIndex};
 use crate::audio::{AudioAction, AudioKind, SurvivalAudioEvent};
 use crate::starting_area::GarageRuntime;
+use crate::weather::{Forecast, MAX_CELLS, WeatherCell, WeatherKind, WeatherState, Wind};
 
 /// The wait of source `multiSyncTime` between clock sends.
 pub const TIME_SYNC: f32 = 10.;
@@ -51,8 +52,12 @@ impl WorldSync {
             }
         }
         runtime.shared_radios.clear();
+        let strike = runtime.weather.strike.take();
         if role != NetRole::Host {
             return;
+        }
+        if let Some(position) = strike {
+            message::push(slot, &StrikeMessage { position }, out);
         }
         let joined = std::mem::take(&mut self.joined);
         self.time_timer += dt;
@@ -62,6 +67,7 @@ impl WorldSync {
                 cycle_seconds: runtime.lighting.cycle.cycle_seconds(),
             };
             message::push(slot, &time, out);
+            message::push(slot, &weather_message(&runtime.weather), out);
         }
         if let Some(audio) = &mut runtime.audio
             && (audio.broadcasts.take_changed() || joined)
@@ -80,6 +86,16 @@ impl WorldSync {
         if let Ok((slot, time)) = TimeMessage::decode(packet) {
             if from_host(slot) && time.cycle_seconds.is_finite() {
                 runtime.lighting.cycle.set_cycle_seconds(time.cycle_seconds);
+            }
+        } else if let Ok((slot, m)) = WeatherCellsMessage::decode(packet) {
+            if from_host(slot) {
+                apply_weather(&m, &mut runtime.weather);
+            }
+        } else if let Ok((slot, m)) = StrikeMessage::decode(packet) {
+            if from_host(slot) && m.position.iter().all(|v| v.is_finite()) {
+                let local = runtime.area.player.body_pose(&runtime.physics).position;
+                let player = runtime.stream.origin.absolute(local);
+                runtime.weather.lightning.strike(m.position, player);
             }
         } else if packet.first() == Some(&RADIO_CHANNEL) {
             if let Ok((slot, channels)) = RadioChannelMessage::decode(packet)
@@ -104,6 +120,74 @@ impl WorldSync {
             play(runtime, slot, &sound);
         }
     }
+}
+
+fn weather_message(weather: &WeatherState) -> WeatherCellsMessage {
+    let mut m = WeatherCellsMessage {
+        wind_dir: weather.wind.dir,
+        wind_speed: weather.wind.speed,
+        wetness: weather.wetness,
+        locked: weather.cells.locked().into(),
+        forecast_next: weather.forecast.next as u32,
+        forecast_wait: weather.forecast.wait,
+        ..Default::default()
+    };
+    for (wire, cell) in m.cells.iter_mut().zip(weather.cells.iter()) {
+        *wire = WeatherCellWire {
+            center: cell.center,
+            radius: cell.radius,
+            life: cell.life,
+            age: cell.age,
+            kind: cell.kind as u32,
+        };
+        m.count += 1;
+    }
+    m
+}
+
+/// Applies a host message on a guest. Drops a message with a bad kind or value.
+fn apply_weather(m: &WeatherCellsMessage, weather: &mut WeatherState) {
+    if let Some(cells) = read_cells(m)
+        && let Some(&next) = WeatherKind::ALL.get(m.forecast_next as usize)
+        && Forecast::valid_wait(m.forecast_wait)
+    {
+        weather.forecast.next = next;
+        weather.forecast.wait = m.forecast_wait;
+        weather
+            .cells
+            .set(cells.into_iter().flatten(), m.locked != 0);
+        weather.wind.follow(m.wind_dir, m.wind_speed);
+        weather.wetness = m.wetness;
+    }
+}
+
+/// The cells of a host message. `None` for a bad kind or value.
+fn read_cells(m: &WeatherCellsMessage) -> Option<[Option<WeatherCell>; MAX_CELLS]> {
+    let count = m.count as usize;
+    if count > MAX_CELLS
+        || m.locked > 1
+        || (m.locked == 1 && count != 1)
+        || !(0. ..=1.).contains(&m.wetness)
+        || !Wind::valid(m.wind_dir, m.wind_speed)
+    {
+        return None;
+    }
+    let mut cells = [None; MAX_CELLS];
+    for (cell, wire) in cells.iter_mut().zip(&m.cells[..count]) {
+        let value = WeatherCell {
+            kind: *WeatherKind::ALL.get(wire.kind as usize)?,
+            center: wire.center,
+            radius: wire.radius,
+            life: wire.life,
+            age: wire.age,
+            aimed: false,
+        };
+        if !value.valid() {
+            return None;
+        }
+        *cell = Some(value);
+    }
+    Some(cells)
 }
 
 /// Source `soundMainScript.PlaySound`: a one-shot at the sender position.
@@ -150,4 +234,73 @@ fn play(runtime: &mut GarageRuntime, slot: u8, sound: &SoundMessage) {
         pitch: sound.pitch,
         position: sound.position,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::weather::tests::step;
+
+    #[test]
+    fn guest_applies_the_host_cells_and_wind() {
+        let mut host = WeatherState::test(1);
+        host.wetness = 0.5;
+        for _ in 0..10 {
+            host.advance_cells(step(10.), [0.; 3], false, |_| 2, |_| 0.);
+        }
+        assert!(!host.cells.is_empty());
+        let mut out = Vec::new();
+        weather_message(&host).encode(0, &mut out);
+        let (slot, m) = WeatherCellsMessage::decode(&out).unwrap();
+        assert_eq!((slot, m), (0, weather_message(&host)));
+        let mut bad = m;
+        bad.cells[0].kind = 9;
+        assert_eq!(read_cells(&bad), None);
+        bad = m;
+        bad.cells[0].radius = f32::NAN;
+        assert_eq!(read_cells(&bad), None);
+        bad = m;
+        bad.wind_speed = f32::INFINITY;
+        assert_eq!(read_cells(&bad), None);
+        let mut guest = WeatherState::test(2);
+        bad = m;
+        bad.forecast_wait = f32::NAN;
+        apply_weather(&bad, &mut guest);
+        assert!(guest.cells.is_empty());
+        apply_weather(&m, &mut guest);
+        // A guest does not steer the forecast cell.
+        let free = host
+            .cells
+            .iter()
+            .map(|c| WeatherCell { aimed: false, ..*c });
+        assert!(guest.cells.iter().copied().eq(free));
+        assert_eq!(guest.forecast.next, host.forecast.next);
+        assert_eq!(guest.forecast.wait, host.forecast.wait);
+        assert_eq!(guest.wind.dir, host.wind.dir);
+        assert_eq!(guest.wetness, host.wetness);
+        // A guest moves the cells with the host wind. It does not age them, spawn new ones or change the surface.
+        let start: Vec<_> = guest.cells.iter().map(|c| c.center).collect();
+        for _ in 0..100 {
+            guest.advance_cells(step(1.), [0.; 3], true, |_| 2, |_| 0.);
+        }
+        assert_eq!(guest.cells.len(), host.cells.len());
+        assert!(
+            guest
+                .cells
+                .iter()
+                .zip(host.cells.iter())
+                .all(|(g, h)| g.age == h.age)
+        );
+        assert_eq!(guest.wind.dir, host.wind.dir);
+        assert!((guest.wind.speed - host.wind.speed).abs() < 0.05);
+        assert_eq!(guest.wetness, host.wetness);
+        let [dx, dz] = host.wind.dir;
+        for (cell, from) in guest.cells.iter().zip(start) {
+            let moved = [
+                (cell.center[0] - from[0]) as f32,
+                (cell.center[1] - from[1]) as f32,
+            ];
+            assert!(moved[0] * dx + moved[1] * dz > 0.);
+        }
+    }
 }

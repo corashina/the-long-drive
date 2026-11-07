@@ -717,6 +717,10 @@ impl SourceFixedAssets {
                 props_cull: shader("shaders/source_props_cull.wgsl"),
                 motion: shader("shaders/source_motion.wgsl"),
                 taa: shader("shaders/source_taa.wgsl"),
+                rain: shader("shaders/weather_rain.wgsl"),
+                bolt: shader("shaders/weather_bolt.wgsl"),
+                shafts: shader("shaders/weather_shafts.wgsl"),
+                spray: shader("shaders/weather_spray.wgsl"),
             };
             self.shaders_bound = true;
         }

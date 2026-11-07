@@ -78,6 +78,7 @@ pub struct SourceViewClock {
     main_token: u32,
     probe_token: u32,
     frame: u32,
+    fog_far: super::fog_far::FogFar,
 }
 impl SourceViewClock {
     pub fn main_token(&self) -> u32 {
@@ -334,6 +335,7 @@ pub(crate) fn snapshot(
         Res<crate::render_scale::SceneScaleSetting>,
         Res<crate::display_settings::DisplaySettings>,
         Res<super::mirrors::MirrorFrame>,
+        Res<Time>,
     ),
     views: Query<(&SourceSurfaceView, &Camera, &GlobalTransform)>,
     sky_view: Query<(&Camera, &GlobalTransform), With<super::frame_graph::SourceSkyCamera>>,
@@ -345,7 +347,7 @@ pub(crate) fn snapshot(
 ) {
     frame.session = sim.frame.state.session;
     frame.selection_revision = sim.frame.state.selection_revision;
-    let (scale, display, mirrors) = settings;
+    let (scale, display, mirrors, time) = settings;
     frame.scale = scale.0;
     frame.shadow_quality = display.shadows;
     frame.scene = epoch.0;
@@ -446,6 +448,15 @@ pub(crate) fn snapshot(
     let warmup = !clock.preparation_ready;
     let job = probe_job;
     let fov_degrees = sim.frame.state.fov_degrees;
+    let cycle = &sim.frame.lighting.cycle;
+    // Only the world view draw is cut. The sky camera and the world step keep the full far plane.
+    let world_far = clock.fog_far.advance(
+        sim.frame.state.far_plane,
+        assets.record.shadows.distance,
+        cycle.fog_density,
+        cycle.overcast,
+        time.delta_secs(),
+    );
     let mut snapshots: [Option<ViewSnapshot>; VIEW_COUNT] = std::array::from_fn(|index| {
         if mirror_view(index) {
             let view = mirrors.views[index - MIRROR_START]?;
@@ -464,8 +475,7 @@ pub(crate) fn snapshot(
         }
         let (extent, world_from_view) = input[index]?;
         let (near, far, fov, mask, distance) = if index < WORLD_VIEWS {
-            let world =
-                super::camera::world_camera_settings(fov_degrees, sim.frame.state.far_plane);
+            let world = super::camera::world_camera_settings(fov_degrees, world_far);
             (
                 world.near,
                 world.far,
