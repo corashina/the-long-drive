@@ -87,6 +87,8 @@ pub struct ItemStore {
     /// The inverse of `generated`, so a step finds the key of a dirty item without a scan.
     generated_keys: BevyHashMap<ItemId, GeneratedId>,
     membership_revision: u64,
+    /// Items that entered (`true`) or left (`false`) since the last `take_membership`, in order.
+    membership: Vec<(ItemId, bool)>,
     /// Items of each body, in `states` order. Membership changes keep it current.
     by_body: BevyHashMap<RigidBodyHandle, Vec<ItemId>>,
     initialized_supplies: HashSet<ItemId>,
@@ -298,6 +300,7 @@ impl ItemStore {
             generated: BevyHashMap::new(),
             generated_keys: BevyHashMap::new(),
             membership_revision: 0,
+            membership: Vec::new(),
             by_body: BevyHashMap::new(),
             initialized_supplies: HashSet::new(),
             next_generated: reference
@@ -650,6 +653,7 @@ impl ItemStore {
             buried: false,
         });
         self.membership_revision += 1;
+        self.membership.push((id, true));
         self.bind_generated(key, id);
         self.next_generated = next;
         Ok(id)
@@ -695,6 +699,7 @@ impl ItemStore {
             buried: false,
         });
         self.membership_revision += 1;
+        self.membership.push((id, true));
         self.by_body.entry(body).or_default().push(id);
         self.stale_poses.insert(id);
         Ok(())
@@ -734,6 +739,7 @@ impl ItemStore {
             buried: false,
         });
         self.membership_revision += 1;
+        self.membership.push((id, true));
         self.by_body.entry(body).or_default().push(id);
         self.touch(id);
         Ok(())
@@ -894,6 +900,7 @@ impl ItemStore {
     fn remove_state(&mut self, index: usize) {
         let id = self.states[index].id;
         self.membership_revision += 1;
+        self.membership.push((id, false));
         self.dirty.remove(&id);
         self.indices.remove(&id);
         debug_assert!(
@@ -989,6 +996,12 @@ impl ItemStore {
     /// Changes only when items enter, leave, or change physical bodies.
     pub fn membership_revision(&self) -> u64 {
         self.membership_revision
+    }
+
+    /// Items that entered (`true`) or left (`false`) since the last call, in order.
+    pub fn take_membership(&mut self, out: &mut Vec<(ItemId, bool)>) {
+        out.clear();
+        std::mem::swap(out, &mut self.membership);
     }
 
     /// Set physical membership before editing the remaining item state.
@@ -1164,6 +1177,31 @@ pub fn node_pose(reference: &ReferenceManifest, id: NodeId) -> Result<VehiclePos
 }
 
 #[cfg(test)]
+impl ItemStore {
+    /// A store with no items.
+    pub fn empty_for_tests() -> Self {
+        Self {
+            dirty: HashSet::new(),
+            stale_poses: BevyHashSet::new(),
+            moved_bodies: Vec::new(),
+            states: Vec::new(),
+            indices: BevyHashMap::new(),
+            body_ids: Vec::new(),
+            names: Vec::new(),
+            slot_owners: HashMap::new(),
+            generated: BevyHashMap::new(),
+            generated_keys: BevyHashMap::new(),
+            membership_revision: 0,
+            membership: Vec::new(),
+            by_body: BevyHashMap::new(),
+            initialized_supplies: HashSet::new(),
+            next_generated: 10,
+            origin: WorldOrigin::default(),
+        }
+    }
+}
+
+#[cfg(test)]
 mod generated_key_tests {
     use super::*;
 
@@ -1182,23 +1220,7 @@ mod generated_key_tests {
     }
 
     fn empty() -> ItemStore {
-        ItemStore {
-            dirty: HashSet::new(),
-            stale_poses: BevyHashSet::new(),
-            moved_bodies: Vec::new(),
-            states: Vec::new(),
-            indices: BevyHashMap::new(),
-            body_ids: Vec::new(),
-            names: Vec::new(),
-            slot_owners: HashMap::new(),
-            generated: BevyHashMap::new(),
-            generated_keys: BevyHashMap::new(),
-            membership_revision: 0,
-            by_body: BevyHashMap::new(),
-            initialized_supplies: HashSet::new(),
-            next_generated: 10,
-            origin: WorldOrigin::default(),
-        }
+        ItemStore::empty_for_tests()
     }
 
     #[test]
