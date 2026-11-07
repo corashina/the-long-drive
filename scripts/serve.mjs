@@ -17,7 +17,6 @@ const types = new Map([
   ['.png', 'image/png'],
   ['.svg', 'image/svg+xml'],
   ['.wav', 'audio/wav'],
-  ['.ttf', 'font/ttf'],
   ['.otf', 'font/otf'],
   ['.woff2', 'font/woff2'],
   ['.glb', 'model/gltf-binary'],
