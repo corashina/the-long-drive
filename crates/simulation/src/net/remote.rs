@@ -2,6 +2,7 @@
 use super::SYNC_TIME;
 use super::body::{RemoteBody, Shapes};
 use super::message::{BodyMessage, PoseMessage};
+use crate::boundary::PoseRow;
 use crate::player::body::BodyState;
 use crate::reference::RemotePlayerReference;
 use crate::vehicle::{PhysicsWorld, VehiclePose, to_rapier};
@@ -18,12 +19,20 @@ struct Sample {
 }
 
 impl Sample {
-    fn of(m: &PoseMessage) -> Self {
-        let r = m.rotation.map(f64::from);
+    fn new(position: [f64; 3], rotation: [f32; 4]) -> Self {
+        let r = rotation.map(f64::from);
         Self {
-            position: DVec3::from_array(m.position),
+            position: DVec3::from_array(position),
             rotation: DQuat::from_xyzw(r[0], r[1], r[2], r[3]).normalize(),
         }
+    }
+    fn of(m: &PoseMessage) -> Self {
+        Self::new(m.position, m.rotation)
+    }
+    /// Moves toward `target` like the figure Transform of `UpdPos`.
+    fn approach(&mut self, target: &Sample, k: f64) {
+        self.position = self.position.lerp(target.position, k);
+        self.rotation = nlerp(self.rotation, target.rotation, k);
     }
 }
 
@@ -35,6 +44,7 @@ pub struct Remote {
     pub collision: Option<RemoteBody>,
     /// The absolute position of the last body write.
     written: DVec3,
+    pub ragdoll: RemoteRagdoll,
 }
 
 impl Remote {
@@ -46,6 +56,7 @@ impl Remote {
             targets: None,
             collision: None,
             written: DVec3::ZERO,
+            ragdoll: RemoteRagdoll::default(),
         }
     }
 
@@ -99,6 +110,51 @@ impl Remote {
             self.written = shown.position;
         }
         Some((pose, self.body.root_local()))
+    }
+}
+
+/// Port only: the ragdoll bodies of a dead remote player.
+#[derive(Default)]
+pub struct RemoteRagdoll {
+    /// Received body poses. Empty while the player lives.
+    target: Vec<Sample>,
+    shown: Vec<Sample>,
+}
+
+impl RemoteRagdoll {
+    /// The first poses place the bodies.
+    pub fn got(&mut self, bodies: impl ExactSizeIterator<Item = ([f64; 3], [f32; 4])>) {
+        self.target.clear();
+        self.target
+            .extend(bodies.map(|(position, rotation)| Sample::new(position, rotation)));
+        if self.shown.len() != self.target.len() {
+            self.shown.clone_from(&self.target);
+        }
+    }
+
+    /// Appends the shown body poses in stream space to `out`. False while the player lives or
+    /// before the first poses. A live player drops the bodies.
+    pub fn step(
+        &mut self,
+        dead: bool,
+        dt: f32,
+        origin: &WorldOrigin,
+        out: &mut Vec<PoseRow>,
+    ) -> bool {
+        if !dead {
+            self.target.clear();
+            self.shown.clear();
+        }
+        let k = (SYNC_TIME as f64 * 100. * dt as f64).clamp(0., 1.);
+        for (shown, target) in self.shown.iter_mut().zip(&self.target) {
+            shown.approach(target, k);
+            let pose = VehiclePose {
+                position: origin.local(shown.position.to_array()),
+                rotation: shown.rotation.as_quat().to_array(),
+            };
+            out.push(PoseRow::new(pose, PoseRow::VISIBLE));
+        }
+        !self.shown.is_empty()
     }
 }
 
@@ -227,8 +283,13 @@ impl Smoothing {
             t,
         );
         let k = (SYNC_TIME as f64 * 100. * dt as f64).clamp(0., 1.);
-        self.shown.position = self.shown.position.lerp(b, k);
-        self.shown.rotation = nlerp(self.shown.rotation, b2, k);
+        self.shown.approach(
+            &Sample {
+                position: b,
+                rotation: b2,
+            },
+            k,
+        );
         Some(self.shown)
     }
 }
@@ -307,6 +368,27 @@ mod tests {
         s2.got_pose(&pose(2.), 1.35);
         let shown = s2.update_free(1.5, 1.).unwrap();
         assert!((shown.position.x - 3.).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_ragdoll_shows_while_dead_and_goes_on_respawn() {
+        let origin = WorldOrigin {
+            offset: [100., 0., 0.],
+        };
+        let mut ragdoll = RemoteRagdoll::default();
+        let mut rows = Vec::new();
+        assert!(!ragdoll.step(true, 0.01, &origin, &mut rows));
+        ragdoll.got([([101., 2., 3.], [0., 0., 0., 1.])].into_iter());
+        assert!(ragdoll.step(true, 0.01, &origin, &mut rows));
+        assert_eq!(rows[0].pose().position, [1., 2., 3.]);
+        ragdoll.got([([105., 2., 3.], [0., 0., 0., 1.])].into_iter());
+        rows.clear();
+        ragdoll.step(true, 0.01, &origin, &mut rows);
+        let x = rows[0].pose().position[0];
+        assert!(x > 1. && x < 5., "the bodies move toward the new poses");
+        rows.clear();
+        assert!(!ragdoll.step(false, 0.01, &origin, &mut rows));
+        assert!(rows.is_empty());
     }
 
     #[test]

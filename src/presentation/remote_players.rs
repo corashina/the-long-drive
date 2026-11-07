@@ -1,5 +1,6 @@
 //! Remote player figures of a multiplayer session (source `snTempPlayerSync`, `mpplayerscript`).
 //! Each figure is one more player asset instance. It takes the remote rows of the frame and the outfit of its peer.
+//! A dead player shows as its own ragdoll instance at the remote ragdoll rows.
 //! The browser draws the name labels (source `helptextscript`) at the positions that `sync` reports.
 use super::camera::DriveCamera;
 use super::materials::SourceMaterial;
@@ -8,6 +9,7 @@ use super::player_body::{
     BoundBody, BoundQuery, NodeQuery, OutfitQuery, bind_instance, dress, materials_bound,
     pose_instance, spawn_instance,
 };
+use super::ragdoll::{self, RagdollInstance, Style};
 use super::reference::ReferenceVisuals;
 use super::scene_nodes::SceneGraph;
 use super::sim_frame::SimFrameResource;
@@ -27,6 +29,8 @@ pub struct RemoteFigure {
     bound: Option<BoundBody>,
     shown: bool,
     dressed: bool,
+    /// Ragdoll instance, spawned at the first death.
+    ragdoll: Option<Entity>,
 }
 
 /// Outfits of the peers, by slot. A peer without a look wears the defaults.
@@ -94,6 +98,7 @@ pub(crate) fn sync(
     bound: BoundQuery,
     mut state: ResMut<RemoteFigures>,
     mut figures: Query<&mut RemoteFigure>,
+    mut ragdolls: Query<&mut RagdollInstance>,
     mut nodes: NodeQuery,
     camera: Query<(&Camera, &GlobalTransform), With<DriveCamera>>,
     mut defaults: Local<Option<Outfit>>,
@@ -105,6 +110,9 @@ pub(crate) fn sync(
     state.figures.retain(|(slot, entity, _)| {
         let kept = rows.iter().any(|r| r.slot == *slot);
         if !kept {
+            if let Some(ragdoll) = figures.get(*entity).ok().and_then(|f| f.ragdoll) {
+                commands.entity(ragdoll).despawn();
+            }
             commands.entity(*entity).despawn();
             #[cfg(target_arch = "wasm32")]
             crate::browser::game_remote_label(*slot, -1., -1.);
@@ -117,7 +125,17 @@ pub(crate) fn sync(
         defaults.get_or_insert_with(|| Outfit::defaults(&reference.0.clothing.characters));
     let joint_count = frame.rig().len();
     let camera = camera.single().ok();
+    let bodies = reference.0.clothing.ragdoll.bodies.len();
+    let mut ragdoll_rows = frame.frame.remote_ragdolls.as_slice();
     for (index, row) in rows.iter().enumerate() {
+        let dead = row.flags & RemoteRow::RAGDOLL != 0;
+        let ragdoll_rows = if dead {
+            let (own, rest) = ragdoll_rows.split_at(bodies.min(ragdoll_rows.len()));
+            ragdoll_rows = rest;
+            own
+        } else {
+            &[]
+        };
         let Some(at) = state
             .figures
             .iter()
@@ -131,6 +149,7 @@ pub(crate) fn sync(
                         bound: None,
                         shown: false,
                         dressed: false,
+                        ragdoll: None,
                     })
                     .observe(bind);
                 state.figures.push((row.slot, scene, looks.revision));
@@ -157,7 +176,38 @@ pub(crate) fn sync(
             }
             figure.shown = true;
         }
-        if !figure.dressed || *revision != looks.revision {
+        let redress = *revision != looks.revision;
+        if dead && figure.ragdoll.is_none() {
+            figure.ragdoll = ragdoll::spawn(
+                &mut commands,
+                &reference,
+                &visuals,
+                &gltfs,
+                row.slot as u8 + 1,
+            );
+        }
+        if let Some(scene) = figure.ragdoll
+            && let Ok(mut instance) = ragdolls.get_mut(scene)
+        {
+            let style = Style {
+                outfit,
+                redress,
+                slots: &slots,
+                materials: &materials,
+                bound: &bound,
+            };
+            ragdoll::show(
+                &mut commands,
+                &reference,
+                scene,
+                &mut instance,
+                ragdoll_rows,
+                &style,
+                &mut nodes,
+                |row| super::transform(row.pose()),
+            );
+        }
+        if !figure.dressed || redress {
             dress(
                 &mut commands,
                 outfit,

@@ -62,6 +62,8 @@ pub const VELOCITY: u8 = 19;
 pub const REMOVE: u8 = 48;
 /// Port only. The source sends an AI as a save item (`itemPosUpd`). Port rabbits are not items.
 pub const CREATURE: u8 = 64;
+/// Port only. The source shows no body of a dead peer.
+pub const RAGDOLL: u8 = 65;
 pub const HEADER: usize = 2;
 /// Outbox length prefix bit. With it, `web/net.js` sends the packet on the reliable connection.
 pub const RELIABLE: u16 = 0x8000;
@@ -219,6 +221,51 @@ impl RadioChannelMessage {
                 (
                     i32::from_le_bytes(e[..4].try_into().unwrap()),
                     f32::from_le_bytes(e[4..].try_into().unwrap()),
+                )
+            }),
+        ))
+    }
+}
+
+/// Port only: the world poses of the ragdoll bodies of a dead player, in
+/// `RagdollReference::bodies` order. One entry is the position, then the rotation quaternion.
+pub struct RagdollMessage;
+
+impl RagdollMessage {
+    const ENTRY: usize = 40;
+    /// Packet length of `n` bodies.
+    pub fn len(n: usize) -> usize {
+        HEADER + 4 + n * Self::ENTRY
+    }
+    pub fn encode(
+        slot: u8,
+        bodies: impl ExactSizeIterator<Item = ([f64; 3], [f32; 4])>,
+        out: &mut Vec<u8>,
+    ) {
+        out.extend_from_slice(&[RAGDOLL, slot]);
+        out.extend_from_slice(&(bodies.len() as u32).to_le_bytes());
+        for (position, rotation) in bodies {
+            out.extend_from_slice(bytemuck::bytes_of(&position));
+            out.extend_from_slice(bytemuck::bytes_of(&rotation));
+        }
+    }
+    /// The sender slot and the body poses.
+    pub fn decode(
+        packet: &[u8],
+    ) -> Result<(u8, impl ExactSizeIterator<Item = ([f64; 3], [f32; 4])> + '_), NetError> {
+        let [kind, slot, a, b, c, d, body @ ..] = packet else {
+            return Err(NetError);
+        };
+        let n = u32::from_le_bytes([*a, *b, *c, *d]) as usize;
+        if *kind != RAGDOLL || body.len() != n * Self::ENTRY {
+            return Err(NetError);
+        }
+        Ok((
+            *slot,
+            body.chunks_exact(Self::ENTRY).map(|e| {
+                (
+                    bytemuck::pod_read_unaligned(&e[..24]),
+                    bytemuck::pod_read_unaligned(&e[24..]),
                 )
             }),
         ))
@@ -662,6 +709,16 @@ mod tests {
         let (slot, got) = RadioChannelMessage::decode(&out).unwrap();
         assert_eq!((slot, got.collect::<Vec<_>>()), (0, stations.to_vec()));
         assert!(RadioChannelMessage::decode(&out[..out.len() - 1]).is_err());
+        out.clear();
+        let bodies = [
+            ([-4e5, 1., 2.], [0., 0.6, 0., 0.8]),
+            ([3., 4., 5.], [0., 0., 0., 1.]),
+        ];
+        RagdollMessage::encode(5, bodies.into_iter(), &mut out);
+        assert_eq!(out.len(), RagdollMessage::len(2));
+        let (slot, got) = RagdollMessage::decode(&out).unwrap();
+        assert_eq!((slot, got.collect::<Vec<_>>()), (5, bodies.to_vec()));
+        assert!(RagdollMessage::decode(&out[..out.len() - 1]).is_err());
         out.clear();
         let item = ItemPoseMessage {
             key: u64::MAX - 7,

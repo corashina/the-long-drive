@@ -130,6 +130,8 @@ pub struct RemoteRow {
 
 impl RemoteRow {
     pub const VISIBLE: u32 = 1;
+    /// The player is dead. Its ragdoll bodies follow in `SimFrame::remote_ragdolls`.
+    pub const RAGDOLL: u32 = 2;
 }
 
 /// Simulation values the renderer reads each frame. New fields come with their readers.
@@ -1028,6 +1030,9 @@ pub struct SimFrame {
     pub remote_joints: Vec<PoseRow>,
     /// World poses of the ragdoll bodies in `RagdollReference::bodies` order. Empty while the ragdoll is inactive.
     pub ragdoll: Vec<PoseRow>,
+    /// Ragdoll bodies of each remote with `RemoteRow::RAGDOLL`, in `remotes` order, `ragdoll`
+    /// order and count.
+    pub remote_ragdolls: Vec<PoseRow>,
     pub cigarettes: Vec<CigaretteRow>,
     pub particle_groups: Vec<ParticleGroupRow>,
     pub particles: Vec<ParticleRow>,
@@ -1413,6 +1418,7 @@ frame_format! {
     rows remotes,
     rows remote_joints,
     rows ragdoll,
+    rows remote_ragdolls,
     rows cigarettes,
     rows particle_groups,
     rows particles,
