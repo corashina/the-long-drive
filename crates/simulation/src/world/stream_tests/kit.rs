@@ -41,14 +41,6 @@ pub(crate) fn roadside_stamp(reference: &ReferenceManifest) -> SourceStamp {
             .next()
             .unwrap()
             .into(),
-        source_hashes: reference
-            .source_hashes
-            .iter()
-            .map(|h| crate::save::SourceHash {
-                file: h.file.clone(),
-                sha256: h.sha256.clone(),
-            })
-            .collect(),
     }
 }
 

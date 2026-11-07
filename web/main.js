@@ -18,7 +18,7 @@ import {installFramePacer} from './frame-pacer.js';
 import {actionIndex,compileBindings,inputsField} from './bindings.js';
 import {createSurvival} from './survival.js';
 import {createAudio,installAudioBridge} from './audio.js';
-import {manifestStamp,createSaveStorage,verifyRecord,AUTOSAVE} from './save-storage.js';
+import {manifestStamp,createSaveStorage,AUTOSAVE} from './save-storage.js';
 import {createSaveSession,startSave} from './save-session.js';
 import {createSaveBridge} from './save-bridge.js';
 import {createThumbnail} from './thumbnail.js';
@@ -142,9 +142,9 @@ window.gameInventory=(selected,a,b,c,d,progress)=>{
 window.gameWeaponCrosshair=(icon,color)=>feedback?.weapon(icon,color);
 const record={actions:0,context:0,name:'',notice:'',carrying:false,amount:0,capacity:0,hasName:false,noText:true,fluidWord:0,help:0,held:'',throwCharge:0,throwActive:false,radioVolume:undefined,radioFrequency:undefined,radioAm:false,quantities:[0,0,0,0,0,0],fluidOrder:0,hose:0,computer:0,crosshair:0,weight:1};
 const settleSave=window.gameSaveResult;
-window.gameSaveResult=(id,kind,payload,error)=>{
+window.gameSaveResult=(id,kind,payload,save,error)=>{
  if(kind==='Commit'&&!error){input.clear();actions=0;}
- settleSave(id,kind,payload,error);
+ settleSave(id,kind,payload,save,error);
 };
 window.gameTypingKeys=()=>input.state.typingKeys();
 window.gameTypedText=buffer=>input.state.takeText(buffer);
@@ -288,8 +288,8 @@ async function load(){
  const storedSave=async()=>{
   const name=await startSave({loadName,newGame:newGameSeed!==undefined,autoLoad:settings.values.BAutoLoad,list:()=>saveStorage.list(),buildId:manifest.build_id});
   if(name===null)return null;
-  const record=await saveStorage.read(name);if(record===null)throw new Error('No saved game.');
-  return {save:new TextEncoder().encode(JSON.stringify(await verifyRecord(record))),operation:'load'};
+  const save=await saveStorage.read(name);if(save===null)throw new Error('No saved game.');
+  return {save,operation:'load'};
  };
  const startWorld=joinRoom?new Promise(resolve=>{joined=resolve;}):storedSave().catch(error=>({error:error?.message??String(error),operation:'load'}));
  const simulationStarted=startWorld.then(async world=>({world,...await simulation.start(manifestHash,...garageMode,gameOptions.bits(),world?.save??new Uint8Array())}));

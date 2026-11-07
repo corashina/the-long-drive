@@ -1,13 +1,9 @@
-const DATABASE='tld-browser-save',VERSION=2,RECORD_VERSION=1,SAVES='saves',INDEX='index',META='meta',LAST='last',STORES=[SAVES,INDEX,META];
+import {gzip,gunzip} from './gzip.js';
+// A save record is the gzip of the Rust save JSON bytes. Older databases are dropped.
+const DATABASE='tld-browser-save',VERSION=3,SAVES='saves',INDEX='index',META='meta',LAST='last',STORES=[SAVES,INDEX,META];
 export const AUTOSAVE='autosave';
-const encoder=new TextEncoder();
 function aborted(){return new DOMException('Save operation canceled.','AbortError');}
 function checkSignal(signal){if(signal?.aborted)throw aborted();}
-async function sha256(bytes,crypto){
- if(!crypto?.subtle)throw new Error('Save checksum is unavailable.');
- const hash=await crypto.subtle.digest('SHA-256',bytes);
- return Array.from(new Uint8Array(hash),byte=>byte.toString(16).padStart(2,'0')).join('');
-}
 // Mirror TrimSaveName: keep letters, digits, punctuation, separators and symbols. Drop control characters.
 export function trimName(text){return String(text).replace(/\p{Cc}|[^\p{L}\p{N}\p{P}\p{Z}\p{S}]/gu,'');}
 export function defaultName(date){
@@ -17,14 +13,8 @@ export function defaultName(date){
 // The export names its runtime package by the SHA-256 of the manifest (tools/reference/runtime_package.py `package_id`).
 // Saves and multiplayer use that hash as the manifest stamp, so the page does not hash the 100 MB manifest again.
 export function manifestStamp(reference){return reference.content_base.slice('assets/runtime/'.length,-1);}
-export async function verifyRecord(record,crypto=globalThis.crypto){
- if(!record||record.version!==RECORD_VERSION||!record.payload||typeof record.payload!=='object'||Array.isArray(record.payload)||typeof record.checksum!=='string')throw new Error('Invalid save record.');
- const json=JSON.stringify(record.payload),checksum=record.checksum;
- if(await sha256(encoder.encode(json),crypto)!==checksum)throw new Error('Save checksum does not match.');
- return JSON.parse(json);
-}
 const byName=(a,b)=>a.name<b.name?-1:a.name>b.name?1:0;
-export function createSaveStorage({indexedDB=globalThis.indexedDB,crypto=globalThis.crypto}={}){
+export function createSaveStorage({indexedDB=globalThis.indexedDB}={}){
  let connection=null,opening=null,closed=false;
  const transactions=new Set();
  function open(){
@@ -42,9 +32,9 @@ export function createSaveStorage({indexedDB=globalThis.indexedDB,crypto=globalT
    request.onerror=()=>fail(request.error??new Error('Cannot open the save database.'));
    request.onupgradeneeded=event=>{
     if(state.settled||closed){request.transaction.abort();return;}
-    if(event.oldVersion!==0&&event.oldVersion!==1){request.transaction.abort();fail(new Error('Incompatible save database version.'));return;}
+    if(event.oldVersion>VERSION){request.transaction.abort();fail(new Error('Incompatible save database version.'));return;}
     const db=request.result;
-    if(event.oldVersion===1)db.deleteObjectStore(SAVES);
+    for(const name of [...db.objectStoreNames])db.deleteObjectStore(name);
     for(const name of STORES)db.createObjectStore(name);
    };
    request.onsuccess=()=>{
@@ -79,7 +69,13 @@ export function createSaveStorage({indexedDB=globalThis.indexedDB,crypto=globalT
   });
  }
  return {
-  read(name){return transaction([SAVES],'readonly',(stores,track)=>{const request=track(stores.saves.get(name));return ()=>request.result??null;});},
+  // The save JSON bytes, or null. A corrupt record fails the gzip CRC.
+  async read(name){
+   const record=await transaction([SAVES],'readonly',(stores,track)=>{const request=track(stores.saves.get(name));return ()=>request.result??null;});
+   if(record===null)return null;
+   if(!(record instanceof Uint8Array))throw new Error('Invalid save record.');
+   return gunzip(record);
+  },
   list(){return transaction([INDEX,META],'readonly',(stores,track)=>{
    const entries=track(stores.index.getAll()),last=track(stores.meta.get(LAST));
    return ()=>{
@@ -87,15 +83,11 @@ export function createSaveStorage({indexedDB=globalThis.indexedDB,crypto=globalT
     return {saves:all.filter(entry=>entry.name!==AUTOSAVE).sort(byName),autosave:all.find(entry=>entry.name===AUTOSAVE)??null,last:last.result??null};
    };
   });},
-  async write(name,payload,entry,{signal}={}){
+  // `save`: the Rust save JSON bytes.
+  async write(name,save,entry,{signal}={}){
    checkSignal(signal);
-   if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new Error('Invalid save payload.');
-   // Detach the stored object before hashing. Keep Rust field order in both copies.
-   const json=JSON.stringify(payload);
-   if(typeof json!=='string')throw new Error('Invalid save payload.');
-   const frozen=JSON.parse(json);
-   if(!frozen||typeof frozen!=='object'||Array.isArray(frozen))throw new Error('Invalid save payload.');
-   const record={version:RECORD_VERSION,payload:frozen,checksum:await sha256(encoder.encode(json),crypto)};
+   if(!(save instanceof Uint8Array)||!save.length)throw new Error('Invalid save payload.');
+   const record=await gzip(save);
    await transaction(STORES,'readwrite',(stores,track)=>{
     track(stores.saves.put(record,name));track(stores.index.put(entry,name));track(stores.meta.put(name,LAST));
    },signal);

@@ -26,13 +26,17 @@ export function createSaveBridge(host=window){
   if(request.kind==='Commit'){committing.add(request.payload);pending.get(request.id).onDispatch?.();}
   return JSON.stringify(request);
  };
- host.gameSaveResult=(id,kind,payload,error)=>{
+ // `save` is the Capture save JSON, a view of WASM memory. Copy it before the first await.
+ host.gameSaveResult=(id,kind,payload,save,error)=>{
   const operation=pending.get(id);
   if(!operation||operation.kind!==kind)return;
   pending.delete(id);
   operation.signal?.removeEventListener('abort',operation.cancel);
   if(error){operation.reject(new Error(error));return;}
-  try{operation.resolve(payload?JSON.parse(payload):undefined);}catch(error){operation.reject(error);}
+  try{
+   const value=payload?JSON.parse(payload):undefined;
+   operation.resolve(kind==='Capture'?{summary:value,save:save.slice()}:value);
+  }catch(error){operation.reject(error);}
  };
  return {
   capture:(autosave=false,guest=false)=>request('Capture',{date:new Date().toISOString(),autosave,guest}),

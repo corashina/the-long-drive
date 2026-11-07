@@ -128,15 +128,6 @@ fn invalid_frontier_is_rejected() {
 }
 
 #[test]
-fn schema_five_is_rejected_before_payload_decode() {
-    let bytes = br#"{"schema_version":5}"#;
-    assert!(matches!(
-        the_long_slop::save::SaveSnapshot::from_json(bytes),
-        Err(the_long_slop::save::SaveError::IncompatibleSources(_))
-    ));
-    assert_eq!(bytes, br#"{"schema_version":5}"#);
-}
-#[test]
 #[ignore = "requires the installed source export"]
 fn contract_and_package_are_checked() {
     let r = reference();

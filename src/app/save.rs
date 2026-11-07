@@ -36,14 +36,14 @@ pub fn dispatch(world: &mut World) {
         let request = match SaveRequest::parse(&game_save_request()) {
             Ok(request) => request,
             Err(invalid) => {
-                game_save_result(invalid.id, invalid.kind, "", &invalid.message);
+                game_save_result(invalid.id, invalid.kind, "", &[], &invalid.message);
                 return;
             }
         };
         let kind = request.kind().name();
         let id = request.id;
         if let Err(error) = request_input(world, &mut requests, request) {
-            game_save_result(id, kind, "", &error.to_string());
+            game_save_result(id, kind, "", &[], &error.to_string());
         }
     });
 }
@@ -63,7 +63,7 @@ fn request_input(
                 requests.commands.push(SaveCommand::Cancel(id));
                 requests.pending = None;
             }
-            game_save_result(request.id, SaveKind::Discard.name(), "", "");
+            game_save_result(request.id, SaveKind::Discard.name(), "", &[], "");
             return Ok(());
         }
         SaveAction::PrepareNewGame(_) => {
@@ -92,10 +92,11 @@ fn results(world: &mut World, requests: &mut SaveRequests) {
             id,
             kind,
             payload,
+            save,
             error,
         } = change
         {
-            game_save_result(*id, kind.name(), payload, error);
+            game_save_result(*id, kind.name(), payload, save, error);
             match requests.pending {
                 Some(Pending::Waiting { id: waiting }) if waiting == *id => {
                     requests.pending = error.is_empty().then_some(Pending::Fresh(*id));
