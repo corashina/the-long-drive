@@ -306,10 +306,31 @@ pub(crate) fn finish_road_lamp_warmup(commands: &mut Commands, source: &mut Sour
     source.road_lamps.prototype_nodes.clear();
 }
 
+/// A light of a moving item sits on the drawn item pose, between the last two steps.
+/// The newest step pose leads the drawn car at speed, and the light flickers.
+fn light_transform(
+    frame: &crate::world::RendererFrame<'_>,
+    poses: &crate::presentation::sim_frame::SimFrameResource,
+    light: &crate::world::WorldLight,
+) -> Transform {
+    if let Some(local) = &light.item
+        && let Some(item) = poses.interpolated(simulation::boundary::PoseKey::Item(local.item))
+    {
+        let rotation = Quat::from_array(item.rotation);
+        return Transform::from_translation(
+            Vec3::from_array(item.position) + rotation * Vec3::from_array(local.position),
+        )
+        .with_rotation(rotation * Quat::from_array(local.rotation));
+    }
+    Transform::from_translation(Vec3::from_array(frame.origin.local(light.pose.position)))
+        .with_rotation(Quat::from_array(light.pose.rotation))
+}
+
 /// The source frame owns pole geometry. Receiver influence owns independent light proxies.
 pub(crate) fn sync_source_lamps(
     frame: &crate::world::RendererFrame<'_>,
     reference: &crate::reference::ReferenceManifest,
+    poses: &crate::presentation::sim_frame::SimFrameResource,
     enabled: bool,
     source: &mut SourceLighting,
     commands: &mut Commands,
@@ -339,12 +360,7 @@ pub(crate) fn sync_source_lamps(
         }
         if let Ok(mut transform) = roots.get_mut(proxy.node) {
             if let Some(light) = light {
-                transform.set_if_neq(
-                    Transform::from_translation(Vec3::from_array(
-                        frame.origin.local(light.pose.position),
-                    ))
-                    .with_rotation(Quat::from_array(light.pose.rotation)),
-                );
+                transform.set_if_neq(light_transform(frame, poses, light));
             } else if source
                 .road_lamps
                 .origin
@@ -392,9 +408,7 @@ pub(crate) fn sync_source_lamps(
         if !source.road_lamps.required.contains(&light.id) {
             continue;
         }
-        let pose =
-            Transform::from_translation(Vec3::from_array(frame.origin.local(light.pose.position)))
-                .with_rotation(Quat::from_array(light.pose.rotation));
+        let pose = light_transform(frame, poses, light);
         if !source
             .road_lamps
             .source_proxies
