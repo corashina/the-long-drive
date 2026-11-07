@@ -211,6 +211,7 @@ impl Net {
             runtime.shared_radios.clear();
             self.cars.end(runtime);
             self.inventory.clear(runtime);
+            self.objects.skip(&mut runtime.area.items);
             return;
         }
         for slot in std::mem::take(&mut self.left) {
@@ -218,7 +219,7 @@ impl Net {
         }
         self.clock += real_dt as f64;
         self.objects
-            .refresh(&runtime.area.items, &runtime.area.spawned);
+            .refresh(&mut runtime.area.items, &runtime.area.spawned);
         self.read_inbox(reference, runtime);
         self.mark_in_use(reference, runtime);
         self.cars.send(
@@ -243,7 +244,7 @@ impl Net {
                 .send(self.slot, runtime, real_dt, &mut self.outbox);
         }
         self.objects
-            .refresh(&runtime.area.items, &runtime.area.spawned);
+            .refresh(&mut runtime.area.items, &runtime.area.spawned);
         self.items.bound(
             runtime,
             &mut self.objects,
