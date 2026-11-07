@@ -28,7 +28,7 @@ use creatures::CreatureSync;
 use inventory::InventorySync;
 use items::ItemSync;
 use lamps::LampSync;
-use message::{BodyMessage, BrokeMessage, Message, PoseMessage};
+use message::{BodyMessage, BrokeMessage, Message, PoseMessage, RagdollMessage};
 use mounts::MountSync;
 use objects::ObjectIndex;
 use rapier3d::math::Vector;
@@ -195,6 +195,7 @@ impl Net {
     ) {
         frame.remotes.clear();
         frame.remote_joints.clear();
+        frame.remote_ragdolls.clear();
         for handle in self.dropped.drain(..) {
             runtime.physics.remove_body(handle);
         }
@@ -313,9 +314,21 @@ impl Net {
             }
             self.figures
                 .push((remote.slot, crate::vehicle::to_rapier(pose)));
+            let flags = if remote.ragdoll.step(
+                remote.smoothing.dead,
+                real_dt,
+                origin,
+                &mut frame.remote_ragdolls,
+            ) {
+                RemoteRow::RAGDOLL
+            } else if remote.smoothing.dead {
+                0
+            } else {
+                RemoteRow::VISIBLE
+            };
             frame.remotes.push(RemoteRow {
                 slot: remote.slot as u32,
-                flags: RemoteRow::VISIBLE,
+                flags,
                 body_pose: PoseRow::new(pose, 0),
                 body_root: PoseRow::new(root, 0),
             });
@@ -414,7 +427,9 @@ impl Net {
             }
             let index = &self.objects;
             match kind {
-                message::POSE | message::BODY => self.read_remote(reference, packet),
+                message::POSE | message::BODY | message::RAGDOLL => {
+                    self.read_remote(reference, packet)
+                }
                 message::ITEM_POSE
                 | message::VELOCITY
                 | message::REQUEST
@@ -491,6 +506,11 @@ impl Net {
             && let Some(remote) = self.remotes.iter_mut().find(|r| r.slot == slot)
         {
             remote.got_body(&body);
+        } else if let Ok((slot, bodies)) = RagdollMessage::decode(packet)
+            && bodies.len() == reference.clothing.ragdoll.bodies.len()
+            && let Some(remote) = self.remotes.iter_mut().find(|r| r.slot == slot)
+        {
+            remote.ragdoll.got(bodies);
         }
     }
 
@@ -510,11 +530,18 @@ impl Net {
                     PoseMessage::SEATED
                 } else {
                     0
+                } | if area.player.dead() {
+                    PoseMessage::DEAD
+                } else {
+                    0
                 },
                 ..PoseMessage::default()
             };
             car::seat_message(reference, runtime, pose, &mut message);
             self.push(&message);
+            if area.player.dead() && area.ragdoll.active() {
+                self.push_ragdoll(reference, runtime);
+            }
         }
         if self.body_timer >= interval {
             self.body_timer = 0.;
@@ -522,6 +549,33 @@ impl Net {
                 targets: area.body.sent_targets(),
             });
         }
+    }
+
+    /// The ragdoll body poses in world space. A body without a pose sends the identity.
+    fn push_ragdoll(&mut self, reference: &ReferenceManifest, runtime: &GarageRuntime) {
+        let bodies = &reference.clothing.ragdoll.bodies;
+        let origin = &runtime.stream.origin;
+        let ragdoll = &runtime.area.ragdoll;
+        let slot = self.slot;
+        message::push_with(
+            false,
+            RagdollMessage::len(bodies.len()),
+            &mut self.outbox,
+            |out| {
+                let poses = bodies.iter().map(|b| {
+                    ragdoll.node_pose(&runtime.physics, b.node).map_or(
+                        ([0.; 3], [0., 0., 0., 1.]),
+                        |f| {
+                            (
+                                origin.absolute(f.position.to_array()),
+                                f.rotation.to_array(),
+                            )
+                        },
+                    )
+                });
+                RagdollMessage::encode(slot, poses, out);
+            },
+        );
     }
 
     fn push<M: Message>(&mut self, message: &M) {
