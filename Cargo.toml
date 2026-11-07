@@ -15,7 +15,7 @@ simulation = { path = "crates/simulation" }
 bevy_platform = "=0.19.1"
 rapier3d = "=0.36.0"
 serde = { version = "=1.0.229", features = ["derive", "rc"] }
-serde_json = { version = "=1.0.151", features = ["float_roundtrip", "raw_value"] }
+serde_json = { version = "=1.0.151", features = ["float_roundtrip"] }
 terrain = { path = "crates/terrain" }
 road-mesh = { path = "crates/road-mesh" }
 grass-mesh = { path = "crates/grass-mesh" }

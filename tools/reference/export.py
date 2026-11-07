@@ -209,6 +209,30 @@ def encode_runtime_manifest(content: bytes) -> bytes:
     return result.stdout
 
 
+def decode_runtime_manifest(runtime: bytes) -> bytes:
+    """The exporter JSON of the game manifest file, from the game's contract."""
+    try:
+        result = subprocess.run(contract_command('run', '--decode'), input=runtime, capture_output=True, check=False)
+    except OSError as error:
+        raise ValueError('Runtime manifest decode needs Docker and the project toolchain image') from error
+    if result.returncode:
+        detail = result.stderr.decode('utf-8', errors='replace').strip()
+        raise ValueError(f'Runtime manifest decode failed: {detail}')
+    return result.stdout
+
+
+def canonical_json(value):
+    """`value` as the game contract writes it: f32 numbers and no null fields."""
+    import struct
+    if isinstance(value, dict):
+        return {k: canonical_json(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [canonical_json(v) for v in value]
+    if isinstance(value, float):
+        return struct.unpack('<f', struct.pack('<f', value))[0]
+    return value
+
+
 def verify_crunch(output: Path, manifest) -> None:
     """Check the game unpacker on every stored crunch texture: its BC blocks match the exporter's."""
     import struct
@@ -238,9 +262,13 @@ def verify_crunch(output: Path, manifest) -> None:
 def verify_reference(output: Path, library) -> None:
     from .library.reader import checked
     from .gltf import check_gltf
-    from .runtime_package import MANIFEST, RUNTIME_MANIFEST, manifest_bytes, runtime_manifest_bytes
-    content = manifest_bytes(output)
+    from .runtime_package import CATALOG, RUNTIME_MANIFEST, read_catalog, runtime_manifest_bytes
+    runtime = runtime_manifest_bytes(output)
+    content = decode_runtime_manifest(runtime)
     manifest = json.loads(content)
+    catalog = read_catalog(output)
+    if canonical_json(catalog) != canonical_json({k: manifest[k] for k in ('content_base', 'file_catalog')}):
+        raise ValueError('Runtime catalog differs from the runtime manifest')
     if library is None or manifest.get('library') != provenance(library):
         raise ValueError('Missing or mismatched runtime library provenance')
     if manifest['library']['schema_version'] != 1 or any(not re.fullmatch('[0-9a-f]{64}', manifest['library'][k]) for k in ('manifest_sha256','catalog_sha256','source_manifest_sha256')):
@@ -250,8 +278,8 @@ def verify_reference(output: Path, library) -> None:
         raise ValueError('Missing or mismatched world current library provenance')
     from .acquisition import validate_acquisition
     validate_acquisition(manifest['acquisition'], manifest)
-    if encode_runtime_manifest(content) != runtime_manifest_bytes(output):
-        raise ValueError('Runtime manifest file differs from the exporter manifest')
+    if encode_runtime_manifest(content) != runtime:
+        raise ValueError('Runtime manifest file differs from its decoded JSON')
     verify_crunch(output, manifest)
     validate_runtime_paths(manifest)
     selection=json.loads((output/'library-selection.json').read_bytes())
@@ -259,9 +287,9 @@ def verify_reference(output: Path, library) -> None:
     if [record['file'] for record in evidence_receipts]!=['conditions-evidence.json']:
         raise ValueError('Missing condition evidence receipt')
     for record in evidence_receipts:checked(output,record)
-    if json.loads((output/'conditions-evidence.json').read_bytes())['conditions']!=manifest['conditions']:
+    if canonical_json(json.loads((output/'conditions-evidence.json').read_bytes())['conditions'])!=canonical_json(manifest['conditions']):
         raise ValueError('Condition evidence differs from runtime records')
-    names = {MANIFEST,RUNTIME_MANIFEST,'geometry-evidence.json','parameter-evidence.json','library-selection.json','lighting-evidence.json','material-evidence.json','plate-evidence.json','flashlights-evidence.json','storage-evidence.json','driving-evidence.json','conditions-evidence.json','crunch-evidence.json'}
+    names = {CATALOG,RUNTIME_MANIFEST,'geometry-evidence.json','parameter-evidence.json','library-selection.json','lighting-evidence.json','material-evidence.json','plate-evidence.json','flashlights-evidence.json','storage-evidence.json','driving-evidence.json','conditions-evidence.json','crunch-evidence.json'}
     for asset in manifest['assets']:
         for record in [asset, *asset['dependencies']]:
             name = record.get('file', record.get('path')).removeprefix('reference/')
@@ -734,9 +762,9 @@ def main(argv=None):
                 receipt = stage_library(arguments.steam_root, arguments.output)
         if arguments.verify:
             verify_reference(arguments.output, receipt)
-            from .runtime_package import verify_package, package_id, read_manifest
-            manifest = read_manifest(arguments.output)
-            verify_package(manifest, arguments.output.parent / 'runtime' / package_id(manifest))
+            from .runtime_package import verify_package, package_dir, read_catalog
+            catalog = read_catalog(arguments.output)
+            verify_package(catalog, arguments.output.parent / 'runtime' / package_dir(catalog))
         else:
             from .library.archive import load_snapshot
             with timed('Runtime export'), contract_build():
