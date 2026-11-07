@@ -133,6 +133,7 @@ impl WorldPresentation<'_, '_> {
     pub fn prepare_frame(
         &mut self,
         reference: &ReferenceManifest,
+        poses: &crate::presentation::sim_frame::SimFrameResource,
         grant: Option<crate::world::PresentationGrant>,
         view: GrassView,
         time: f32,
@@ -152,6 +153,7 @@ impl WorldPresentation<'_, '_> {
         let result = self.prepare(
             &world,
             reference,
+            poses,
             view,
             time,
             lod_view,
@@ -178,6 +180,7 @@ impl WorldPresentation<'_, '_> {
         &mut self,
         stream: &RendererWorld,
         reference: &ReferenceManifest,
+        poses: &crate::presentation::sim_frame::SimFrameResource,
         view: GrassView,
         time: f32,
         lod_view: super::lod::LodView,
@@ -554,6 +557,7 @@ impl WorldPresentation<'_, '_> {
         super::lamps::sync_source_lamps(
             &stream.frame(),
             reference,
+            poses,
             enabled,
             &mut self.lights,
             &mut self.commands,
