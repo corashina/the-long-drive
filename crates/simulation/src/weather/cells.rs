@@ -1,6 +1,6 @@
 //! Regional weather cells. A new feature: the source has only the sandstorm.
 //! A cell is a moving front with a kind, a radius and a life. The weather at a point is the sum of the cells there.
-use super::{StormRandom, WeatherKind, WeatherMix};
+use super::{StormRandom, WeatherKind, WeatherLook, WeatherMix};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_CELLS: usize = 8;
@@ -100,15 +100,50 @@ impl CellSample {
         let mut mix = WeatherMix::default();
         for (kind, &w) in WeatherKind::ALL.iter().zip(&self.weights) {
             let t = kind.target();
-            mix.cloud_cover += t.cloud_cover * w;
             mix.rain += t.rain * w;
-            mix.fog += t.fog * w;
             mix.temperature += t.temperature * w;
         }
-        mix.cloud_cover = mix.cloud_cover.min(1.);
         mix.rain = mix.rain.min(1.);
-        mix.fog = mix.fog.min(1.);
         mix
+    }
+
+    /// The kind looks blended by weight. Clear also gets the share that no cell covers.
+    /// The weights are scaled to a sum of 1. The grey shades blend by their grey share.
+    pub fn look(&self) -> WeatherLook {
+        let covered: f32 = self.weights[1..].iter().sum();
+        let clear = self.weights[0].max(1. - covered);
+        let scale = 1. / (clear + covered);
+        let mut look = WeatherLook {
+            cloud_shade: 0.,
+            fog_shade: [0.; 3],
+            ..WeatherLook::default()
+        };
+        for kind in WeatherKind::ALL {
+            let w = match kind {
+                WeatherKind::Clear => clear * scale,
+                _ => self.weight(kind) * scale,
+            };
+            let row = kind.look();
+            look.sun += row.sun * w;
+            look.ambient += row.ambient * w;
+            look.sky += row.sky * w;
+            look.cloud_cover += row.cloud_cover * w;
+            look.cloud_grey += row.cloud_grey * w;
+            look.cloud_shade += row.cloud_shade * row.cloud_grey * w;
+            look.cloud_hide += row.cloud_hide * w;
+            look.fog_density += row.fog_density * w;
+            look.fog_grey += row.fog_grey * w;
+            for (shade, row_shade) in look.fog_shade.iter_mut().zip(row.fog_shade) {
+                *shade += row_shade * row.fog_grey * w;
+            }
+            look.saturation += row.saturation * w;
+            look.contrast += row.contrast * w;
+            look.warmth += row.warmth * w;
+            look.flare += row.flare * w;
+        }
+        look.cloud_shade = shade(look.cloud_shade, look.cloud_grey);
+        look.fog_shade = look.fog_shade.map(|s| shade(s, look.fog_grey));
+        look
     }
 
     /// The kind with the largest weight. Clear also gets the share that no cell covers.
@@ -315,6 +350,11 @@ impl WeatherCells {
     }
 }
 
+/// The grey shade from its grey-weighted sum. No grey gives 1.
+fn shade(sum: f32, grey: f32) -> f32 {
+    if grey > 0. { sum / grey } else { 1. }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,5 +426,25 @@ mod tests {
         assert_eq!(fog.len(), 1);
         assert_eq!(fog[0].strength(), 1.);
         assert!(cells.iter().all(|c| c.strength() == 1.));
+    }
+
+    #[test]
+    fn each_full_kind_looks_distinct() {
+        let looks = WeatherKind::ALL.map(|kind| {
+            let mut sample = CellSample::default();
+            sample.weights[kind as usize] = 1.;
+            sample.look()
+        });
+        for (i, a) in looks.iter().enumerate() {
+            for b in &looks[i + 1..] {
+                let apart = |x: f32, y: f32| (x - y).abs() > 0.05;
+                assert!(
+                    apart(a.sun, b.sun)
+                        || apart(a.fog_density * 1000., b.fog_density * 1000.)
+                        || apart(a.saturation, b.saturation),
+                    "{a:?} {b:?}"
+                );
+            }
+        }
     }
 }
