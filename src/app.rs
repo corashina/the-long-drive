@@ -750,9 +750,11 @@ fn prepare_world(
         },
     };
     let grant = sim.grant.take();
+    let sim = &*sim;
     let frame = &sim.frame;
     if let Err(error) = presentation.prepare_frame(
         &reference.0,
+        sim,
         grant,
         view,
         frame.lighting.cycle.shader_time_seconds as f32,

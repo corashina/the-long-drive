@@ -516,13 +516,20 @@ impl WorldStream {
             let position = self.origin.absolute(item.pose.position);
             for source in &content.content.lights {
                 if let Some(light) = self.lights.iter_mut().find(|l| l.id == source.id) {
-                    let offset = crate::world::placement::rotate(
-                        rotation,
-                        std::array::from_fn(|i| (source.pose.position[i] - old.position[i]) as f32),
-                    );
-                    light.pose.position = std::array::from_fn(|i| position[i] + offset[i] as f64);
+                    let offset =
+                        std::array::from_fn(|i| (source.pose.position[i] - old.position[i]) as f32);
+                    let moved = crate::world::placement::rotate(rotation, offset);
+                    light.pose.position = std::array::from_fn(|i| position[i] + moved[i] as f64);
                     light.pose.rotation =
                         crate::world::placement::multiply(rotation, source.pose.rotation);
+                    light.item = Some(crate::world::ItemLight {
+                        item: item.id,
+                        position: crate::world::placement::rotate(old_inverse, offset),
+                        rotation: crate::world::placement::multiply(
+                            old_inverse,
+                            source.pose.rotation,
+                        ),
+                    });
                 }
             }
         }
