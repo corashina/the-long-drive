@@ -116,7 +116,10 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .menu-screen output {min-width:4.5em;text-align:right;color:var(--dust);}
 .menu-screen :is(select,input[type=number],input[type=text],input[type=password]),.menu-screen button:not([role=tab],.save-tile) {position:static;min-width:0;height:32px;padding:0 12px;background:var(--shoulder);border:1px solid var(--edge);color:var(--bleach);font:inherit;text-shadow:none;border-radius:3px;}
 :is(.menu-screen,.appearance-panel) option {background-color:var(--shoulder);color:var(--bleach);}
-.menu-screen select {min-width:150px;}
+/* Dropdowns and fields in a row share one width, so their edges line up. Lone action buttons fill their row. */
+:root {--select-width:12em;}
+.menu-screen :is(select,label > input:is([type=text],[type=password],[type=number])),#fullscreen {width:var(--select-width);max-width:100%;}
+#net-host-start,#net-join-start {width:calc(100% - 8px);margin-inline:4px;}
 .menu-screen input[type=checkbox] {appearance:none;flex:none;position:relative;margin:0;width:38px;height:20px;border-radius:10px;background:var(--seam);box-shadow:inset 0 0 0 1px var(--edge);cursor:pointer;}
 .menu-screen input[type=checkbox]::after {content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--dust);}
 .menu-screen input[type=checkbox]:checked {background:var(--paint);box-shadow:none;}
@@ -137,7 +140,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .appearance-panel {border-top:4px solid transparent;border-image:var(--lane) 4;border-image-width:4px 0 0 0;position:absolute;left:0;top:0;bottom:0;width:min(440px,45vw);display:flex;flex-direction:column;gap:12px;padding:20px 24px;overflow:auto;overscroll-behavior:contain;background:var(--asphalt);border-right:1px solid var(--seam);box-shadow:20px 0 60px #0008;font:400 17px/1.35 var(--menu-font);font-variant-numeric:tabular-nums;color:var(--bleach);text-shadow:none;}
 #appearance-title {margin:0;font-size:30px;font-weight:800;color:var(--bleach);}
 .appearance-panel label {display:flex;align-items:center;justify-content:space-between;gap:12px;}
-.appearance-panel select {min-width:150px;height:32px;border-radius:3px;padding:0 12px;background:var(--shoulder);border:1px solid var(--edge);font:inherit;color:var(--bleach);}
+.appearance-panel select {width:var(--select-width);max-width:100%;height:32px;border-radius:3px;padding:0 12px;background:var(--shoulder);border:1px solid var(--edge);font:inherit;color:var(--bleach);}
 .appearance-panel input[type=range] {width:60%;height:16px;appearance:none;border-radius:8px;accent-color:var(--paint);}
 .appearance-panel label {min-height:36px;border-bottom:1px solid var(--seam-soft);}
 #appearance-parts {display:grid;grid-auto-flow:column;grid-template-columns:1fr 1fr;gap:8px 12px;}
@@ -169,6 +172,8 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #save-name-row {display:grid;gap:8px;}
 .save-row {display:flex;flex-wrap:wrap;align-items:center;gap:12px;}
 .save-confirm {display:flex;align-items:center;gap:12px;}
+/* Save panel buttons share the row width, so they are big targets. */
+.save-row > :is(button,.save-confirm),.save-confirm > button {flex:1 1 0;}
 #save-cant {margin:0;white-space:pre-line;font-size:18px;color:var(--bleach);}
 #save-info {display:grid;gap:6px;margin:0;}
 #save-info div {display:grid;grid-template-columns:90px minmax(0,1fr);gap:12px;padding:4px 0;border-bottom:1px solid var(--seam-soft);}
