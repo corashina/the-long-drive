@@ -286,6 +286,8 @@ pub struct WorldStream {
     color_foundations: Vec<super::FoundationPoint>,
     color_helpers: Vec<TerrainFoundation>,
     tiles: [TerrainTile; 3],
+    /// Tile offsets of each tier, nearest first, cut to the source circle count.
+    ring_offsets: [Vec<[i64; 2]>; 3],
     terrain_layer: u8,
     road_layers: [u8; 3],
     initial_generation_ready: bool,
@@ -828,6 +830,16 @@ impl WorldStream {
         }
         let margin = road_light.influence_margin();
         let limits = super::stream_limits::StreamLimits::new(world, &distances, margin)?;
+        let tiles = [
+            super::terrain_tile(world, &distances, 0)?,
+            super::terrain_tile(world, &distances, 1)?,
+            super::terrain_tile(world, &distances, 2)?,
+        ];
+        let ring_offsets = [
+            ring_offsets(tiles[0])?,
+            ring_offsets(tiles[1])?,
+            ring_offsets(tiles[2])?,
+        ];
         if !limits.fits() {
             return Err(ReferenceError(format!(
                 "Draw distance {} m does not fit. Largest: {} m",
@@ -915,11 +927,8 @@ impl WorldStream {
             road_width: world.road.width,
             color_foundations: Vec::new(),
             color_helpers: Vec::new(),
-            tiles: [
-                super::terrain_tile(world, &distances, 0)?,
-                super::terrain_tile(world, &distances, 1)?,
-                super::terrain_tile(world, &distances, 2)?,
-            ],
+            tiles,
+            ring_offsets,
             initial_generation_ready: false,
             plan_revision: 0,
             selection_inputs: 0,
@@ -1587,10 +1596,7 @@ impl WorldStream {
     }
     /// Prepare source startup without advancing ordinary Update generation.
     fn prepare_descriptors(&mut self, budget_ms: f64) {
-        #[cfg(target_arch = "wasm32")]
-        let started = crate::host::game_now();
-        #[cfg(not(target_arch = "wasm32"))]
-        let started = std::time::Instant::now();
+        let deadline = super::Deadline::start(budget_ms);
         self.publication_available = !self.publication_lent;
         self.last_road_work = 0;
         // Request and source-input changes force structures. Captured item motion only
@@ -1630,12 +1636,8 @@ impl WorldStream {
                 self.generation_revision += 1;
             }
             self.initial_generation_ready = road_ready && placement_ready;
-            #[cfg(target_arch = "wasm32")]
-            let elapsed = crate::host::game_now() - started;
-            #[cfg(not(target_arch = "wasm32"))]
-            let elapsed = started.elapsed().as_secs_f64() * 1000.;
             if !self.initial_generation_ready
-                && (elapsed >= budget_ms
+                && (deadline.expired()
                     || before
                         == (
                             self.roads.prepared_segments(),
@@ -1676,13 +1678,7 @@ impl WorldStream {
                     }
                     self.failure.is_none()
                 },
-                || {
-                    #[cfg(target_arch = "wasm32")]
-                    let elapsed = crate::host::game_now() - started;
-                    #[cfg(not(target_arch = "wasm32"))]
-                    let elapsed = started.elapsed().as_secs_f64() * 1000.;
-                    elapsed >= budget_ms
-                },
+                || deadline.expired(),
             );
             self.selection_ring = ring;
         }
@@ -1738,10 +1734,6 @@ impl WorldStream {
         }
     }
     pub fn prepare(&mut self, budget_ms: f64) {
-        #[cfg(target_arch = "wasm32")]
-        let started = crate::host::game_now();
-        #[cfg(not(target_arch = "wasm32"))]
-        let started = std::time::Instant::now();
         // Zero requests one driving step. Bound its descriptor selection to a 4 ms slice and
         // its terrain work to a 1 ms slice. Loading keeps its supplied budget for both.
         let (descriptor_ms, limit_ms) = if budget_ms == 0. {
@@ -1749,18 +1741,13 @@ impl WorldStream {
         } else {
             (budget_ms, budget_ms)
         };
+        let deadline = super::Deadline::start(limit_ms);
         let mut timer =
             super::stream_profile::Timer::new(super::stream_profile::Stage::StreamDescriptors);
         self.poll_road_work();
         self.prepare_descriptors(descriptor_ms);
         timer.next(super::stream_profile::Stage::StreamGeometry);
-        self.prepare_geometry(|| {
-            #[cfg(target_arch = "wasm32")]
-            let elapsed = crate::host::game_now() - started;
-            #[cfg(not(target_arch = "wasm32"))]
-            let elapsed = started.elapsed().as_secs_f64() * 1000.;
-            elapsed >= limit_ms
-        });
+        self.prepare_geometry(|| deadline.expired());
     }
     fn prepare_startup(&mut self) {
         if self.startup_candidates.is_empty() && self.startup_next == 0 {
@@ -2711,25 +2698,12 @@ impl WorldStream {
             )));
         }
         for (tier, tile) in self.tiles.iter().enumerate() {
-            let radius = tile.draw_distance as i64;
-            let side = (radius * 2 + 1).max(4);
-            let count = super::stream_limits::circle_tiles(*tile);
-            let mut offsets = Vec::with_capacity((side * side) as usize);
-            for z in 0..side {
-                for x in 0..side {
-                    offsets.push([x - radius, z - radius]);
-                }
-            }
-            offsets.sort_by_key(|p| p[0] * p[0] + p[1] * p[1]);
-            if count > offsets.len() {
-                return Err(ReferenceError("Source terrain coordinate count".into()));
-            }
             for point in [self.request.player, self.request.vehicle] {
                 let center = [
                     (point[0] as f32 / tile.size as f32).round_ties_even() as i64,
                     (-point[2] as f32 / tile.size as f32).round_ties_even() as i64,
                 ];
-                for offset in &offsets[..count] {
+                for offset in &self.ring_offsets[tier] {
                     let key = SurfaceKey {
                         layer: tier_layer(tier),
                         unit: [center[0] + offset[0], center[1] + offset[1]],
@@ -5559,6 +5533,24 @@ fn is_prop_layer(layer: WorldLayer) -> bool {
         layer,
         WorldLayer::Prop | WorldLayer::Mountain | WorldLayer::Tower | WorldLayer::DesertBuilding
     )
+}
+/// Source tile ring: square offsets sorted by distance, cut to the circle count.
+fn ring_offsets(tile: TerrainTile) -> Result<Vec<[i64; 2]>, ReferenceError> {
+    let radius = tile.draw_distance as i64;
+    let side = (radius * 2 + 1).max(4);
+    let count = super::stream_limits::circle_tiles(tile);
+    let mut offsets = Vec::with_capacity((side * side) as usize);
+    for z in 0..side {
+        for x in 0..side {
+            offsets.push([x - radius, z - radius]);
+        }
+    }
+    offsets.sort_by_key(|p| p[0] * p[0] + p[1] * p[1]);
+    if count > offsets.len() {
+        return Err(ReferenceError("Source terrain coordinate count".into()));
+    }
+    offsets.truncate(count);
+    Ok(offsets)
 }
 fn tier_layer(tier: usize) -> WorldLayer {
     match tier {
