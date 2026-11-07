@@ -1,3 +1,4 @@
+import {gunzip} from './gzip.js';
 // Multiplayer peers of source `sns` and `snl`. PeerJS runs on the page thread, because Chrome has no WebRTC in workers.
 // The peers form a star like the source. Guests talk only to the host. The host forwards guest messages to the other guests.
 // Each guest has a `reliable` connection for the session messages and the save, and a `pose` connection for
@@ -5,7 +6,7 @@
 // A batch is packets with a u16 length each, like the Rust inbox. One frame sends one batch per connection,
 // so the message count does not grow with the packet count.
 // Bit `RELIABLE` of an outbound packet length sends the packet on `reliable` as `{t:'sim',data}`, like source `EP2PSendReliable`.
-// The save goes gzipped, because the JSON is large and compresses well.
+// The save goes gzipped, as it is stored, because the JSON is large and compresses well.
 // A guest loads the host world for many seconds with a busy page thread, so silence until `ready` uses `LOAD_TIMEOUT_MS`.
 export const RELIABLE=0x8000;
 // The largest `pose` message. A larger message splits into IP fragments, and the loss of one drops all of it.
@@ -20,9 +21,6 @@ export const STATUS={
 export function roomCode(random=Math.random){return Array.from({length:6},()=>LETTERS[Math.floor(random()*LETTERS.length)]).join('');}
 export function validCode(code){return typeof code==='string'&&code.length===6&&[...code].every(c=>LETTERS.includes(c));}
 const bytes=data=>data instanceof Uint8Array?data:new Uint8Array(data);
-const transform=(data,stream)=>new Response(new Blob([data]).stream().pipeThrough(stream)).arrayBuffer().then(b=>new Uint8Array(b));
-export const gzip=data=>transform(data,new CompressionStream('gzip'));
-export const gunzip=data=>transform(data,new DecompressionStream('gzip'));
 // Splits a frame outbox into the unreliable and the reliable batch. Each length loses bit `RELIABLE`.
 export function splitOutbox(outbox){
  let sizes=[0,0];
@@ -60,7 +58,7 @@ export function chatText(text){
  return new TextDecoder().decode(encoded.subarray(0,CHAT_BYTES)).replace(/�$/,'');
 }
 
-// `Peer`: the PeerJS class. `capture()`: the host save record as a string.
+// `Peer`: the PeerJS class. `capture()`: the gzip bytes of the host save.
 // Voice (source `SVoice`, host forwards). Each peer sends its microphone in a PeerJS media call. A guest calls the host.
 // The host calls each guest once per other speaker, with that speaker's stream and `metadata.slot`.
 // Events: `voice(slot,stream|null)`, `packet(bytes)`, `leave(slot)`, `looks(Map slot→{name,outfit})`, `chat({name,text})`, `status(text)`,
@@ -109,7 +107,7 @@ export function createNet({Peer,buildId,exportHash,capture,on,now=()=>performanc
   if(free===undefined)return refuse('full');
   g.slot=free;
   let save;
-  try{save=await gzip(new TextEncoder().encode(await capture()));}catch{return refuse('save');}
+  try{save=await capture();}catch{return refuse('save');}
   if(!guests.has(g.id))return;
   const chunks=Math.ceil(save.length/CHUNK);
   g.reliable.send({t:'welcome',slot:free,max,chunks,looks:[...looks]});

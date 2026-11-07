@@ -277,6 +277,7 @@ fn frame_round_trips() {
                 id: 4,
                 kind: crate::save_requests::SaveKind::Capture,
                 payload: "{}".into(),
+                save: b"{}".to_vec(),
                 error: String::new(),
             },
         ],

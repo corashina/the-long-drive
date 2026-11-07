@@ -9,7 +9,7 @@ impl SaveSnapshot {
         expected: &SourceStamp,
         ids: &IdentityMap,
     ) -> Result<(), SaveError> {
-        if !schema_supported(self.schema_version) {
+        if self.schema_version != SAVE_SCHEMA_VERSION {
             return Err(SaveError::IncompatibleSources("Schema version".into()));
         }
         data(
@@ -880,49 +880,18 @@ fn validate_source(
     expected: &SourceStamp,
     reference: &ReferenceManifest,
 ) -> Result<(), SaveError> {
-    fn hashes<'a>(
-        hashes: impl Iterator<Item = (&'a str, &'a str)>,
-    ) -> Result<HashMap<&'a str, &'a str>, SaveError> {
-        let mut values = HashMap::new();
-        for (file, hash) in hashes {
-            data(!file.is_empty() && sha256(hash), "Source hash")?;
-            data(values.insert(file, hash).is_none(), "Duplicate source hash")?;
-        }
-        data(!values.is_empty(), "Missing source hashes")?;
-        Ok(values)
-    }
     data(
         sha256(&saved.manifest_sha256) && sha256(&expected.manifest_sha256),
         "Manifest hash",
-    )?;
-    let saved_hashes = hashes(
-        saved
-            .source_hashes
-            .iter()
-            .map(|h| (h.file.as_str(), h.sha256.as_str())),
-    )?;
-    let expected_hashes = hashes(
-        expected
-            .source_hashes
-            .iter()
-            .map(|h| (h.file.as_str(), h.sha256.as_str())),
-    )?;
-    let source_hashes = hashes(
-        reference
-            .source_hashes
-            .iter()
-            .map(|h| (h.file.as_str(), h.sha256.as_str())),
     )?;
     if saved.app_id != expected.app_id
         || saved.build_id != expected.build_id
         || expected.app_id != reference.app_id
         || expected.build_id != reference.build_id
         || saved.manifest_sha256 != expected.manifest_sha256
-        || saved_hashes != expected_hashes
-        || expected_hashes != source_hashes
     {
         return Err(SaveError::IncompatibleSources(
-            "Build, manifest, or source-file hashes".into(),
+            "Build or manifest hash".into(),
         ));
     }
     Ok(())

@@ -998,7 +998,10 @@ pub enum Change {
     SaveResult {
         id: u32,
         kind: crate::save_requests::SaveKind,
+        /// JSON answer. For Capture, the save list fields.
         payload: String,
+        /// Capture only: the save JSON, stored as is.
+        save: Vec<u8>,
         error: String,
     },
 }

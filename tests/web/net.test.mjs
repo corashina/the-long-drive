@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {gzipSync} from 'node:zlib';
 import {createNet,ROLE,STATUS,PREFIX,TIMEOUT_MS,TICK_MS,RELIABLE,DATAGRAM,datagrams} from '../../web/net.js';
 
 // Packets with a u16 length each. `reliable` sets bit `RELIABLE` of each length.
@@ -52,7 +53,7 @@ function broker(){
 const tick=()=>new Promise(r=>setTimeout(r,0));
 function setup(Peer,clock,extra={}){
  const events={packets:[],leaves:[],status:[],chat:[],saves:[],sessions:[],looks:[],voices:[]};let timer=null;
- const net=createNet({Peer,buildId:'b1',exportHash:'h1',capture:async()=>'{"world":1}',now:()=>clock.t,
+ const net=createNet({Peer,buildId:'b1',exportHash:'h1',capture:async()=>new Uint8Array(gzipSync('{"world":1}')),now:()=>clock.t,
   setTimer:fn=>{timer=fn;return 1;},clearTimer:()=>{timer=null;},...extra,
   on:{packets:b=>events.packets.push(...unbatch(b)),leave:s=>events.leaves.push(s),status:s=>events.status.push(s),chat:c=>events.chat.push(c),
    save:b=>events.saves.push(new TextDecoder().decode(b)),session:(r,s)=>events.sessions.push([r,s]),looks:l=>events.looks.push(l),voice:(slot,stream)=>events.voices.push([slot,stream])}});
