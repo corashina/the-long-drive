@@ -86,7 +86,14 @@ impl Remote {
                 RemoteBody::new(reference, shapes, to_rapier(pose), now, physics)
             });
             if std::mem::take(&mut self.smoothing.fresh) {
-                collision.update(reference, shapes, self.smoothing.seated, now, physics);
+                collision.update(
+                    reference,
+                    shapes,
+                    self.smoothing.seated,
+                    self.smoothing.dead,
+                    now,
+                    physics,
+                );
             }
             collision.place(physics, to_rapier(pose));
             self.written = shown.position;
@@ -109,6 +116,8 @@ pub struct Smoothing {
     /// Figure Transform `T`.
     shown: Sample,
     seated: bool,
+    /// The player is dead. The figure hides and its colliders are off.
+    pub dead: bool,
     /// Source `seatId` and `seatId2` of a car seat. `last` is then relative to the car.
     car: Option<(u64, u32)>,
     pub duck: f32,
@@ -133,6 +142,7 @@ impl Smoothing {
                 next_time: now,
                 shown: sample,
                 seated,
+                dead: false,
                 car: None,
                 duck: m.duck,
                 start: Some(now),
@@ -140,7 +150,9 @@ impl Smoothing {
             };
         }
         let was_seated = self.seated;
+        let was_dead = self.dead;
         self.seated = seated;
+        self.dead = m.flags & PoseMessage::DEAD != 0;
         self.fresh = true;
         self.car = (m.flags & PoseMessage::IN_CAR != 0).then_some((m.car, m.seat));
         self.duck = m.duck;
@@ -148,7 +160,8 @@ impl Smoothing {
         self.old_time = self.last_time;
         self.last = sample;
         if !seated {
-            if was_seated {
+            // A respawn places the figure at once, like getting out of a seat.
+            if was_seated || (was_dead && !self.dead) {
                 self.old = sample;
                 self.next = sample;
                 self.previous_next = sample;
