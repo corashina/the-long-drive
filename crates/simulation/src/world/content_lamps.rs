@@ -522,14 +522,15 @@ impl WorldStream {
                     light.pose.position = std::array::from_fn(|i| position[i] + moved[i] as f64);
                     light.pose.rotation =
                         crate::world::placement::multiply(rotation, source.pose.rotation);
-                    light.item = Some(crate::world::ItemLight {
-                        item: item.id,
-                        position: crate::world::placement::rotate(old_inverse, offset),
-                        rotation: crate::world::placement::multiply(
-                            old_inverse,
-                            source.pose.rotation,
-                        ),
-                    });
+                    if light.body.is_none() {
+                        light.body = body_light(
+                            &self.structures,
+                            &content.content.placement.id,
+                            item,
+                            crate::world::placement::rotate(old_inverse, offset),
+                            crate::world::placement::multiply(old_inverse, source.pose.rotation),
+                        );
+                    }
                 }
             }
         }
@@ -613,4 +614,31 @@ impl WorldStream {
             }
         }
     }
+}
+
+/// The pose of a light in the frame of the structure body that carries `item`.
+/// `position` and `rotation` are the light pose in the item frame.
+fn body_light(
+    structures: &[crate::world::StructureInstance],
+    structure: &crate::world::GeneratedId,
+    item: &crate::interaction::items::ItemState,
+    position: [f32; 3],
+    rotation: [f32; 4],
+) -> Option<crate::world::BodyLight> {
+    let handle = item.body?;
+    let body = structures
+        .iter()
+        .find(|s| s.placement.id == *structure)?
+        .bodies
+        .iter()
+        .position(|b| *b == handle)?;
+    // The item pose is the body pose times the item local pose.
+    let local = item.local_pose;
+    let moved = crate::world::placement::rotate(local.rotation, position);
+    Some(crate::world::BodyLight {
+        structure: structure.clone(),
+        body: body as u32,
+        position: std::array::from_fn(|i| local.position[i] + moved[i]),
+        rotation: crate::world::placement::multiply(local.rotation, rotation),
+    })
 }
