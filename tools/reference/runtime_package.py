@@ -23,12 +23,19 @@ RUNTIME_MANIFEST = 'manifest.bin.gz'
 
 
 def write_manifest(output: Path, manifest: dict) -> None:
-    from .export import encode_runtime_manifest
+    """Write the exporter JSON. `write_runtime_manifest` makes the game files from it."""
     content = json.dumps(manifest, separators=(',', ':'), allow_nan=False).encode()
     # mtime 0 keeps the file bytes the same for the same manifest.
     (output / MANIFEST).write_bytes(gzip.compress(content, compresslevel=9, mtime=0))
+
+
+def write_runtime_manifest(output: Path) -> None:
+    """Make the game manifest file and `catalog.json` from the exporter JSON file."""
+    from .export import encode_runtime_manifest
+    content = manifest_bytes(output)
     runtime = encode_runtime_manifest(content)
     (output / RUNTIME_MANIFEST).write_bytes(gzip.compress(runtime, compresslevel=9, mtime=0))
+    manifest = json.loads(content)
     catalog = {'content_base': manifest['content_base'], 'file_catalog': manifest['file_catalog']}
     (output / CATALOG).write_text(json.dumps(catalog, separators=(',', ':'), allow_nan=False), encoding='utf-8')
 

@@ -3,11 +3,11 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import patch
-from tools.reference.export import derive_reference
+from tools.reference.export import FAILED_RUNTIME, derive_reference, retry_package
 
 
 class ExportStagingTests(unittest.TestCase):
-    def test_failed_export_cleans_only_its_stage(self):
+    def test_failed_export_cleans_or_keeps_only_its_stage(self):
         for failure in ('export', 'verify', 'promote'):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp).resolve()
@@ -28,12 +28,22 @@ class ExportStagingTests(unittest.TestCase):
                     if failure == 'export': raise ValueError('injected export')
                 def verify(*args):
                     if failure == 'verify': raise ValueError('injected verify')
-                def promote(*args):
-                    raise ValueError('injected promote')
+                promoted = []
+                def promote(staged, accepted):
+                    if failure == 'promote': raise ValueError('injected promote')
+                    promoted.append(staged)
                 before = accepted.stat().st_mtime_ns
-                with patch('tools.reference.library.reader.LibraryReader', return_value=reader), patch('tools.reference.source.LibrarySource'), patch('tools.reference.library.storage.check_space'), patch('tools.reference.export._export_selected', side_effect=selected), patch('tools.reference.export.verify_reference', side_effect=verify), patch('tools.reference.runtime_package.publish_package'), patch('tools.reference.export.promote_reference', side_effect=promote):
+                with patch('tools.reference.library.reader.LibraryReader', return_value=reader), patch('tools.reference.source.LibrarySource'), patch('tools.reference.library.storage.check_space'), patch('tools.reference.export._export_selected', side_effect=selected), patch('tools.reference.export.verify_reference', side_effect=verify), patch('tools.reference.runtime_package.publish_package'), patch('tools.reference.runtime_package.write_runtime_manifest'), patch('tools.reference.export.promote_reference', side_effect=promote):
                     with self.assertRaisesRegex(ValueError, 'injected '+failure):
                         derive_reference(snapshot, receipt, output)
+                    failed = output.parent / FAILED_RUNTIME
+                    self.assertEqual(failed.is_dir(), failure == 'verify')
+                    if failure == 'verify':
+                        self.assertEqual((failed/'new').read_bytes(), b'new')
+                        (failed/'manifest.json.gz').write_bytes(b'')
+                        failure = 'none'
+                        retry_package(receipt, output)
+                        self.assertEqual(promoted, [failed])
                 self.assertEqual(accepted.read_bytes(), b'accepted')
                 self.assertEqual(accepted.stat().st_mtime_ns, before)
                 self.assertEqual((recovery/'evidence').read_bytes(), b'keep')

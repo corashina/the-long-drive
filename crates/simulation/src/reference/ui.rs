@@ -62,11 +62,12 @@ pub struct UiElement {
 #[serde(deny_unknown_fields)]
 pub struct UiReference {
     pub crosshair_colors: CrosshairColors,
-    pub need_sliders: HashMap<String, NeedSlider>,
+    // BTreeMap: the manifest file needs one byte order for one manifest.
+    pub need_sliders: BTreeMap<String, NeedSlider>,
     pub sprites: Vec<UiSprite>,
     pub pairs: Vec<MenuPair>,
-    pub icons: HashMap<String, usize>,
-    pub layouts: HashMap<String, UiElement>,
+    pub icons: BTreeMap<String, usize>,
+    pub layouts: BTreeMap<String, UiElement>,
     pub overlay_color: [f32; 4],
     pub frame_color: [f32; 4],
 }
@@ -224,4 +225,53 @@ pub struct NeedSlider {
     pub maximum: f32,
     pub direction: u8,
     pub whole_numbers: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The export encodes the JSON at write time and again at verify time. Both must give the same bytes.
+    #[test]
+    fn ui_encoding_is_the_same_for_the_same_json() {
+        let source = serde_json::json!({"file": "level0", "path_id": 1});
+        // Unity f32 values as Python writes them: 0.1f32, the smallest subnormal, f32::MAX, -0.0 and 2^24 + 2.
+        let values = [
+            0.10000000149011612,
+            1e-45,
+            3.4028234663852886e38,
+            -0.0,
+            16777218.0,
+        ];
+        let rect = serde_json::json!({"source": source, "anchor_min": [values[0], values[1]],
+            "anchor_max": [values[2], values[3]], "position": [values[4], 1], "size": [0, 0],
+            "pivot": [0, 0], "scale": [1, 1]});
+        let element = serde_json::json!({"source": source, "rect": [values[0], values[1], values[2], values[3]],
+            "ancestry": [rect], "canvas": {"resolution": [1920, 1080], "mode": 1, "screen_match": 0, "match": values[0]},
+            "color": [values[0], 0, 0, 1], "font_size": values[4], "font": "", "alignment": 0, "text": "",
+            "sprite": null, "image_color": [1, 1, 1, 1]});
+        let names: Vec<String> = (0..32).map(|i| format!("element-{i}")).collect();
+        let json = serde_json::json!({
+            "crosshair_colors": {"default": [0, 0, 0, 1], "e": [0, 0, 0, 1], "f": [0, 0, 0, 1], "mmb": [0, 0, 0, 1]},
+            "need_sliders": names.iter().map(|n| (n.clone(), serde_json::json!({"source": source,
+                "minimum": values[1], "maximum": values[2], "direction": 0, "whole_numbers": false})))
+                .collect::<serde_json::Map<_, _>>(),
+            "sprites": [], "pairs": [],
+            "icons": names.iter().enumerate().map(|(i, n)| (n.clone(), serde_json::json!(i)))
+                .collect::<serde_json::Map<_, _>>(),
+            "layouts": names.iter().map(|n| (n.clone(), element.clone()))
+                .collect::<serde_json::Map<_, _>>(),
+            "overlay_color": [0, 0, 0, values[0]], "frame_color": [0, 0, 0, 1],
+        })
+        .to_string();
+        let encode =
+            || postcard::to_stdvec(&serde_json::from_str::<UiReference>(&json).unwrap()).unwrap();
+        let bytes = encode();
+        assert!(encode() == bytes, "Same JSON, other bytes");
+        let decoded: UiReference = postcard::from_bytes(&bytes).unwrap();
+        assert!(
+            postcard::to_stdvec(&decoded).unwrap() == bytes,
+            "Decoded UI, other bytes"
+        );
+    }
 }
