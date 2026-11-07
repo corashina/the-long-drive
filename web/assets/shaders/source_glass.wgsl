@@ -1,14 +1,11 @@
 // Installed FX/Glass/Stained BumpDistort, selected VS4/PS12.
 #import bevy_pbr::{forward_io::Vertex, mesh_functions, pbr_bindings}
 #import source_float_store::half4
-#import weather_glass::{GlassWater, glass_water}
 
 struct GlassViewUniform {
     clip_from_world: mat4x4<f32>,
     near_far: vec4<f32>,
     grab_texel_size: vec4<f32>,
-    // Rain water on the seated car glass. Only the player view sets it.
-    water: GlassWater,
 }
 @group(1) @binding(0) var<uniform> glass_view: GlassViewUniform;
 @group(1) @binding(1) var grab_texture: texture_2d<f32>;
@@ -50,10 +47,6 @@ struct GlassVertex {
     @location(0) projected_grab: vec4<f32>,
     @location(1) bump_uv: vec2<f32>,
     @location(2) main_uv: vec2<f32>,
-    @location(3) world: vec3<f32>,
-#ifdef VERTEX_NORMALS
-    @location(4) normal: vec3<f32>,
-#endif
 }
 @vertex
 fn vertex(in: Vertex) -> GlassVertex {
@@ -68,15 +61,8 @@ fn vertex(in: Vertex) -> GlassVertex {
         (-source_clip.y + source_clip.w) * 0.5, source_clip.zw);
     out.bump_uv = in.uv * source.uv[1].xy + source.uv[1].zw;
     out.main_uv = in.uv * source.uv[0].xy + source.uv[0].zw;
-    out.world = world.xyz;
-#ifdef VERTEX_NORMALS
-    out.normal = mesh_functions::mesh_normal_local_to_world(in.normal, in.instance_index);
-#endif
     return out;
 }
-
-// Grab offset at a water slope of 1, as a share of the screen.
-const WATER_LENS: f32 = 0.012;
 @fragment
 fn fragment(in: GlassVertex) -> @location(0) vec4<f32> {
     // Canonical normal images already contain decoded source AG channels in RGB.
@@ -84,18 +70,9 @@ fn fragment(in: GlassVertex) -> @location(0) vec4<f32> {
     let normal = bump.xy * 2.0 - vec2(1.0);
     let offset = normal * source.scales.x * glass_view.grab_texel_size.xy;
     let weight = max(0.0, (1.0 - in.projected_grab.z / glass_view.near_far.x) * glass_view.near_far.y);
-#ifdef VERTEX_NORMALS
-    let face = normalize(in.normal);
-#else
-    let face = normalize(cross(dpdx(in.world), dpdy(in.world)));
-#endif
-    let water = glass_water(glass_view.water, in.world, face);
-    // Screen y goes down, the glass up goes up.
-    let grab_uv = (in.projected_grab.xy + offset * weight) / in.projected_grab.w
-        + vec2(water.slope.x, -water.slope.y) * WATER_LENS;
+    let grab_uv = (in.projected_grab.xy + offset * weight) / in.projected_grab.w;
     let main = sample_slot(0u, in.main_uv);
     let grabbed = textureSample(grab_texture, grab_sampler, grab_uv);
     // All RGBA channels replace the destination. The pipeline disables blending.
-    let color = grabbed * main * source.color;
-    return half4(vec4(color.rgb * (1.0 - 0.15 * water.cover), color.a));
+    return half4(grabbed * main * source.color);
 }
