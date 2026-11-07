@@ -210,7 +210,13 @@ impl TerrainTask {
             should_yield,
         )
     }
-    pub fn into_mesh(self) -> TerrainMesh {
+    /// A regular grid tile (`regular_grid`) returns no triangles and no UV:
+    /// `grid_triangles` and `grid_uv` rebuild them. Any other tile keeps its triangles.
+    pub fn into_mesh(mut self) -> TerrainMesh {
+        if crate::regular_grid(self.tile, &self.output.vertices, &self.output.triangles) {
+            self.output.triangles = Vec::new();
+            self.output.uv = Vec::new();
+        }
         self.output
     }
 }

@@ -177,7 +177,7 @@ impl TerrainWorker {
         surface.uv = mesh.uv;
         surface.colors = mesh.colors;
         surface.triangles = mesh.triangles;
-        surface.submeshes.push(0..surface.triangles.len());
+        finish_read(tile, surface);
     }
     fn discard(&mut self) {
         self.result = None;
@@ -214,7 +214,8 @@ impl TerrainWorker {
         surface.vertices = vec![[0.0; 3]; vertices];
         surface.normals = vec![[0.0; 3]; vertices];
         surface.tangents = vec![[0.0; 4]; vertices];
-        surface.uv = vec![[0.0; 2]; vertices];
+        // A regular grid tile comes without triangles and UV.
+        surface.uv = vec![[0.0; 2]; if triangles == 0 { 0 } else { vertices }];
         surface.colors = vec![[0.0; 4]; vertices];
         surface.triangles = vec![[0; 3]; triangles];
         drop(profile);
@@ -226,11 +227,21 @@ impl TerrainWorker {
             surface.colors.as_flattened_mut(),
             surface.triangles.as_flattened_mut(),
         );
-        surface.submeshes.push(0..triangles);
+        finish_read(tile, surface);
     }
     fn discard(&mut self) {
         crate::host::game_terrain_discard();
     }
+}
+
+/// A read tile without triangles is a regular grid (`TerrainTask::into_mesh`).
+fn finish_read(tile: TerrainTile, surface: &mut WorldSurface) {
+    surface.grid = surface.triangles.is_empty().then_some(tile.size);
+    let triangles = match surface.grid {
+        Some(_) => terrain::grid_triangle_count(tile.resolution),
+        None => surface.triangles.len(),
+    };
+    surface.submeshes.push(0..triangles);
 }
 
 #[cfg(test)]

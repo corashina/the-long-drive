@@ -639,6 +639,50 @@ pub fn regular_grid(tile: TerrainTile, vertices: &[[f32; 3]], triangles: &[[u32;
             .all(|(i, v)| v[0] == grid(i % n) && v[2] == -grid(i / n))
 }
 
+/// Triangle count of a regular grid tile of `resolution`.
+pub fn grid_triangle_count(resolution: u32) -> usize {
+    let cells = resolution as usize - 1;
+    2 * cells * cells
+}
+
+/// Triangles of a regular grid tile of `resolution`, as phases 2 and 7 build them.
+pub fn grid_triangles(resolution: u32) -> Vec<[u32; 3]> {
+    let n = resolution;
+    let mut triangles = Vec::with_capacity(grid_triangle_count(resolution));
+    for z in 0..n - 1 {
+        for x in 0..n - 1 {
+            let a = z * n + x;
+            let b = a + n;
+            triangles.extend([[a, b + 1, b], [b + 1, a, a + 1]]);
+        }
+    }
+    triangles
+}
+
+/// UV of a regular grid tile of `size` and `resolution`, as phase 6 builds it.
+pub fn grid_uv(size: u32, resolution: u32) -> Vec<[f32; 2]> {
+    let tile = TerrainTile {
+        tier: 0,
+        size,
+        resolution,
+        draw_distance: 0,
+        y: 0.0,
+        material_scale: 0.0,
+    };
+    let n = resolution as usize;
+    let reciprocal = (1.0 / size as f64) as f32;
+    (0..n * n)
+        .map(|i| {
+            let x = grid_coordinate(tile, (i % n) as f64);
+            let z = grid_coordinate(tile, (i / n) as f64);
+            [
+                (reciprocal as f64 * x as f64) as f32,
+                (reciprocal as f64 * z as f64) as f32,
+            ]
+        })
+        .collect()
+}
+
 /// Source terrain tile generation, in source phase order.
 pub fn surface(unit: [i64; 2], context: TerrainContext<'_>) -> TerrainMesh {
     let mut output = TerrainMesh::default();
@@ -676,6 +720,42 @@ fn inside_source_hole(point: [f32; 3], hole: &[[f32; 3]; 4]) -> bool {
 mod tests {
     use super::*;
     use crate::TerrainSettings;
+
+    /// A tile without holes has the grid triangles and UV, on near and distant tiers.
+    #[test]
+    fn grid_rebuild_matches_surface() {
+        let evaluator = TerrainEvaluator::new(TerrainSettings {
+            seed: 1,
+            edge: 2.0e7,
+            edge_gradient: 20000.0,
+        });
+        for (tier, size, resolution) in [(0, 1111, 33), (1, 7708, 64)] {
+            let tile = TerrainTile {
+                tier,
+                size,
+                resolution,
+                draw_distance: 1,
+                y: 0.0,
+                material_scale: 1.0,
+            };
+            let mesh = surface(
+                [3, -2],
+                TerrainContext {
+                    evaluator: &evaluator,
+                    tile,
+                    roads: &[],
+                    road_grid: None,
+                    road_radius_squared: None,
+                    foundations: &[],
+                    holes: &[],
+                    biome_override: None,
+                },
+            );
+            assert!(regular_grid(tile, &mesh.vertices, &mesh.triangles));
+            assert_eq!(grid_triangles(resolution), mesh.triangles);
+            assert_eq!(grid_uv(size, resolution), mesh.uv);
+        }
+    }
 
     #[test]
     fn road_across_follows_road_points() {

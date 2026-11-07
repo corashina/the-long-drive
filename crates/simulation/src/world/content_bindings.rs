@@ -1170,34 +1170,19 @@ impl WorldStream {
             let local_item = |item| {
                 content.item == Some(item) || content.bindings.iter().any(|b| b.item == item)
             };
+            let child = &content.content.placement.id;
             let local_slot = |slot| {
-                content.slots.iter().any(|s| s.slot == slot)
-                    || self.contents.active().iter().any(|owner| {
-                        let parent = &owner.content.placement.id;
-                        let child = &content.content.placement.id;
-                        parent.layer == child.layer
-                            && parent.generator == child.generator
-                            && parent.unit == child.unit
-                            && parent.ordinal == child.ordinal
-                            && child.children.len() > parent.children.len()
-                            && child.children.starts_with(&parent.children)
-                            && owner.slots.iter().any(|s| s.slot == slot)
-                    })
+                let owns = |owner: &crate::world::contents::ContentInstance| {
+                    owner.slots.iter().any(|s| s.slot == slot)
+                };
+                owns(content) || self.contents.any_ancestor(child, owns)
             };
             // A world car slot rim may leave with its car or the car content that spawned it.
             let local_owner = |item| {
                 local_item(item)
-                    || self.contents.active().iter().any(|owner| {
-                        let parent = &owner.content.placement.id;
-                        let child = &content.content.placement.id;
-                        parent.layer == child.layer
-                            && parent.generator == child.generator
-                            && parent.unit == child.unit
-                            && parent.ordinal == child.ordinal
-                            && child.children.len() > parent.children.len()
-                            && child.children.starts_with(&parent.children)
-                            && owner.item == Some(item)
-                    })
+                    || self
+                        .contents
+                        .any_ancestor(child, |owner| owner.item == Some(item))
             };
             let protected_location = |location| match location {
                 crate::interaction::items::ItemLocation::World => false,
