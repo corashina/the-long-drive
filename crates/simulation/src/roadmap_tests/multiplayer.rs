@@ -245,6 +245,81 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
     }
 }
 
+/// A guest drives and the host sits beside it. The car moves fast. Each frame between two steps
+/// shows the guest figure at the same place on the shown host car, so the figure does not jitter.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_mp_a_seated_figure_stays_on_the_shown_car() {
+    use rapier3d::math::{Pose, Rotation};
+    let (reference, mut host) = load_garage();
+    settle(&mut host, &reference);
+    let mut guest = save_load(&host, &reference);
+    frame(&mut guest, &reference);
+    let (mut host_net, mut guest_net) = (Net::default(), Net::default());
+    host_net.set_session(NetRole::Host, 0);
+    guest_net.set_session(NetRole::Guest, 1);
+    let mut seen = SimFrame::default();
+    act(
+        &mut guest,
+        &reference,
+        r#"{"action":"seat","seat":"driver"}"#,
+    );
+    act(
+        &mut host,
+        &reference,
+        r#"{"action":"seat","seat":"passenger"}"#,
+    );
+    let key = guest
+        .area
+        .player
+        .seat_vehicle()
+        .cloned()
+        .expect("the guest sits");
+    let chassis = host.physics.chassis_handle(&key);
+    let mut seat = None;
+    for i in 0..60 {
+        for run in [&mut guest, &mut host] {
+            let handle = run.physics.chassis_handle(&key);
+            run.physics.edit_body(handle, |b| {
+                let forward = b.rotation() * Vector::Z;
+                b.set_linvel(
+                    forward * 15. + Vector::Y * if i % 20 < 10 { 0.5 } else { -0.5 },
+                    true,
+                );
+            });
+        }
+        exchange(
+            &reference,
+            [
+                (&mut guest, &mut guest_net, FrameInput::default()),
+                (&mut host, &mut host_net, FrameInput::default()),
+            ],
+            &mut seen,
+        );
+        for alpha in [0., 0.5, 1.] {
+            host_net.fill(&reference, &mut host, 0., alpha, &mut seen);
+            // The first pose comes after one send interval.
+            let Some(figure) = seen.remotes.first().map(|r| r.body_pose) else {
+                continue;
+            };
+            let figure = Pose::from_parts(
+                Vector::from_array(figure.position),
+                Rotation::from_array(figure.rotation),
+            );
+            let car = host
+                .physics
+                .presented_pose_or(chassis, alpha, Pose::IDENTITY);
+            let local = (car.inverse() * figure).translation;
+            let first = *seat.get_or_insert(local);
+            assert!(
+                (local - first).length() < 1e-3,
+                "frame {i} alpha {alpha}: the figure is {} m off its seat",
+                (local - first).length()
+            );
+        }
+    }
+}
+
 /// A seat with another player in it takes nobody else. The host sits in the driver seat. The
 /// guest cannot sit there, and the hint offers no seat. A guest that joins in the host seat gets
 /// out, because the lower slot keeps a seat.
