@@ -14,7 +14,18 @@ use bevy::render::{
 use bevy::shader::{ShaderCacheError, ShaderDefVal};
 use bevy::{ecs as bevy_ecs, prelude::*};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+/// Hidden bench toggle (`?prepass=0`). Set it before `run`: pipelines queue at load.
+static DEPTH_PREPASS: AtomicBool = AtomicBool::new(true);
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn set_depth_prepass(on: bool) {
+    DEPTH_PREPASS.store(on, Ordering::Relaxed);
+}
+/// The world view draws a depth prepass, then the opaque pass with Equal depth.
+pub(crate) fn depth_prepass_enabled() -> bool {
+    DEPTH_PREPASS.load(Ordering::Relaxed)
+}
 
 /// The last skipped surface draw: reason in the high bits, pipeline id in the low bits.
 static LAST_SKIP: AtomicU64 = AtomicU64::new(0);
@@ -164,7 +175,7 @@ pub(crate) fn prepare_surface_passes(
         {
             companions.add = Some(cache.queue_render_pipeline(additive(descriptor)));
         }
-        if prepass_base(descriptor, &fragment.shader_defs) {
+        if depth_prepass_enabled() && prepass_base(descriptor, &fragment.shader_defs) {
             companions.prepass = Some([
                 cache.queue_render_pipeline(depth_prepass(descriptor)),
                 cache.queue_render_pipeline(equal_depth(descriptor)),
