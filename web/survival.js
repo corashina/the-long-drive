@@ -44,7 +44,9 @@ export function createSurvival(ui,cooldownSeconds,settings,language,actions) {
   }
   const meter=document.createElement('meter');meter.className='need-value';meter.min=ui.need_sliders[role].minimum;meter.max=ui.need_sliders[role].maximum;meter.setAttribute('aria-label',role);root.append(meter);nodes.meter=meter;bars.push(nodes);
  }
- function resize(){resizeSleep();for(const b of bars)for(const part of ['background','fill','icon']){const role='need-'+b.role+'-'+part;const layout=part==='fill'?b.fillLayout:ui.layouts[role];applyLayout(b[part],layout,ui.urls);b[part].style.backgroundColor=rgba(layout.image_color);if(ui.layoutUrls[role]){b[part].style.backgroundImage='url("'+ui.layoutUrls[role]+'")';b[part].style.backgroundColor='transparent';}}}
+ // The bars reserve screen edges. `#hud-corner` and `#net-chat` keep clear of them.
+ function resize(){resizeSleep();let left=innerWidth,top=innerHeight;for(const b of bars)for(const part of ['background','fill','icon']){const role='need-'+b.role+'-'+part;const layout=part==='fill'?b.fillLayout:ui.layouts[role];const box=applyLayout(b[part],layout,ui.urls);if(b.role==='bowel'||b.role==='bladder')left=Math.min(left,box.x);else top=Math.min(top,box.y);b[part].style.backgroundColor=rgba(layout.image_color);if(ui.layoutUrls[role]){b[part].style.backgroundImage='url("'+ui.layoutUrls[role]+'")';b[part].style.backgroundColor='transparent';}}
+  const rootStyle=document.documentElement.style;rootStyle.setProperty('--needs-right',(innerWidth-left)+'px');rootStyle.setProperty('--needs-bottom',(innerHeight-top)+'px');}
  window.addEventListener('resize',resize);resize();
  return {updateSleep,update(output){const opacity=String(output.opacity);style(death,'opacity',String(output.dead?1-output.lookScale/.8:0));for(const b of bars){
   // Source `BAlwaysShow*`: the bar keeps full alpha when the needs fade.

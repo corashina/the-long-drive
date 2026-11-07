@@ -39,7 +39,8 @@ export class SaveScreenState {
 // `settings` is the settings store. The autosave toggles are its source `tabMisc` toggles. `word` returns a source `ls.w` word.
 export function createSaveScreen({settings,word,run,paint}){
  const driven=km=>String(Math.round(km)).padStart(4,'0')+' '+word('mkm');
- const details=entry=>[entry.date,word('mseed')+' '+entry.seed,driven(entry.drivenKm),entry.version].join(' · ');
+ // Lines break only between the parts, so a part never splits.
+ const details=entry=>[entry.date,word('mseed')+' '+entry.seed,driven(entry.drivenKm),entry.version].map(part=>String(part).replaceAll(' ','\u00a0')).join('\u00a0· ');
  const state=new SaveScreenState(),q=selector=>document.querySelector(selector),urls=new Map(),kinds=['save','load','delete','last'];
  const tile=selector=>({button:q(selector),img:q(selector+' img'),label:q(selector+' strong'),details:q(selector+' small'),url:null});
  const tiles=Array.from({length:PER_PAGE},(_,i)=>tile('#save-tile-'+i)),auto=tile('#save-autosave');
