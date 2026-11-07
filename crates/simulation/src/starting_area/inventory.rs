@@ -477,7 +477,7 @@ impl GarageRuntime {
                 &mut self.physics,
             );
         }
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
         self.physics.refresh_queries();
         let frame = ToolFrame {
             lmb: input.held & keys::PRIMARY != 0,
@@ -522,7 +522,7 @@ impl GarageRuntime {
             self.area.interaction.equipment_input.record_released();
         }
         self.area.sync_equipment(reference, &mut self.physics);
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
         self.physics.refresh_queries();
         if let Some(id) = self.area.interaction.held() {
             self.advance_owned_tool(

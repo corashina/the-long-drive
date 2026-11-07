@@ -624,7 +624,7 @@ impl GarageRuntime {
             .cleaning
             .sync_wash_colliders(&area.interaction.conditions, &mut physics);
         physics.refresh_queries();
-        area.items.sync_poses(&physics);
+        area.items.sync_poses(&mut physics);
         area.commit_poses(&physics, true);
         stream.initialize_imported_changes(reference, &area.items, &area.interaction, &physics);
         let lighting = crate::lighting::LightingState::new(&reference.lighting, &distances);
@@ -1045,14 +1045,13 @@ impl GarageRuntime {
 
         profile.next(Stage::StepInteraction);
         self.area.begin_step();
+        let preliminary_pose = self.area.player.view(&self.physics).camera_pose;
         let preliminary_aim = if self.sleeping() {
             ResolvedAim::default()
         } else {
-            self.area.interaction.resolve(
-                &self.physics,
-                self.area.player.view(&self.physics).camera_pose,
-                &self.area.items,
-            )
+            self.area
+                .interaction
+                .resolve(&self.physics, preliminary_pose, &self.area.items)
         };
         let preliminary_availability = self.area.interaction.available_actions(
             &preliminary_aim,
@@ -1066,6 +1065,9 @@ impl GarageRuntime {
         let view = self.area.player.view(&self.physics);
         let aim = if self.sleeping() || view.ray_actions_blocked {
             ResolvedAim::default()
+        } else if view.camera_pose == preliminary_pose {
+            // `step_view` changes only the player, so the same camera pose gives the same aim.
+            preliminary_aim
         } else {
             self.area
                 .interaction
@@ -1445,7 +1447,7 @@ impl GarageRuntime {
         self.area.sync_equipment(reference, &mut self.physics);
         self.step_body(reference);
         self.area.sync_worn(&mut self.physics);
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
         self.break_targets(reference);
         self.area.commit_poses(&self.physics, false);
         profile.next(Stage::StepAudio);
@@ -2190,7 +2192,7 @@ impl GarageRuntime {
         )?;
         if changed {
             self.wheels.sync(&mut self.area.items, &mut self.physics)?;
-            self.area.items.sync_poses(&self.physics);
+            self.area.items.sync_poses(&mut self.physics);
             self.area.commit_poses(&self.physics, true);
         }
         Ok(changed)
@@ -2469,7 +2471,7 @@ impl GarageRuntime {
             self.spawn_pack(reference, pose, count)?;
         }
         self.physics.refresh_queries();
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
         hose::spawn_start(reference, &mut self.area, &mut self.physics)?;
         self.area.commit_poses(&self.physics, true);
         self.startup_aligned = true;

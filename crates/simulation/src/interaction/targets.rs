@@ -100,6 +100,36 @@ enum QueryAction {
     Focus,
 }
 
+impl QueryAction {
+    const ALL: [Self; 7] = [
+        Self::Use,
+        Self::Grab,
+        Self::Removal,
+        Self::Install,
+        Self::Fill,
+        Self::Push,
+        Self::Focus,
+    ];
+}
+
+/// The nearest aim ray hit of one query: collider and distance.
+type RayHit = Option<(ColliderHandle, f32)>;
+
+/// The nearest hit of each query on one aim ray.
+#[derive(Default)]
+struct AimHits {
+    light: RayHit,
+    help: RayHit,
+    actions: [RayHit; QueryAction::ALL.len()],
+}
+
+/// Keeps `hit` in `best` when it is nearer and `accepts` holds.
+fn keep_nearest(best: &mut RayHit, hit: (ColliderHandle, f32), accepts: impl FnOnce() -> bool) {
+    if best.is_none_or(|(_, distance)| hit.1 < distance) && accepts() {
+        *best = Some(hit);
+    }
+}
+
 impl InteractionState {
     pub fn bind_collider(&mut self, id: ColliderId, handle: ColliderHandle) {
         self.cleaning.bind_collider(id, handle);
@@ -167,18 +197,27 @@ impl InteractionState {
         }
         let view = to_rapier(view);
         let ray = Ray::new(view.translation, view.rotation * -Vector::Z);
+        let hits = self.cast_aim(physics, &ray, items);
+        let action = |action: QueryAction| {
+            hits.actions[action as usize]
+                .and_then(|hit| self.action_target(physics, &ray, items, action, hit))
+        };
         let mut aim = ResolvedAim {
-            light_target: self.query_light(physics, &ray),
-            use_target: self.query_action(physics, &ray, items, QueryAction::Use),
-            grab_target: self.query_action(physics, &ray, items, QueryAction::Grab),
-            installation_target: self.query_action(physics, &ray, items, QueryAction::Install),
-            filling_target: self.query_action(physics, &ray, items, QueryAction::Fill),
-            push_target: self.query_action(physics, &ray, items, QueryAction::Push),
-            focus_target: self.query_action(physics, &ray, items, QueryAction::Focus),
-            help: self.query_help(physics, &ray),
+            light_target: hits
+                .light
+                .and_then(|hit| self.light_target(physics, &ray, hit)),
+            use_target: action(QueryAction::Use),
+            grab_target: action(QueryAction::Grab),
+            installation_target: action(QueryAction::Install),
+            filling_target: action(QueryAction::Fill),
+            push_target: action(QueryAction::Push),
+            focus_target: action(QueryAction::Focus),
+            help: hits
+                .help
+                .map_or(0, |(handle, _)| self.help_texts.get(handle)),
             ..ResolvedAim::default()
         };
-        if let Some(removal) = self.query_action(physics, &ray, items, QueryAction::Removal)
+        if let Some(removal) = action(QueryAction::Removal)
             && aim
                 .grab_target
                 .is_none_or(|pickup| removal.distance <= pickup.distance)
@@ -309,50 +348,55 @@ impl InteractionState {
         matches!(self.kinds.get(&item), Some(ItemKind::Wheel | ItemKind::Rim))
     }
 
-    fn query_light(&self, physics: &PhysicsWorld, ray: &Ray) -> Option<LightAim> {
-        let mask = self.action_masks.use_mask;
+    /// Casts the aim ray once. Each query keeps its nearest hit that passes its own surface test.
+    /// This is the hit that a separate cast with that test as its filter gives.
+    fn cast_aim(&self, physics: &PhysicsWorld, ray: &Ray, items: &ItemStore) -> AimHits {
         let held_body = self.carry.body();
-        let surfaces = |_: ColliderHandle, collider: &rapier3d::prelude::Collider| {
-            let id = ColliderId((collider.user_data >> 64) as u32);
+        let open = |_: ColliderHandle, collider: &rapier3d::prelude::Collider| {
             collider.is_enabled()
-                && collider.collision_groups().memberships.bits() & mask != 0
                 && (held_body.is_none() || collider.parent() != held_body)
                 && (self.player_body.is_none() || collider.parent() != self.player_body)
-                && (!collider.is_sensor() || self.light_controls.contains_key(&id))
                 && !collider
                     .shape()
                     .contains_point(collider.position(), ray.origin)
         };
-        let (handle, hit) = physics
-            .queries(QueryFilter::default().predicate(&surfaces))
-            .cast_ray_and_get_normal(ray, self.reach, true)?;
+        let use_mask = self.action_masks.use_mask;
+        let mut hits = AimHits::default();
+        for (handle, collider, hit) in physics
+            .queries(QueryFilter::default().predicate(&open))
+            .intersect_ray(*ray, self.reach, true)
+        {
+            let hit = (handle, hit.time_of_impact);
+            let used = collider.collision_groups().memberships.bits() & use_mask != 0;
+            keep_nearest(&mut hits.light, hit, || {
+                let id = ColliderId((collider.user_data >> 64) as u32);
+                used && (!collider.is_sensor() || self.light_controls.contains_key(&id))
+            });
+            // fpscontroller: the use ray hit with `useLayer`, and its parent `helptextscript`.
+            keep_nearest(&mut hits.help, hit, || used && !collider.is_sensor());
+            for action in QueryAction::ALL {
+                keep_nearest(&mut hits.actions[action as usize], hit, || {
+                    self.action_surface(physics, items, action, handle, collider)
+                });
+            }
+        }
+        hits
+    }
+
+    fn light_target(
+        &self,
+        physics: &PhysicsWorld,
+        ray: &Ray,
+        (handle, distance): (ColliderHandle, f32),
+    ) -> Option<LightAim> {
         let collider = ColliderId((physics.rapier().colliders[handle].user_data >> 64) as u32);
         Some(LightAim {
             node: *self.light_nodes.get(&collider)?,
             collider,
             control: *self.light_controls.get(&collider)?,
-            distance: hit.time_of_impact,
-            point: ray.point_at(hit.time_of_impact).to_array(),
+            distance,
+            point: ray.point_at(distance).to_array(),
         })
-    }
-
-    /// fpscontroller: the use ray hit with `useLayer`, and its parent `helptextscript`.
-    fn query_help(&self, physics: &PhysicsWorld, ray: &Ray) -> u8 {
-        let held_body = self.carry.body();
-        let surfaces = |_: ColliderHandle, collider: &rapier3d::prelude::Collider| {
-            collider.is_enabled()
-                && !collider.is_sensor()
-                && (held_body.is_none() || collider.parent() != held_body)
-                && (self.player_body.is_none() || collider.parent() != self.player_body)
-                && collider.collision_groups().memberships.bits() & self.action_masks.use_mask != 0
-                && !collider
-                    .shape()
-                    .contains_point(collider.position(), ray.origin)
-        };
-        physics
-            .queries(QueryFilter::default().predicate(&surfaces))
-            .cast_ray_and_get_normal(ray, self.reach, true)
-            .map_or(0, |(handle, _)| self.help_texts.get(handle))
     }
 
     fn tire_slot_owner(&self, handle: ColliderHandle, physics: &PhysicsWorld) -> Option<ItemId> {
@@ -405,147 +449,170 @@ impl InteractionState {
         self.usable_items.contains(&item) || self.mechanisms.contains(item)
     }
 
-    fn query_action(
+    fn action_mask(&self, action: QueryAction) -> u32 {
+        let masks = self.action_masks;
+        match action {
+            QueryAction::Grab => masks.pickup_mask,
+            QueryAction::Install => masks.attach_mask,
+            QueryAction::Push => masks.push_mask,
+            _ => masks.use_mask,
+        }
+    }
+
+    /// The item that `action` takes on a collider.
+    fn action_owner(
+        &self,
+        physics: &PhysicsWorld,
+        items: &ItemStore,
+        action: QueryAction,
+        handle: ColliderHandle,
+        collider: &rapier3d::prelude::Collider,
+    ) -> Option<ItemId> {
+        let binding = self.collider_bindings.get(&handle);
+        match action {
+            QueryAction::Use => binding
+                .and_then(|binding| binding.use_owner)
+                .filter(|id| self.supports_use(*id))
+                .or_else(|| self.controls.owner(handle, collider)),
+            QueryAction::Fill => binding.and_then(|binding| binding.use_owner).filter(|id| {
+                self.filling_items.contains(id)
+                    && self.held().is_some()
+                    && self
+                        .openings
+                        .iter()
+                        .any(|opening| opening.reference.cap == *id && opening.valve > 0.0)
+            }),
+            QueryAction::Grab | QueryAction::Removal => binding
+                .and_then(|binding| {
+                    if matches!(action, QueryAction::Removal) {
+                        if let Some(rim) = self.tire_slot_owner(handle, physics) {
+                            return self.attached_tire(rim, items);
+                        }
+                        self.parts
+                            .slot_target(binding.collider)
+                            .map(|s| self.parts.slot_item(s))
+                            .unwrap_or(binding.removal_owner)
+                    } else {
+                        binding.pickup_owner
+                    }
+                })
+                .map(|id| {
+                    if matches!(action, QueryAction::Grab)
+                        && matches!(self.kinds.get(&id), Some(ItemKind::Tire))
+                        && let Some(ItemLocation::Attached(parent)) =
+                            items.get(id).map(|item| item.location)
+                        && self.is_wheel(parent)
+                    {
+                        parent
+                    } else if matches!(action, QueryAction::Removal)
+                        && items.get(id).is_some_and(|item| {
+                            matches!(
+                                item.location,
+                                ItemLocation::WheelSlot(_) | ItemLocation::PartSlot(_)
+                            )
+                        })
+                    {
+                        self.parts.covering_item(id).unwrap_or(id)
+                    } else {
+                        id
+                    }
+                })
+                .filter(|id| {
+                    !matches!(action, QueryAction::Removal)
+                        || (matches!(self.kinds.get(id), Some(ItemKind::Tire))
+                            && items.get(*id).is_some_and(|item| match item.location {
+                                ItemLocation::Attached(rim) => {
+                                    self.is_wheel(rim)
+                                        && items
+                                            .get(rim)
+                                            .is_some_and(|rim| rim.location == ItemLocation::World)
+                                }
+                                _ => false,
+                            }))
+                        || (self.parts.contains(*id)
+                            && matches!(
+                                items.get(*id).map(|i| i.location),
+                                Some(ItemLocation::PartSlot(_))
+                            ))
+                        || (self.is_wheel(*id)
+                            && items.get(*id).is_some_and(|item| {
+                                matches!(item.location, ItemLocation::WheelSlot(_))
+                            }))
+                }),
+            QueryAction::Push => binding.and_then(|binding| binding.push_owner).filter(|id| {
+                self.push.supports(*id)
+                    && self.parts.slot_target(binding.unwrap().collider).is_none()
+                    && collider.user_data & SLOT_SENSOR_FLAG == 0
+            }),
+            QueryAction::Install if collider.user_data & SLOT_SENSOR_FLAG != 0 => {
+                (collider.user_data as u32).checked_sub(1).map(ItemId)
+            }
+            QueryAction::Install if self.held().is_some_and(|id| self.hitch.is_grip(id)) => self
+                .hitch
+                .collider_target(ColliderId((collider.user_data >> 64) as u32))
+                .and_then(|target| self.hitch.target_owner(target)),
+            QueryAction::Install => self.tire_slot_owner(handle, physics),
+            QueryAction::Focus => self
+                .tire_slot_owner(handle, physics)
+                .map(|rim| self.attached_tire(rim, items).unwrap_or(rim))
+                .or_else(|| binding.and_then(|binding| binding.use_owner))
+                .or_else(|| (collider.user_data as u32).checked_sub(1).map(ItemId)),
+        }
+    }
+
+    /// Whether `action` may take a collider by its layer.
+    fn action_eligible(
+        &self,
+        action: QueryAction,
+        handle: ColliderHandle,
+        collider: &rapier3d::prelude::Collider,
+    ) -> bool {
+        let mask = self.action_mask(action);
+        collider.collision_groups().memberships.bits() & mask != 0
+            || (matches!(action, QueryAction::Grab)
+                && self
+                    .collider_bindings
+                    .get(&handle)
+                    .and_then(|binding| binding.pickup_owner)
+                    .is_some_and(|id| {
+                        self.pickup_layers
+                            .get(&id)
+                            .is_some_and(|layers| layers & mask != 0)
+                    }))
+    }
+
+    /// Whether the ray of `action` stops at a collider: a visible solid, or a collider it takes.
+    fn action_surface(
+        &self,
+        physics: &PhysicsWorld,
+        items: &ItemStore,
+        action: QueryAction,
+        handle: ColliderHandle,
+        collider: &rapier3d::prelude::Collider,
+    ) -> bool {
+        let masks = self.action_masks;
+        let visible = masks.use_mask | masks.pickup_mask | masks.attach_mask | masks.push_mask;
+        (!collider.is_sensor() && collider.collision_groups().memberships.bits() & visible != 0)
+            || (self.action_eligible(action, handle, collider)
+                && self
+                    .action_owner(physics, items, action, handle, collider)
+                    .is_some())
+    }
+
+    /// The target of `action` at its nearest ray hit.
+    fn action_target(
         &self,
         physics: &PhysicsWorld,
         ray: &Ray,
         items: &ItemStore,
         action: QueryAction,
+        (handle, distance): (ColliderHandle, f32),
     ) -> Option<AimTarget> {
-        let masks = self.action_masks;
-        let mask = match action {
-            QueryAction::Grab => masks.pickup_mask,
-            QueryAction::Install => masks.attach_mask,
-            QueryAction::Push => masks.push_mask,
-            _ => masks.use_mask,
-        };
-        let visible = masks.use_mask | masks.pickup_mask | masks.attach_mask | masks.push_mask;
-        let held_body = self.carry.body();
-        let owner = |handle: ColliderHandle, collider: &rapier3d::prelude::Collider| {
-            let binding = self.collider_bindings.get(&handle);
-            match action {
-                QueryAction::Use => binding
-                    .and_then(|binding| binding.use_owner)
-                    .filter(|id| self.supports_use(*id))
-                    .or_else(|| self.controls.owner(handle, collider)),
-                QueryAction::Fill => binding.and_then(|binding| binding.use_owner).filter(|id| {
-                    self.filling_items.contains(id)
-                        && self.held().is_some()
-                        && self
-                            .openings
-                            .iter()
-                            .any(|opening| opening.reference.cap == *id && opening.valve > 0.0)
-                }),
-                QueryAction::Grab | QueryAction::Removal => binding
-                    .and_then(|binding| {
-                        if matches!(action, QueryAction::Removal) {
-                            if let Some(rim) = self.tire_slot_owner(handle, physics) {
-                                return self.attached_tire(rim, items);
-                            }
-                            self.parts
-                                .slot_target(binding.collider)
-                                .map(|s| self.parts.slot_item(s))
-                                .unwrap_or(binding.removal_owner)
-                        } else {
-                            binding.pickup_owner
-                        }
-                    })
-                    .map(|id| {
-                        if matches!(action, QueryAction::Grab)
-                            && matches!(self.kinds.get(&id), Some(ItemKind::Tire))
-                            && let Some(ItemLocation::Attached(parent)) =
-                                items.get(id).map(|item| item.location)
-                            && self.is_wheel(parent)
-                        {
-                            parent
-                        } else if matches!(action, QueryAction::Removal)
-                            && items.get(id).is_some_and(|item| {
-                                matches!(
-                                    item.location,
-                                    ItemLocation::WheelSlot(_) | ItemLocation::PartSlot(_)
-                                )
-                            })
-                        {
-                            self.parts.covering_item(id).unwrap_or(id)
-                        } else {
-                            id
-                        }
-                    })
-                    .filter(|id| {
-                        !matches!(action, QueryAction::Removal)
-                            || (matches!(self.kinds.get(id), Some(ItemKind::Tire))
-                                && items.get(*id).is_some_and(|item| match item.location {
-                                    ItemLocation::Attached(rim) => {
-                                        self.is_wheel(rim)
-                                            && items.get(rim).is_some_and(|rim| {
-                                                rim.location == ItemLocation::World
-                                            })
-                                    }
-                                    _ => false,
-                                }))
-                            || (self.parts.contains(*id)
-                                && matches!(
-                                    items.get(*id).map(|i| i.location),
-                                    Some(ItemLocation::PartSlot(_))
-                                ))
-                            || (self.is_wheel(*id)
-                                && items.get(*id).is_some_and(|item| {
-                                    matches!(item.location, ItemLocation::WheelSlot(_))
-                                }))
-                    }),
-                QueryAction::Push => binding.and_then(|binding| binding.push_owner).filter(|id| {
-                    self.push.supports(*id)
-                        && self.parts.slot_target(binding.unwrap().collider).is_none()
-                        && collider.user_data & SLOT_SENSOR_FLAG == 0
-                }),
-                QueryAction::Install if collider.user_data & SLOT_SENSOR_FLAG != 0 => {
-                    (collider.user_data as u32).checked_sub(1).map(ItemId)
-                }
-                QueryAction::Install if self.held().is_some_and(|id| self.hitch.is_grip(id)) => {
-                    self.hitch
-                        .collider_target(ColliderId((collider.user_data >> 64) as u32))
-                        .and_then(|target| self.hitch.target_owner(target))
-                }
-                QueryAction::Install => self.tire_slot_owner(handle, physics),
-                QueryAction::Focus => self
-                    .tire_slot_owner(handle, physics)
-                    .map(|rim| self.attached_tire(rim, items).unwrap_or(rim))
-                    .or_else(|| binding.and_then(|binding| binding.use_owner))
-                    .or_else(|| (collider.user_data as u32).checked_sub(1).map(ItemId)),
-            }
-        };
-        let eligible = |handle: ColliderHandle, collider: &rapier3d::prelude::Collider| {
-            collider.collision_groups().memberships.bits() & mask != 0
-                || (matches!(action, QueryAction::Grab)
-                    && self
-                        .collider_bindings
-                        .get(&handle)
-                        .and_then(|binding| binding.pickup_owner)
-                        .is_some_and(|id| {
-                            self.pickup_layers
-                                .get(&id)
-                                .is_some_and(|layers| layers & mask != 0)
-                        }))
-        };
-        let surfaces = |handle: ColliderHandle, collider: &rapier3d::prelude::Collider| {
-            collider.is_enabled()
-                && (held_body.is_none() || collider.parent() != held_body)
-                && (self.player_body.is_none() || collider.parent() != self.player_body)
-                && !collider
-                    .shape()
-                    .contains_point(collider.position(), ray.origin)
-                && ((!collider.is_sensor()
-                    && collider.collision_groups().memberships.bits() & visible != 0)
-                    || (eligible(handle, collider) && owner(handle, collider).is_some()))
-        };
-        let (handle, hit) = physics
-            .queries(QueryFilter::default().predicate(&surfaces))
-            .cast_ray_and_get_normal(ray, self.reach, true)?;
         let collider = &physics.rapier().colliders[handle];
-        if !eligible(handle, collider) {
+        if !self.action_eligible(action, handle, collider) {
             return None;
         }
-        let item = owner(handle, collider)?;
+        let item = self.action_owner(physics, items, action, handle, collider)?;
         // Another player holds or sits on it.
         if self.in_use.item(item).is_some() {
             return None;
@@ -553,8 +620,8 @@ impl InteractionState {
         Some(AimTarget {
             collider: handle,
             item,
-            distance: hit.time_of_impact,
-            point: ray.point_at(hit.time_of_impact).to_array(),
+            distance,
+            point: ray.point_at(distance).to_array(),
             slot: (collider.user_data & SLOT_SENSOR_FLAG != 0)
                 .then_some(SlotTarget::Wheel(super::wheels::slot_id(
                     collider.user_data,

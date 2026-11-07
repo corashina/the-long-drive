@@ -404,7 +404,7 @@ impl GarageRuntime {
                 self.area.spawned.set_ammo(id, ammo);
             }
         }
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
     }
     /// Moves a world item body to `pose` at rest.
     fn move_item(&mut self, item: ItemId, pose: rapier3d::math::Pose) {
@@ -424,6 +424,6 @@ impl GarageRuntime {
             b.set_angvel(rapier3d::math::Vector::ZERO, true);
         });
         self.physics.refresh_queries();
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
     }
 }
