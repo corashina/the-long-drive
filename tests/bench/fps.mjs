@@ -22,8 +22,8 @@ import {PRESETS} from '../../web/quality-presets.js';
 const OUT=fileURLToPath(new URL('./out/',import.meta.url));
 const START_TIMEOUT_MS=600000,MOVE_TIMEOUT_MS=180000;
 // Values that the summary and the compare table show, in this order.
-const FIELDS=['fps','frameMs','worstMs','updateMs','renderMs','workerTickMs','physicsMs','rapierMs','worldMs','dynamicBodies','awakeBodies','ccdBodies','contactPairs','gpuShadow','gpuOpaque','gpuResolveAo','gpuTransparent','gpuPost','gpuSum','draws','drawsMax','shadowDraws','surfaceDraws','propVisible','sceneScale'];
-const GPU=['gpuShadow','gpuOpaque','gpuResolveAo','gpuTransparent','gpuPost'];
+const FIELDS=['fps','frameMs','worstMs','updateMs','renderMs','workerTickMs','physicsMs','rapierMs','worldMs','dynamicBodies','awakeBodies','ccdBodies','contactPairs','gpuShadow','gpuOpaque','gpuResolveAo','gpuWeather','gpuTransparent','gpuPost','gpuSum','draws','drawsMax','shadowDraws','surfaceDraws','propVisible','sceneScale'];
+const GPU=['gpuShadow','gpuOpaque','gpuResolveAo','gpuWeather','gpuTransparent','gpuPost'];
 // GTA V draws about 1,700 to 2,700 times per frame. The default budget is the top of that range.
 const DRAW_BUDGET=2700;
 

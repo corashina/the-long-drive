@@ -41,7 +41,7 @@ export class FrameTimings {
 export function gpuLine(stages){
  if(!stages)return '\nGPU ms: unavailable';
  const total=stages.reduce((a,b)=>a+b,0);
- return '\nGPU ms shadow / opaque / resolve+AO / transparent / post: '+stages.map(v=>v.toFixed(2)).join(' / ')+' (sum '+total.toFixed(2)+')';
+ return '\nGPU ms shadow / opaque / resolve+AO / weather / transparent / post: '+stages.map(v=>v.toFixed(2)).join(' / ')+' (sum '+total.toFixed(2)+')';
 }
 
 // Draws per pass in the world view, from the renderer audit. Null before the first graph.

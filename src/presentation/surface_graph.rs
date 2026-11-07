@@ -26,6 +26,8 @@ pub enum SourceSurfaceStage {
     Collector,
     Opaque,
     AfterOpaque,
+    /// Rain, wheel spray and lightning bolt. F3 times it apart from AO.
+    Weather,
     Transparent,
     Postprocessing,
     AfterTransparent,
@@ -60,6 +62,7 @@ pub fn install(app: &mut SubApp) {
                 SourceSurfaceStage::Collector,
                 SourceSurfaceStage::Opaque,
                 SourceSurfaceStage::AfterOpaque,
+                SourceSurfaceStage::Weather,
                 SourceSurfaceStage::Transparent,
                 SourceSurfaceStage::Postprocessing,
                 SourceSurfaceStage::AfterTransparent,
