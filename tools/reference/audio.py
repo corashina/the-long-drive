@@ -732,8 +732,9 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
         if fill_clip is not None:fills.append((r['source'],reader,fill_clip))
     audio['world_fluids']={'pour_speed':[md['minPourSpeedSound'],md['maxPourSpeedSound']],'latch_steps':3,'caps':[]}
     if fills:
-        # The runtime sets the volume. The other source settings must be equal.
-        shared=lambda r:{k:v for k,v in source.read(r).items() if k not in ('m_GameObject','m_audioClip','m_Volume','m_PlayOnAwake')}
+        # The runtime sets the volume. The row routes through defGroup, like the generated cap clicks.
+        # The other source settings must be equal.
+        shared=lambda r:{k:v for k,v in source.read(r).items() if k not in ('m_GameObject','m_audioClip','m_Volume','m_PlayOnAwake','OutputAudioMixerGroup')}
         differ=sorted({k for _,r,_ in fills for k,v in shared(r).items() if v!=shared(fills[0][1]).get(k)})
         if differ:raise ValueError(f'World cap fill sources differ in {differ}')
         fill_clips=unique(c for _,_,c in fills);index={key(c):i for i,c in enumerate(fill_clips)}
@@ -748,7 +749,7 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
     survival_groups.append(('radio_click',21,radios[0],[source.get(*click)],prefab,[turn_volume]*2,[0.85,1.15]))
     survival_groups.append(('footstep',15,step,unique(r for group in walk for r in group),prefab,[1.,1.],list(audio['shared']['random_pitch'])))
     default_route=source.resolve(main,md['defGroup'])
-    routes={'death':source.resolve(player,pd['deathbellGroup']),'item_hit':default_route,'melee_hit':default_route,'radio_click':default_route,'break':default_route,'rock_heat':default_route,'footstep':default_route,
+    routes={'death':source.resolve(player,pd['deathbellGroup']),'item_hit':default_route,'melee_hit':default_route,'radio_click':default_route,'break':default_route,'fluid_fill':default_route,'rock_heat':default_route,'footstep':default_route,
         'car_hit':car_hits}
 
     audio['survival']=[]
