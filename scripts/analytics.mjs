@@ -1,6 +1,7 @@
 // Prints game analytics from D1. Uses the Wrangler login of `deploy.mjs`.
 // `node scripts/analytics.mjs [days]`. The default is 30 days.
 import {spawnSync} from 'node:child_process';
+import {WRANGLER} from './deploy.mjs';
 
 const days = Number(process.argv[2] ?? 30);
 if (!(days > 0)) throw Error('Days must be a positive number.');
@@ -19,7 +20,7 @@ const QUERIES = {
 };
 
 for (const [title, sql] of Object.entries(QUERIES)) {
-  const result = spawnSync('npx', ['wrangler', 'd1', 'execute', 'the-long-slop-events', '--remote', '--json', '--command', sql.replace(/\s+/g, ' ')],
+  const result = spawnSync('npx', ['--yes', WRANGLER, 'd1', 'execute', 'the-long-slop-events', '--remote', '--json', '--command', sql.replace(/\s+/g, ' ')],
     {encoding: 'utf8', shell: process.platform === 'win32'});
   if (result.status !== 0) throw Error(`${title}: ${result.stderr || result.stdout}`);
   console.log(`\n${title} (last ${days} days)`);

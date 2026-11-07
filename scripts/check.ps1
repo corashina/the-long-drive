@@ -44,8 +44,8 @@ try {
 
     $checks = 'cargo fmt --all -- --check'
     if ($Test) {
-        $checks += " && cargo test --locked --test $Test"
-        if ($Filter) { $checks += " $Filter" }
+        # The integration tests share one binary. Each file is a module.
+        $checks += " && cargo test --locked --test it ${Test}::$Filter"
     } elseif ($Filter) {
         $checks += " && cargo test --locked --workspace --lib $Filter"
     } elseif ($Full) {

@@ -78,10 +78,10 @@ Cloudflare Pages serves the game from a free global CDN. Multiplayer still uses 
 Make a release build first. Enable R2 in the Cloudflare dashboard. Then prepare the account once:
 
 ```powershell
-npx wrangler login
-npx wrangler pages project create the-long-slop --production-branch main
-npx wrangler r2 bucket create the-long-slop-large
-npx wrangler d1 create the-long-slop-events
+npx wrangler@4.147.0 login
+npx wrangler@4.147.0 pages project create the-long-slop --production-branch main
+npx wrangler@4.147.0 r2 bucket create the-long-slop-large
+npx wrangler@4.147.0 d1 create the-long-slop-events
 ```
 
 Put the database ID in [wrangler.toml](wrangler.toml) if you make a new account.

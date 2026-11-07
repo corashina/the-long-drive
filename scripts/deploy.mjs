@@ -23,6 +23,8 @@ const DATABASE = 'the-long-slop-events';
 const SITE = 'https://the-long-slop.pages.dev/';
 const TYPES = {'.wasm': 'application/wasm', '.json': 'application/json'};
 const KEY = /^[a-f0-9]{64}$/;
+// Not a project dependency: CI does not need its ~220 MB. `npx` fetches it once.
+export const WRANGLER = 'wrangler@4.147.0';
 
 const webPath = path => path.split(sep).join('/');
 // The export library, old runtime packages and export evidence are not part of the site. `stagePackages` copies `pkg`.
@@ -133,7 +135,7 @@ export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot
 }
 
 function wrangler(args) {
-  const result = spawnSync('npx', ['wrangler', ...args], {cwd: projectRoot, stdio: 'inherit', shell: process.platform === 'win32'});
+  const result = spawnSync('npx', ['--yes', WRANGLER, ...args], {cwd: projectRoot, stdio: 'inherit', shell: process.platform === 'win32'});
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
