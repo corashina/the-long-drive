@@ -52,6 +52,8 @@ pub struct TerrainContext<'a> {
     pub tile: TerrainTile,
     /// Source caller order controls ties and foundation precedence.
     pub roads: &'a [TerrainRoadPoint],
+    /// Cell index of `roads`. It gives the same nearest roads as the full scan.
+    pub road_grid: Option<&'a TerrainRoadGrid>,
     pub road_radius_squared: Option<f32>,
     pub foundations: &'a [TerrainFoundation],
     /// Source corner order, in frozen source coordinates.
@@ -109,19 +111,12 @@ impl TerrainContext<'_> {
     /// Source caller order controls ties.
     fn nearest_roads(&self, point: [f32; 2]) -> Option<(TerrainRoadPoint, TerrainRoadPoint, f32)> {
         let mut nearest = [(usize::MAX, f32::MAX); 2];
-        for (index, road) in self.roads.iter().enumerate() {
-            if self
-                .road_radius_squared
-                .is_some_and(|radius| distance_squared(point, road.segment_origin) >= radius)
-            {
-                continue;
-            }
-            let dist = distance_squared(point, [road.position[0], road.position[2]]);
-            if dist < nearest[0].1 {
-                nearest[1] = nearest[0];
-                nearest[0] = (index, dist);
-            } else if dist < nearest[1].1 {
-                nearest[1] = (index, dist);
+        match self.road_grid {
+            Some(grid) => grid.search(point, |index| self.offer(&mut nearest, point, index)),
+            None => {
+                for index in 0..self.roads.len() {
+                    self.offer(&mut nearest, point, index);
+                }
             }
         }
         (nearest[1].0 != usize::MAX).then(|| {
@@ -131,6 +126,26 @@ impl TerrainContext<'_> {
                 nearest[0].1,
             )
         })
+    }
+    /// Keeps the two least (distance, index) pairs. In index order this is the source scan.
+    /// Returns the second distance.
+    fn offer(&self, nearest: &mut [(usize, f32); 2], point: [f32; 2], index: usize) -> f32 {
+        let road = &self.roads[index];
+        if self
+            .road_radius_squared
+            .is_some_and(|radius| distance_squared(point, road.segment_origin) >= radius)
+        {
+            return nearest[1].1;
+        }
+        let dist = distance_squared(point, [road.position[0], road.position[2]]);
+        let before = |(i, d): (usize, f32)| dist < d || (dist == d && index < i);
+        if before(nearest[0]) {
+            nearest[1] = nearest[0];
+            nearest[0] = (index, dist);
+        } else if before(nearest[1]) {
+            nearest[1] = (index, dist);
+        }
+        nearest[1].1
     }
     pub fn height(&self, point: [f32; 2]) -> f32 {
         let mut value = self.evaluator.base_height(point, true);
@@ -166,6 +181,136 @@ impl TerrainContext<'_> {
             }
         }
         close.unwrap_or(value)
+    }
+}
+
+/// Road points in square cells, for the nearest road search of one tile job.
+pub struct TerrainRoadGrid {
+    origin: [f64; 2],
+    /// A power of two, so cell edges are exact in f64.
+    cell: f64,
+    size: [usize; 2],
+    /// Start of each cell in `indices`, and one end entry.
+    starts: Vec<u32>,
+    /// Road indices in cell order, then index order.
+    indices: Vec<u32>,
+}
+const ROAD_GRID_CELL: f64 = 64.0;
+const ROAD_GRID_SIDE: usize = 128;
+/// Covers the f32 rounding of `distance_squared`.
+const ROAD_GRID_MARGIN: f64 = 1.0 - 1e-5;
+
+impl TerrainRoadGrid {
+    pub fn new(roads: &[TerrainRoadPoint]) -> Self {
+        let xz = |road: &TerrainRoadPoint| [road.position[0] as f64, road.position[2] as f64];
+        let finite = |road: &&TerrainRoadPoint| xz(road).iter().all(|v| v.is_finite());
+        let mut min = [0.0; 2];
+        let mut max = [0.0; 2];
+        for (n, road) in roads.iter().filter(finite).enumerate() {
+            let p = xz(road);
+            for axis in 0..2 {
+                min[axis] = if n == 0 {
+                    p[axis]
+                } else {
+                    p[axis].min(min[axis])
+                };
+                max[axis] = if n == 0 {
+                    p[axis]
+                } else {
+                    p[axis].max(max[axis])
+                };
+            }
+        }
+        let mut cell = ROAD_GRID_CELL;
+        while (max[0] - min[0]).max(max[1] - min[1]) / cell >= ROAD_GRID_SIDE as f64 {
+            cell *= 2.0;
+        }
+        let size = [0, 1].map(|axis| ((max[axis] - min[axis]) / cell) as usize + 1);
+        let mut grid = Self {
+            origin: min,
+            cell,
+            size,
+            starts: vec![0; size[0] * size[1] + 1],
+            indices: Vec::new(),
+        };
+        for road in roads.iter().filter(finite) {
+            let slot = grid.slot(grid.cell_of(xz(road)));
+            grid.starts[slot + 1] += 1;
+        }
+        for slot in 1..grid.starts.len() {
+            grid.starts[slot] += grid.starts[slot - 1];
+        }
+        grid.indices = vec![0; grid.starts[grid.starts.len() - 1] as usize];
+        let mut fill = grid.starts.clone();
+        for (index, road) in roads.iter().enumerate().filter(|(_, road)| finite(road)) {
+            let slot = grid.slot(grid.cell_of(xz(road)));
+            grid.indices[fill[slot] as usize] = index as u32;
+            fill[slot] += 1;
+        }
+        grid
+    }
+    fn cell_of(&self, point: [f64; 2]) -> [usize; 2] {
+        [0, 1].map(|axis| {
+            (((point[axis] - self.origin[axis]) / self.cell).floor() as usize)
+                .min(self.size[axis] - 1)
+        })
+    }
+    fn slot(&self, cell: [usize; 2]) -> usize {
+        cell[1] * self.size[0] + cell[0]
+    }
+    /// Least distance from `point` to a cell outside ring `ring - 1` around `cell`.
+    /// None when no such cell exists.
+    fn ring_bound(&self, point: [f64; 2], cell: [usize; 2], ring: usize) -> Option<f64> {
+        let mut bound: Option<f64> = None;
+        for axis in 0..2 {
+            let c = cell[axis];
+            if c >= ring {
+                let low = self.origin[axis] + (c + 1 - ring) as f64 * self.cell;
+                bound = Some(bound.map_or(point[axis] - low, |b| b.min(point[axis] - low)));
+            }
+            if c + ring < self.size[axis] {
+                let high = self.origin[axis] + (c + ring) as f64 * self.cell;
+                bound = Some(bound.map_or(high - point[axis], |b| b.min(high - point[axis])));
+            }
+        }
+        bound
+    }
+    /// Offers road indices ring by ring around `point`. `offer` returns the second best
+    /// distance. The search stops when no unvisited road can be at or below it.
+    fn search(&self, point: [f32; 2], mut offer: impl FnMut(usize) -> f32) {
+        let q = [point[0] as f64, point[1] as f64];
+        let cell = self.cell_of(q);
+        let mut second = f32::MAX;
+        let mut visit = |x: usize, z: usize, second: &mut f32| {
+            let slot = self.slot([x, z]);
+            for &index in &self.indices[self.starts[slot] as usize..self.starts[slot + 1] as usize]
+            {
+                *second = offer(index as usize);
+            }
+        };
+        visit(cell[0], cell[1], &mut second);
+        for ring in 1.. {
+            match self.ring_bound(q, cell, ring) {
+                Some(bound) if bound * bound * ROAD_GRID_MARGIN <= second as f64 => {}
+                _ => return,
+            }
+            let x0 = cell[0].saturating_sub(ring);
+            let x1 = (cell[0] + ring).min(self.size[0] - 1);
+            let z0 = cell[1].saturating_sub(ring);
+            let z1 = (cell[1] + ring).min(self.size[1] - 1);
+            for z in z0..=z1 {
+                if z + ring == cell[1] || z == cell[1] + ring {
+                    (x0..=x1).for_each(|x| visit(x, z, &mut second));
+                } else {
+                    if cell[0] >= ring {
+                        visit(cell[0] - ring, z, &mut second);
+                    }
+                    if cell[0] + ring < self.size[0] {
+                        visit(cell[0] + ring, z, &mut second);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -562,6 +707,7 @@ mod tests {
                 material_scale: 1.0,
             },
             roads: &roads,
+            road_grid: None,
             road_radius_squared: None,
             foundations: &[],
             holes: &[],
@@ -576,5 +722,68 @@ mod tests {
             ..context
         };
         assert!(empty.road_across([0.0; 2]).is_none());
+    }
+
+    #[test]
+    fn road_grid_matches_full_scan() {
+        let evaluator = TerrainEvaluator::new(TerrainSettings {
+            seed: 1,
+            edge: 0.0,
+            edge_gradient: 0.0,
+        });
+        let mut seed = 7_u64;
+        let mut next = |range: f32| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            // Whole and half metres give many equal distances.
+            ((seed >> 33) % (range as u64 * 2)) as f32 * 0.5 - range * 0.5
+        };
+        let mut roads: Vec<_> = (0..800)
+            .map(|_| TerrainRoadPoint {
+                position: [next(1500.0) + 40_000.0, 0.0, next(1500.0) - 20_000.0],
+                segment_origin: [next(1500.0) + 40_000.0, next(1500.0) - 20_000.0],
+                range: 20.0,
+            })
+            .collect();
+        // Copies tie with their originals. The range tells them apart.
+        roads.extend_from_within(0..50);
+        roads[800..].iter_mut().for_each(|road| road.range = 30.0);
+        let grid = TerrainRoadGrid::new(&roads);
+        let tile = TerrainTile {
+            tier: 0,
+            size: 1,
+            resolution: 1,
+            draw_distance: 1,
+            y: 0.0,
+            material_scale: 1.0,
+        };
+        for radius in [None, Some(250_000.0)] {
+            let full = TerrainContext {
+                evaluator: &evaluator,
+                tile,
+                roads: &roads,
+                road_grid: None,
+                road_radius_squared: radius,
+                foundations: &[],
+                holes: &[],
+                biome_override: None,
+            };
+            let indexed = TerrainContext {
+                road_grid: Some(&grid),
+                ..full
+            };
+            for _ in 0..4000 {
+                // Some points fall outside the grid.
+                let point = [next(4000.0) + 40_000.0, next(4000.0) - 20_000.0];
+                let a = full
+                    .nearest_roads(point)
+                    .map(|(a, b, d)| (a.position, a.range, b.position, b.range, d));
+                let b = indexed
+                    .nearest_roads(point)
+                    .map(|(a, b, d)| (a.position, a.range, b.position, b.range, d));
+                assert_eq!(a, b, "{point:?}");
+            }
+        }
     }
 }

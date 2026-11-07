@@ -193,6 +193,7 @@ impl StartupTerrain {
                     evaluator,
                     tile,
                     roads,
+                    road_grid: None,
                     road_radius_squared: Some(22500.0),
                     foundations: &result.foundations,
                     holes: &[],
