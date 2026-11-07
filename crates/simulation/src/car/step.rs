@@ -265,7 +265,7 @@ fn step_drive(
         gear_edges,
         world.assists,
         engine.map(|engine| (engine.state.output(), &engine.record)),
-        vehicle.ignition.ignition,
+        vehicle.ignition.on(),
         rolling_rpm,
         direction,
         gearbox,
@@ -378,7 +378,7 @@ fn step_drive(
             crate::simulation::reach::IgnitionReach {
                 held: ignition_held,
                 last_held: vehicle.ignition.held(),
-                starting: vehicle.ignition.starter,
+                starting: vehicle.ignition.cranking(),
                 hold: vehicle.ignition.hold_seconds(),
                 delay: vehicle.starter_delay_seconds,
             },
@@ -390,7 +390,7 @@ fn step_drive(
             frames.send(world.body, m);
         }
     }
-    let was_ignition = vehicle.ignition.ignition;
+    let was_ignition = vehicle.ignition.on();
     vehicle.ignition.step(
         IgnitionInput {
             held: ignition_held,
@@ -415,8 +415,7 @@ fn step_drive(
         part.state.step(
             EngineInput {
                 installed: Some(InstalledEngineInput {
-                    ignition: vehicle.ignition.ignition,
-                    starter: vehicle.ignition.starter,
+                    key: vehicle.ignition.key,
                     throttle,
                     clutch: drivetrain.engagement,
                     wheel_rpm: drivetrain.wheel_rpm,
@@ -456,7 +455,7 @@ fn step_drive(
         .engine
         .and_then(|item| world.powertrain.engine(item));
     let output = engine.map_or_else(EngineOutput::default, |e| e.state.output());
-    if vehicle.ignition.ignition != was_ignition {
+    if vehicle.ignition.on() != was_ignition {
         car_sound(
             world.audio,
             world.physics,

@@ -327,7 +327,7 @@ impl VehicleRuntime {
     }
     pub fn state(&self) -> VehicleState {
         VehicleState {
-            ignition: self.ignition.ignition,
+            ignition: self.ignition.on(),
             gear: self.drivetrain.gear(),
             handbrake: self.handbrake,
             trip_m: self.trip_m,
@@ -343,7 +343,7 @@ impl VehicleRuntime {
         record: &crate::reference::WorldVehicleReference,
         state: &VehicleState,
     ) {
-        self.ignition.ignition = state.ignition;
+        self.ignition.set_on(state.ignition);
         self.drivetrain.restore_gear(state.gear);
         self.lever = record
             .lever
@@ -416,7 +416,7 @@ pub fn instrument_sample(
         oil_penalty: engine.map_or(0., |e| e.state.output().oil_penalty),
         oil_led_two_stroke: record.oil_led_two_stroke,
         headlights,
-        local_ignition: vehicle.ignition.ignition
+        local_ignition: vehicle.ignition.on()
             && vehicle.electronics_output() > limits.electronics_off_threshold,
         electronics_output: vehicle.electronics_output(),
         handbrake: vehicle.pedal_inputs.handbrake,
@@ -501,7 +501,7 @@ impl VehicleRuntime {
     ) -> crate::simulation::car_lights::CarLightInput {
         crate::simulation::car_lights::CarLightInput {
             requested: self.requested_headlights,
-            ignition: self.ignition.ignition,
+            ignition: self.ignition.on(),
             brake: self.brake,
             gear_ratio: world_vehicle(reference, self.prototype).gear_ratios
                 [self.drivetrain.gear()],

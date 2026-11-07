@@ -216,10 +216,11 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
     };
     let vehicle = guest.vehicles.get_mut(&key).unwrap();
     vehicle.handbrake = !vehicle.handbrake;
-    vehicle.ignition.ignition = !vehicle.ignition.ignition;
+    let on = vehicle.ignition.on();
+    vehicle.ignition.set_on(!on);
     let gear = (vehicle.drivetrain.gear() + 1) % vehicle.record(&reference).gear_ratios.len();
     vehicle.drivetrain.restore_gear(gear);
-    let want = (vehicle.handbrake, vehicle.ignition.ignition);
+    let want = (vehicle.handbrake, vehicle.ignition.on());
     for _ in 0..3 {
         exchange(
             &reference,
@@ -231,7 +232,7 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
         );
     }
     let car = &host.vehicles[&key];
-    assert_eq!((car.handbrake, car.ignition.ignition), want);
+    assert_eq!((car.handbrake, car.ignition.on()), want);
     assert_eq!(car.drivetrain.gear(), gear, "the host copy shifts");
     // There is no echo. The host sends no reliable car state back.
     let mut packets = Vec::new();

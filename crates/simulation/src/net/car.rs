@@ -119,8 +119,8 @@ pub fn shared(vehicle: &VehicleRuntime) -> CarShared {
         handbrake: vehicle.handbrake,
         headlights: vehicle.requested_headlights,
         gear: vehicle.net.gear.unwrap_or(vehicle.drivetrain.gear()),
-        ignition: vehicle.ignition.ignition,
-        starter: vehicle.ignition.starter,
+        ignition: vehicle.ignition.on(),
+        starter: vehicle.ignition.cranking(),
     }
 }
 
@@ -312,10 +312,11 @@ fn got_gear(reference: &ReferenceManifest, runtime: &mut GarageRuntime, car: u64
 /// frame, and the rpm carries the start.
 fn got_ignition(runtime: &mut GarageRuntime, m: &CarIgnitionMessage) {
     if let Some(v) = find(runtime, m.car) {
-        v.ignition.ignition = m.flags & CarIgnitionMessage::IGNITION != 0;
+        v.ignition
+            .set_on(m.flags & CarIgnitionMessage::IGNITION != 0);
         v.net.rpm = Some(m.rpm);
         if let Some(shared) = &mut v.net.shared {
-            shared.ignition = v.ignition.ignition;
+            shared.ignition = v.ignition.on();
         }
     }
 }
