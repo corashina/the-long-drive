@@ -61,6 +61,8 @@ impl Companions {
 #[derive(Resource, Default)]
 pub struct SurfacePasses {
     inspected: usize,
+    /// Pipeline count when every base and companion was last Ok. A new pipeline clears it.
+    settled: usize,
     partners: HashMap<CachedRenderPipelineId, Companions>,
 }
 impl SurfacePasses {
@@ -110,13 +112,7 @@ impl SurfacePasses {
     }
     pub fn ready(&self, cache: &PipelineCache) -> bool {
         // A base that the inspection has not seen has no partner yet.
-        !self.partners.is_empty()
-            && self.inspected >= cache.pipelines().count()
-            && self.partners.iter().all(|(base, companions)| {
-                std::iter::once(*base)
-                    .chain(companions.ids())
-                    .all(|id| cache.get_render_pipeline(id).is_some())
-            })
+        !self.partners.is_empty() && self.settled == cache.pipelines().count()
     }
 }
 fn flag(definitions: &[ShaderDefVal], name: &str) -> bool {
@@ -176,13 +172,19 @@ pub(crate) fn prepare_surface_passes(
         }
         passes.partners.insert(base_id, companions);
     }
+    let count = cache.pipelines().count();
+    if passes.settled == count {
+        return;
+    }
+    let mut settled = true;
     for (base, companions) in &passes.partners {
         for id in std::iter::once(*base).chain(companions.ids()) {
             match cache.get_render_pipeline_state(id) {
+                CachedPipelineState::Ok(_) => {}
                 CachedPipelineState::Err(
                     ShaderCacheError::ShaderNotLoaded(_)
                     | ShaderCacheError::ShaderImportNotYetAvailable,
-                ) => {}
+                ) => settled = false,
                 CachedPipelineState::Err(error) => {
                     status.fail(format!(
                         "Source surface {} pipeline: {error}",
@@ -190,9 +192,12 @@ pub(crate) fn prepare_surface_passes(
                     ));
                     return;
                 }
-                _ => {}
+                _ => settled = false,
             }
         }
+    }
+    if settled {
+        passes.settled = count;
     }
 }
 fn additive(base: &RenderPipelineDescriptor) -> RenderPipelineDescriptor {

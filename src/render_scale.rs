@@ -31,6 +31,7 @@ pub(crate) fn update(
     budget: Res<crate::app::FrameBudget>,
     display: Res<DisplaySettings>,
 ) {
+    gpu_timing::watch_for_scale(display.scene_scale == AUTO_SCALE);
     let value = if display.scene_scale == AUTO_SCALE {
         auto_scale(&mut state, budget.ms)
     } else {

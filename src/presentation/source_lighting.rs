@@ -213,10 +213,13 @@ impl<P: PhaseItem, const ADD: bool, const DONE: bool> RenderCommand<P>
         _: SystemParamItem<'w, '_, Self::Param>,
         _: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        view.draw_counts[usize::from(ADD) * 2 + usize::from(DONE)].fetch_add(1, Ordering::Relaxed);
-        let count = item.batch_range().end - item.batch_range().start;
-        view.instance_counts[usize::from(ADD) * 2 + usize::from(DONE)]
-            .fetch_add(count, Ordering::Relaxed);
+        let slot = usize::from(ADD) * 2 + usize::from(DONE);
+        // The skipped-draw failure reads the draw counts. Only the audit reads the instance counts.
+        view.draw_counts[slot].fetch_add(1, Ordering::Relaxed);
+        if super::frame_graph::audit_watched() {
+            let count = item.batch_range().end - item.batch_range().start;
+            view.instance_counts[slot].fetch_add(count, Ordering::Relaxed);
+        }
         RenderCommandResult::Success
     }
 }
