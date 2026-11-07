@@ -23,13 +23,7 @@ impl CigaretteNodes {
             .find(|p| p.item_id == Some(reference.acquisition.cigarette_item_id))?
             .consumable
             .as_ref()?;
-        let local = |id: NodeId| {
-            reference
-                .nodes
-                .iter()
-                .find(|n| n.id == id)
-                .map(|n| n.transform)
-        };
+        let local = |id: NodeId| reference.node(id).map(|n| n.transform);
         let parts = consumable
             .parts
             .iter()

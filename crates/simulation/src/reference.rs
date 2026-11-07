@@ -1074,6 +1074,16 @@ pub struct ReferenceManifest {
     pub fluid_rules: FluidRulesReference,
     pub player: PlayerReference,
     pub area: StartingAreaReference,
+    /// Tank, mechanism and part row of each item, by item index. Built at load.
+    #[serde(skip)]
+    item_rows: Vec<ItemRows>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ItemRows {
+    tank: Option<u32>,
+    mechanism: Option<u32>,
+    part: Option<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -1210,7 +1220,56 @@ fn valid_flow(
         && p.collision_mask != 0
 }
 
+/// The row of a dense ID (1, 2, 3, ... in row order). None if `id` has no row.
+fn dense_row<T>(rows: &[T], id: u32, row_id: impl Fn(&T) -> u32) -> Option<&T> {
+    rows.get(id.checked_sub(1)? as usize)
+        .filter(|row| row_id(row) == id)
+}
+
 impl ReferenceManifest {
+    pub fn item(&self, id: ItemId) -> Option<&ItemRecord> {
+        dense_row(&self.items, id.0, |r| r.id.0)
+    }
+    pub fn node(&self, id: NodeId) -> Option<&NodeRecord> {
+        dense_row(&self.nodes, id.0, |r| r.id.0)
+    }
+    pub fn body(&self, id: BodyId) -> Option<&BodyRecord> {
+        dense_row(&self.bodies, id.0, |r| r.id.0)
+    }
+    pub fn anchor(&self, id: AnchorId) -> Option<&AnchorRecord> {
+        dense_row(&self.anchors, id.0, |r| r.id.0)
+    }
+    pub fn item_tank(&self, item: ItemId) -> Option<&TankReference> {
+        Some(&self.tanks[self.item_rows(item)?.tank? as usize])
+    }
+    pub fn item_mechanism(&self, item: ItemId) -> Option<&MechanismReference> {
+        Some(&self.mechanisms[self.item_rows(item)?.mechanism? as usize])
+    }
+    pub fn item_part(&self, item: ItemId) -> Option<&PartReference> {
+        Some(&self.parts[self.item_rows(item)?.part? as usize])
+    }
+    fn item_rows(&self, item: ItemId) -> Option<&ItemRows> {
+        self.item_rows.get(item.0.checked_sub(1)? as usize)
+    }
+    /// Indexes tank, mechanism and part rows by item. The first row of an item leads.
+    fn index_item_rows(&mut self) {
+        let mut rows = vec![ItemRows::default(); self.items.len()];
+        let mut set = |item: ItemId, index: usize, row: fn(&mut ItemRows) -> &mut Option<u32>| {
+            if let Some(rows) = item.0.checked_sub(1).and_then(|i| rows.get_mut(i as usize)) {
+                row(rows).get_or_insert(index as u32);
+            }
+        };
+        for (index, tank) in self.tanks.iter().enumerate() {
+            set(tank.item, index, |r| &mut r.tank);
+        }
+        for (index, mechanism) in self.mechanisms.iter().enumerate() {
+            set(mechanism.item, index, |r| &mut r.mechanism);
+        }
+        for (index, part) in self.parts.iter().enumerate() {
+            set(part.item, index, |r| &mut r.part);
+        }
+        self.item_rows = rows;
+    }
     pub fn expected_instances(&self) -> usize {
         self.assets
             .iter()
@@ -1246,6 +1305,7 @@ impl ReferenceManifest {
             .expect("new world")
             .decode_tables(tables)?;
         std::sync::Arc::make_mut(&mut manifest.file_catalog).admit()?;
+        manifest.index_item_rows();
         Ok(manifest)
     }
 
@@ -1819,11 +1879,7 @@ impl ReferenceManifest {
                     break;
                 };
                 require(depth < self.mechanisms.len(), "mechanism child cycle")?;
-                child = self
-                    .mechanisms
-                    .iter()
-                    .find(|m| m.item == id)
-                    .and_then(|m| m.child);
+                child = self.item_mechanism(id).and_then(|m| m.child);
             }
         }
         for r in &self.openings {

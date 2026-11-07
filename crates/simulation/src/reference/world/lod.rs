@@ -22,10 +22,7 @@ pub struct WorldDitherReference {
     pub alpha: [u8; 16],
 }
 impl WorldLodReference {
-    pub(super) fn validate(
-        &self,
-        records: &HashMap<&SourceId, &WorldSourceRecord>,
-    ) -> Result<(), ReferenceError> {
+    pub(super) fn validate(&self, records: &WorldRecords) -> Result<(), ReferenceError> {
         let record = checked_record(records, &self.quality, &["QualitySettings"])?;
         require(
             matches!(record.fields.get("m_CurrentQuality"),Some(WorldValue::Integer(index))if *index==self.profile as i64),

@@ -62,14 +62,7 @@ pub(crate) fn sync(
     let starter = manifest.survival.starter_food;
     // An eaten starter food leaves the frame.
     let starter_food = frame.food(starter);
-    if let Some(&root) = visuals.nodes.get(
-        &manifest
-            .items
-            .iter()
-            .find(|record| record.id == starter)
-            .unwrap()
-            .node,
-    ) {
+    if let Some(&root) = visuals.nodes.get(&manifest.item(starter).unwrap().node) {
         set_visibility(&mut visibility, root, starter_food.is_some());
     }
     for (index, group) in manifest.survival.starter_parts.iter().enumerate() {

@@ -305,7 +305,7 @@ impl ConditionRecord {
             check(
                 &s.source,
                 s.item
-                    .is_none_or(|id| r.items.iter().any(|i| i.id == id && i.node == s.node)),
+                    .is_none_or(|id| r.item(id).is_some_and(|i| i.node == s.node)),
                 "item",
             )?;
             check(
@@ -420,8 +420,7 @@ impl ConditionRecord {
                 if node == ancestor {
                     return true;
                 }
-                let Some(parent) = r.nodes.iter().find(|n| n.id == node).and_then(|n| n.parent)
-                else {
+                let Some(parent) = r.node(node).and_then(|n| n.parent) else {
                     return false;
                 };
                 node = parent;
@@ -590,12 +589,9 @@ impl ConditionRecord {
             check(&t.source, b.save.is_set(), "save")?;
             check(
                 &t.source,
-                surfaces.get(&b.own_condition).is_some_and(|s| {
-                    r.items
-                        .iter()
-                        .find(|i| i.id == b.item)
-                        .is_some_and(|i| descendant(s.node, i.node))
-                }),
+                surfaces
+                    .get(&b.own_condition)
+                    .is_some_and(|s| r.item(b.item).is_some_and(|i| descendant(s.node, i.node))),
                 "own_condition",
             )?;
             check(

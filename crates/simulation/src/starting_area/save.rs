@@ -751,7 +751,7 @@ impl StartingArea {
             ) {
                 continue;
             }
-            let detachable = reference.parts.iter().any(|part| part.item == item.id)
+            let detachable = reference.item_part(item.id).is_some()
                 || reference
                     .wheel_parts
                     .iter()

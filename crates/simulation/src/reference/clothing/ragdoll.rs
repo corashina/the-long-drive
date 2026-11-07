@@ -136,7 +136,7 @@ impl RagdollReference {
             if let Some(b) = self.bodies.iter().find(|b| b.node == current) {
                 return Some(b.id);
             }
-            node = m.nodes.iter().find(|n| n.id == current)?.parent;
+            node = m.node(current)?.parent;
         }
         None
     }
@@ -182,11 +182,7 @@ impl RagdollReference {
             "complete ragdoll physics",
         )?;
         for b in &self.bodies {
-            let parent = m
-                .nodes
-                .iter()
-                .find(|n| n.id == b.node)
-                .and_then(|n| n.parent);
+            let parent = m.node(b.node).and_then(|n| n.parent);
             require(
                 self.within(m, b.node)
                     && b.dynamic

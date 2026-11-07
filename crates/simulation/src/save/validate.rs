@@ -64,7 +64,7 @@ impl SaveSnapshot {
             absolute(&item.pose)?;
             local(&item.local_pose)?;
             links(item.temperature.is_none(), "Item temperature owner")?;
-            let tank = reference.tanks.iter().find(|tank| tank.item == id);
+            let tank = reference.item_tank(id);
             match (&item.fluids, tank) {
                 (Some(entries), Some(tank)) => data(
                     crate::fluids::validate_fluid_entries(entries)
@@ -263,9 +263,7 @@ impl SaveSnapshot {
                 let item = ids.item(instance)?;
                 links(linked_parts.insert(item), "Part has multiple owners")?;
                 let part = reference
-                    .parts
-                    .iter()
-                    .find(|part| part.item == item)
+                    .item_part(item)
                     .ok_or_else(|| invalid("Unknown part"))?;
                 links(
                     fits(
@@ -291,7 +289,7 @@ impl SaveSnapshot {
             "Missing part slot",
         )?;
         for (&id, item) in items {
-            let source_item = reference.items.iter().find(|i| i.id == id).unwrap();
+            let source_item = reference.item(id).unwrap();
             let detachable = assembly_root(reference, id);
             // A destroyed item (an exploded can and its cap) leaves its owner.
             if let Some(owner) = source_item
@@ -458,7 +456,7 @@ impl SaveSnapshot {
                     held.len() == 1 && held[0].instance == carry.item,
                     "Held item ownership",
                 )?;
-                let source_item = reference.items.iter().find(|i| i.id == id).unwrap();
+                let source_item = reference.item(id).unwrap();
                 links(
                     source_item.pickup.as_ref().is_some_and(|rule| {
                         !rule.cant_pickup && !(p.seat.is_some() && rule.cant_pickup_while_seated)
@@ -477,11 +475,7 @@ impl SaveSnapshot {
                         })
                         .map(|b| b.pose.position)
                 } else {
-                    let source = reference
-                        .bodies
-                        .iter()
-                        .find(|b| b.id == source_item.body)
-                        .unwrap();
+                    let source = reference.body(source_item.body).unwrap();
                     let key = SourceKey::from(&source.source);
                     let saved = self.bodies.iter().find(|b| {
                         matches!(&b.identity, BodyIdentity::Source { source } if *source == key)
@@ -720,7 +714,7 @@ impl SaveSnapshot {
                         .bodies
                         .get(source)
                         .ok_or_else(|| invalid("Unknown source body"))?;
-                    let source_body = reference.bodies.iter().find(|body| body.id == *id).unwrap();
+                    let source_body = reference.body(*id).unwrap();
                     links(
                         source_body.parent_body.is_none(),
                         "Parented source body is not independent",
@@ -1020,7 +1014,7 @@ fn fits(
 /// Source rim item `rim` accepts source tire item `tire`.
 fn tire_fits(reference: &ReferenceManifest, rim: r::ItemId, tire: r::ItemId) -> bool {
     let part = |id| reference.wheel_parts.iter().find(|p| p.item == id);
-    let kind = |id| reference.items.iter().find(|i| i.id == id).map(|i| &i.kind);
+    let kind = |id| reference.item(id).map(|i| &i.kind);
     let (Some(rim_part), Some(tire_part)) = (part(rim), part(tire)) else {
         return false;
     };
@@ -1033,16 +1027,11 @@ fn tire_fits(reference: &ReferenceManifest, rim: r::ItemId, tire: r::ItemId) -> 
         )
 }
 fn pickup_rule(reference: &ReferenceManifest, id: r::ItemId) -> Option<&r::PickupReference> {
-    reference
-        .items
-        .iter()
-        .find(|i| i.id == id)
-        .and_then(|i| i.pickup.as_ref())
+    reference.item(id).and_then(|i| i.pickup.as_ref())
 }
 /// The item is the root of a part or wheel assembly.
 fn assembly_root(reference: &ReferenceManifest, id: r::ItemId) -> bool {
-    reference.parts.iter().any(|p| p.item == id)
-        || reference.wheel_parts.iter().any(|p| p.item == id)
+    reference.item_part(id).is_some() || reference.wheel_parts.iter().any(|p| p.item == id)
 }
 /// The item is in the world or with the player, not in a slot or on an owner.
 fn detached(location: &ItemLocationSave) -> bool {

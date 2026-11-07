@@ -182,8 +182,7 @@ fn curve(c: &TorqueCurve) -> bool {
 
 impl SmallItemsReference {
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
-        let records: HashMap<&SourceId, &WorldSourceRecord> =
-            m.world.records.iter().map(|r| (&r.source, r)).collect();
+        let records = &m.world.records;
         let class = |source: &SourceId, name: &str| {
             records
                 .get(source)
@@ -303,7 +302,7 @@ impl SmallItemsReference {
             records.get(source).is_some_and(|r| {
                 r.class_name == name
                     && matches!(r.fields.get("m_GameObject"), Some(WorldValue::Link(go))
-                        if records.contains_key(go))
+                        if records.contains(go))
             })
         };
         checked(

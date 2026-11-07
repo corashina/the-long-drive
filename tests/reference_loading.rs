@@ -51,8 +51,10 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
         .as_object_mut()
         .unwrap()
         .remove("m_LocalReferencePoint");
-    std::sync::Arc::make_mut(&mut reference.world).records[index].fields =
-        serde_json::from_value(value).unwrap();
+    let changed = serde_json::from_value(value).unwrap();
+    std::sync::Arc::make_mut(&mut reference.world)
+        .records
+        .edit(|records| records[index].fields = changed);
     assert!(
         reference
             .validate()
@@ -60,7 +62,9 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
             .to_string()
             .contains("m_LocalReferencePoint")
     );
-    std::sync::Arc::make_mut(&mut reference.world).records[index].fields = fields;
+    std::sync::Arc::make_mut(&mut reference.world)
+        .records
+        .edit(|records| records[index].fields = fields);
     let root = &reference.world.startup[0].source;
     let index = reference
         .world
@@ -70,11 +74,11 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
         .unwrap();
     let root = std::sync::Arc::make_mut(&mut reference.world)
         .records
-        .swap_remove(index);
+        .edit(|records| records.swap_remove(index));
     assert!(reference.validate().is_err());
     std::sync::Arc::make_mut(&mut reference.world)
         .records
-        .push(root);
+        .edit(|records| records.push(root));
     let evaluator =
         the_long_slop::world::terrain_evaluator(&reference.world, reference.world.terrain.seed);
     the_long_slop::world::StartupTerrain::new(

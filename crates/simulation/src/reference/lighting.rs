@@ -273,7 +273,7 @@ impl LightingRecord {
     pub fn validate(&self, manifest: &ReferenceManifest) -> Result<(), ReferenceError> {
         let check =
             |ok: bool, source: &SourceId, field: &str| require(ok, &super::field(source, field));
-        let node = |id: NodeId| manifest.nodes.iter().find(|n| n.id == id);
+        let node = |id: NodeId| manifest.node(id);
         let valid_source = |s: &SourceId| source_valid(s, &manifest.source_hashes);
         let valid_resource = |s: &SourceId, path: &str, digest: &str| {
             valid_source(s)

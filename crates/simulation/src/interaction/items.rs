@@ -235,20 +235,14 @@ impl ItemStore {
         for item in &reference.items {
             let pose = node_pose(reference, item.node)?;
             let body = reference
-                .bodies
-                .iter()
-                .find(|body| body.id == item.body)
+                .body(item.body)
                 .ok_or_else(|| ReferenceError(format!("Missing item body {}", item.body.0)))?;
             let body_pose = VehiclePose {
                 position: body.pose.translation,
                 rotation: body.pose.rotation,
             };
             let local_pose = from_rapier(&(to_rapier(body_pose).inverse() * to_rapier(pose)));
-            let fluid = reference
-                .tanks
-                .iter()
-                .find(|tank| tank.item == item.id)
-                .map(FluidContainer::from);
+            let fluid = reference.item_tank(item.id).map(FluidContainer::from);
             if indices.insert(item.id, states.len()).is_some() {
                 return Err(ReferenceError(format!("Duplicate item {}", item.id.0)));
             }
@@ -317,15 +311,7 @@ impl ItemStore {
             names: reference
                 .items
                 .iter()
-                .map(|item| {
-                    reference
-                        .nodes
-                        .iter()
-                        .find(|node| node.id == item.node)
-                        .unwrap()
-                        .name
-                        .clone()
-                })
+                .map(|item| reference.node(item.node).unwrap().name.clone())
                 .collect(),
         })
     }
@@ -1114,9 +1100,7 @@ pub fn node_pose(reference: &ReferenceManifest, id: NodeId) -> Result<VehiclePos
     let mut depth = 0;
     while let Some(id) = current {
         let node = reference
-            .nodes
-            .iter()
-            .find(|node| node.id == id)
+            .node(id)
             .ok_or_else(|| ReferenceError(format!("Missing node {}", id.0)))?;
         let q = Rotation::from_xyzw(
             node.transform.rotation[0],

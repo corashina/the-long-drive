@@ -490,7 +490,7 @@ impl GarageRuntime {
                     &self.physics, &frame.origin, key),
             })).collect::<Vec<_>>(),
             "retained_source_bodies": self.area.bodies.iter().filter_map(|(id, handle)| {
-                let record = reference.bodies.iter().find(|body| body.id == *id)?;
+                let record = reference.body(*id)?;
                 self.persistent_world.body_snapshot(*handle, crate::save::BodyIdentity::Source {
                     source: crate::save::SourceKey::from(&record.source),
                 })

@@ -203,9 +203,7 @@ impl MechanismState {
                 };
                 needed.insert(id);
                 node = reference
-                    .nodes
-                    .iter()
-                    .find(|n| n.id == id)
+                    .node(id)
                     .ok_or_else(|| ReferenceError("Missing mechanism node".into()))?
                     .parent;
             }

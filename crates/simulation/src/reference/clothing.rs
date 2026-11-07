@@ -585,7 +585,7 @@ pub fn descendant(m: &ReferenceManifest, mut node: NodeId, root: NodeId) -> bool
         if node == root {
             return true;
         }
-        match m.nodes.iter().find(|n| n.id == node).and_then(|n| n.parent) {
+        match m.node(node).and_then(|n| n.parent) {
             Some(parent) => node = parent,
             None => return false,
         }
@@ -695,7 +695,7 @@ impl ClothingReference {
             self.characters.len() == 2 && self.selected_character == 0,
             "player character selection",
         )?;
-        let node = |id| m.nodes.iter().find(|n| n.id == id);
+        let node = |id| m.node(id);
         require(
             self.characters
                 .iter()
@@ -1072,7 +1072,7 @@ impl CharacterReference {
             ("level1", 67763) => 1,
             _ => return Err(ReferenceError("character source".into())),
         };
-        let node = |id| m.nodes.iter().find(|n| n.id == id);
+        let node = |id| m.node(id);
         require(
             c.source == scene([71215, 67763][i])
                 && node(c.root)

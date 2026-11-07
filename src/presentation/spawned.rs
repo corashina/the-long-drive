@@ -129,7 +129,7 @@ fn owning_body(
         if prototype.bodies.iter().any(|b| b.node == node) {
             return Some(node);
         }
-        node = manifest.nodes.iter().find(|n| n.id == node)?.parent?;
+        node = manifest.node(node)?.parent?;
     }
     None
 }

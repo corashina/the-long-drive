@@ -224,11 +224,7 @@ impl StartingArea {
                 {
                     return None;
                 }
-                let parent_record = reference
-                    .bodies
-                    .iter()
-                    .find(|body| body.id == parent)
-                    .expect("validated parent");
+                let parent_record = reference.body(parent).expect("validated parent");
                 let source = to_rapier(VehiclePose {
                     position: record.pose.translation,
                     rotation: record.pose.rotation,
@@ -425,11 +421,7 @@ pub fn collider_item(reference: &ReferenceManifest, mut node: NodeId) -> Option<
         if let Some(item) = reference.items.iter().find(|item| item.node == node) {
             return Some(item.id);
         }
-        node = reference
-            .nodes
-            .iter()
-            .find(|record| record.id == node)?
-            .parent?;
+        node = reference.node(node)?.parent?;
     }
 }
 

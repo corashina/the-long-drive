@@ -22,12 +22,7 @@ pub(super) fn tank_nodes(reference: &ReferenceManifest) -> Vec<ReceiptTank> {
         .iter()
         .map(|tank| ReceiptTank {
             item: tank.item,
-            node: reference
-                .items
-                .iter()
-                .find(|i| i.id == tank.item)
-                .unwrap()
-                .node,
+            node: reference.item(tank.item).unwrap().node,
             caps: tank.openings.clone(),
         })
         .collect();

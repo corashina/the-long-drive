@@ -92,8 +92,7 @@ pub fn record<'a>(
 ) -> Result<&'a WorldSourceRecord, ReferenceError> {
     world
         .records
-        .iter()
-        .find(|r| &r.source == id)
+        .get(id)
         .ok_or_else(|| ReferenceError(format!("Missing source record {}:{}", id.file, id.path_id)))
 }
 /// The `roadscript` record of a road prototype.

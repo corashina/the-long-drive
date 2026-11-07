@@ -28,7 +28,7 @@ pub struct WorldGrassWriter {
 impl WorldGrassDisplacement {
     pub(super) fn validate(
         &self,
-        records: &HashMap<&SourceId, &WorldSourceRecord>,
+        records: &WorldRecords,
         receipts: &HashSet<&SourceId>,
     ) -> Result<(), ReferenceError> {
         let camera = checked_record(records, &self.camera, &["Camera"])?;

@@ -280,15 +280,9 @@ impl SurvivalReference {
             "initial bladder and queue",
         )?;
         let starter = m
-            .items
-            .iter()
-            .find(|i| i.id == self.starter_food)
+            .item(self.starter_food)
             .filter(|i| matches!(i.kind, ItemKind::Food))
-            .and_then(|i| {
-                m.nodes
-                    .iter()
-                    .find(|n| n.id == i.node && n.source == i.source)
-            })
+            .and_then(|i| m.node(i.node).filter(|n| n.source == i.source))
             .filter(|n| n.source.file == "level1" && n.source.path_id == 24573)
             .ok_or_else(|| ReferenceError("Invalid starter food source".into()))?;
         require(transform(&self.starter_pose), "starter pose")?;

@@ -73,12 +73,7 @@ fn manifest_grips(
     root: NodeId,
 ) -> Result<[Option<Pose>; 2], ReferenceError> {
     let missing = || ReferenceError("Missing pickup grip node".into());
-    let asset = r
-        .nodes
-        .iter()
-        .find(|n| n.id == root)
-        .ok_or_else(missing)?
-        .asset;
+    let asset = r.node(root).ok_or_else(missing)?.asset;
     let grip = |source: &Option<SourceId>| -> Result<Option<Pose>, ReferenceError> {
         let Some(source) = source else {
             return Ok(None);
