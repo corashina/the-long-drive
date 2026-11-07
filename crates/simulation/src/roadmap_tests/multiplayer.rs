@@ -906,3 +906,58 @@ fn tp_mp2_the_guest_starts_before_the_host_car_spawns() {
     }
     panic!("the host car does not spawn");
 }
+
+/// MP2. The host got out of its car and stands beside it. The guest steps aside only after the
+/// car spawns, and never onto a spot in the car: the ground under the new spot is fixed.
+#[test]
+#[ignore = "requires the installed source export"]
+fn tp_mp2_the_guest_does_not_step_into_the_host_car() {
+    use rapier3d::prelude::{QueryFilter, Ray};
+    let (reference, mut host) = load_garage();
+    settle(&mut host, &reference);
+    let key = host.vehicles.keys().next().cloned().expect("the start car");
+    host.vehicle = Some(key.clone());
+    // The host stands 1.2 m from the car centre, so the first guest spot (slot 1) is in the car.
+    let car = Vector::from_array(host.physics.snapshot(&key).pose.position);
+    let angle = std::f32::consts::TAU / crate::net::MAX_PLAYERS as f32;
+    let toward = Vector::new(angle.cos(), 0., angle.sin());
+    let mut pose = host.area.player.body_pose(&host.physics);
+    let at = car - toward * 1.2;
+    pose.position = [at.x, pose.position[1], at.z];
+    host.area.player.recover(pose, &mut host.physics);
+    host.physics.refresh_queries();
+    let mut guest = open(&reference, &save(&host, &reference));
+    guest.started = true;
+    guest.menu = false;
+    let mut net = Net::default();
+    net.set_session(NetRole::Guest, 1);
+    let start = body_position(&guest);
+    let mut out = SimFrame::default();
+    for _ in 0..600 {
+        frame(&mut guest, &reference);
+        guest.advance_saved_restore(&reference).unwrap();
+        net.fill(&reference, &mut guest, FIXED_DT, 1., &mut out);
+        if (body_position(&guest) - start).length() > 1. {
+            break;
+        }
+    }
+    assert!(guest.vehicles.contains_key(&key), "the host car spawned");
+    let at = body_position(&guest);
+    assert!((at - start).length() > 1., "the guest stepped aside");
+    let own = guest.area.player.body_handle();
+    let rapier = guest.physics.rapier();
+    let solid = |_, c: &rapier3d::prelude::Collider| {
+        c.is_enabled() && !c.is_sensor() && c.parent() != Some(own)
+    };
+    let (hit, _) = guest
+        .physics
+        .queries(QueryFilter::default().predicate(&solid))
+        .cast_ray(&Ray::new(at + Vector::Y * 3., -Vector::Y), 6., true)
+        .expect("ground under the guest");
+    assert!(
+        rapier.colliders[hit]
+            .parent()
+            .is_none_or(|body| rapier.bodies[body].is_fixed()),
+        "nothing but fixed ground over the guest spot"
+    );
+}
