@@ -2,6 +2,7 @@
 import {ROLE,createNet} from './net.js';
 import {MODES,createVoiceOutput,talkState} from './voice.js';
 import {MOUSE_BUTTONS} from './bindings.js';
+import {playerChips} from './room-card.js';
 // The source keeps the voice settings with the multiplayer settings (`snl.SaveSettings`), not with `S`.
 const NAME_KEY='the-long-slop.player-name',VOICE_KEY='the-long-slop.voice-chat',CHAT_SHOW_MS=10000;
 
@@ -11,7 +12,7 @@ const NAME_KEY='the-long-slop.player-name',VOICE_KEY='the-long-slop.voice-chat',
 export function createMultiplayer({document,target,Peer,buildId,exportHash,simulation,saveSession,menu,outfit,storage,room:joinRoom=null,joined=()=>{},reloadJoin,loading,audio,voiceKeys=()=>[],media}){
  const $=selector=>document.querySelector(selector);
  const name=$('#net-name'),hostPassword=$('#net-host-password'),joinPassword=$('#net-join-password'),hostHint=$('#net-host-hint'),session=$('#net-session'),count=$('#net-count'),copyButton=$('#net-code-copy'),max=$('#net-max'),room=$('#net-room'),code=$('#net-code'),status=$('#net-status');
- const hostButton=$('#net-host-start'),joinButton=$('#net-join-start'),leaveButton=$('#net-leave'),players=$('#net-players');
+ const hostButton=$('#net-host-start'),joinButton=$('#net-join-start'),leaveButton=$('#net-leave'),players=$('#net-players'),hostName=$('#net-host-name');
  const log=$('#net-chat-log'),line=$('#net-chat-line'),labels=$('#net-labels'),labelNodes=new Map();
  const voiceOn=$('#net-voice'),voiceMode=$('#net-voice-mode'),micIcon=$('#net-mic');
  let looksJson=null,names=new Map();
@@ -28,7 +29,7 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
   const off=net.role===ROLE.OFF;
   hostButton.disabled=!off||!menu.model.started||menu.model.pending;
   hostHint.hidden=menu.model.started||!off;
-  session.hidden=!net.code;if(code.textContent!==net.code){code.textContent=net.code;copyButton.textContent='Copy';}
+  session.hidden=!net.code;if(code.textContent!==net.code){code.textContent=net.code;copyButton.textContent='Copy code';}
   joinButton.disabled=!off||menu.model.pending;
   for(const node of [name,hostPassword,max,room,joinPassword])node.disabled=!off;
   syncMic();
@@ -85,14 +86,8 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
   status:text=>{if(joinRoom&&net.role===ROLE.OFF){joinRoom=null;status.textContent=text;loading.joinFailed(text);joined(null,text);}else say(text);},
   peers:list=>{
    count.textContent=`Players ${list.length} / ${net.max}`;
-   players.replaceChildren(...list.sort((a,b)=>a.slot-b.slot).map(p=>{
-    const item=document.createElement('li'),part=(text,kind)=>{const node=document.createElement('span');node.textContent=text;if(kind)node.className=kind;item.append(node);};
-    part(p.name);
-    if(p.slot===0)part('Host','tag');
-    if(p.slot===net.slot)part('You','tag');
-    if(p.ping!==null)part(`${p.ping} ms`,'ping');
-    return item;
-   }));
+   hostName.textContent=list.find(p=>p.slot===0)?.name??'';
+   players.replaceChildren(...playerChips(document,list.sort((a,b)=>a.slot-b.slot).map(p=>({name:p.name,you:p.slot===net.slot,ping:p.ping}))));
   },
   session:(role,slot)=>{
    simulation.netSession(role,slot,packets=>net.send(packets));

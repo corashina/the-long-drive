@@ -75,7 +75,9 @@
 <section id="multiplayer-screen" class="menu-screen" aria-labelledby="multiplayer-title" hidden><div class="menu-panel menu-panel-narrow">
 <h2 id="multiplayer-title" data-w="multiplayer">Multiplayer</h2>
 <div class="menu-body multiplayer-body">
-<div id="net-session" hidden><div id="net-code-row"><span>Room code</span><strong id="net-code" translate="no"></strong><button id="net-code-copy" type="button">Copy</button></div><p id="net-count"></p><ul id="net-players" aria-label="Players"></ul><button id="net-leave" data-w="xdisconnect" type="button">Leave</button></div>
+<div id="net-session" class="room-card" hidden><p class="room-title">Room code</p><p id="net-code" class="room-code" translate="no"></p>
+<dl class="room-facts"><dt>Host</dt><dd id="net-host-name"></dd><dt id="net-count">Players</dt><dd><ul id="net-players" class="room-players" aria-label="Players"></ul></dd></dl>
+<div class="room-actions"><button id="net-code-copy" type="button">Copy code</button><button id="net-leave" data-w="xdisconnect" type="button">Leave</button></div></div>
 <p id="net-status" role="status"></p>
 <label for="net-name"><span data-w="mname">Name</span> <input id="net-name" type="text" maxlength="32" autocomplete="off" spellcheck="false"></label>
 <fieldset id="net-host"><legend>Host</legend><label for="net-max"><span data-w="xmaxplayers">Max players</span> <input id="net-max" type="number" min="2" max="8" value="8"></label><label for="net-host-password"><span data-w="xpassword">Password</span> <input id="net-host-password" type="password" autocomplete="new-password" placeholder="Optional…"></label><button id="net-host-start" data-w="xcreate" type="button">Host game</button><p id="net-host-hint">Start or load a game to host it.</p></fieldset>
@@ -92,8 +94,8 @@
 </aside>
 <p id="autosave-notice" role="status" hidden></p>
 <section id="loading-details" aria-labelledby="loading-phase">
-<div id="loading-room" hidden><p id="loading-room-title">Joining room</p><p id="loading-room-code" translate="no"></p>
-<dl><dt>Host</dt><dd id="loading-room-host">…</dd><dt>Players</dt><dd><ul id="loading-room-players" aria-label="Players"></ul></dd></dl>
+<div id="loading-room" class="room-card" hidden><p class="room-title">Joining room</p><p id="loading-room-code" class="room-code" translate="no"></p>
+<dl class="room-facts"><dt>Host</dt><dd id="loading-room-host">…</dd><dt>Players</dt><dd><ul id="loading-room-players" class="room-players" aria-label="Players"></ul></dd></dl>
 <p id="loading-room-error" role="alert" hidden></p></div>
 <h2 id="loading-phase">Loading 0%</h2>
 <progress id="loading-progress" max="100" value="0" aria-label="Total loading progress"></progress>

@@ -184,19 +184,22 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #loading-details {position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100% - 48px));max-height:calc(100% - 170px);overflow:auto;overscroll-behavior:contain;padding:24px 22px 20px;border-radius:6px;background:var(--asphalt-glass);color:var(--bleach);font:400 16px/1.45 var(--menu-font);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
 #loading-details::before {content:"";position:sticky;display:block;top:-24px;height:4px;margin:-24px -22px 20px;background:var(--lane);}
 #loading-details h2 {margin:0 0 12px;font-size:22px;font-weight:800;text-align:center;}
-#loading-room {margin:0 0 18px;padding:0 0 16px;border-bottom:1px solid var(--seam);text-align:center;}
-#loading-room[hidden] {display:none;}
-#loading-details #loading-room-title {margin:0;font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dust);}
-#loading-details #loading-room-code {margin:4px 0 14px;font:700 40px/1 ui-monospace,Consolas,monospace;letter-spacing:.2em;padding-left:.2em;color:var(--paint);}
-#loading-room dl {display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 14px;align-items:baseline;margin:0;text-align:left;}
-#loading-room dt {color:var(--dust);}
-#loading-room dd {margin:0;font-weight:700;}
-#loading-room-players {display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;font-weight:400;}
-#loading-room-players li {padding:1px 10px;border-radius:3px;background:var(--shoulder);border:1px solid var(--seam);}
+/* Room card: the join loading card and the multiplayer screen show the room the same way. */
+.room-card {margin:0 0 18px;padding:0 0 16px;border-bottom:1px solid var(--seam);text-align:center;}
+.room-card[hidden] {display:none;}
+.room-card .room-title {margin:0;font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dust);}
+.room-card .room-code {margin:4px 0 14px;font:700 40px/1 ui-monospace,Consolas,monospace;letter-spacing:.2em;padding-left:.2em;color:var(--paint);user-select:all;}
+.room-facts {display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 14px;align-items:baseline;margin:0;text-align:left;}
+.room-facts dt {color:var(--dust);}
+.room-facts dd {margin:0;font-weight:700;}
+.room-card .room-players {display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;font-weight:400;}
+.room-players li {padding:1px 10px;border-radius:3px;background:var(--shoulder);border:1px solid var(--seam);}
+.room-players .ping {margin-left:8px;color:var(--dust);}
+.room-actions {display:flex;justify-content:center;gap:8px;margin-top:14px;}
 #loading-details #loading-room-error {margin:14px 0 0;color:var(--paint-hi);font-weight:700;}
 #loading-steps li[data-state=failed] {color:var(--paint-hi);}
 #loading-details progress {display:block;width:100%;height:10px;accent-color:var(--paint);}
-#loading-details p {margin:10px 0 0;white-space:pre-line;}
+#loading-details p:not(.room-card p) {margin:10px 0 0;white-space:pre-line;}
 #loading-elapsed {text-align:center;}
 #loading-steps {list-style:none;margin:14px 0 0;padding:0;display:grid;gap:4px;}
 #loading-steps li {display:grid;grid-template-columns:1.4em minmax(0,1fr) auto;gap:8px;color:#9a9a9a;}
@@ -237,15 +240,6 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .multiplayer-body [hidden] {display:none;}
 #net-room {text-transform:uppercase;}
 #net-host-hint {color:var(--dust);}
-#net-session {display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px;border:2px solid var(--paint);border-radius:3px;text-align:center;}
-#net-session[hidden] {display:none;}
-#net-code-row {display:flex;align-items:center;justify-content:center;gap:12px;}
-#net-code-row span, #net-count {color:var(--dust);}
-#net-code {font:700 2em/1 ui-monospace,Consolas,monospace;letter-spacing:.15em;color:var(--paint);user-select:all;}
-.multiplayer-body #net-players {align-self:stretch;margin:0;padding:0;list-style:none;}
-#net-players li {display:flex;align-items:center;justify-content:center;gap:10px;padding:4px 0;border-top:1px solid var(--seam-soft);}
-#net-players .tag {padding:0 6px;border-radius:3px;background:var(--paint);color:var(--ink);font-size:.8em;font-weight:700;}
-#net-players .ping {color:var(--dust);}
 #net-status {text-align:center;}
 #net-status:empty {display:none;}
 .multiplayer-body fieldset > button {align-self:flex-start;margin-top:6px;}
