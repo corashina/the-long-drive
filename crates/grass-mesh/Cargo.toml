@@ -4,5 +4,8 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 
+[lib]
+doctest = false
+
 [dependencies]
 glam = { version = "=0.32.1", default-features = false, features = ["std", "nostd-libm", "bytemuck", "encase", "rand", "serde"] }

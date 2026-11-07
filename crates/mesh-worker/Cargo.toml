@@ -6,6 +6,8 @@ rust-version = "1.99"
 
 [lib]
 crate-type = ["cdylib"]
+test = false
+doctest = false
 
 [dependencies]
 grass-mesh = { path = "../grass-mesh" }
