@@ -235,6 +235,16 @@ async function downloadManifest(response){
 }
 async function load(){
  cpuProfile.begin('startup');
+ // Download and compile the game code and download the manifest while the browser opens the adapter.
+ const code=Promise.all([import('./pkg/the_long_slop.js'),fetch('./pkg/the_long_slop_bg.wasm').then(response=>{
+  if(!response.ok)throw Error('Cannot load game code (HTTP '+response.status+').');
+  return WebAssembly.compileStreaming(response);
+ })]);
+ const manifestBytes=fetch('./assets/reference/manifest.bin.gz').then(response=>{
+  if(!response.ok)throw Error('Cannot load reference manifest (HTTP '+response.status+').');
+  return downloadManifest(response);
+ });
+ code.catch(()=>{});manifestBytes.catch(()=>{});
  startup.begin('graphics');
  // Bevy asks for the high performance adapter, so this is the GPU that renders.
  const adapter=await navigator.gpu?.requestAdapter({powerPreference:'high-performance'});
@@ -242,15 +252,7 @@ async function load(){
  const quality=firstQuality(adapter.info,navigator);
  adapterName=[adapter.info.vendor,adapter.info.architecture,adapter.info.description].filter(Boolean).join(' ');
  startup.end('graphics');startup.begin('manifest');
- // Download and compile the game code while the manifest downloads.
- const code=Promise.all([import('./pkg/the_long_slop.js'),fetch('./pkg/the_long_slop_bg.wasm').then(response=>{
-  if(!response.ok)throw Error('Cannot load game code (HTTP '+response.status+').');
-  return WebAssembly.compileStreaming(response);
- })]);
- code.catch(()=>{});
- const response=await fetch('./assets/reference/manifest.bin.gz');
- if(!response.ok)throw Error('Cannot load reference manifest (HTTP '+response.status+').');
- const bytes=await downloadManifest(response);
+ const bytes=await manifestBytes;
  // The worker parses and checks its copy while this thread loads the interface.
  simulation.load(bytes.slice());
  loading.step('code',0);
@@ -262,7 +264,7 @@ async function load(){
  window.gamePrewarmList=()=>prewarm_pipeline_list();
  // Rust parses the manifest once and returns only the shell fields, so JS does not parse the rest.
  startup.begin('prepare');const text=prepare(bytes),manifest=JSON.parse(text);startup.end('prepare');analytics.build(manifest.build_id);
- const {manifest_sha256:manifestHash}=await manifestStamp(bytes,manifest);
+ const manifestHash=manifestStamp(manifest);
  const bindings=manifest.driving.bindings,actionIds=actionIndex(bindings);
  settings=createSettings(()=>localStorage,manifest.settings,{...displayFields(manifest.world.mirrors.draw_distance,PRESETS[quality]),quality:qualityField(quality),...gameFields(manifest.world.start_cars.length),inputs:inputsField(bindings),language:languageField(manifest.language)});
  const language=createLanguage(manifest.language,settings,document);

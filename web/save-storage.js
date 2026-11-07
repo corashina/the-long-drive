@@ -14,9 +14,9 @@ export function defaultName(date){
  const two=value=>String(value).padStart(2,'0');
  return `${two(date.getFullYear()%100)}_${two(date.getMonth()+1)}_${two(date.getDate())}_${two(date.getHours())}${two(date.getMinutes())}`;
 }
-export async function manifestStamp(manifestBytes,reference,crypto=globalThis.crypto){
- return {app_id:reference.app_id,build_id:reference.build_id,manifest_sha256:await sha256(manifestBytes,crypto),source_hashes:reference.source_hashes.map(({file,sha256})=>({file,sha256}))};
-}
+// The export names its runtime package by the SHA-256 of the manifest (tools/reference/runtime_package.py `package_id`).
+// Saves and multiplayer use that hash as the manifest stamp, so the page does not hash the 100 MB manifest again.
+export function manifestStamp(reference){return reference.content_base.slice('assets/runtime/'.length,-1);}
 export async function verifyRecord(record,crypto=globalThis.crypto){
  if(!record||record.version!==RECORD_VERSION||!record.payload||typeof record.payload!=='object'||Array.isArray(record.payload)||typeof record.checksum!=='string')throw new Error('Invalid save record.');
  const json=JSON.stringify(record.payload),checksum=record.checksum;
