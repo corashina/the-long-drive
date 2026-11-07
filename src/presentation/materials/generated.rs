@@ -14,7 +14,6 @@ pub(super) fn from_base(base: StandardMaterial, mask: u32, reflected: bool) -> S
     surface.data.flags.z = u32::from(base.unlit);
     SourceMaterial {
         retained_color: None,
-        preparation: default(),
         base,
         extension: SourceExtension {
             receiver_mask: mask,

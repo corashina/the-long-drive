@@ -123,9 +123,6 @@ fn flag(defs: &[ShaderDefVal], name: &str) -> Option<bool> {
     })
 }
 impl CasterPasses {
-    pub fn revisit(&mut self, id: CachedRenderPipelineId) {
-        self.inspected = self.inspected.min(id.id());
-    }
     pub(crate) fn physically_settled(
         &self,
         base: CachedRenderPipelineId,
@@ -171,18 +168,13 @@ impl CasterPasses {
     pub fn pipeline(&self, base: CachedRenderPipelineId) -> Option<CachedRenderPipelineId> {
         self.variants.get(&base).copied().flatten()
     }
-    pub fn ready(
-        &self,
-        cache: &PipelineCache,
-        owners: &super::pipeline_ownership::PipelineOwners,
-    ) -> bool {
+    pub fn ready(&self, cache: &PipelineCache) -> bool {
         !self.variants.is_empty()
             && self
                 .variants
-                .iter()
-                .filter(|(base, _)| !owners.base_isolated(**base))
-                .filter_map(|(_, id)| *id)
-                .all(|id| cache.get_render_pipeline(id).is_some())
+                .values()
+                .flatten()
+                .all(|id| cache.get_render_pipeline(*id).is_some())
     }
     /// Called during preparation. It clones the descriptors only once for each new source surface variant.
     pub(crate) fn prepare(
@@ -190,7 +182,6 @@ impl CasterPasses {
         cache: &PipelineCache,
         shader: &Handle<Shader>,
         status: &RendererStateHandle,
-        owners: &super::pipeline_ownership::PipelineOwners,
     ) {
         if status.failure().is_some() {
             return;
@@ -199,7 +190,7 @@ impl CasterPasses {
         for (index, entry) in cache.pipelines().enumerate().skip(first) {
             self.inspected = index + 1;
             let base_id = CachedRenderPipelineId::new(index);
-            if self.classified.contains(&base_id) || owners.cancelled(base_id) {
+            if self.classified.contains(&base_id) {
                 continue;
             }
             let PipelineDescriptor::RenderPipelineDescriptor(base) = &entry.descriptor else {
@@ -220,10 +211,7 @@ impl CasterPasses {
                 continue;
             }
             let Some(reflected) = flag(&fragment.shader_defs, "SOURCE_OBJECT_REFLECTED") else {
-                let error = "Source caster requires object transform parity metadata".to_string();
-                if !owners.fail(base_id, error.clone()) {
-                    status.fail(error);
-                }
+                status.fail("Source caster requires object transform parity metadata".into());
                 return;
             };
             let mut descriptor = base.clone();
@@ -281,33 +269,16 @@ impl CasterPasses {
                 bias: DepthBiasState::default(),
             });
             // An active base reuses an equal active caster, so its draws batch with it.
-            let owned = owners.owned(base_id);
-            if !owned && let Some((_, id)) = self.active.iter().find(|(d, _)| *d == *descriptor) {
+            if let Some((_, id)) = self.active.iter().find(|(d, _)| *d == *descriptor) {
                 self.variants.insert(base_id, Some(*id));
                 continue;
             }
-            let queued = (!owned).then(|| (*descriptor).clone());
-            let id = match owners.queue_companion(cache, base_id, || Some(*descriptor)) {
-                Ok(id) => id,
-                Err(error) => {
-                    if !owners.fail(base_id, error.0.clone()) {
-                        status.fail(error.0);
-                    }
-                    None
-                }
-            };
-            if let (Some(descriptor), Some(id)) = (queued, id) {
-                self.active.push((descriptor, id));
-            }
-            self.variants.insert(base_id, id);
+            let id = cache.queue_render_pipeline((*descriptor).clone());
+            self.active.push((*descriptor, id));
+            self.variants.insert(base_id, Some(id));
         }
-        for id in self
-            .variants
-            .iter()
-            .filter(|(base, _)| !owners.base_isolated(**base))
-            .filter_map(|(_, id)| *id)
-        {
-            match cache.get_render_pipeline_state(id) {
+        for id in self.variants.values().flatten() {
+            match cache.get_render_pipeline_state(*id) {
                 CachedPipelineState::Err(
                     ShaderCacheError::ShaderNotLoaded(_)
                     | ShaderCacheError::ShaderImportNotYetAvailable,
@@ -362,19 +333,17 @@ pub(crate) fn inspect_created_passes(
     assets: Option<Res<super::lighting_assets::LightingRenderAssets>>,
     cache: Res<PipelineCache>,
     status: Res<RendererStateHandle>,
-    owners: Res<super::pipeline_ownership::PipelineOwners>,
 ) {
-    prepare_passes(passes, assets, cache, status, owners);
+    prepare_passes(passes, assets, cache, status);
 }
 pub(crate) fn prepare_passes(
     mut passes: ResMut<CasterPasses>,
     assets: Option<Res<super::lighting_assets::LightingRenderAssets>>,
     cache: Res<PipelineCache>,
     status: Res<RendererStateHandle>,
-    owners: Res<super::pipeline_ownership::PipelineOwners>,
 ) {
     let Some(assets) = assets else {
         return;
     };
-    passes.prepare(&cache, &assets.shaders.caster, &status, &owners);
+    passes.prepare(&cache, &assets.shaders.caster, &status);
 }

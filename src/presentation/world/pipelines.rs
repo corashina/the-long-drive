@@ -35,6 +35,9 @@ use bevy::{
 };
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
+/// Ledger charges for pipeline cache metadata: one reserve per bank, one slot per descriptor.
+const CACHE_BYTES: usize = 16 * 1024 * 1024;
+const DESCRIPTOR_BYTES: usize = 64 * 1024;
 
 fn arc_bytes<T>() -> usize {
     std::alloc::Layout::new::<[usize; 2]>()
@@ -97,13 +100,6 @@ impl Plugin for WorldPipelinePlugin {
         app.init_resource::<WorldPipelines>()
             .add_plugins(ExtractResourcePlugin::<WorldPipelines>::default());
         app.sub_app_mut(RenderApp)
-            .init_resource::<super::super::pipeline_ownership::PipelineOwners>()
-            .add_systems(
-                Render,
-                super::super::pipeline_ownership::prepare
-                    .before(RenderSystems::Render)
-                    .after(compile),
-            )
             .add_systems(Render, compile.after(RenderSystems::PrepareBindGroups));
     }
 }
@@ -139,15 +135,6 @@ impl WorldPipelines {
                     "waiting":job.waiting,"pipelines":job.ids.len(),"retry":job.spill,"stopped":job.physical.stopped(),
                 }))
             }).collect::<Vec<_>>(),
-        })
-    }
-    pub fn owns(&self, id: CachedRenderPipelineId) -> bool {
-        self.jobs.as_ref().is_some_and(|bank| {
-            bank.lock()
-                .unwrap()
-                .pairs
-                .iter()
-                .any(|ticket| ticket.0.lock().unwrap().ids.contains(&id))
         })
     }
 
@@ -224,11 +211,7 @@ impl WorldPipelines {
             } else {
                 0
             }
-            + if self.cache_reserved {
-                0
-            } else {
-                super::super::pipeline_ownership::CACHE_BYTES
-            }
+            + if self.cache_reserved { 0 } else { CACHE_BYTES }
             + if append.is_none() {
                 UploadReceipt::allocation_bytes()
             } else {
@@ -240,17 +223,8 @@ impl WorldPipelines {
             operation.clone()
         } else {
             let operation = match parent.as_mut() {
-                Some(parent) => parent.start(
-                    stream,
-                    ledger,
-                    cpu,
-                    super::super::pipeline_ownership::DESCRIPTOR_BYTES,
-                )?,
-                None => PipelineOperation::independent(
-                    ledger,
-                    cpu,
-                    super::super::pipeline_ownership::DESCRIPTOR_BYTES,
-                )?,
+                Some(parent) => parent.start(stream, ledger, cpu, DESCRIPTOR_BYTES)?,
+                None => PipelineOperation::independent(ledger, cpu, DESCRIPTOR_BYTES)?,
             };
             let Some(operation) = operation else {
                 return Ok(None);
@@ -343,7 +317,7 @@ impl WorldPipelines {
             ledger,
             bank.batches.iter().map(|batch| batch.operation.clone()),
             cpu,
-            super::super::pipeline_ownership::DESCRIPTOR_BYTES,
+            DESCRIPTOR_BYTES,
         )
     }
 }
@@ -434,7 +408,6 @@ fn compile(world: &mut World) {
     let Some(active) = world.get_resource::<WorldPipelines>().cloned() else {
         return;
     };
-    super::super::pipeline_ownership::refresh_isolation(world);
     {
         let Some(shared) = &active.jobs else {
             return;
@@ -549,40 +522,34 @@ fn compile_pair(
             .layout
             .clone();
         for (mesh_key, shadow) in keys.iter() {
-            let result = super::super::pipeline_ownership::specialize_base(world, |world| {
-                let key = ErasedMaterialPipelineKey {
-                    type_id: job.material.type_id(),
-                    mesh_key: ErasedMeshPipelineKey::new(mesh_key),
-                    material_key: properties.material_key.clone(),
-                };
-                let result = if shadow {
-                    let Some(specialize) = properties.prepass_specialize else {
-                        return Err(ReferenceError(
-                            "Source shadow material has no shader pass".into(),
-                        ));
-                    };
-                    dispatched += 1;
-                    specialize(world, key, &layout, &properties)
-                } else {
-                    dispatched += 1;
-                    base_specialize(world, key, &layout, &properties)
-                };
-                result.map_err(|error| ReferenceError(format!("Source material pipeline: {error}")))
-            });
+            let key = ErasedMaterialPipelineKey {
+                type_id: job.material.type_id(),
+                mesh_key: ErasedMeshPipelineKey::new(mesh_key),
+                material_key: properties.material_key.clone(),
+            };
+            let result = if shadow {
+                properties
+                    .prepass_specialize
+                    .ok_or_else(|| "Source shadow material has no shader pass".to_string())
+                    .and_then(|specialize| {
+                        dispatched += 1;
+                        specialize(world, key, &layout, &properties)
+                            .map_err(|error| format!("Source material pipeline: {error}"))
+                    })
+            } else {
+                dispatched += 1;
+                base_specialize(world, key, &layout, &properties)
+                    .map_err(|error| format!("Source material pipeline: {error}"))
+            };
             match result {
-                Ok(Some(id)) => {
+                Ok(id) => {
                     if !job.ids.contains(&id) {
                         job.ids.push(id);
                     }
                 }
-                Ok(None) => {
-                    job.physical.stop();
-                    job.waiting = "cancelled";
-                    return dispatched;
-                }
                 Err(error) => {
                     job.state =
-                        RenderingState::Failed(pipeline_diagnostic(format_args!("{}", error.0)));
+                        RenderingState::Failed(pipeline_diagnostic(format_args!("{error}")));
                     break;
                 }
             }

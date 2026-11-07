@@ -1423,7 +1423,6 @@ struct PassInputs<'w> {
     caster: Option<Res<'w, super::caster::CasterPasses>>,
     sky: Option<Res<'w, SkyPass>>,
     cloud: Option<Res<'w, super::clouds::CloudPass>>,
-    owners: Res<'w, super::pipeline_ownership::PipelineOwners>,
     cache: Res<'w, PipelineCache>,
 }
 /// Lighting texture counts change only when lighting assets or GPU images change.
@@ -1441,12 +1440,8 @@ fn pass_readiness(
     let mut passes = PassReadiness {
         targets: inputs.targets.is_some(),
         camera: inputs.camera.is_some_and(|c| c.ready()),
-        surface: inputs
-            .surface
-            .is_some_and(|p| p.ready(cache, &inputs.owners)),
-        caster: inputs
-            .caster
-            .is_some_and(|p| p.ready(cache, &inputs.owners)),
+        surface: inputs.surface.is_some_and(|p| p.ready(cache)),
+        caster: inputs.caster.is_some_and(|p| p.ready(cache)),
         sky: inputs.sky.is_some_and(|p| p.ready(cache)),
         cloud: inputs.cloud.is_some_and(|p| p.ready(cache)),
         ..default()

@@ -10,7 +10,6 @@ pub mod creatures;
 pub mod decals;
 pub mod figure_stage;
 pub mod fixed_assets;
-pub mod gpu_prepare;
 pub mod gpu_timing;
 pub mod humans;
 pub mod lamp_shadows;
@@ -95,8 +94,6 @@ pub mod surface_views;
 pub mod transparent;
 pub mod view_frame;
 pub mod view_gate;
-
-mod pipeline_ownership;
 
 pub mod primary_image;
 
