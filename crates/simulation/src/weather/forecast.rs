@@ -23,7 +23,8 @@ const PART_WEIGHTS: [[f32; KINDS]; 5] = [
 ];
 
 /// The time of day for the weights. The day has two halves.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum DayPart {
     Dawn,
     #[default]

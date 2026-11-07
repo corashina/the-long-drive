@@ -38,6 +38,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #weather-panel {position:absolute;z-index:5;left:12px;top:12px;width:224px;padding:10px 12px;background:#000d;color:#fff;font:12px/1.45 monospace;font-variant-numeric:tabular-nums;}
 #weather-panel select {margin-left:6px;font:inherit;}
 #weather-panel div {margin:6px 0 0;}
+#weather-panel label {display:block;margin:4px 0 0;}
 #weather-panel div select {margin:0 6px 0 0;}
 #weather-panel button {font:inherit;}
 #weather-map {display:block;width:200px;height:200px;margin:0 0 8px;}
