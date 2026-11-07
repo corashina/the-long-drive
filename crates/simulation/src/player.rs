@@ -1534,7 +1534,7 @@ impl PlayerState {
     }
 }
 
-fn yaw_from_rotation(rotation: Rotation) -> f32 {
+pub(crate) fn yaw_from_rotation(rotation: Rotation) -> f32 {
     let forward = rotation * -Vector::Z;
     forward.x.atan2(-forward.z).to_degrees()
 }
