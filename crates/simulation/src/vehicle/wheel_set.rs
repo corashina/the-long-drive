@@ -364,14 +364,58 @@ mod tests {
     /// Damping on the chassis velocity along body up made this pitch grow at 40 m/s.
     #[test]
     fn fast_car_stops_pitching() {
+        for speed in [40.0, 70.0] {
+            let run = pitch_run(speed, 0.0, false);
+            assert!(run.lowest > 0.4, "{speed} m/s: {}", run.lowest);
+            assert!(run.last.abs() < 0.01, "{speed} m/s: {}", run.last);
+        }
+    }
+
+    /// After rear drive torque and bumps at 70 m/s, the pitch must decay on flat ground.
+    #[test]
+    fn driven_car_on_bumps_stops_pitching() {
+        // 300 N m per rear wheel is about the torque that holds 70 m/s against drag.
+        for (motor_nm, bumps) in [(300.0, false), (300.0, true)] {
+            let run = pitch_run(70.0, motor_nm, bumps);
+            println!(
+                "bumps {bumps}: max |angvel.x| per 100 steps {:?}",
+                run.windows
+            );
+            assert!(run.lowest > 0.4, "bumps {bumps}: {}", run.lowest);
+            assert!(run.windows[3] < 0.05, "bumps {bumps}: {:?}", run.windows);
+        }
+    }
+
+    struct PitchRun {
+        lowest: f32,
+        last: f32,
+        /// Max |angvel.x| in each 100-step window.
+        windows: [f32; 4],
+    }
+
+    /// A 900 kg car starts at `speed` with a 0.5 rad/s pitch and runs 400 steps.
+    fn pitch_run(speed: f32, rear_motor_nm: f32, bumps: bool) -> PitchRun {
         use crate::vehicle::{PhysicsWorld, collider_profile};
         use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
+        let car = crate::vehicle::car_prototype_fixture();
+        let collider = &car.vehicle.as_ref().unwrap().wheels[0].collider;
         let mut physics = PhysicsWorld::empty(1, 2);
         physics.insert_collider(
             ColliderBuilder::cuboid(10.0, 0.1, 500.0).translation(Vector::new(0.0, -0.1, -490.0)),
         );
+        if bumps {
+            // 3 cm bumps every 5 m for the first 300 m, then flat ground.
+            for i in 1..60 {
+                physics.insert_collider(
+                    ColliderBuilder::cuboid(10.0, 0.015, 0.1).translation(Vector::new(
+                        0.0,
+                        0.015,
+                        -5.0 * i as f32,
+                    )),
+                );
+            }
+        }
         // The wheels roll forward along -z.
-        let speed = 40.0;
         let body = physics.insert_body(
             RigidBodyBuilder::dynamic()
                 .translation(Vector::new(0.0, 0.435, 0.0))
@@ -385,8 +429,6 @@ mod tests {
                 .build(),
             body,
         );
-        let car = crate::vehicle::car_prototype_fixture();
-        let collider = &car.vehicle.as_ref().unwrap().wheels[0].collider;
         let mounts: Vec<_> = [(-0.7, -1.2), (0.7, -1.2), (-0.7, 1.2), (0.7, 1.2)]
             .iter()
             .map(|&(x, z)| WheelMount {
@@ -399,14 +441,25 @@ mod tests {
         for wheel in &mut set.wheels {
             wheel.omega = speed / wheel.profile.radius;
         }
-        let mut lowest = f32::MAX;
-        for _ in 0..400 {
-            physics.step_wheel_set(&mut set, &[WheelTorques::default(); 4], &[0.0; 4]);
+        let rear = WheelTorques {
+            motor_nm: rear_motor_nm,
+            brake_nm: 0.0,
+        };
+        let torques = [WheelTorques::default(), WheelTorques::default(), rear, rear];
+        let mut run = PitchRun {
+            lowest: f32::MAX,
+            last: 0.0,
+            windows: [0.0; 4],
+        };
+        for step in 0..400 {
+            physics.step_wheel_set(&mut set, &torques, &[0.0; 4]);
             physics.step_physics();
-            lowest = lowest.min(physics.rapier().bodies[body].translation().y);
+            let body = &physics.rapier().bodies[body];
+            run.lowest = run.lowest.min(body.translation().y);
+            run.last = body.angvel().x;
+            let window = &mut run.windows[step / 100];
+            *window = window.max(run.last.abs());
         }
-        let body = &physics.rapier().bodies[body];
-        assert!(lowest > 0.4, "{lowest}");
-        assert!(body.angvel().x.abs() < 0.01, "{}", body.angvel().x);
+        run
     }
 }
