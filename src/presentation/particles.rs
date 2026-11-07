@@ -1,5 +1,6 @@
 //! Retained particle uniform buffers. The simulation frame carries the live particles.
 use super::lighting::SourceLighting;
+use super::quad_batches::{QuadBatchGpu, QuadBatchPlugin, QuadBatches, quad_batch};
 use super::sim_frame::{ParticleGroupKey, SimFrameResource};
 use crate::{
     app::RuntimeReference,
@@ -7,18 +8,15 @@ use crate::{
     reference::{ItemId, ParticleReference},
     weather::StormId,
 };
-use bevy::mesh::{Indices, MeshVertexBufferLayoutRef};
+use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::render::{
-    Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
-    render_asset::RenderAssets,
-    render_resource::*,
-    renderer::{RenderDevice, RenderQueue},
+    RenderApp, render_asset::RenderAssets, render_resource::*, renderer::RenderDevice,
     texture::GpuImage,
 };
 use bevy::shader::ShaderRef;
 use bevy::{
-    asset::{self as bevy_asset, RenderAssetUsages},
+    asset as bevy_asset,
     ecs::{
         self as bevy_ecs,
         system::{SystemParamItem, lifetimeless::SRes},
@@ -169,13 +167,12 @@ impl Material for ParticleMaterial {
         Ok(())
     }
 }
-#[derive(Resource, Default)]
-pub struct ParticleGpu {
-    buffers: Vec<UniformBuffer<ParticleUniform>>,
-}
 impl AsBindGroup for ParticleMaterial {
     type Data = ParticleKey;
-    type Param = (SRes<ParticleGpu>, SRes<RenderAssets<GpuImage>>);
+    type Param = (
+        SRes<QuadBatchGpu<ParticleUniform>>,
+        SRes<RenderAssets<GpuImage>>,
+    );
     fn label() -> &'static str {
         "source particles"
     }
@@ -192,9 +189,7 @@ impl AsBindGroup for ParticleMaterial {
         _: bool,
     ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
         let buffer =
-            p.0.buffers
-                .get(self.batch)
-                .and_then(|b| b.buffer())
+            p.0.buffer(self.batch)
                 .ok_or(AsBindGroupError::RetryNextUpdate)?;
         let image =
             p.1.get(self.texture.id())
@@ -325,7 +320,6 @@ struct Group {
     owner: Owner,
     source: usize,
     start: usize,
-    count: usize,
     order: Vec<usize>,
     entities: Vec<Entity>,
     /// Additive source particles fog toward black.
@@ -335,27 +329,31 @@ struct Group {
     tiling: Vec2,
     /// False for the retained slots of a removed storm.
     active: bool,
+    /// `gameObject.active` and `renderer.enabled`.
+    shown: bool,
+    /// `renderer.m_SortMode` 1: back to front.
+    sorted: bool,
+    /// Batches drawn in the last frame.
+    live: usize,
 }
 #[derive(Resource, Default)]
 pub(crate) struct ParticleRender {
     mesh: Option<Handle<Mesh>>,
     groups: Vec<Group>,
-    uniforms: Vec<ParticleUniform>,
 }
 impl ParticleRender {
     pub(crate) fn prepared(&self) -> bool {
         self.mesh.is_some()
     }
 }
-#[derive(Resource, Default)]
-pub(crate) struct ExtractedParticles {
-    pub(crate) uniforms: Vec<ParticleUniform>,
-}
 pub struct SourceParticlePlugin;
 impl Plugin for SourceParticlePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ParticleRender>()
-            .add_plugins(MaterialPlugin::<ParticleMaterial>::default())
+            .add_plugins((
+                MaterialPlugin::<ParticleMaterial>::default(),
+                QuadBatchPlugin::<ParticleUniform>::default(),
+            ))
             .add_systems(
                 PostUpdate,
                 sync_particles
@@ -363,65 +361,11 @@ impl Plugin for SourceParticlePlugin {
                     .after(super::lighting::sync_lighting)
                     .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
             );
-        app.sub_app_mut(RenderApp)
-            .init_resource::<ParticleGpu>()
-            .init_resource::<ExtractedParticles>()
-            .add_systems(ExtractSchedule, extract)
-            .add_systems(Render, upload.in_set(RenderSystems::PrepareResources));
         bevy::render::render_phase::AddRenderCommand::add_render_command::<
             bevy::core_pipeline::core_3d::Transparent3d,
             DrawSourceParticle,
         >(app.sub_app_mut(RenderApp));
     }
-}
-fn extract(state: Extract<Res<ParticleRender>>, mut extracted: ResMut<ExtractedParticles>) {
-    extracted
-        .uniforms
-        .resize(state.uniforms.len(), ParticleUniform::default());
-    extracted.uniforms.copy_from_slice(&state.uniforms);
-}
-fn upload(
-    extracted: Res<ExtractedParticles>,
-    mut gpu: ResMut<ParticleGpu>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
-) {
-    while gpu.buffers.len() < extracted.uniforms.len() {
-        gpu.buffers.push(UniformBuffer::default());
-    }
-    for (i, value) in extracted.uniforms.iter().enumerate() {
-        // Hidden empty batches need no upload after their initial buffer creation.
-        if value.settings.w == 0. && gpu.buffers[i].buffer().is_some() {
-            continue;
-        }
-        gpu.buffers[i].set(*value);
-        gpu.buffers[i].write_buffer(&device, &queue);
-    }
-}
-/// `count` unit quads. Vertex z is the instance index.
-pub(super) fn quad_batch(count: usize) -> Mesh {
-    let mut positions = Vec::with_capacity(count * 4);
-    let mut uv = Vec::with_capacity(count * 4);
-    let mut indices = Vec::with_capacity(count * 6);
-    for i in 0..count {
-        let z = i as f32;
-        positions.extend([
-            [-0.5, -0.5, z],
-            [0.5, -0.5, z],
-            [0.5, 0.5, z],
-            [-0.5, 0.5, z],
-        ]);
-        uv.extend([[0., 1.], [1., 1.], [1., 0.], [0., 0.]]);
-        let k = i as u32 * 4;
-        indices.extend([k, k + 1, k + 2, k, k + 2, k + 3]);
-    }
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::RENDER_WORLD,
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
-    .with_inserted_indices(Indices::U32(indices))
 }
 fn add_group(
     state: &mut ParticleRender,
@@ -431,6 +375,7 @@ fn add_group(
     lighting: &SourceLighting,
     commands: &mut Commands,
     materials: &mut Assets<ParticleMaterial>,
+    batches: &mut QuadBatches<ParticleUniform>,
 ) {
     // A removed storm's retained slots serve the next storm of the same system.
     if let Some(g) = state.groups.iter_mut().find(|g| {
@@ -442,7 +387,7 @@ fn add_group(
         g.active = true;
         return;
     }
-    let start = state.uniforms.len();
+    let start = batches.len();
     let count = (r.capacity as usize).div_ceil(BATCH);
     let m = &r.materials[0];
     // Without `_MainTex` (the gun tracers) Unity samples its white default texture.
@@ -507,7 +452,7 @@ fn add_group(
         .map_or_else(|| texture.clone(), |b| image(b.texture));
     let mut entities = Vec::with_capacity(count);
     for i in 0..count {
-        state.uniforms.push(uniform);
+        batches.push(uniform);
         let material = materials.add(ParticleMaterial {
             batch: start + i,
             texture: texture.clone(),
@@ -551,13 +496,15 @@ fn add_group(
         owner,
         source: index,
         start,
-        count,
         order: Vec::with_capacity(r.capacity as usize),
         entities,
         black_fog: shader.additive(),
         sheet,
         tiling,
         active: true,
+        shown: r.flags["gameObject.active"] && r.flags["renderer.enabled"],
+        sorted: r.scalars["renderer.m_SortMode"] == 1.,
+        live: 0,
     });
 }
 #[allow(clippy::too_many_arguments)]
@@ -569,6 +516,7 @@ fn sync_particles(
     mut state: ResMut<ParticleRender>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ParticleMaterial>>,
+    mut batches: ResMut<QuadBatches<ParticleUniform>>,
     mut visibility: Query<
         (&mut Visibility, &mut GlobalTransform),
         Without<super::camera::DriveCamera>,
@@ -595,6 +543,7 @@ fn sync_particles(
                 &lighting,
                 &mut commands,
                 &mut materials,
+                &mut batches,
             );
         }
         for (wash, w) in reference.0.conditions.washes.iter().enumerate() {
@@ -607,6 +556,7 @@ fn sync_particles(
                     &lighting,
                     &mut commands,
                     &mut materials,
+                    &mut batches,
                 );
             }
         }
@@ -620,6 +570,7 @@ fn sync_particles(
                     &lighting,
                     &mut commands,
                     &mut materials,
+                    &mut batches,
                 );
             }
         }
@@ -633,6 +584,7 @@ fn sync_particles(
                 &lighting,
                 &mut commands,
                 &mut materials,
+                &mut batches,
             );
         }
         for (tool, b) in reference.0.conditions.sprays.iter().enumerate() {
@@ -645,6 +597,7 @@ fn sync_particles(
                     &lighting,
                     &mut commands,
                     &mut materials,
+                    &mut batches,
                 );
             }
         }
@@ -657,6 +610,7 @@ fn sync_particles(
                 &lighting,
                 &mut commands,
                 &mut materials,
+                &mut batches,
             );
         }
         let tracer = &reference.0.guns.tracer;
@@ -669,6 +623,7 @@ fn sync_particles(
                 &lighting,
                 &mut commands,
                 &mut materials,
+                &mut batches,
             );
         }
         for (kind, t) in reference.0.explosions.types.iter().enumerate() {
@@ -680,6 +635,7 @@ fn sync_particles(
                 &lighting,
                 &mut commands,
                 &mut materials,
+                &mut batches,
             );
         }
         for (kind, p) in reference.0.survival.food_particles.iter().enumerate() {
@@ -691,6 +647,7 @@ fn sync_particles(
                 &lighting,
                 &mut commands,
                 &mut materials,
+                &mut batches,
             );
         }
         for (prototype, item) in reference.0.item_prototypes.iter().enumerate() {
@@ -703,6 +660,7 @@ fn sync_particles(
                     &lighting,
                     &mut commands,
                     &mut materials,
+                    &mut batches,
                 );
             }
         }
@@ -714,6 +672,7 @@ fn sync_particles(
             &lighting,
             &mut commands,
             &mut materials,
+            &mut batches,
         );
         add_group(
             &mut state,
@@ -723,6 +682,7 @@ fn sync_particles(
             &lighting,
             &mut commands,
             &mut materials,
+            &mut batches,
         );
         for (effect, e) in reference.0.small_items.wash_effects.iter().enumerate() {
             add_group(
@@ -733,6 +693,7 @@ fn sync_particles(
                 &lighting,
                 &mut commands,
                 &mut materials,
+                &mut batches,
             );
         }
     }
@@ -778,6 +739,7 @@ fn sync_particles(
             &lighting,
             &mut commands,
             &mut materials,
+            &mut batches,
         );
     }
     // Loot tools come and go. A gone tool frees its groups for the next copy of its prototype.
@@ -814,6 +776,7 @@ fn sync_particles(
             &lighting,
             &mut commands,
             &mut materials,
+            &mut batches,
         );
     }
     // Car copies come and go. A retired car frees its groups for the next copy of its prototype.
@@ -848,6 +811,7 @@ fn sync_particles(
             &lighting,
             &mut commands,
             &mut materials,
+            &mut batches,
         );
     }
     let storms = &reference.0.weather.particles;
@@ -867,6 +831,7 @@ fn sync_particles(
                 &lighting,
                 &mut commands,
                 &mut materials,
+                &mut batches,
             );
         }
     }
@@ -897,6 +862,7 @@ fn sync_particles(
             &lighting,
             &mut commands,
             &mut materials,
+            &mut batches,
         );
     }
     let Ok(camera) = camera.single() else {
@@ -907,75 +873,54 @@ fn sync_particles(
     let fog = linear(cycle.fog_color);
     let state = &mut *state;
     for g in &mut state.groups {
-        let p = match g.owner {
-            Owner::Spray(tool) => &reference.0.conditions.sprays[tool].tool.particles[g.source],
-            Owner::Brush(tool) => &reference.0.conditions.brushes[tool].tool.particles[g.source],
-            Owner::Wash(wash) => &reference.0.conditions.washes[wash].particles[g.source],
-            Owner::SprayBottle(0) => &reference.0.small_items.spray_bottle.spray,
-            Owner::SprayBottle(_) => &reference.0.small_items.spray_bottle.splash,
-            Owner::Car {
-                system, prototype, ..
-            } => car_particle(&reference.0, system, prototype, g.source),
-            Owner::Storm(_) => &storms[g.source],
-            Owner::Melee => &reference.0.melee.particles[g.source],
-            Owner::Tracer if g.source == 0 => &reference.0.guns.tracer.start,
-            Owner::Tracer => &reference.0.guns.tracer.end,
-            Owner::Explosion => &reference.0.explosions.types[g.source].particle,
-            Owner::Food => &reference.0.survival.food_particles[g.source],
-            Owner::Sky(_) => reference.0.sky.prefabs[g.source]
-                .contrail
-                .as_ref()
-                .expect("sky contrail group"),
-            Owner::Urine | Owner::Outlet(_) => &references[g.source],
-            Owner::Ember(_) => ember.expect("ember group has its record"),
-            Owner::LootTool { tool, .. } => loot_tool_particle(&reference.0, tool, g.source),
-            Owner::Exhale => &reference.0.small_items.exhale.particle,
-            Owner::HeatHaze => &reference.0.small_items.heat_haze,
-            Owner::Cobweb(effect) => &reference.0.small_items.wash_effects[effect].particle,
-            Owner::Gib(prototype) => {
-                &reference.0.item_prototypes[prototype]
-                    .behavior
-                    .gib_particles[g.source]
-            }
-        };
         let (fluid, particles) = sim
             .particle_group(key(g.owner, g.source))
             .map_or((false, &[][..]), |(row, rows)| (row.fluid != 0, rows));
-        let count = if !g.active || !p.flags["gameObject.active"] || !p.flags["renderer.enabled"] {
-            0
-        } else {
+        let count = if g.active && g.shown {
             particles.len()
+        } else {
+            0
         };
+        let live = count.div_ceil(BATCH);
+        if live == 0 && g.live == 0 {
+            continue;
+        }
         g.order.clear();
         g.order.extend(0..count);
         let position = |i: usize| Vec3::from_array(particles[i].position);
-        if p.scalars["renderer.m_SortMode"] == 1. {
+        if g.sorted {
             g.order.sort_unstable_by(|a, b| {
                 position(*b)
                     .distance_squared(eye)
                     .total_cmp(&position(*a).distance_squared(eye))
             });
         }
-        for batch in 0..g.count {
-            let u = &mut state.uniforms[g.start + batch];
-            u.fog = if g.black_fog {
-                Vec4::new(0., 0., 0., cycle.fog_density)
-            } else {
-                Vec4::new(fog[0], fog[1], fog[2], cycle.fog_density)
-            };
+        let fog = if g.black_fog {
+            Vec4::new(0., 0., 0., cycle.fog_density)
+        } else {
+            Vec4::new(fog[0], fog[1], fog[2], cycle.fog_density)
+        };
+        // Batches drawn last frame and not now become hidden. Hidden batches keep their old buffer.
+        for batch in 0..live.max(g.live) {
             let n = count.saturating_sub(batch * BATCH).min(BATCH);
-            u.settings.w = n as f32;
             if let Ok((mut v, mut transform)) = visibility.get_mut(g.entities[batch]) {
                 if n > 0 {
-                    *transform =
-                        GlobalTransform::from_translation(position(g.order[batch * BATCH + n / 2]));
+                    transform.set_if_neq(GlobalTransform::from_translation(position(
+                        g.order[batch * BATCH + n / 2],
+                    )));
                 }
-                *v = if n == 0 {
+                v.set_if_neq(if n == 0 {
                     Visibility::Hidden
                 } else {
                     Visibility::Visible
-                };
+                });
             }
+            if n == 0 {
+                continue;
+            }
+            let u = batches.mark(g.start + batch);
+            u.fog = fog;
+            u.settings.w = n as f32;
             for j in 0..n {
                 let index = g.order[batch * BATCH + j];
                 let row = &particles[index];
@@ -992,6 +937,7 @@ fn sync_particles(
                 u.angles[j] = Vec4::new(row.rotation.cos(), row.rotation.sin(), tile.x, tile.y);
             }
         }
+        g.live = live;
     }
 }
 

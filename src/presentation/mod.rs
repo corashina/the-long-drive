@@ -65,6 +65,7 @@ pub mod lighting_assets;
 pub mod lighting_scene;
 pub mod object_lighting;
 pub mod particles;
+pub mod quad_batches;
 pub mod plates;
 pub mod postprocessing;
 pub mod probes;
