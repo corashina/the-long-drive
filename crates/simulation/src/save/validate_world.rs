@@ -60,15 +60,14 @@ impl SaveSnapshot {
         };
         let object = |key: &ObjectKey| -> Result<(), SaveError> {
             match key {
-                ObjectKey::Imported(id) => links(
-                    reference.items.iter().any(|i| i.id == *id),
-                    "Unknown imported world item",
-                ),
+                ObjectKey::Imported(id) => {
+                    links(reference.item(*id).is_some(), "Unknown imported world item")
+                }
                 ObjectKey::Generated(id) => generated(id),
             }
         };
         let exists = |key: &ObjectKey| match key {
-            ObjectKey::Imported(id) => reference.items.iter().any(|i| i.id == *id),
+            ObjectKey::Imported(id) => reference.item(*id).is_some(),
             ObjectKey::Generated(_) => self
                 .world
                 .changes

@@ -262,7 +262,7 @@ impl SkyReference {
                 && self.chances.iter().sum::<f32>() > 0.,
             "sky chances",
         )?;
-        let node = |id: NodeId| m.nodes.iter().find(|n| n.id == id);
+        let node = |id: NodeId| m.node(id);
         for p in &self.prefabs {
             require(
                 m.assets.iter().any(|a| {

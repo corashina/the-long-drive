@@ -767,8 +767,7 @@ impl WorldStream {
         );
         let terrain_transform = world
             .records
-            .iter()
-            .find(|record| record.source == world.terrain.prefabs[0])
+            .get(&world.terrain.prefabs[0])
             .ok_or_else(|| ReferenceError("Missing terrain prefab Transform".into()))?;
         let Some(crate::reference::WorldValue::Link(owner)) =
             terrain_transform.fields.get("m_GameObject")
@@ -777,8 +776,7 @@ impl WorldStream {
         };
         let object = world
             .records
-            .iter()
-            .find(|record| &record.source == owner)
+            .get(owner)
             .ok_or_else(|| ReferenceError("Missing terrain prefab GameObject".into()))?;
         let Some(crate::reference::WorldValue::Integer(terrain_layer)) =
             object.fields.get("m_Layer")
@@ -4744,8 +4742,7 @@ impl WorldStream {
             let cap_record = self
                 .reference
                 .records
-                .iter()
-                .find(|record| record.source == supply.definition.cap)
+                .get(&supply.definition.cap)
                 .ok_or_else(|| ReferenceError("Missing source cap owner".into()))?;
             let Some(crate::reference::WorldValue::Link(owner)) =
                 cap_record.fields.get("m_GameObject")
@@ -4756,8 +4753,7 @@ impl WorldStream {
                 let record = self
                     .reference
                     .records
-                    .iter()
-                    .find(|record| &record.source == source)
+                    .get(source)
                     .ok_or_else(|| ReferenceError("Missing source collider owner".into()))?;
                 if matches!(record.fields.get("m_GameObject"), Some(crate::reference::WorldValue::Link(value)) if value == owner)
                 {

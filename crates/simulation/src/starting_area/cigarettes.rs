@@ -120,9 +120,7 @@ impl CigaretteRuntime {
         };
         let node = |id: NodeId| {
             reference
-                .nodes
-                .iter()
-                .find(|n| n.id == id)
+                .node(id)
                 .ok_or_else(|| ReferenceError(format!("Missing node {}", id.0)))
         };
         let ash = if consumable.has_particle {

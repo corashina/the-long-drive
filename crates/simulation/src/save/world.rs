@@ -372,11 +372,7 @@ impl PersistentWorld {
                     continue;
                 }
                 if let Key::Source(id) = record.key {
-                    let source = reference
-                        .bodies
-                        .iter()
-                        .find(|body| body.id == id)
-                        .expect("source body identity");
+                    let source = reference.body(id).expect("source body identity");
                     if source.parent_body.is_none() {
                         record.state = Some(BodyState {
                             pose: AbsolutePose {

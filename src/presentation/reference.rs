@@ -129,13 +129,18 @@ pub(crate) fn bind(
     if visuals.instances != visuals.expected_instances {
         return Ok(false);
     }
+    let nodes: std::collections::HashMap<_, _> = reference
+        .nodes
+        .iter()
+        .map(|node| (&node.source, node))
+        .collect();
     for (entity, extra) in extras {
         let identity: NodeReference = serde_json::from_str(&extra.value)
             .map_err(|error| format!("Invalid glTF extras: {error}"))?;
         let Some(source) = identity.reference_id else {
             continue;
         };
-        let Some(node) = reference.nodes.iter().find(|node| node.source == source) else {
+        let Some(&node) = nodes.get(&source) else {
             return Err(format!(
                 "Unknown glTF node {}:{}",
                 source.file, source.path_id
@@ -172,7 +177,7 @@ pub(crate) fn bind(
     }
     for item in &reference.items {
         if !matches!(item.kind, ItemKind::Wheel | ItemKind::Rim | ItemKind::Tire)
-            && !reference.parts.iter().any(|part| part.item == item.id)
+            && reference.item_part(item.id).is_none()
             && !reference
                 .flashlights
                 .instances
@@ -184,11 +189,7 @@ pub(crate) fn bind(
         let mut scale = Vec3::ONE;
         let mut current = Some(item.node);
         while let Some(id) = current {
-            let node = reference
-                .nodes
-                .iter()
-                .find(|node| node.id == id)
-                .expect("validated node");
+            let node = reference.node(id).expect("validated node");
             scale *= Vec3::from_array(node.transform.scale);
             current = node.parent;
         }
@@ -240,11 +241,7 @@ pub(crate) fn bind(
             });
         }
         if let Some(id) = links.cap_node {
-            let node = reference
-                .nodes
-                .iter()
-                .find(|node| node.id == id)
-                .expect("cap node");
+            let node = reference.node(id).expect("cap node");
             let convert = |source: &crate::reference::Transform| {
                 Transform::from_translation(Vec3::from_array(source.translation))
                     .with_rotation(Quat::from_array(source.rotation))
@@ -252,29 +249,11 @@ pub(crate) fn bind(
             };
             let closed = links
                 .closed_node
-                .map(|id| {
-                    convert(
-                        &reference
-                            .nodes
-                            .iter()
-                            .find(|node| node.id == id)
-                            .expect("closed marker")
-                            .transform,
-                    )
-                })
+                .map(|id| convert(&reference.node(id).expect("closed marker").transform))
                 .unwrap_or_else(|| convert(&node.transform));
             let opened = links
                 .open_node
-                .map(|id| {
-                    convert(
-                        &reference
-                            .nodes
-                            .iter()
-                            .find(|node| node.id == id)
-                            .expect("open marker")
-                            .transform,
-                    )
-                })
+                .map(|id| convert(&reference.node(id).expect("open marker").transform))
                 .unwrap_or(closed);
             commands.entity(visuals.nodes[&id]).insert(CapVisual {
                 opening: opening.id,
@@ -481,11 +460,7 @@ pub(crate) fn sync_home_cable(
         *visibility = Visibility::Hidden;
     }
     for aim in aims {
-        let node = reference
-            .nodes
-            .iter()
-            .find(|n| n.id == aim.node)
-            .expect("validated home rope");
+        let node = reference.node(aim.node).expect("validated home rope");
         let [x, y, _] = node.transform.scale;
         if let Ok((mut transform, _)) = nodes.get_mut(visuals.nodes[&aim.node]) {
             transform.rotation = Quat::from_array(aim.rotation);
@@ -498,7 +473,7 @@ pub(crate) fn sync_home_cable(
                 *visibility = Visibility::Inherited;
             }
             current = (id != cable.root)
-                .then(|| reference.nodes.iter().find(|n| n.id == id)?.parent)
+                .then(|| reference.node(id)?.parent)
                 .flatten();
         }
     }

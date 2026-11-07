@@ -202,16 +202,12 @@ impl PartAttachments {
                 if let Some(p) = r.parts.iter().position(|p| p.node == node) {
                     return Some(p);
                 }
-                node = r.nodes.iter().find(|n| n.id == node)?.parent?;
+                node = r.node(node)?.parent?;
             }
         };
         let mut parts = Vec::new();
         for (i, p) in r.parts.iter().enumerate() {
-            let item = r
-                .items
-                .iter()
-                .find(|x| x.id == p.item)
-                .ok_or_else(|| error("Missing part item"))?;
+            let item = r.item(p.item).ok_or_else(|| error("Missing part item"))?;
             let members: Vec<_> = r
                 .items
                 .iter()
@@ -260,9 +256,7 @@ impl PartAttachments {
         let mut collider_slots = HashMap::new();
         for s in &r.part_slots {
             let anchor = |id| {
-                r.anchors
-                    .iter()
-                    .find(|a| a.id == id)
+                r.anchor(id)
                     .map(|a| a.node)
                     .ok_or_else(|| error("Missing part anchor"))
             };

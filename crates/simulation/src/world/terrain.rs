@@ -41,8 +41,7 @@ fn grid_tile(
         .ok_or_else(|| ReferenceError(format!("Terrain tier {tier}")))?;
     let settings = reference
         .records
-        .iter()
-        .find(|r| r.source == reference.terrain.source)
+        .get(&reference.terrain.source)
         .ok_or_else(|| ReferenceError("Missing TerrainGenerationSettings".into()))?;
     let number = |field: &str| -> Result<f32, ReferenceError> {
         match settings.fields.get(field) {

@@ -299,7 +299,7 @@ impl CleaningTools {
                 default: n.model_default.map(pose).transpose()?,
             })
         };
-        let item_node = |item: ItemId| reference.items.iter().find(|i| i.id == item).unwrap().node;
+        let item_node = |item: ItemId| reference.item(item).unwrap().node;
         let player = new_contact(
             &c.player_brush.tool,
             poses(&c.player_brush.nodes, reference.clothing.pose.root)?,
@@ -864,9 +864,8 @@ impl CleaningTools {
                         .iter()
                         .find(|i| {
                             i.location == ItemLocation::Attached(rim)
-                                && reference.items.iter().any(|p| {
-                                    p.id == i.id
-                                        && matches!(p.kind, crate::reference::ItemKind::Tire)
+                                && reference.item(i.id).is_some_and(|p| {
+                                    matches!(p.kind, crate::reference::ItemKind::Tire)
                                 })
                         })
                         .map(|i| i.id)
@@ -903,9 +902,8 @@ impl CleaningTools {
                         .iter()
                         .find(|i| {
                             i.location == ItemLocation::Attached(rim)
-                                && reference.items.iter().any(|p| {
-                                    p.id == i.id
-                                        && matches!(p.kind, crate::reference::ItemKind::Tire)
+                                && reference.item(i.id).is_some_and(|p| {
+                                    matches!(p.kind, crate::reference::ItemKind::Tire)
                                 })
                         })
                         .and_then(|i| self.item_conditions.get(&i.id).copied());

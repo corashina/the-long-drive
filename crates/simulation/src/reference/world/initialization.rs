@@ -3,9 +3,7 @@ use super::*;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldInitialization {
-    #[serde(deserialize_with = "compact_vec")]
     pub nodes: Vec<WorldInitNode>,
-    #[serde(deserialize_with = "compact_vec")]
     pub components: Vec<WorldInitComponent>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -14,9 +12,7 @@ pub struct WorldInitNode {
     pub source: SourceId,
     pub owner: SourceId,
     pub parent: Option<SourceId>,
-    #[serde(deserialize_with = "compact_vec")]
     pub children: Vec<SourceId>,
-    #[serde(deserialize_with = "compact_vec")]
     pub components: Vec<SourceId>,
     pub active: bool,
     pub pose: Transform,
@@ -28,7 +24,6 @@ pub struct WorldInitComponent {
     pub owner: SourceId,
     pub class_name: String,
     pub execution_order: i32,
-    #[serde(deserialize_with = "compact_vec")]
     pub fields: Vec<WorldInitField>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]

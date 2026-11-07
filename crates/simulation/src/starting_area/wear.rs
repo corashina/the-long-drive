@@ -42,11 +42,7 @@ impl LensRule {
         let mut path = Vec::new();
         let mut id = lens.node;
         while id != root {
-            let node = reference
-                .nodes
-                .iter()
-                .find(|n| n.id == id)
-                .ok_or_else(missing)?;
+            let node = reference.node(id).ok_or_else(missing)?;
             if path.len() > reference.nodes.len() {
                 return Err(missing());
             }

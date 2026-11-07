@@ -60,10 +60,9 @@ impl FlashlightRecord {
                     && !model.lights.is_empty(),
                 "flashlight model binding",
             )?;
-            let item = manifest.items.iter().find(|item| item.id == instance.item);
-            let node = manifest.nodes.iter().find(|node| node.id == instance.node);
-            let body =
-                item.and_then(|item| manifest.bodies.iter().find(|body| body.id == item.body));
+            let item = manifest.item(instance.item);
+            let node = manifest.node(instance.node);
+            let body = item.and_then(|item| manifest.body(item.body));
             let control = manifest
                 .lighting
                 .controllers

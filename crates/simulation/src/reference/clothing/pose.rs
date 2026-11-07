@@ -59,9 +59,7 @@ pub struct PlayerPoseReference {
     pub evidence: ManagedEvidence,
 }
 fn node(m: &ReferenceManifest, id: NodeId) -> Result<&NodeRecord, ReferenceError> {
-    m.nodes
-        .iter()
-        .find(|n| n.id == id)
+    m.node(id)
         .ok_or_else(|| ReferenceError("missing player node".into()))
 }
 pub(super) fn same_pose(a: &Transform, b: &Transform) -> bool {

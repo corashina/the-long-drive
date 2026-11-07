@@ -12,7 +12,7 @@ use rapier3d::prelude::ColliderHandle;
 
 /// An imported item on the body of a portable tank. An exploded tank removes it.
 pub fn explosive_imported(reference: &ReferenceManifest, item: ItemId) -> bool {
-    let body = |id: ItemId| reference.items.iter().find(|i| i.id == id).map(|i| i.body);
+    let body = |id: ItemId| reference.item(id).map(|i| i.body);
     let Some(own) = body(item) else {
         return false;
     };

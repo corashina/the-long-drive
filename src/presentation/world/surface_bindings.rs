@@ -208,15 +208,13 @@ fn terrain_renderer(
 ) -> Result<(u8, crate::reference::render_lighting::RendererRecord), ReferenceError> {
     let records = &reference.world.records;
     let transform = records
-        .iter()
-        .find(|r| r.source == reference.world.terrain.prefabs[tier])
+        .get(&reference.world.terrain.prefabs[tier])
         .ok_or_else(|| ReferenceError("Missing terrain transform".into()))?;
     let Some(WorldValue::Link(owner)) = transform.fields.get("m_GameObject") else {
         return Err(ReferenceError("Missing terrain owner".into()));
     };
     let object = records
-        .iter()
-        .find(|r| r.source == *owner)
+        .get(owner)
         .ok_or_else(|| ReferenceError("Missing terrain GameObject".into()))?;
     let layer = match object.fields.get("m_Layer") {
         Some(WorldValue::Integer(layer)) => *layer as u8,

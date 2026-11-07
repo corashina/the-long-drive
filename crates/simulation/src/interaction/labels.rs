@@ -57,7 +57,7 @@ pub fn display_name<'a>(
     if let Some(name) = items.name(id).and_then(vehicle_name) {
         return name;
     }
-    let Some(item) = reference.items.iter().find(|item| item.id == id) else {
+    let Some(item) = reference.item(id) else {
         return items.name(id).unwrap_or("");
     };
     if let Some(tool) = reference.conditions.brushes.iter().find(|b| b.item == id) {
@@ -72,7 +72,7 @@ pub fn display_name<'a>(
     }
     let label = match item.name.as_str() {
         "GarageDoorRightCollider" | "GarageDoorLeftCollider"
-            if reference.mechanisms.iter().any(|m| m.item == id) =>
+            if reference.item_mechanism(id).is_some() =>
         {
             Some("Garage door")
         }
@@ -86,7 +86,7 @@ pub fn display_name<'a>(
     if let Some(label) = label {
         return label;
     }
-    if let Some(mechanism) = reference.mechanisms.iter().find(|m| m.item == id)
+    if let Some(mechanism) = reference.item_mechanism(id)
         && mechanism.turn.is_none()
         && let Some(parent) = mechanism.parent_item
     {
@@ -115,7 +115,7 @@ pub fn display_name<'a>(
             "Container cap"
         }
         ItemKind::Container => {
-            if let Some(tank) = reference.tanks.iter().find(|tank| tank.item == id) {
+            if let Some(tank) = reference.item_tank(id) {
                 if tank
                     .fluids
                     .iter()

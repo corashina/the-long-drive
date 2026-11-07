@@ -153,12 +153,7 @@ pub fn active_part(
         if let Some(index) = parts.iter().position(|group| group.contains(&node)) {
             return index == bite as usize;
         }
-        let Some(parent) = reference
-            .nodes
-            .iter()
-            .find(|entry| entry.id == node)
-            .and_then(|entry| entry.parent)
-        else {
+        let Some(parent) = reference.node(node).and_then(|entry| entry.parent) else {
             return true;
         };
         node = parent;
@@ -180,12 +175,7 @@ pub fn look_shown(
         if let Some(index) = variants.iter().position(|v| *v == node) {
             return index == usize::from(look.variant);
         }
-        let Some(parent) = reference
-            .nodes
-            .iter()
-            .find(|entry| entry.id == node)
-            .and_then(|entry| entry.parent)
-        else {
+        let Some(parent) = reference.node(node).and_then(|entry| entry.parent) else {
             return true;
         };
         node = parent;

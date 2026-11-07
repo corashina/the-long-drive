@@ -292,7 +292,7 @@ impl AudioReference {
         for e in &self.emitters {
             require(
                 game.nodes.iter().any(|n| n.id == e.node)
-                    && e.item.is_none_or(|i| game.items.iter().any(|v| v.id == i)),
+                    && e.item.is_none_or(|i| game.item(i).is_some()),
                 "audio emitter owner",
             )?;
         }

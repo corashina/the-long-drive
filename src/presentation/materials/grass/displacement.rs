@@ -38,13 +38,11 @@ impl GrassCamera {
         let input = &reference.grass_displacement;
         let camera = reference
             .records
-            .iter()
-            .find(|r| r.source == input.camera)
+            .get(&input.camera)
             .ok_or_else(|| ReferenceError("Missing Grass camera record".into()))?;
         let target = reference
             .records
-            .iter()
-            .find(|r| r.source == input.target)
+            .get(&input.target)
             .ok_or_else(|| ReferenceError("Missing Grass target record".into()))?;
         let number = |record: &crate::reference::WorldSourceRecord, name: &str| match record
             .fields

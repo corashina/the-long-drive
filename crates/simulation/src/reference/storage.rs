@@ -98,9 +98,10 @@ impl StorageRecord {
                         })
                     })
                     && volume.slots.iter().all(|slot| {
-                        world.records.iter().any(|record| {
-                            record.source == *slot && record.class_name == "partslotscript"
-                        })
+                        world
+                            .records
+                            .get(slot)
+                            .is_some_and(|record| record.class_name == "partslotscript")
                     })
                     && finite(&volume.center)
                     && positive(&volume.half_extents)
@@ -121,7 +122,7 @@ impl StorageRecord {
         for flag in &self.flags {
             require(
                 (flag.dont_mount || flag.dont_mount_till_pickup)
-                    && manifest.items.iter().any(|item| item.id == flag.item),
+                    && manifest.item(flag.item).is_some(),
                 "storage flag item",
             )?;
         }

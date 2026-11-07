@@ -38,11 +38,7 @@ impl GarageRuntime {
         let pose = |node| body_node_transform(reference, &self.area, &self.physics, node);
         let mut aims = Vec::with_capacity(cable.ropes.len());
         for &rope in &cable.ropes {
-            let node = reference
-                .nodes
-                .iter()
-                .find(|n| n.id == rope)
-                .expect("validated home rope");
+            let node = reference.node(rope).expect("validated home rope");
             let parent = node.parent.expect("home rope below its root");
             let (Some(parent_world), Some(rope_world)) = (pose(parent), pose(rope)) else {
                 continue;
@@ -78,23 +74,21 @@ fn body_node_transform(
         )
     };
     let mut below = Affine3A::IDENTITY;
-    let mut current = reference.nodes.iter().find(|n| n.id == node)?;
+    let mut current = reference.node(node)?;
     let body = loop {
         if let Some(body) = reference.bodies.iter().find(|b| b.node == current.id) {
             break body;
         }
         below = local(&current.transform) * below;
         let parent = current.parent?;
-        current = reference.nodes.iter().find(|n| n.id == parent)?;
+        current = reference.node(parent)?;
     };
     // BodyVisual: the physics pose with the scale of the body node chain.
     let mut scale = Vec3::ONE;
     let mut scaled = Some(current);
     while let Some(n) = scaled {
         scale *= Vec3::from_array(n.transform.scale);
-        scaled = n
-            .parent
-            .and_then(|p| reference.nodes.iter().find(|n| n.id == p));
+        scaled = n.parent.and_then(|p| reference.node(p));
     }
     let pose = physics.rapier().bodies[*area.bodies.get(&body.id)?].position();
     let world = Affine3A::from_scale_rotation_translation(

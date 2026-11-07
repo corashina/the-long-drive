@@ -661,9 +661,9 @@ pub fn selected_material<'a>(
                 || a.color_material.is_some())
     });
     let selected = appearance.and_then(|a| a.material.as_ref()).or_else(|| stream.prop_material(placement).filter(|(renderer,_)| {
-                                        let owner = reference.world.records.iter().find(|r| &r.source == *renderer)
+                                        let owner = reference.world.records.get(*renderer)
                                             .and_then(|r| r.fields.get("m_GameObject"));
-                                        let node_owner = reference.world.records.iter().find(|r| r.source == *node)
+                                        let node_owner = reference.world.records.get(node)
                                             .and_then(|r| r.fields.get("m_GameObject"));
                                         matches!((owner,node_owner), (Some(crate::reference::WorldValue::Link(a)),Some(crate::reference::WorldValue::Link(b))) if a == b)
                                     }).map(|(_,material)| material));

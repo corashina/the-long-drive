@@ -414,11 +414,7 @@ pub fn validate_prototypes(m: &ReferenceManifest) -> Result<(), ReferenceError> 
 impl ItemPrototype {
     pub(super) fn within(&self, m: &ReferenceManifest, mut node: NodeId) -> bool {
         for _ in 0..=m.nodes.len() {
-            let Some(n) = m
-                .nodes
-                .iter()
-                .find(|n| n.id == node && n.asset == self.asset)
-            else {
+            let Some(n) = m.node(node).filter(|n| n.asset == self.asset) else {
                 return false;
             };
             if node == self.root {
@@ -440,7 +436,7 @@ impl ItemPrototype {
             if let Some(b) = self.bodies.iter().find(|b| b.node == current) {
                 return Some(b.id);
             }
-            node = m.nodes.iter().find(|n| n.id == current)?.parent;
+            node = m.node(current)?.parent;
         }
         None
     }
@@ -601,11 +597,7 @@ impl ItemPrototype {
             "complete prototype physics",
         )?;
         for b in &self.bodies {
-            let parent = m
-                .nodes
-                .iter()
-                .find(|n| n.id == b.node)
-                .and_then(|n| n.parent);
+            let parent = m.node(b.node).and_then(|n| n.parent);
             require(
                 self.within(m, b.node)
                     && checked(&b.source, b.source.path_id)

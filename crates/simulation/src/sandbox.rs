@@ -643,11 +643,7 @@ fn loaded_world_item(
 }
 
 fn root_name(reference: &ReferenceManifest, root: crate::reference::NodeId) -> &str {
-    reference
-        .nodes
-        .iter()
-        .find(|n| n.id == root)
-        .map_or("", |n| n.name.as_str())
+    reference.node(root).map_or("", |n| n.name.as_str())
 }
 
 /// The sorted root names of item prototypes.
