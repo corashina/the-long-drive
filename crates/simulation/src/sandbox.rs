@@ -58,7 +58,7 @@ enum Action {
     Storm { distance: f32 },
     /// Sets the source day cycle seconds.
     Cycle { seconds: f64 },
-    /// Locks the weather: one 20 km cell of `kind` at the player and no spawns. `null` removes it.
+    /// Locks the weather: one 20 km cell of `kind` at the player and no spawns. `null` keeps the kind until the next forecast change.
     Weather {
         kind: Option<crate::weather::WeatherKind>,
     },

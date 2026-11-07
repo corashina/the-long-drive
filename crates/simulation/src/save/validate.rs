@@ -970,8 +970,13 @@ fn validate_weather(
         saved.cells.len() <= crate::weather::MAX_CELLS
             && saved.cells.iter().all(|c| c.valid())
             && (!saved.locked || saved.cells.len() == 1)
+            && saved.cells.iter().filter(|c| c.aimed).count() <= 1
             && unit(saved.wetness),
         "Weather cells",
+    )?;
+    data(
+        crate::weather::Forecast::valid_wait(saved.forecast.wait),
+        "Weather forecast",
     )?;
     data(
         crate::weather::Wind::valid(saved.wind.dir, saved.wind.speed),
