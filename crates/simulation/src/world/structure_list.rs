@@ -1,5 +1,5 @@
 //! Published structure instances with an id index.
-use crate::world::{GeneratedId, StructureInstance, id_index::IdIndex};
+use crate::world::{GeneratedId, StructureInstance, WorldLight, id_index::IdIndex};
 
 #[derive(Default)]
 pub struct StructureList {
@@ -11,6 +11,19 @@ impl StructureList {
         self.index
             .position(&self.list, |s| &s.placement.id, id)
             .is_some()
+    }
+    /// True if a published structure owns `light`.
+    pub fn owns(&self, light: &WorldLight) -> bool {
+        light.owner_seed().is_some_and(|seed| {
+            self.index
+                .position_by(
+                    &self.list,
+                    |s| &s.placement.id,
+                    seed,
+                    |id| light.owned_by(id),
+                )
+                .is_some()
+        })
     }
     pub fn push(&mut self, instance: StructureInstance) {
         self.index.push(&instance.placement.id, self.list.len());

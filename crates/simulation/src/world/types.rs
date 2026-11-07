@@ -114,6 +114,11 @@ impl GeneratedId {
         mix(&mut hash, &ordinal.to_le_bytes());
         hash
     }
+    /// The seed of this key without its last child. None: the key has no children.
+    pub fn parent_seed(&self) -> Option<u64> {
+        let children = self.0.key.children.len().checked_sub(1)?;
+        Some(self.0.key.prefix_seed(children))
+    }
     /// This id with one more child: `source` with ordinal `ordinal`.
     pub fn with_child(&self, source: &SourceId, ordinal: u32) -> Self {
         let mut key = self.0.key.clone();
@@ -123,13 +128,17 @@ impl GeneratedId {
 }
 impl GeneratedKey {
     fn seed(&self) -> u64 {
+        self.prefix_seed(self.children.len())
+    }
+    /// The seed of this key with only its first `children` children.
+    fn prefix_seed(&self, children: usize) -> u64 {
         let mut hash = FNV_OFFSET;
         mix(&mut hash, &[self.layer as u8]);
         mix_source(&mut hash, &self.generator);
         mix(&mut hash, &self.unit[0].to_le_bytes());
         mix(&mut hash, &self.unit[1].to_le_bytes());
         mix(&mut hash, &self.ordinal.to_le_bytes());
-        for (child, ordinal) in &self.children {
+        for (child, ordinal) in &self.children[..children] {
             mix_source(&mut hash, child);
             mix(&mut hash, &ordinal.to_le_bytes());
         }
@@ -268,6 +277,8 @@ mod tests {
         let child = a.with_child(&source, 1);
         assert_eq!(child, GeneratedId::from(nested));
         assert_eq!(child.seed(), a.child_seed(&source, 1));
+        assert_eq!(child.parent_seed(), Some(a.seed()));
+        assert_eq!(a.parent_seed(), None);
         let json = serde_json::to_string(&child).unwrap();
         assert_eq!(serde_json::from_str::<GeneratedId>(&json).unwrap(), child);
     }

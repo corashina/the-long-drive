@@ -241,7 +241,13 @@ impl LodOwner for Instance {
 #[derive(Resource, Default)]
 pub struct SourceInstances {
     instances: Vec<Instance>,
+    /// Placement ids of `instances` at `indexed_revision`.
+    instance_index: crate::world::IdIndex,
+    indexed_revision: u64,
     pending: Option<Placement>,
+    /// Inputs of the last pick that found nothing: structure membership, pick revision and
+    /// instance revision. Equal inputs find nothing again.
+    empty_pick: Option<((u64, u64, u64), u64, u64)>,
     /// Where the pending owner waits, and since which frame. Only the startup audit reads it.
     owner_stage: (&'static str, u64),
     prepare_calls: u64,
@@ -498,9 +504,9 @@ impl SourceInstances {
         let required_ready = stream.required_ready();
         for index in 0..stream.pending_structures().len() {
             let placement = &stream.pending_structures()[index];
-            if !stream.structure_required(&placement.id)
+            if !required_ready
+                && !stream.structure_required(&placement.id)
                 && !stream.structure_replay_required(&placement.id)
-                && !required_ready
             {
                 continue;
             }
@@ -537,33 +543,46 @@ impl SourceInstances {
         let required_ready = stream.required_ready();
         // Descriptors are requested only for these placements. See `request_descriptors`.
         let selectable = |p: &crate::world::Placement| {
-            stream.contents_initialized(&p.id)
-                && (stream.structure_required(&p.id)
-                    || stream.structure_replay_required(&p.id)
-                    || required_ready)
+            (required_ready
+                || stream.structure_required(&p.id)
+                || stream.structure_replay_required(&p.id))
+                && stream.contents_initialized(&p.id)
         };
         // A new required structure clears required_ready. A pick that is not selectable then
         // never gets its descriptor and would block the required structure.
         if self.pending.as_ref().is_some_and(|p| {
-            !selectable(p)
-                || !stream
-                    .pending_structures()
-                    .iter()
-                    .any(|wanted| wanted.id == p.id)
+            !selectable(p) || !stream.structure_wanted(stream.frame().request, &p.id)
         }) {
             self.pending = None;
         }
-        if self.pending.is_none() {
+        let pick_key = (
+            stream.structure_membership(),
+            stream.pick_revision(),
+            self.revision,
+        );
+        if self.pending.is_none() && self.empty_pick != Some(pick_key) {
+            if self.indexed_revision != self.revision {
+                self.indexed_revision = self.revision;
+                self.instance_index
+                    .rebuild(&self.instances, |i| &i.placement.id);
+            }
+            let (instances, index) = (&self.instances, &self.instance_index);
             self.pending = stream
                 .pending_structures()
                 .iter()
-                .filter(|p| selectable(p) && !self.instances.iter().any(|i| i.placement.id == p.id))
+                .filter(|p| {
+                    selectable(p)
+                        && index
+                            .position(instances, |i| &i.placement.id, &p.id)
+                            .is_none()
+                })
                 .min_by(|a, b| {
                     stream
                         .focus_distance_squared(a.pose.position)
                         .total_cmp(&stream.focus_distance_squared(b.pose.position))
                 })
                 .cloned();
+            self.empty_pick = self.pending.is_none().then_some(pick_key);
         }
         self.prepare_calls += 1;
         let mut stage = if self.pending.is_some() {

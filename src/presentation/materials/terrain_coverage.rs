@@ -194,6 +194,7 @@ mod tests {
                 offset: [250., 0., -150.],
             },
             surfaces: &surfaces,
+            surface_revision: 0,
             lights: &[],
             structures: &[],
             supplies: &[],

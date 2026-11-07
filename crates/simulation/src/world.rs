@@ -17,6 +17,7 @@ mod lamps;
 mod source_lights;
 pub use source_lights::{ItemLight, WorldLight, required_world_lights};
 mod id_index;
+pub use id_index::IdIndex;
 mod placement;
 mod prop_layers;
 mod props;

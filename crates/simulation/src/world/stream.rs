@@ -9,7 +9,7 @@ use super::{
 use crate::reference::{ReferenceError, ReferenceManifest, SourceId, WorldReference};
 use crate::vehicle::{ColliderHandle, PhysicsWorld};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -113,7 +113,7 @@ pub struct WorldRequest {
 pub use presentation_ledger::{
     PresentationAllocation, PresentationGrant, PresentationReport, Reclaim,
 };
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct SurfaceKey {
     pub layer: WorldLayer,
     pub unit: [i64; 2],
@@ -308,6 +308,7 @@ pub struct WorldStream {
     next_geometry: usize,
     wanted_roads: Vec<u32>,
     wanted_tiles: Vec<SurfaceKey>,
+    wanted_tile_set: HashSet<SurfaceKey>,
     road_points: Vec<TerrainRoadPoint>,
     structures: structure_list::StructureList,
     trigger_roles: super::TriggerRoles,
@@ -346,6 +347,8 @@ pub struct WorldStream {
     startup_next: usize,
     startup_points: Vec<TerrainRoadPoint>,
     surfaces: Vec<PublishedSurface>,
+    /// Position of each key in `surfaces`.
+    surface_index: HashMap<SurfaceKey, usize>,
     ready: Option<PreparedSurface>,
     terrain_execution: TerrainExecution,
     /// Prototypes the renderer holds. True when bound. Their bytes are renderer credit.
@@ -935,6 +938,7 @@ impl WorldStream {
             next_geometry: 0,
             wanted_roads: Vec::with_capacity(limits.roads),
             wanted_tiles: Vec::with_capacity(limits.tiles.iter().sum()),
+            wanted_tile_set: HashSet::with_capacity(limits.tiles.iter().sum()),
             road_points: Vec::with_capacity(limits.roads * super::ROAD_CONTROLS),
             structures: Default::default(),
             trigger_roles: super::TriggerRoles::default(),
@@ -965,6 +969,7 @@ impl WorldStream {
             startup_next: 0,
             startup_points: Vec::new(),
             surfaces: Vec::new(),
+            surface_index: HashMap::new(),
             ready: None,
             terrain_execution: TerrainExecution::default(),
             prototype_holds: HashMap::new(),
@@ -1157,8 +1162,8 @@ impl WorldStream {
                 "views_ready": self.required.views_ready,
                 "discovered_roads": self.next_road,
                 "road_candidates": self.road_candidates.len(),
-                "published_roads": self.required.roads.iter().filter(|id| self.surfaces.iter().any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(**id))).count(),
-                "published_terrain": self.required.terrain.iter().filter(|key| self.surfaces.iter().any(|s| s.key == **key)).count(),
+                "published_roads": self.required.roads.iter().filter(|id| self.road_surface(**id).is_some()).count(),
+                "published_terrain": self.required.terrain.iter().filter(|key| self.has_surface(**key)).count(),
                 "published_structures": self.required.structures.iter().filter(|id| self.structures.contains(id) && self.bindings_ready(id)).count(),
             },
             "presentation": self.ledger.credit().jobs,
@@ -1206,10 +1211,10 @@ impl WorldStream {
                         serde_json::json!({
                             "gap": "terrain",
                             "unit": unit,
-                            "wanted": self.wanted_tiles.contains(&key),
+                            "wanted": self.wanted_tile_set.contains(&key),
                             "required": self.required.terrain.contains(&key),
                             "local": self.local_collision_pending(key),
-                            "surface": self.surfaces.iter().any(|s| s.key == key),
+                            "surface": self.has_surface(key),
                             "roads": self.next_road == self.road_candidates.len(),
                         })
                     }
@@ -1257,16 +1262,11 @@ impl WorldStream {
     }
     /// The required items that are not published yet, and where each waits.
     fn missing_required_audit(&self) -> serde_json::Value {
-        let road_surface = |id: u32| {
-            self.surfaces
-                .iter()
-                .any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(id))
-        };
         let roads: Vec<_> = self
             .required
             .roads
             .iter()
-            .filter(|id| !road_surface(**id))
+            .filter(|id| self.road_surface(**id).is_none())
             .map(|id| {
                 serde_json::json!({
                     "id": id,
@@ -1279,7 +1279,7 @@ impl WorldStream {
             .required
             .terrain
             .iter()
-            .filter(|key| !self.surfaces.iter().any(|s| s.key == **key))
+            .filter(|key| !self.has_surface(**key))
             .map(|key| format!("{key:?}"))
             .collect();
         let structures: Vec<_> = self
@@ -1727,12 +1727,12 @@ impl WorldStream {
             .any(|key| self.local_collision_pending(*key))
         {
             self.prepare_terrain(should_yield);
-        } else if self.required.roads.iter().any(|id| {
-            !self
-                .surfaces
-                .iter()
-                .any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(*id))
-        }) || self.required_ready() && self.next_geometry < self.wanted_roads.len()
+        } else if self
+            .required
+            .roads
+            .iter()
+            .any(|id| self.road_surface(*id).is_none())
+            || self.required_ready() && self.next_geometry < self.wanted_roads.len()
         {
             self.prepare_road();
         } else {
@@ -2050,8 +2050,11 @@ impl WorldStream {
         ));
     }
     fn refresh_poles(&mut self) {
-        self.wanted_structures
-            .retain(|p| p.id.layer != WorldLayer::Lamp || self.lights.iter().any(|l| l.id == p.id));
+        self.light_index.rebuild(&self.lights, |l| &l.id);
+        let (lights, index) = (&self.lights, &self.light_index);
+        self.wanted_structures.retain(|p| {
+            p.id.layer != WorldLayer::Lamp || index.position(lights, |l| &l.id, &p.id).is_some()
+        });
         for light in &self.lights {
             if light.biome.is_none() || self.wanted_structures.contains(&light.id) {
                 continue;
@@ -2702,6 +2705,7 @@ impl WorldStream {
         let buildings_changed = (force_structures || road_changed) && self.refresh_structures();
         self.terrain_context_dirty |= road_changed || buildings_changed;
         self.wanted_tiles.clear();
+        self.wanted_tile_set.clear();
         if self.wanted_structures.len() > self.limits.objects {
             return Err(ReferenceError(format!(
                 "Source object count exceeds {}",
@@ -2732,7 +2736,7 @@ impl WorldStream {
                         layer: tier_layer(tier),
                         unit: [center[0] + offset[0], center[1] + offset[1]],
                     };
-                    if !self.wanted_tiles.contains(&key) {
+                    if self.wanted_tile_set.insert(key) {
                         self.wanted_tiles.push(key);
                     }
                 }
@@ -2753,7 +2757,7 @@ impl WorldStream {
         let retain_terrain = self
             .terrain_execution
             .key()
-            .is_some_and(|key| self.wanted_tiles.contains(&key));
+            .is_some_and(|key| self.wanted_tile_set.contains(&key));
         self.terrain_execution
             .reconcile(self.request, retain_terrain);
         if let Some(work) = &self.ready
@@ -2767,7 +2771,7 @@ impl WorldStream {
                                 <= self.distances.road_gen_dist.powi(2)
                         })
                 }
-                None => self.wanted_tiles.contains(&work.published.key),
+                None => self.wanted_tile_set.contains(&work.published.key),
             };
             if !valid {
                 self.discard_unreserved_surface();
@@ -3059,12 +3063,15 @@ impl WorldStream {
         }
     }
     fn retarget_road_work(&mut self) {
-        let required_road_missing = self.required.roads.iter().any(|id| {
-            !self
-                .surfaces
-                .iter()
-                .any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(*id))
-        });
+        let required_road_missing = self
+            .required
+            .roads
+            .iter()
+            .any(|id| self.road_surface(*id).is_none());
+        let work_published = self
+            .road_work
+            .as_ref()
+            .is_some_and(|work| self.road_surface(work.segment.index).is_some());
         if let Some(work) = &mut self.road_work {
             let valid = work.identity.session == self.request.session
                 && self.road_source_revisions[work.segment.biome as usize] == work.source_revision
@@ -3073,10 +3080,7 @@ impl WorldStream {
                     .selected_roads
                     .iter()
                     .any(|r| r.segment == work.segment)
-                && !self.surfaces.iter().any(|s| {
-                    s.key.layer == WorldLayer::Road
-                        && s.key.unit[0] == i64::from(work.segment.index)
-                })
+                && !work_published
                 && (!required_road_missing || self.required.roads.contains(&work.segment.index));
             if valid && !work.canceled {
                 // Keep the submitted identity immutable. Retarget only the main-thread claim.
@@ -3136,11 +3140,7 @@ impl WorldStream {
         }
         let required_ready = self.required_ready();
         let Some(index) = self.wanted_roads.iter().copied().find(|id| {
-            (self.required.roads.contains(id) || required_ready)
-                && !self
-                    .surfaces
-                    .iter()
-                    .any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(*id))
+            (self.required.roads.contains(id) || required_ready) && self.road_surface(*id).is_none()
         }) else {
             self.next_geometry = self.wanted_roads.len();
             return;
@@ -3289,7 +3289,7 @@ impl WorldStream {
     }
     /// True for a near tile without a surface under the player, the car or the car path.
     fn local_collision_pending(&self, key: SurfaceKey) -> bool {
-        if key.layer != WorldLayer::Terrain || self.surfaces.iter().any(|s| s.key == key) {
+        if key.layer != WorldLayer::Terrain || self.has_surface(key) {
             return false;
         }
         let size = f64::from(self.tiles[0].size);
@@ -3353,7 +3353,7 @@ impl WorldStream {
                 .or_else(|| {
                     self.wanted_tiles.iter().find(|key| {
                         (self.required.terrain.contains(key) || required_ready)
-                            && !self.surfaces.iter().any(|s| s.key == **key)
+                            && !self.has_surface(**key)
                     })
                 })
                 .copied()
@@ -3543,15 +3543,27 @@ impl WorldStream {
         }));
         Ok(())
     }
+    fn surface(&self, key: SurfaceKey) -> Option<&PublishedSurface> {
+        self.surface_index.get(&key).map(|&i| &self.surfaces[i])
+    }
+    fn has_surface(&self, key: SurfaceKey) -> bool {
+        self.surface_index.contains_key(&key)
+    }
+    fn road_surface(&self, index: u32) -> Option<&PublishedSurface> {
+        self.surface(SurfaceKey {
+            layer: WorldLayer::Road,
+            unit: [i64::from(index), 0],
+        })
+    }
     /// True while the prepared surface is still wanted with the same inputs.
     /// A request change alone keeps it.
     fn surface_current(&self, work: &PreparedSurface) -> bool {
         work.request.session == self.request.session
             && !work.stale
-            && !self.surfaces.iter().any(|s| s.key == work.published.key)
+            && !self.has_surface(work.published.key)
             && match work.published.road {
                 Some(_) => self.road_current(work),
-                None => self.wanted_tiles.contains(&work.published.key),
+                None => self.wanted_tile_set.contains(&work.published.key),
             }
     }
     fn road_current(&self, work: &PreparedSurface) -> bool {
@@ -3749,12 +3761,7 @@ impl WorldStream {
             .lights
             .iter()
             .filter(|light| self.publication_light(light, required_lights))
-            .any(|light| {
-                !self
-                    .structures
-                    .iter()
-                    .any(|s| light.owned_by(&s.placement.id))
-            })
+            .any(|light| !self.structures.owns(light))
         {
             return false;
         }
@@ -3867,6 +3874,8 @@ impl WorldStream {
                 }
             }
         }
+        self.surface_index
+            .insert(work.published.key, self.surfaces.len());
         self.surfaces.push(work.published);
         if road {
             self.road_worker.publication_ended(true);
@@ -3921,6 +3930,10 @@ impl WorldStream {
                 }
                 keep
             });
+            self.surface_index.clear();
+            for (i, surface) in self.surfaces.iter().enumerate() {
+                self.surface_index.entry(surface.key).or_insert(i);
+            }
         }
         if self.recovery.is_none() && self.next_road == self.road_candidates.len() {
             let count = self.lights.len();
@@ -3954,17 +3967,12 @@ impl WorldStream {
         if let Some(road) = self.selected_roads.iter().find(|r| {
             self.wanted_roads.contains(&r.segment.index)
                 && intersects(r.segment.bounds, swept)
-                && !self.surfaces.iter().any(|s| {
-                    s.key.layer == WorldLayer::Road
-                        && s.key.unit[0] == i64::from(r.segment.index)
-                        && s.collider.is_some()
-                })
+                && self
+                    .road_surface(r.segment.index)
+                    .is_none_or(|s| s.collider.is_none())
         }) {
             let index = road.segment.index;
-            let surface = self
-                .surfaces
-                .iter()
-                .any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(index));
+            let surface = self.road_surface(index).is_some();
             return Some(SupportGap::Road { index, surface });
         }
         // A sandbox spawn never gates the step. It may load late or not at all.
@@ -3977,13 +3985,11 @@ impl WorldStream {
         }) {
             return Some(SupportGap::Structure(placement));
         }
-        if self.lights.iter().any(|light| {
-            light.influences(swept)
-                && !self
-                    .structures
-                    .iter()
-                    .any(|s| light.owned_by(&s.placement.id))
-        }) {
+        if self
+            .lights
+            .iter()
+            .any(|light| light.influences(swept) && !self.structures.owns(light))
+        {
             return Some(SupportGap::Light);
         }
         self.ground_gap(swept)
@@ -4124,16 +4130,16 @@ impl WorldStream {
     }
     /// Required roads, terrain and structures: (ready, total).
     pub fn required_progress(&self) -> (u32, u32) {
-        let roads = self.required.roads.iter().filter(|id| {
-            self.surfaces
-                .iter()
-                .any(|s| s.key.layer == WorldLayer::Road && s.key.unit[0] == i64::from(**id))
-        });
+        let roads = self
+            .required
+            .roads
+            .iter()
+            .filter(|id| self.road_surface(**id).is_some());
         let terrain = self
             .required
             .terrain
             .iter()
-            .filter(|key| self.surfaces.iter().any(|s| s.key == **key));
+            .filter(|key| self.has_surface(**key));
         let structures = self
             .required
             .structures
@@ -4201,12 +4207,12 @@ impl WorldStream {
             wanted.iter().filter(|id| road_needed(id)),
         );
         // Unbuilt terrain has no checked vertical bound. Refine membership after its geometry exists.
+        let (surfaces, surface_index) = (&self.surfaces, &self.surface_index);
         let tile_needed = |key: &SurfaceKey| {
-            self.wanted_tiles.contains(key)
-                && self
-                    .surfaces
-                    .iter()
-                    .find(|s| s.key == *key)
+            self.wanted_tile_set.contains(key)
+                && surface_index
+                    .get(key)
+                    .map(|&i| &surfaces[i])
                     .is_none_or(|s| required(s.bounds, 1 << self.terrain_layer))
         };
         changed |= super::required::select(
@@ -4401,9 +4407,8 @@ impl WorldStream {
             let id = &self.ready_structures[index];
             let Some(source) = self
                 .wanted_structures
-                .iter()
-                .find(|p| &p.id == id)
-                .map(|p| &p.prototype)
+                .position(id)
+                .map(|i| &self.wanted_structures[i].prototype)
                 .filter(|source| !self.recipes.contains_key(*source))
             else {
                 continue;
@@ -4455,27 +4460,27 @@ impl WorldStream {
         self.discard_fixed_decoration_changes();
         self.bind_waiting_recipes()?;
         let request = self.request;
-        let ready = |placement: &&Placement| {
-            !self
-                .structures
-                .iter()
-                .any(|instance| instance.placement.id == placement.id)
-                && self.recipes.contains_key(&placement.prototype)
-                && self.ready_structures.contains(&placement.id)
+        // Renderer-ready wanted structures with their wanted position. Ties keep the wanted order.
+        let ready = || {
+            self.ready_structures.iter().filter_map(|id| {
+                let i = self.wanted_structures.position(id)?;
+                let placement = &self.wanted_structures[i];
+                (!self.structures.contains(id) && self.recipes.contains_key(&placement.prototype))
+                    .then_some((i, placement))
+            })
         };
-        let Some(placement) = self
-            .wanted_structures
-            .iter()
-            .filter(ready)
-            .find(|placement| {
+        let Some((_, placement)) = ready()
+            .filter(|(_, placement)| {
                 self.lights.iter().any(|light| {
                     self.publication_light(light, required_lights) && light.owned_by(&placement.id)
                 })
             })
+            .min_by_key(|(i, _)| *i)
             .or_else(|| {
-                self.wanted_structures.iter().filter(ready).min_by(|a, b| {
+                ready().min_by(|(i, a), (j, b)| {
                     focus_distance_squared(request, a.pose.position)
                         .total_cmp(&focus_distance_squared(request, b.pose.position))
+                        .then(i.cmp(j))
                 })
             })
         else {
@@ -5413,11 +5418,19 @@ impl WorldStream {
             + self.wanted_roads.capacity() * std::mem::size_of::<u32>()
             + self.wanted_lights.capacity() * std::mem::size_of::<u32>()
             + self.wanted_tiles.capacity() * std::mem::size_of::<SurfaceKey>()
+            + super::metrics::map_bytes(
+                self.wanted_tile_set.capacity(),
+                std::mem::size_of::<SurfaceKey>(),
+            )
             + self.road_points.capacity() * std::mem::size_of::<TerrainRoadPoint>()
             + self.ground.retained_bytes()
             + self.startup_candidates.capacity() * std::mem::size_of::<u32>()
             + self.startup_points.capacity() * std::mem::size_of::<TerrainRoadPoint>()
             + self.surfaces.capacity() * std::mem::size_of::<PublishedSurface>()
+            + super::metrics::map_bytes(
+                self.surface_index.capacity(),
+                std::mem::size_of::<(SurfaceKey, usize)>(),
+            )
             + self.lights.capacity() * std::mem::size_of::<super::WorldLight>()
             + self.light_index.retained_bytes()
             + self.light_keep.capacity()

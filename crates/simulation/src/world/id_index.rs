@@ -22,7 +22,7 @@ impl IdIndex {
     /// Adds the id of the item at `position`.
     pub fn push(&mut self, id: &GeneratedId, position: usize) {
         self.first
-            .entry(self.hasher.hash_one(id))
+            .entry(self.hasher.hash_one(id.seed()))
             .or_insert(position as u32);
     }
     /// First position of `wanted` in `items`.
@@ -32,11 +32,21 @@ impl IdIndex {
         id: impl Fn(&T) -> &GeneratedId,
         wanted: &GeneratedId,
     ) -> Option<usize> {
-        let &i = self.first.get(&self.hasher.hash_one(wanted))?;
-        if id(&items[i as usize]) == wanted {
+        self.position_by(items, id, wanted.seed(), |other| other == wanted)
+    }
+    /// First position in `items` of an id that passes `matches`. Only ids with seed `seed` pass.
+    pub fn position_by<T>(
+        &self,
+        items: &[T],
+        id: impl Fn(&T) -> &GeneratedId,
+        seed: u64,
+        matches: impl Fn(&GeneratedId) -> bool,
+    ) -> Option<usize> {
+        let &i = self.first.get(&self.hasher.hash_one(seed))?;
+        if matches(id(&items[i as usize])) {
             Some(i as usize)
         } else {
-            items.iter().position(|item| id(item) == wanted)
+            items.iter().position(|item| matches(id(item)))
         }
     }
     /// Room for `count` ids in total.
