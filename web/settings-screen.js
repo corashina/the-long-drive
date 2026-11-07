@@ -1,8 +1,9 @@
 // Settings screen: source `settingsscript` tabs. Store rows are built from the exported settings record.
 import {sliderSetting} from './settings.js';
 // Rows of each tab in source order: a slider or toggle name, then an optional toggle on the same row.
+// A row toggle with the slider's word hides its word, so the row shows the word once.
 const ROWS={
- graphics:[['BEnableFpsLimit'],['FFPSLimit']],
+ graphics:[['FFPSLimit','BEnableFpsLimit']],
  controls:[['FMouseSensXY'],['FMouseSensX','BInvertMouseSensX'],['FMouseSensY','BInvertMouseSensY'],['FMouseSensZ','BInvertMouseSensZ'],
   ['FMouseMove','BInvertMouseMove'],['FMouseRot','BInvertMouseRot'],['FKeyLookSens'],['FKeySteerSens']],
  misc:[['FSound'],['FFieldOfViewFoot'],['FFieldOfViewCar'],['FCrosshairScale'],['BWalkHeadBob'],['BDriveHeadBob'],['BHelp'],['BCrosshair'],['BOldCrosshair'],
@@ -26,10 +27,10 @@ export function bindToggle(input,settings,name){
 export function createSettingsScreen(root,settings,language,inMenu,resets={}){
  const doc=root.ownerDocument,paints=[];
  const el=(tag,props,...children)=>{const node=Object.assign(doc.createElement(tag),props);node.append(...children);return node;};
- function toggle(name){
+ function toggle(name,hideWord){
   const input=el('input',{type:'checkbox',id:'setting-'+name});
   paints.push(bindToggle(input,settings,name));
-  return el('label',{className:'setting-toggle'},input,language.text(el('span'),LABELS[name]));
+  return el('label',{className:'setting-toggle'},input,language.text(el('span',{className:hideWord?'visually-hidden':''}),LABELS[name]));
  }
  function slider(name){
   const s=settings.reference.sliders[name],id='setting-'+name;
@@ -50,7 +51,7 @@ export function createSettingsScreen(root,settings,language,inMenu,resets={}){
  }
  for(const [tab,rows] of Object.entries(ROWS)){
   const list=root.querySelector('[data-settings="'+tab+'"]');
-  for(const names of rows)list.append(el('div',{className:'setting-row'},...names.map(name=>name in settings.reference.sliders?slider(name):toggle(name))));
+  for(const names of rows)list.append(el('div',{className:'setting-row'},...names.map((name,i)=>name in settings.reference.sliders?slider(name):toggle(name,i>0&&LABELS[name]===LABELS[names[0]]))));
  }
  const buttons=[...root.querySelectorAll('#settings-tabs button')],panels=[...root.querySelectorAll('.settings-tab')],resetButton=root.querySelector('#settings-reset');
  let tab='graphics';

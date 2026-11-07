@@ -29,7 +29,8 @@ main {position:relative;width:100vw;height:100dvh;overflow:hidden;}
 main:has(#settings-screen:not([hidden]),#game-mode-screen:not([hidden]),#multiplayer-screen:not([hidden]),#appearance-screen:not([hidden])) #toast {display:none;}
 button {font:inherit;position:absolute;padding:0;border:0;color:#fff;cursor:pointer;background-color:transparent;text-shadow:2px 2px 2px #000;touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
 /* English buttons and headings use Title Case. language.js sets the page language. Save names and key names keep their case. */
-:root:lang(en) :is(button:not(.save-tile,.key-cell),.menu-panel > h2,#appearance-title,.menu-screen h3,.menu-screen legend) {text-transform:capitalize;}
+:root:lang(en) :is(button:not(.save-tile,.key-cell),.menu-panel > h2,#appearance-title,.menu-screen h3,.menu-screen legend,.menu-screen label,#appearance-screen label,.wheel-bind > span) {text-transform:capitalize;}
+:root:lang(en) :is(.menu-screen,#appearance-screen) label :is(output,small) {text-transform:none;}
 :is(.menu-panel > h2,#appearance-title,.menu-screen h3,#loading-details h2) {text-wrap:balance;}
 button:hover:enabled {filter:brightness(1.18);}
 button:active:enabled {filter:brightness(.85);}
@@ -116,10 +117,15 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .setting-row label {min-height:0;padding:0;border:0;}
 .setting-row > .setting-toggle:only-child {flex:1;}
 .settings-list label > input[type=checkbox],#driving-assists input {order:1;}
-.setting-slider {display:flex;flex:1;flex-wrap:wrap;align-items:center;gap:4px 10px;}
-.setting-slider label {flex:1 1 8em;}
-.setting-slider input[type=range] {flex:1 1 120px;min-width:80px;}
-.setting-slider input[type=number] {width:4.5em;}
+/* Slider rows share one grid, so the tracks, numbers and resets line up. A row toggle takes a fixed slot. */
+.settings-tab {--row-toggle:7em;--row-reset:5.5em;}
+.setting-slider {display:grid;flex:1;grid-template-columns:minmax(min-content,1fr) minmax(80px,1fr) 4.5em var(--row-reset);align-items:center;gap:4px 10px;}
+.menu-screen .setting-slider :is(input[type],button) {width:100%;min-width:0;}
+.setting-row > .setting-toggle:not(:only-child):not(:has(.visually-hidden)) {flex:0 0 var(--row-toggle);}
+.settings-list:has(.setting-slider + .setting-toggle) .setting-slider:only-child {margin-right:calc(var(--row-toggle) + 12px);}
+.settings-list label:has(> input[type=range]),#mouse-driving label {display:grid;grid-template-columns:minmax(0,1fr) minmax(80px,1fr);grid-auto-flow:column;}
+.settings-list label > input[type=range],#mouse-driving input[type=range] {width:100%;min-width:0;}
+#mouse-driving label {grid-template-columns:minmax(0,1fr) minmax(80px,1fr) 4.5em;gap:4px 10px;padding-right:calc(4px + 10px + var(--row-reset) + 12px + var(--row-toggle));}
 .menu-screen input[type=range] {width:150px;accent-color:var(--paint);}
 .menu-screen output {min-width:4.5em;text-align:right;color:var(--dust);}
 .menu-screen :is(select,input[type=number],input[type=text],input[type=password]),.menu-screen button:not([role=tab],.save-tile) {position:static;min-width:0;height:32px;padding:0 12px;background:var(--shoulder);border:1px solid var(--edge);color:var(--bleach);font:inherit;text-shadow:none;border-radius:3px;}
@@ -163,7 +169,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .save-tile {display:flex;flex-direction:column;gap:4px;padding:4px 4px 8px;border-radius:4px;border:1px solid var(--seam);background:var(--shoulder);color:var(--bleach);text-align:left;font-size:15px;text-shadow:none;overflow-wrap:anywhere;}
 .save-tile:hover:enabled {border-color:var(--paint);filter:none;}
 .save-tile.selected {border-color:var(--paint);box-shadow:inset 0 0 0 1px var(--paint);}
-.save-tile small {color:var(--dust);font-size:13px;padding:0 4px;}
+.save-tile small {color:var(--dust);font-size:13px;padding:0 4px;overflow-wrap:normal;}
 .save-tile strong {font-weight:600;padding:0 4px;}
 .save-tile.last strong {color:var(--paint);}
 .save-thumb {display:grid;place-items:center;aspect-ratio:16/9;width:100%;border-radius:2px;background:#1a1815;}
@@ -228,7 +234,8 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #crosshair .old-crosshair {mask-size:100% 100%;-webkit-mask-size:100% 100%;}
 #weapon-crosshair {position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);mask-size:contain;mask-repeat:no-repeat;mask-position:center;-webkit-mask-size:contain;-webkit-mask-repeat:no-repeat;-webkit-mask-position:center;pointer-events:none;}
 /* Key prompts, carry help and car help: one stack in the lower right corner. */
-#hud-corner {position:absolute;right:max(32px,env(safe-area-inset-right));bottom:max(32px,env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:flex-end;gap:.6em;font-family:var(--menu-font);line-height:1.2;text-shadow:none;}
+/* `--needs-right` and `--needs-bottom` are the screen edges the need bars use (`survival.js`). */
+#hud-corner {position:absolute;right:max(32px,calc(var(--needs-right,0px) + 16px),env(safe-area-inset-right));bottom:max(32px,env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:flex-end;gap:.6em;font-family:var(--menu-font);line-height:1.2;text-shadow:none;}
 #prompts,#carry-help,#help-text {display:flex;flex-direction:column;align-items:flex-end;gap:.3em;}
 :is(#prompts,#carry-help,#help-text)[hidden],.prompt[hidden],#prompts:not(:has(.prompt:not([hidden]))) {display:none;}
 .prompt {display:flex;align-items:center;gap:.35em;margin:0;padding:.3em .7em;white-space:nowrap;color:var(--bleach);background:var(--asphalt-glass);border:1px solid var(--seam);border-radius:3px;}
@@ -249,7 +256,7 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #net-status:empty {display:none;}
 .multiplayer-body fieldset > button {align-self:flex-start;margin-top:6px;}
 .multiplayer-body p {margin:4px 0;}
-#net-chat {position:absolute;left:16px;bottom:96px;width:min(480px,calc(100% - 32px));font:16px Arial,sans-serif;color:#fff;text-shadow:2px 2px 2px #000;pointer-events:none;}
+#net-chat {position:absolute;left:16px;bottom:max(96px,calc(var(--needs-bottom,0px) + 12px));width:min(480px,calc(100% - 32px));font:16px Arial,sans-serif;color:#fff;text-shadow:2px 2px 2px #000;pointer-events:none;}
 #net-chat ul {margin:0;padding:0;list-style:none;}
 #net-chat input {width:100%;box-sizing:border-box;min-height:32px;background:#000a;border:1px solid var(--paint);font:inherit;color:#fff;pointer-events:auto;}
 #net-labels {position:absolute;inset:0;overflow:hidden;pointer-events:none;}
@@ -267,6 +274,9 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
  .save-body {grid-template-columns:1fr;}
  #save-tiles {grid-template-columns:repeat(2,minmax(0,1fr));}
  #capture-error {font-size:16px;top:60px;max-height:70px;overflow:auto;}
+ .setting-slider {grid-template-columns:minmax(80px,1fr) 4.5em var(--row-reset);}
+ .setting-slider > label,#mouse-driving label > span {grid-column:1/-1;}
+ #mouse-driving label {grid-template-columns:minmax(80px,1fr) 4.5em;grid-auto-flow:row;}
 }
 
 #throw-charge {position:absolute;margin:0;transform:translateX(-50%);white-space:nowrap;text-align:center;text-shadow:2px 2px 2px #000;}
@@ -283,11 +293,13 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 #steering-wheel {border:0;margin:0;padding:0;}
 #steering-wheel legend,#steering-wheel h4 {margin:12px 0 4px;font-size:inherit;}
 #steering-wheel .wheel-axis {margin-bottom:16px;}
-#steering-wheel .wheel-bind,#steering-wheel .wheel-checks,#steering-wheel .wheel-check,#steering-wheel .wheel-slider {display:flex;flex-wrap:wrap;align-items:center;gap:12px;min-height:36px;}
+#steering-wheel .wheel-bind,#steering-wheel .wheel-checks,#steering-wheel .wheel-check {display:flex;flex-wrap:wrap;align-items:center;gap:12px;min-height:36px;}
 #steering-wheel .wheel-bind span {min-width:6em;}
 #steering-wheel .wheel-bind output {flex:1;min-width:7em;}
 #steering-wheel input[type=range] {flex:1;min-width:0;}
-#steering-wheel .wheel-slider output {min-width:3em;}
+#steering-wheel .wheel-slider {display:grid;grid-template-columns:8em minmax(0,1fr) 3em;align-items:center;gap:12px;min-height:36px;}
+#steering-wheel .wheel-slider input[type=range] {width:100%;}
+#steering-wheel .wheel-slider output {min-width:0;}
 #steering-wheel .wheel-live {display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-variant-numeric:tabular-nums;}
 #driving-gear {position:absolute;left:50%;bottom:96px;margin:0;transform:translateX(-50%);font-size:18px;font-variant-numeric:tabular-nums;}
 #inventory{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:6px}
