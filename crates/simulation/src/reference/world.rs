@@ -61,14 +61,12 @@ pub struct WorldReference {
     pub painting_materials: Vec<WorldPaintingMaterial>,
     /// Source `materialpairscript` sets that marked prototype nodes use.
     pub biome_material_sets: Vec<WorldBiomeMaterialSet>,
-    /// The world tables (prototypes, records, receipts) are postcard after the manifest JSON.
-    #[serde(skip)]
     pub prototypes: WorldPrototypes,
-    #[serde(skip)]
     pub records: WorldRecords,
-    /// Only the manifest checks read the receipts.
+    /// Only the manifest checks read the receipts. The manifest file holds them after the manifest.
+    /// The binary form here is a unit (no bytes), so builds without the field read the same file.
     #[cfg(feature = "validate")]
-    #[serde(skip)]
+    #[serde(with = "super::json_only")]
     pub receipts: Vec<SourceId>,
     pub exclusions: Vec<WorldExclusion>,
     pub material_textures: Vec<super::rendering::LightingTextureRecord>,
@@ -2149,26 +2147,6 @@ impl<'a, T> IntoIterator for &'a SourceTable<T> {
     type IntoIter = std::slice::Iter<'a, T>;
     fn into_iter(self) -> Self::IntoIter {
         self.list.iter()
-    }
-}
-/// The world tables (records, prototypes, receipts). The manifest file holds them as postcard.
-pub type WorldTables = (WorldRecords, WorldPrototypes, Vec<SourceId>);
-impl WorldReference {
-    /// Sets the world tables from all of `bytes`.
-    pub fn decode_tables(&mut self, bytes: &[u8]) -> Result<(), super::ReferenceError> {
-        let error = |e: postcard::Error| super::ReferenceError(format!("World tables: {e}"));
-        #[cfg(feature = "validate")]
-        {
-            let (tables, rest) = postcard::take_from_bytes::<WorldTables>(bytes).map_err(error)?;
-            super::require(rest.is_empty(), "world tables end")?;
-            (self.records, self.prototypes, self.receipts) = tables;
-        }
-        // The receipts are last. Postcard tuples have no framing, so the decode stops before them.
-        #[cfg(not(feature = "validate"))]
-        {
-            (self.records, self.prototypes) = postcard::take_from_bytes(bytes).map_err(error)?.0;
-        }
-        Ok(())
     }
 }
 impl<T: Serialize> Serialize for SourceTable<T> {

@@ -14,7 +14,7 @@ import {cp, mkdir, readdir, readFile, rm, stat, writeFile} from 'node:fs/promise
 import {dirname, extname, relative, resolve, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
-import {brotliCompress, constants, gunzip, gunzipSync} from 'node:zlib';
+import {brotliCompress, constants, gunzip} from 'node:zlib';
 import {prepareStartupCompression, WASM} from './prepare-http-compression.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -39,8 +39,9 @@ const gunzipAsync = promisify(gunzip);
 const webPath = path => path.split(sep).join('/');
 // The export library, old runtime packages and export evidence are not part of the site. `stagePackages` copies `pkg`.
 // The game reads only `manifest.bin.gz` from `assets/reference`. `material-evidence.json` alone is over 25 MiB.
+// `catalog.json` holds the package `content_base` and `file_catalog` for this script.
 const excluded = path => path === 'assets/library' || path === 'assets/runtime' || path.startsWith('assets/runtime-') || path === 'pkg'
-  || /^assets\/reference\/(([\w-]+-evidence|library-selection)\.json|manifest\.json\.gz)$/.test(path);
+  || /^assets\/reference\/(([\w-]+-evidence|library-selection|catalog)\.json)$/.test(path);
 
 async function sha256(path) {
   const hash = createHash('sha256');
@@ -133,7 +134,7 @@ async function compressFiles(items, root) {
 // Returns the R2 uploads: site path, source and R2 key.
 export async function stageSite({webRoot = resolve(projectRoot, 'web'), siteRoot = resolve(projectRoot, '.cache/deploy'),
   compressionRoot = resolve(projectRoot, '.cache/http-compression'), packageBrotliRoot = resolve(projectRoot, '.cache/package-brotli')} = {}) {
-  const manifest = JSON.parse(gunzipSync(await readFile(resolve(webRoot, 'assets/reference/manifest.json.gz'))).toString('utf8'));
+  const manifest = JSON.parse(await readFile(resolve(webRoot, 'assets/reference/catalog.json'), 'utf8'));
   const base = manifest.content_base;
   if (!/^assets\/runtime\/[a-zA-Z0-9_-]+\/$/.test(base) || !Array.isArray(manifest.file_catalog?.files) || !Array.isArray(manifest.file_catalog.packs)
     || !Array.isArray(manifest.file_catalog.top_packs)) {

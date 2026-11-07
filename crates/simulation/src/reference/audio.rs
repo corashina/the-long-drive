@@ -927,34 +927,19 @@ record!(SurvivalAudioReference {
     clips: Vec<u32>, gain: [f32; 2], pitch: [f32; 2], offset: [f32; 3],
     settings: AudioSourceSettings, mixer: u32, doppler: f32, pan: f32, method: AudioMethod
 });
-/// The manifest `audio` record, parsed once when the manifest loads.
-#[derive(Clone, Debug)]
-pub struct AudioRecord {
-    reference: Arc<AudioReference>,
-    /// The manifest text of the record. The browser audio reads it.
-    json: Arc<serde_json::value::RawValue>,
-}
+/// The manifest `audio` record. The renderer and the worker share one copy of each.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AudioRecord(Arc<AudioReference>);
 impl AudioRecord {
-    pub fn json(&self) -> &serde_json::value::RawValue {
-        &self.json
-    }
     pub fn shared(&self) -> &Arc<AudioReference> {
-        &self.reference
+        &self.0
     }
 }
 impl std::ops::Deref for AudioRecord {
     type Target = AudioReference;
     fn deref(&self) -> &AudioReference {
-        &self.reference
-    }
-}
-impl<'de> Deserialize<'de> for AudioRecord {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let json = Arc::<serde_json::value::RawValue>::deserialize(d)?;
-        let reference = serde_json::from_str(json.get())
-            .map(Arc::new)
-            .map_err(|e| serde::de::Error::custom(format!("Audio: {e}")))?;
-        Ok(Self { reference, json })
+        &self.0
     }
 }
 impl AudioReference {

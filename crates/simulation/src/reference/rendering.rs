@@ -259,8 +259,11 @@ pub struct TextureRecord<S = TextureStorage> {
     pub sampler: SamplerRecord,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+tagged_enum! {
+"TextureStorage",
+#[json(tag = "kind")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TextureStorage {
     /// Decoded RGBA8 levels in ascending mip order. The game uploads them without a decode.
     Rgba8 {
@@ -282,6 +285,7 @@ pub enum TextureStorage {
         /// The top mip of a texture with more than one mip. The game loads it after start.
         top: Option<super::FileReceipt>,
     },
+}
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

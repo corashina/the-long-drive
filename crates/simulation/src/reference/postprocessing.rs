@@ -622,14 +622,18 @@ pub struct GlassesGradingParameters {
     #[serde(rename = "tonemapper")]
     pub tonemapper: SourceParameter<u32>,
 }
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+tagged_enum! {
+"GlassesEffect",
+#[json(tag = "kind")]
+#[derive(Clone, Debug)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum GlassesEffect {
     ColorGrading {
         source: super::SourceId,
         active: bool,
         parameters: GlassesGradingParameters,
     },
+}
 }
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -841,8 +845,10 @@ pub struct VolumeEffect {
     pub parameters: std::collections::BTreeMap<String, VolumeParameter>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
+tagged_enum! {
+"VolumeParameter",
+#[json(untagged)]
+#[derive(Clone, Debug)]
 pub enum VolumeParameter {
     Texture(SourceTextureParameter),
     Spline(SourceParameter<SourceGradingSpline>),
@@ -850,6 +856,7 @@ pub enum VolumeParameter {
     Number(SourceParameter<f32>),
     /// Color (rgba) or vector (xy, xyz or xyzw).
     Vector(SourceParameter<Vec<f32>>),
+}
 }
 
 impl VolumeParameter {

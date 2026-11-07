@@ -44,8 +44,11 @@ record!(StationAcquisitionReference {
     building_chance: [f32;2], initial_items_spawned: bool, to_start: Vec<SourceId>, ordinary: Vec<OrdinaryAcquisitionReference>,
     underground: Vec<UndergroundAcquisitionReference>, misc4: Vec<SourceId>, flyers: StationFlyers
 });
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+tagged_enum! {
+"AcquisitionSelection",
+#[json(tag = "kind")]
+#[derive(Clone, Debug)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum AcquisitionSelection {
     Category {
         name: String,
@@ -65,6 +68,7 @@ pub enum AcquisitionSelection {
         #[serde(deserialize_with = "required_field")]
         prototype: Option<PrototypeId>,
     },
+}
 }
 record!(CategoryReference {
     id: u32, children: Vec<u32>, categories: bool, weights: Vec<u32>, constructor_weights: Option<Vec<u32>>,

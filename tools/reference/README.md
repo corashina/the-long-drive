@@ -47,11 +47,12 @@ It does not read game assemblies or write analysis output.
 
 Runtime derivation and `--stage runtime --verify` require Docker and the project toolchain image.
 Build the image with `docker build --tag the-long-slop-toolchain --file tools/Dockerfile .`.
-The export writes `manifest.json.gz` (the exporter JSON) for the tools.
-It sends the JSON to the native `validate-reference --encode` command through stdin.
+The export sends the exporter JSON to the native `validate-reference --encode` command through stdin.
 That command validates it and makes `manifest.bin.gz`, the game manifest file.
-The game file is the JSON without `world.records`, `world.prototypes` and `world.receipts`, then these tables as postcard.
-Runtime verification encodes the JSON again and compares the result to `manifest.bin.gz`.
+The game file is the manifest as postcard, then `world.receipts` as postcard. Only the checks read the receipts.
+The export also writes `catalog.json` (`content_base` and `file_catalog`). Deploy reads it.
+Tools that need the full JSON decode `manifest.bin.gz` with `validate-reference --decode`.
+Runtime verification decodes `manifest.bin.gz`, encodes the JSON again and compares the result to the file.
 The export compiles that command in the background while runtime derivation runs.
 It uses the game's `ReferenceManifest` contract, the existing Cargo volumes, and a read-only checkout mount.
 The checks are behind the `validate` feature of the `simulation` crate. Native builds enable it. WASM builds do not.

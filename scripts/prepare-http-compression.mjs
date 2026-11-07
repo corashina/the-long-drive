@@ -5,7 +5,7 @@ import {dirname, resolve, sep} from 'node:path';
 import {Transform} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 import {fileURLToPath} from 'node:url';
-import {constants, createBrotliCompress, gunzipSync} from 'node:zlib';
+import {constants, createBrotliCompress} from 'node:zlib';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const WASM = ['pkg/the_long_slop_bg.wasm', 'pkg/simulation_worker_bg.wasm', 'pkg/terrain_worker_bg.wasm', 'pkg/road_worker_bg.wasm', 'pkg/grass_worker_bg.wasm', 'pkg/crunch_worker_bg.wasm'];
@@ -45,7 +45,7 @@ async function reusable(sourcePath, before, previous, compressionRoot) {
 
 export async function prepareStartupCompression({webRoot = resolve(projectRoot, 'web'),
   compressionRoot = resolve(projectRoot, '.cache/http-compression')} = {}) {
-  const manifest = JSON.parse(gunzipSync(await readFile(resolve(webRoot, 'assets/reference/manifest.json.gz'))).toString('utf8'));
+  const manifest = JSON.parse(await readFile(resolve(webRoot, 'assets/reference/catalog.json'), 'utf8'));
   if (!/^assets\/runtime\/[a-zA-Z0-9_-]+\/$/.test(manifest.content_base)
     || !Array.isArray(manifest.file_catalog?.files)) throw Error('Invalid runtime package catalog.');
   const paths = new Set(WASM);

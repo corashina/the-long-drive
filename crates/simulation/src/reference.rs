@@ -242,6 +242,7 @@ pub struct BodyRecord {
 
 tagged_enum! {
 "ColliderGeometry",
+#[json(tag = "kind")]
 #[derive(Clone, Debug)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ColliderGeometry {
@@ -398,6 +399,7 @@ pub struct TurnReference {
 }
 tagged_enum! {
 "EndpointReactionReference",
+#[json(tag = "kind")]
 #[derive(Clone, Debug)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum EndpointReactionReference {
@@ -415,6 +417,7 @@ pub enum EndpointReactionReference {
 }
 tagged_enum! {
 "TurnAction",
+#[json(tag = "kind")]
 #[derive(Clone, Debug)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TurnAction {
@@ -966,57 +969,50 @@ pub fn read_manifest(path: impl AsRef<std::path::Path>) -> std::io::Result<Vec<u
     Ok(bytes)
 }
 
-/// Splits the unpacked manifest file into its JSON and its world tables.
-/// The file is a u32 LE JSON length, the JSON, then the postcard world tables.
-pub fn split_manifest(bytes: &[u8]) -> Result<(&[u8], &[u8]), ReferenceError> {
-    let (length, rest) = bytes
-        .split_first_chunk::<4>()
-        .ok_or_else(|| ReferenceError("Manifest has no JSON length".into()))?;
-    let length = u32::from_le_bytes(*length) as usize;
-    require(length <= rest.len(), "manifest JSON length")?;
-    Ok(rest.split_at(length))
+/// Serde form of a field that only the JSON form holds. The binary form is a unit: no bytes.
+#[cfg(feature = "validate")]
+pub(crate) mod json_only {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    pub fn serialize<T: Serialize, S: Serializer>(
+        value: &T,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            value.serialize(serializer)
+        } else {
+            serializer.serialize_unit()
+        }
+    }
+    pub fn deserialize<'de, T: Deserialize<'de> + Default, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<T, D::Error> {
+        if deserializer.is_human_readable() {
+            T::deserialize(deserializer)
+        } else {
+            <()>::deserialize(deserializer).map(|()| T::default())
+        }
+    }
 }
 
-/// Joins manifest JSON and world tables into the manifest file.
-pub fn join_manifest(json: &[u8], tables: &[u8]) -> Vec<u8> {
-    let length = u32::try_from(json.len()).expect("manifest JSON under 4 GiB");
-    let mut bytes = Vec::with_capacity(4 + json.len() + tables.len());
-    bytes.extend_from_slice(&length.to_le_bytes());
-    bytes.extend_from_slice(json);
-    bytes.extend_from_slice(tables);
-    bytes
-}
-
-/// Makes the manifest file from the exporter JSON, which holds the world tables.
+/// Makes the manifest file from the exporter JSON.
+/// The file is the postcard manifest, then the postcard world receipts. Only the checks read the receipts.
+#[cfg(feature = "validate")]
 pub fn encode_manifest(json: &[u8]) -> Result<Vec<u8>, ReferenceError> {
-    use serde_json::value::RawValue;
-    use std::collections::BTreeMap;
-    let error = |e: serde_json::Error| ReferenceError(e.to_string());
-    let mut top: BTreeMap<&str, &RawValue> = serde_json::from_slice(json).map_err(error)?;
-    let world_json = top
-        .get("world")
-        .ok_or_else(|| ReferenceError("Manifest has no world".into()))?;
-    let mut world: BTreeMap<&str, &RawValue> =
-        serde_json::from_str(world_json.get()).map_err(error)?;
-    let mut table = |name: &str| {
-        world
-            .remove(name)
-            .ok_or_else(|| ReferenceError(format!("World has no {name}")))
-    };
-    let tables: WorldTables = (
-        serde_json::from_str(table("records")?.get()).map_err(error)?,
-        serde_json::from_str(table("prototypes")?.get()).map_err(error)?,
-        serde_json::from_str(table("receipts")?.get()).map_err(error)?,
-    );
-    let tables = postcard::to_stdvec(&tables).map_err(|e| ReferenceError(e.to_string()))?;
-    let world =
-        RawValue::from_string(serde_json::to_string(&world).map_err(error)?).map_err(error)?;
-    top.insert("world", &world);
-    let json = serde_json::to_vec(&top).map_err(error)?;
-    Ok(join_manifest(&json, &tables))
+    let manifest: ReferenceManifest =
+        serde_json::from_slice(json).map_err(|e| ReferenceError(e.to_string()))?;
+    let error = |e: postcard::Error| ReferenceError(e.to_string());
+    let bytes = postcard::to_stdvec(&manifest).map_err(error)?;
+    postcard::to_extend(&manifest.world.receipts, bytes).map_err(error)
 }
 
-#[derive(Clone, Debug, Deserialize)]
+/// The exporter JSON of the manifest file. The export tools read it.
+#[cfg(feature = "validate")]
+pub fn decode_manifest(bytes: &[u8]) -> Result<Vec<u8>, ReferenceError> {
+    serde_json::to_vec(&ReferenceManifest::from_runtime(bytes)?)
+        .map_err(|e| ReferenceError(e.to_string()))
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReferenceManifest {
     pub content_base: String,
@@ -1300,12 +1296,16 @@ impl ReferenceManifest {
     /// Parses the shipped manifest. The build checks the same file with `validate-reference`.
     pub fn from_runtime(bytes: &[u8]) -> Result<Self, ReferenceError> {
         require(bytes.len() <= MAX_MANIFEST_BYTES, "manifest size")?;
-        let (json, tables) = split_manifest(bytes)?;
-        let mut manifest: Self =
-            serde_json::from_slice(json).map_err(|e| ReferenceError(e.to_string()))?;
-        std::sync::Arc::get_mut(&mut manifest.world)
-            .expect("new world")
-            .decode_tables(tables)?;
+        let error = |e: postcard::Error| ReferenceError(format!("Manifest: {e}"));
+        let (mut manifest, _receipts) = postcard::take_from_bytes::<Self>(bytes).map_err(error)?;
+        #[cfg(feature = "validate")]
+        {
+            let (receipts, rest) = postcard::take_from_bytes(_receipts).map_err(error)?;
+            require(rest.is_empty(), "manifest end")?;
+            std::sync::Arc::get_mut(&mut manifest.world)
+                .expect("new world")
+                .receipts = receipts;
+        }
         std::sync::Arc::make_mut(&mut manifest.file_catalog).admit()?;
         manifest.index_item_rows();
         Ok(manifest)
@@ -2164,16 +2164,19 @@ impl ReferenceManifest {
 mod tests {
     use super::*;
 
+    /// Postcard cannot read internal tags or untagged enums. `tagged_enum!` gives them a binary form.
     #[test]
-    fn manifest_file_moves_world_tables_to_postcard() {
-        let json = br#"{"world":{"records":[{"source":{"file":"level1","path_id":1},"class_name":"Light","fields":{"a":1.5}}],"prototypes":[],"receipts":[{"file":"level1","path_id":2}],"x":2},"a":1}"#;
-        let bytes = encode_manifest(json).unwrap();
-        let (json, tables) = split_manifest(&bytes).unwrap();
-        assert_eq!(json, br#"{"a":1,"world":{"x":2}}"#);
-        let (records, prototypes, receipts): WorldTables = postcard::from_bytes(tables).unwrap();
-        assert_eq!(records[0].class_name, "Light");
-        assert!(prototypes.is_empty());
-        assert_eq!(receipts[0].path_id, 2);
-        assert!(split_manifest(&[9, 0, 0, 0, b'{']).is_err());
+    fn tagged_enums_round_trip_as_postcard() {
+        let json =
+            r#"[{"override_state":true,"value":1.5},{"override_state":false,"value":[1.0,2.0]}]"#;
+        let values: Vec<postprocessing::VolumeParameter> = serde_json::from_str(json).unwrap();
+        let values: Vec<postprocessing::VolumeParameter> =
+            postcard::from_bytes(&postcard::to_stdvec(&values).unwrap()).unwrap();
+        assert_eq!(serde_json::to_string(&values).unwrap(), json);
+        let json = r#"{"type":"none"}"#;
+        let kind: guns::GunKind = serde_json::from_str(json).unwrap();
+        let kind: guns::GunKind =
+            postcard::from_bytes(&postcard::to_stdvec(&kind).unwrap()).unwrap();
+        assert_eq!(serde_json::to_string(&kind).unwrap(), json);
     }
 }

@@ -96,8 +96,11 @@ pub struct GunReference {
     pub hithole: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+tagged_enum! {
+"GunKind",
+#[json(tag = "type")]
+#[derive(Clone, Debug)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum GunKind {
     None,
     /// revolverScript.
@@ -131,6 +134,7 @@ pub enum GunKind {
         /// weaponscript.hasMag at start.
         has_mag: bool,
     },
+}
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
