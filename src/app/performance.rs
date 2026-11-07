@@ -4,7 +4,7 @@ use crate::presentation::sim_frame::SimFrameResource;
 use bevy::prelude::*;
 
 pub(super) fn publish(
-    drive: Res<Drive>,
+    mut drive: ResMut<Drive>,
     sim: Res<SimFrameResource>,
     archetypes: &bevy::ecs::archetype::Archetypes,
 ) {
@@ -19,6 +19,7 @@ pub(super) fn publish(
     ) {
         return;
     }
+    drive.body_counters = true;
     game_performance_counters(
         perf.frame_steps,
         perf.contacts,
