@@ -1,6 +1,8 @@
 //! Rain streaks of the world view: one instanced draw after the opaque pass.
 //! The shader hashes each instance id to a point in a box around the camera.
 //! The CPU does no work per drop. It writes one uniform per frame.
+//! Drops take the ambient sky light, so they show in dark weather. A thunderstorm gives longer,
+//! faster streaks.
 use super::{
     readiness::RendererStateHandle,
     render_targets::{DEPTH_FORMAT, HDR_FORMAT},
@@ -21,19 +23,25 @@ use simulation::boundary::StateBlock;
 const BOX: f32 = 40.;
 /// Fall speed in meters per second.
 const FALL_SPEED: f32 = 9.;
-/// Streak length in meters.
+/// Share of `FALL_SPEED` that a full thunderstorm adds.
+const HEAVY_FALL: f32 = 0.4;
+/// Streak length in meters. A full thunderstorm doubles it.
 const STREAK: f32 = 0.5;
 /// Drops inside this distance fade out when the player is sheltered.
 const SHELTER_RADIUS: f32 = 3.;
 /// Seconds for the shelter fade.
 const SHELTER_SECONDS: f32 = 0.5;
 /// Drop opacity at full rain.
-const OPACITY: f32 = 0.35;
+const OPACITY: f32 = 0.5;
+/// Drop color: the ambient sky light times this value.
+const AMBIENT_GAIN: f32 = 1.4;
 
 #[derive(Resource, Clone, Copy, Default, ExtractResource)]
 struct RainInput {
     count: u32,
     rain: f32,
+    /// Streak length in meters.
+    streak: f32,
     /// Drop offset in meters by fall and wind, each axis 0..BOX.
     offset: Vec3,
     /// Drop velocity in meters per second: fall plus wind.
@@ -96,7 +104,9 @@ fn snapshot(
     input.rain = weather.rain;
     input.count = (display.rain_drops() as f32 * weather.rain).round() as u32;
     let [x, z] = weather.wind.map(|v| v * weather.gust);
-    input.velocity = Vec3::new(x, -FALL_SPEED, z);
+    let heavy = weather.heavy.clamp(0., 1.);
+    input.streak = STREAK * (1. + heavy);
+    input.velocity = Vec3::new(x, -FALL_SPEED * (1. + HEAVY_FALL * heavy), z);
     input.offset = (input.offset + input.velocity * dt).rem_euclid(Vec3::splat(BOX));
     let target = if weather.shelter == simulation::weather::Shelter::None {
         0.
@@ -158,14 +168,16 @@ fn prepare(
         return;
     }
     let camera = view.view_from_world.inverse().w_axis.truncate();
-    let fog = scene.fog_color_density;
+    // Rows 0, 1 and 2 of the flat SH hold the linear ambient RGB in w.
+    let [r, g, b] = [0, 1, 2].map(|i| scene.ambient_sh[i].w);
+    let color = Vec3::new(r, g, b) * AMBIENT_GAIN;
     pass.uniforms.set(
         0,
         &RainParams {
             clip_from_world: view.raster_projection * view.view_from_world,
             camera: camera.extend(BOX),
-            color: Vec4::new(fog.x, fog.y, fog.z, OPACITY * input.rain),
-            controls: Vec4::new(input.shelter, SHELTER_RADIUS, STREAK, 0.),
+            color: color.extend(OPACITY * input.rain),
+            controls: Vec4::new(input.shelter, SHELTER_RADIUS, input.streak, 0.),
             offset: input.offset.extend(0.),
             axis: input.velocity.normalize().extend(0.),
         },

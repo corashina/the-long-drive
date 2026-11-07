@@ -14,6 +14,8 @@ pub const MAX_SPEED: f32 = 12.;
 const SPEED_SECONDS: f32 = 15.;
 /// Seconds between the keys of the low and the high gust octave.
 const GUST_PERIODS: [f32; 2] = [6., 1.5];
+/// Extra gust range at full thunderstorm weight: the noise exponent scales by 1 plus this.
+const STORM_GUST: f32 = 0.5;
 /// Cells drift at this share of the wind speed.
 const DRIFT_SHARE: f32 = 0.6;
 
@@ -54,7 +56,7 @@ pub struct Wind {
     pub dir: [f32; 2],
     /// Meters per second without the gust.
     pub speed: f32,
-    /// Speed factor, 0.5 to 2.
+    /// Speed factor, 0.5 to 2. A thunderstorm widens it to about 0.35 to 2.8.
     pub gust: f32,
     /// The host speed that a guest wind moves toward.
     host_speed: f32,
@@ -120,7 +122,8 @@ impl Wind {
         let [low, high] = &mut self.gusts;
         let noise =
             0.65 * low.advance(dt, &mut self.random) + 0.35 * high.advance(dt, &mut self.random);
-        self.gust = noise.exp2();
+        let storm = sample.weight(WeatherKind::Thunderstorm);
+        self.gust = (noise * (1. + STORM_GUST * storm)).exp2();
     }
 
     /// A valid unit direction and speed.

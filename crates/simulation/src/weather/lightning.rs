@@ -3,11 +3,11 @@
 use super::StormRandom;
 
 /// Seconds between strikes at full thunderstorm weight.
-const WAIT_SECONDS: [f32; 2] = [6., 25.];
+const WAIT_SECONDS: [f32; 2] = [3., 12.];
 /// Strike distance from the player, in meters.
 pub const STRIKE_DISTANCE: [f32; 2] = [300., 3000.];
 /// Seconds of the flash decay from 1 to 0.
-const FLASH_SECONDS: f32 = 0.15;
+const FLASH_SECONDS: f32 = 0.3;
 /// Speed of sound in meters per second.
 const SOUND_SPEED: f32 = 343.;
 /// Thunder that waits in the queue. A full queue drops the new thunder.

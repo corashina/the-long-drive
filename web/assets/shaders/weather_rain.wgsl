@@ -68,9 +68,16 @@ fn vertex(@builtin(vertex_index) corner: u32, @builtin(instance_index) id: u32) 
     return out;
 }
 
+// Brightness added at the lit head of the streak, on top of 1.
+const EDGE: f32 = 2.0;
+
 @fragment
 fn fragment(in: Varyings) -> @location(0) vec4<f32> {
     let across = 1.0 - abs(in.uv.x);
-    let along = sin(3.14159265 * in.uv.y);
-    return vec4(rain.color.rgb, rain.color.a * in.fade * across * along);
+    // The tail fades in. The head (y = 1, the fall end) is a thin bright edge with a sharp end.
+    let y = in.uv.y;
+    let along = y * (1.0 - smoothstep(0.9, 1.0, y));
+    let edge = smoothstep(0.65, 0.92, y);
+    let light = 1.0 + EDGE * edge;
+    return vec4(rain.color.rgb * light, min(rain.color.a * light, 1.0) * in.fade * across * along);
 }

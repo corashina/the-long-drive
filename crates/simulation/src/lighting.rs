@@ -641,6 +641,8 @@ fn evaluate(
 const OVERCAST_CLOUD_THRESHOLD: f32 = 0.6;
 /// Light added at full lightning `flash`.
 const FLASH_LIGHT: f32 = 1.5;
+/// Cool white added to the fog, sky and cloud color at full lightning `flash`.
+const FLASH_SKY: [f32; 3] = [1.0, 1.05, 1.2];
 /// The weather does not darken a fog channel below this value, so night does not go black (#795).
 const SKY_FLOOR: f32 = 0.03;
 
@@ -664,6 +666,15 @@ fn apply_mix(
     let fog = grey(o.fog_color, look.fog_shade, look.fog_grey);
     for (c, f) in o.fog_color[..3].iter_mut().zip(fog) {
         *c = f.max(c.min(SKY_FLOOR));
+    }
+    // The lightning flash lights the fog, the sky and the clouds.
+    for (c, lift) in o.fog_color.iter_mut().zip(FLASH_SKY) {
+        *c += mix.flash * lift;
+    }
+    for cloud in &mut o.clouds {
+        for (c, lift) in cloud.color.iter_mut().zip(FLASH_SKY) {
+            *c += mix.flash * lift;
+        }
     }
     o.flare_brightness *= look.flare;
     o.overcast = look.sky;
