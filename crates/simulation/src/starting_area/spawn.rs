@@ -61,7 +61,8 @@ impl GarageRuntime {
         self.physics.refresh_queries();
     }
 
-    /// The first spot on the rings around `base` with ground under it and room for the player.
+    /// The first spot on the rings around `base` with fixed ground under it and room for the
+    /// player. A car cabin is hollow, so a spot with a car or an item over the ground is not free.
     fn free_spot(&self, base: Pose, turn: f32) -> Option<Pose> {
         let player = self.area.player.body_handle();
         let solid = |_: ColliderHandle, c: &Collider| c.is_enabled() && c.parent() != Some(player);
@@ -71,11 +72,18 @@ impl GarageRuntime {
                 .groups(self.area.player.collision_groups())
                 .predicate(&solid)
         };
+        let rapier = self.physics.rapier();
+        let fixed = |handle: ColliderHandle| {
+            rapier.colliders[handle]
+                .parent()
+                .is_none_or(|body| rapier.bodies[body].is_fixed())
+        };
         let ground = |at: Vector| {
             let ray = Ray::new(at + Vector::Y * RAY_UP, -Vector::Y);
             self.physics
                 .queries(filter())
                 .cast_ray(&ray, RAY_LENGTH, true)
+                .filter(|(handle, _)| fixed(*handle))
                 .map(|(_, toi)| at.y + RAY_UP - toi)
         };
         let shape = self.area.player.sweep_shape();

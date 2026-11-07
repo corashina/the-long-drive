@@ -510,7 +510,10 @@ impl Net {
 
 /// The world of `runtime` stands. `world_supported` waits for the save restore, so the saved seat
 /// is back first. Attachments to far owners can stay deferred for the whole session, so they do
-/// not count.
+/// not count. The stream spawns the last seated car late, so the step also waits for it: the car
+/// must not spawn on the new spot.
 fn settled(runtime: &GarageRuntime) -> bool {
-    runtime.started && runtime.world_supported()
+    runtime.started
+        && runtime.world_supported()
+        && (runtime.vehicle.is_none() || runtime.loaded_vehicle().is_some())
 }
