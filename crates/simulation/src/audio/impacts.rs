@@ -1,7 +1,8 @@
 //! Source hit sounds: `pickupable.OnCollisionEnter` and `carscript.OnCollisionEnter`.
 use super::{AudioAction, AudioKind, AudioState, SurvivalAudioEvent};
-use crate::interaction::items::{ItemLocation, ItemState};
+use crate::interaction::items::{ItemLocation, ItemState, ItemStore};
 use crate::reference::{ColliderId, CollisionAudioReference, ItemId, ReferenceManifest};
+use crate::round_robin::RoundRobin;
 use crate::starting_area::StartingArea;
 use crate::vehicle::{PhysicsWorld, VehiclePose, to_rapier};
 use rapier3d::prelude::{Ball, QueryFilter};
@@ -55,7 +56,8 @@ fn item_hit(
 pub struct ImpactState {
     /// Items that the last interior test found in an interior.
     interior: HashSet<ItemId>,
-    wait: f32,
+    /// The interior test visits a share of the items each step.
+    scan: RoundRobin,
 }
 
 #[derive(Clone, Copy)]
@@ -72,29 +74,31 @@ impl ImpactState {
         self.reset();
     }
     pub fn reset(&mut self) {
-        self.wait = 0.;
+        self.scan.reset();
         self.interior.clear();
     }
-    /// Every `period` seconds, test each loose pickup. Held and stored items keep their flag.
+    /// Test each loose pickup once per `period` seconds, a share of the items each step.
+    /// Held and stored items keep their flag.
     fn refresh(
         &mut self,
         dt: f32,
         period: f32,
-        loose: impl Iterator<Item = (ItemId, [f32; 3])>,
-        exists: impl Fn(ItemId) -> bool,
+        items: &ItemStore,
+        loose: impl Fn(&ItemState) -> bool,
         mut inside: impl FnMut([f32; 3]) -> bool,
     ) {
-        self.wait -= dt;
-        if self.wait > 0. {
-            return;
+        let range = self.scan.take(items.len(), (period / dt).round() as usize);
+        if range.start == 0 {
+            self.interior.retain(|&id| items.get(id).is_some());
         }
-        self.wait += period;
-        self.interior.retain(|&id| exists(id));
-        for (id, position) in loose {
-            if inside(position) {
-                self.interior.insert(id);
+        for item in items.iter().skip(range.start).take(range.len()) {
+            if !loose(item) {
+                continue;
+            }
+            if inside(item.pose.position) {
+                self.interior.insert(item.id);
             } else {
-                self.interior.remove(&id);
+                self.interior.remove(&item.id);
             }
         }
     }
@@ -141,15 +145,12 @@ impl AudioState {
         self.impacts.refresh(
             dt,
             rules.interior_check_seconds,
-            area.items
-                .iter()
-                .filter(|s| {
-                    s.location == ItemLocation::World
-                        && !s.removed
-                        && area.interaction.pickup_rule(s.id).is_some()
-                })
-                .map(|s| (s.id, s.pose.position)),
-            |id| area.items.get(id).is_some(),
+            &area.items,
+            |s| {
+                s.location == ItemLocation::World
+                    && !s.removed
+                    && area.interaction.pickup_rule(s.id).is_some()
+            },
             |position| {
                 let pose = to_rapier(VehiclePose {
                     position,

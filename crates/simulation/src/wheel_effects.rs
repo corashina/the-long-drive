@@ -291,6 +291,15 @@ impl WheelEffects {
         }
     }
 
+    /// No dust, grass or burst particle is alive.
+    pub fn idle(&self) -> bool {
+        self.bursts.iter().all(|b| b.particles().is_empty())
+            && self.wheels.iter().all(|e| {
+                e.dust.as_ref().is_none_or(|d| d.particles().is_empty())
+                    && e.grass.iter().all(|g| g.particles().is_empty())
+            })
+    }
+
     /// Burst 0 is `tiresmoke` on road, 1 is `tiresand` on dirt.
     pub fn burst_particles(&self, burst: usize) -> &[ParticleOutput] {
         self.bursts[burst].particles()

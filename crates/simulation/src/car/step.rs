@@ -53,7 +53,7 @@ impl VehicleRuntime {
         world: &mut CarWorld,
         input: CarInput,
     ) {
-        step_drive(
+        let active = step_drive(
             world,
             reference,
             key,
@@ -62,9 +62,18 @@ impl VehicleRuntime {
             input.driven,
             input.driving,
         );
+        // An inactive car does not change. Its effects run until the last particle is gone.
+        if !active && self.effects_idle() {
+            return;
+        }
         advance_lights(world, reference, key, self);
         advance_exhaust(world, reference, key, self);
         advance_wheel_effects(world, reference, key, self);
+    }
+
+    /// No exhaust, steam or wheel particle is alive.
+    fn effects_idle(&self) -> bool {
+        self.exhaust.idle() && self.coolant_steam.idle() && self.wheel_effects.idle()
     }
 }
 
@@ -191,6 +200,7 @@ fn advance_wheel_effects(
 
 /// Steps one engine and applies its forces. Only the driven vehicle reads keys.
 /// The engine and radiator are the parts mounted on this car. Torque needs an engine part.
+/// False when the chassis and the engine are inactive: the step did nothing.
 fn step_drive(
     world: &mut CarWorld,
     reference: &ReferenceManifest,
@@ -199,7 +209,7 @@ fn step_drive(
     input: FrameInput,
     driving: bool,
     driving_output: crate::simulation::input::DrivingOutput,
-) {
+) -> bool {
     vehicle.net.sent = None;
     let received_gear = vehicle.net.gear.take();
     let received_rpm = vehicle.net.rpm.take();
@@ -221,7 +231,7 @@ fn step_drive(
         if let Some(gear) = received_gear {
             vehicle.drivetrain.restore_gear(gear);
         }
-        return;
+        return false;
     }
     let gearbox: crate::simulation::drivetrain::Gearbox =
         world_vehicle(reference, vehicle.prototype).into();
@@ -586,6 +596,7 @@ fn step_drive(
             bike_gas: vehicle.pedals.gas,
         });
     }
+    true
 }
 
 /// Source `bikepedalscript.Update()`. Returns the motor torque of each pedal wheel.

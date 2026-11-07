@@ -529,6 +529,10 @@ pub struct GarageRuntime {
     recovery_bodies: Vec<RigidBodyHandle>,
     /// Simulation time of the next under-map check.
     under_map_check: f64,
+    /// The under-map check visits a share of the items each step.
+    under_map_items: crate::round_robin::RoundRobin,
+    /// Fallen items of this step. The buffer is kept between steps.
+    under_map_fallen: Vec<(RigidBodyHandle, f32)>,
     frame_poses: crate::boundary::FramePoses,
     /// The first frame carries every condition. Later frames carry changes.
     conditions_sent: bool,
@@ -752,6 +756,8 @@ impl GarageRuntime {
             recovery_bodies: Vec::with_capacity(reference.items.len()),
             recovery_held_bodies: Vec::with_capacity(reference.items.len()),
             under_map_check: 0.,
+            under_map_items: Default::default(),
+            under_map_fallen: Vec::new(),
             frame_poses: Default::default(),
             conditions_sent: false,
             home_cable_session: None,
@@ -1517,7 +1523,10 @@ impl GarageRuntime {
             if driven.as_ref() == Some(key) {
                 self.driven_km += distance_m / 1000.;
             }
-            if vehicle.kmh_slots.is_empty() {
+            // A frozen or unloaded car does not move. Its meters keep their values.
+            if vehicle.kmh_slots.is_empty()
+                || !self.physics.body_active(self.physics.chassis_handle(key))
+            {
                 continue;
             }
             // Source carscript.Update reads the meter of the part in each kmhmeters slot.
