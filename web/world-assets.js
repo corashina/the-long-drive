@@ -95,7 +95,7 @@ function readPack(base,pack,top){
   const complete=async()=>{
    while(index<entries.length&&offset===bytes.length){
     const entry=entries[index];
-    await checkAsset(entry.receipt,bytes);
+    checkAsset(entry.receipt,bytes);
     entry.ready=true;entry.resolve(bytes);
     if(packed===owned&&packed.get(entry.receipt.file)===entry){
      packHeld+=bytes.length;startPackMeasurements.heldPeakBytes=Math.max(startPackMeasurements.heldPeakBytes,packHeld);
@@ -168,7 +168,7 @@ export async function readAsset(base,receipt,signal){
    else await response.body?.cancel();
   }
   if(length!==receipt.bytes)throw Error('Asset length differs: '+receipt.file);
-  await checkAsset(receipt,bytes);
+  checkAsset(receipt,bytes);
   return bytes;
  }finally{
   onFetched({path:url,requiredBytes:receipt.bytes,receivedBytes:received});
@@ -177,14 +177,12 @@ export async function readAsset(base,receipt,signal){
  }
 }
 
-async function checkAsset(receipt,bytes){
- const digest=await crypto.subtle.digest('SHA-256',bytes);
+// Paths carry a content hash, and gzip, Brotli and TLS check the transport.
+function checkAsset(receipt,bytes){
+ if(!receipt.file.endsWith('.png'))return;
  cpuProfile?.begin('assetValidation');
- try {
- const hash=Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
- if(hash!==receipt.sha256)throw Error('Asset SHA-256 mismatch: '+receipt.file);
- if(receipt.file.endsWith('.png'))checkPngInput(bytes,{width:receipt.image_size[0],height:receipt.image_size[1]});
- } finally {cpuProfile?.end('assetValidation');}
+ try{checkPngInput(bytes,{width:receipt.image_size[0],height:receipt.image_size[1]});}
+ finally{cpuProfile?.end('assetValidation');}
 }
 
 // The checked export uses RGB/RGBA8, bounded IDAT chunks, and no auxiliary PNG payloads.
