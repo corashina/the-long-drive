@@ -722,6 +722,24 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
         first=source.read(sled_sources[0]);owner=source.get(sleds[0]['source']['file'],sleds[0]['source']['path_id'])
         survival_groups.append(('sled',20,owner,[source.resolve(sled_sources[0],first['m_audioClip'])],sled_sources[0],
             [0.,sleds[0]['sound_max_volume']],[sleds[0]['sound_min_pitch'],sleds[0]['sound_max_pitch']]))
+    # tankcapscript.PlayFillSound and Update play SSource while a world cap fills or pours. One row serves every world cap.
+    fills=[]
+    for r in manifest['world']['records']:
+        if r['class_name']!='tankcapscript':continue
+        cap=source.get(r['source']['file'],r['source']['path_id']);d=source.read(cap)
+        reader=source.resolve(cap,d['SSource']) if d['SSource']['m_PathID'] else None
+        fill_clip=source.resolve(reader,source.read(reader)['m_audioClip']) if reader is not None else None
+        if fill_clip is not None:fills.append((r['source'],reader,fill_clip))
+    audio['world_fluids']={'pour_speed':[md['minPourSpeedSound'],md['maxPourSpeedSound']],'latch_steps':3,'caps':[]}
+    if fills:
+        # The runtime sets the volume. The other source settings must be equal.
+        shared=lambda r:{k:v for k,v in source.read(r).items() if k not in ('m_GameObject','m_audioClip','m_Volume','m_PlayOnAwake')}
+        differ=sorted({k for _,r,_ in fills for k,v in shared(r).items() if v!=shared(fills[0][1]).get(k)})
+        if differ:raise ValueError(f'World cap fill sources differ in {differ}')
+        fill_clips=unique(c for _,_,c in fills);index={key(c):i for i,c in enumerate(fill_clips)}
+        audio['world_fluids']['caps']=[{'cap':s,'clip':index[key(c)]} for s,_,c in fills]
+        first=source.read(fills[0][1])
+        survival_groups.append(('fluid_fill',32,source.get(fills[0][0]['file'],fills[0][0]['path_id']),fill_clips,fills[0][1],[0.,1.],[first['m_Pitch']]*2))
     # radioscript.TurnRadio plays Cturned at the radio through mainscript.PlayClipAtPoint. One row serves every world radio.
     radios=[source.get(r['source']['file'],r['source']['path_id']) for r in manifest['world']['records'] if r['class_name']=='radioscript']
     clicks={(key(source.resolve(r,d['Cturned'])),d['turnVolume']) for r in radios for d in [source.read(r)]}
@@ -738,8 +756,8 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
         d=source.read(reader);one_shot=role in ONE_SHOT
         route=routes[role] if role in routes else source.resolve(reader,d['OutputAudioMixerGroup'])
         transform=source.transform_for(source.resolve(reader,d['m_GameObject']))
-        # The sled source moves with its Rigidbody. The runtime passes its position each frame.
-        if role!='sled' and any(c.type.name=='Rigidbody' for c in source.components(transform)[1]):raise ValueError('Selected audio velocity needs a Rigidbody route')
+        # Sled and world cap sources move with their Rigidbody. The runtime passes their position each frame.
+        if role not in ('sled','fluid_fill') and any(c.type.name=='Rigidbody' for c in source.components(transform)[1]):raise ValueError('Selected audio velocity needs a Rigidbody route')
         pose=world_pose(source,transform)
         player_pose=world_pose(source,source.transform_for(source.resolve(player,pd['m_GameObject'])))
         position=[pose['translation'][i]-player_pose['translation'][i] for i in range(3)] if role in ('burp','fart','shit','death','sleep','horror','hum') else [0.,0.,0.]
@@ -750,7 +768,7 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
         if one_shot:
             for k in settings['spatial_blend_curve']['keys']:k['value']=1.
         cls,name={'eat':('mainscript','PlayClipAtPoint'),'eat_crunchy':('mainscript','PlayClipAtPoint'),'burp':('fpscontroller','Burp'),'fart':('fpscontroller','Fart'),'shit':('fpscontroller','Shit'),'death':('fpscontroller','Death2'),'sleep':('mainscript','Update'),'horror':('mainscript','RandomHorrorSound'),'hum':('fpscontroller','Update'),
-            'item_hit':('pickupable','OnCollisionEnter'),'car_hit':('carscript','OnCollisionEnter'),'rock_heat':('soundplayscript','PlaySound'),'footstep':('stepSoundScript','Step'),'storm':('sandstormscript','Update'),'melee_hit':('meleeweaponscript','Update'),'metal_detector':('metalDetectorScript','UpdSound'),'ambience_zone':('ambienceZone','Upd'),'sled':('szankoScript','Update'),'radio_click':('radioscript','TurnRadio'),'break':('breakablescript','Break')}.get(role,('napszakvaltakozas','FixedUpdate'))
+            'item_hit':('pickupable','OnCollisionEnter'),'car_hit':('carscript','OnCollisionEnter'),'rock_heat':('soundplayscript','PlaySound'),'footstep':('stepSoundScript','Step'),'storm':('sandstormscript','Update'),'melee_hit':('meleeweaponscript','Update'),'metal_detector':('metalDetectorScript','UpdSound'),'ambience_zone':('ambienceZone','Upd'),'sled':('szankoScript','Update'),'fluid_fill':('tankcapscript','PlayFillSound'),'radio_click':('radioscript','TurnRadio'),'break':('breakablescript','Break')}.get(role,('napszakvaltakozas','FixedUpdate'))
         audio['survival'].append({'role':role,'kind':kind,'one_shot':one_shot,'source':source_id(owner),'audio_source':source_id(reader),
             'clips':[clip(r) for r in clip_readers], 'gain':gain,'pitch':pitch,'offset':position,
             'settings':settings,'mixer':mixer(route),'doppler':d['DopplerLevel'],'pan':d['Pan2D'],'method':method(cls,name)})
