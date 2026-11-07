@@ -59,24 +59,6 @@ pub struct Computers {
     pub sounds: Vec<(u32, f32, [f64; 3])>,
 }
 impl Computers {
-    pub fn heap_bytes(&self) -> usize {
-        self.computers.capacity() * std::mem::size_of::<ComputerBinding>()
-            + self
-                .computers
-                .iter()
-                .map(|b| crate::world::contents::identity_heap(&b.parent) + b.computer.grid().len())
-                .sum::<usize>()
-            + self.displays.capacity() * std::mem::size_of::<DisplayBinding>()
-            + self
-                .displays
-                .iter()
-                .map(|b| {
-                    crate::world::contents::identity_heap(&b.parent)
-                        + b.knobs.capacity() * std::mem::size_of::<ColliderId>()
-                })
-                .sum::<usize>()
-            + self.sounds.capacity() * std::mem::size_of::<(u32, f32, [f64; 3])>()
-    }
     pub fn computers(&self) -> &[ComputerBinding] {
         &self.computers
     }
@@ -258,10 +240,7 @@ impl WorldStream {
     ) -> Result<Vec<ColliderId>, ReferenceError> {
         let prototype = self
             .reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == reference.computer.display.prototype)
-            .ok_or_else(|| ReferenceError("Display prototype missing".into()))?;
+            .prototype(&reference.computer.display.prototype)?;
         let switch = &reference.computer.display.switch.node;
         let mut knobs = Vec::new();
         for (source, handle) in self

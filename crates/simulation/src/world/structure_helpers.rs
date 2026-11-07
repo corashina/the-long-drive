@@ -41,13 +41,7 @@ impl StructureHelpers {
                     let ranges = array(record.fields, "range2")?;
                     for (i, coord) in coords.iter().enumerate() {
                         let target = value_link(coord)?;
-                        let index = prototype
-                            .nodes
-                            .iter()
-                            .position(|n| &n.source == target)
-                            .ok_or_else(|| {
-                                ReferenceError("Source terrain helper outside prototype".into())
-                            })?;
+                        let index = prototype.node(target)?;
                         let scale = prototype.nodes[index].transform.scale[0];
                         let factor = if ranges.len() < coords.len() {
                             0.
@@ -120,16 +114,5 @@ impl StructureHelpers {
                 });
             }
         }
-    }
-    pub fn retained_bytes(&self) -> usize {
-        self.0.capacity() * std::mem::size_of::<(SourceId, Vec<TerrainFoundation>)>()
-            + self
-                .0
-                .iter()
-                .map(|(source, rows)| {
-                    source.file.capacity()
-                        + rows.capacity() * std::mem::size_of::<TerrainFoundation>()
-                })
-                .sum::<usize>()
     }
 }

@@ -8,89 +8,40 @@ use std::collections::HashMap;
 #[derive(Default)]
 pub struct BuildingComponents {
     entries: HashMap<SourceId, Option<RecordLocation>>,
-    key_bytes: usize,
 }
 impl BuildingComponents {
-    pub fn needs_lookup(&self, placements: &[Placement]) -> bool {
-        placements
-            .iter()
-            .any(|p| p.id.children.is_empty() && !self.entries.contains_key(&p.prototype))
-    }
-    pub fn retained_bytes(&self) -> usize {
-        super::metrics::map_bytes(
-            self.entries.capacity(),
-            std::mem::size_of::<(SourceId, Option<RecordLocation>)>(),
-        ) + self.key_bytes
-    }
-    /// `None`: the new entry does not fit `room`. Nothing is retained.
     fn component<'a>(
         &mut self,
         reference: &'a WorldReference,
         rules: &'a SourceRules,
         source: &SourceId,
-        room: &mut usize,
-    ) -> Result<Option<Option<SourceRecord<'a>>>, ReferenceError> {
+    ) -> Result<Option<SourceRecord<'a>>, ReferenceError> {
         if let Some(location) = self.entries.get(source) {
-            return Ok(Some(location.map(|location| location.record(reference))));
+            return Ok(location.map(|location| location.record(reference)));
         }
-        // Keep the checked lookup and its errors before metadata admission.
         let record = rules.component(reference, source, "buildingscript")?;
-        let growth =
-            super::metrics::map_insert_bytes(&self.entries).max(if self.entries.capacity() == 0 {
-                // The first std HashMap allocation has capacity three.
-                super::metrics::map_bytes(
-                    3,
-                    std::mem::size_of::<(SourceId, Option<RecordLocation>)>(),
-                )
-            } else {
-                0
-            });
-        let admission = growth.saturating_add(source.file.capacity());
-        if admission > *room {
-            return Ok(None);
-        }
-        let before = self.retained_bytes();
-        let key = source.clone();
-        self.key_bytes += key.file.capacity();
-        self.entries.insert(key, record.map(|r| r.location));
-        *room -= self.retained_bytes() - before;
-        Ok(Some(record))
+        self.entries
+            .insert(source.clone(), record.map(|r| r.location));
+        Ok(record)
     }
 }
 
-/// False: a building lookup does not fit `room`. It appends the ramps up to that building.
+/// Appends the ramps of the building roots in `placements`.
 pub fn append_ramps(
     reference: &WorldReference,
     rules: &SourceRules,
     components: &mut BuildingComponents,
-    mut room: usize,
     seed: i32,
     placements: &mut Vec<Placement>,
     maximum: usize,
-) -> Result<bool, ReferenceError> {
-    append_ramps_with(reference, rules, seed, placements, maximum, |source| {
-        components.component(reference, rules, source, &mut room)
-    })
-}
-
-fn append_ramps_with<'a>(
-    reference: &'a WorldReference,
-    rules: &'a SourceRules,
-    seed: i32,
-    placements: &mut Vec<Placement>,
-    maximum: usize,
-    mut component: impl FnMut(&SourceId) -> Result<Option<Option<SourceRecord<'a>>>, ReferenceError>,
-) -> Result<bool, ReferenceError> {
+) -> Result<(), ReferenceError> {
     let parents = placements.len();
     for index in 0..parents {
         let parent = &placements[index];
         if !parent.id.children.is_empty() {
             continue;
         }
-        let Some(building) = component(&parent.prototype)? else {
-            return Ok(false);
-        };
-        let Some(building) = building else {
+        let Some(building) = components.component(reference, rules, &parent.prototype)? else {
             continue;
         };
         if placements.iter().any(|p| {
@@ -135,11 +86,7 @@ fn append_ramps_with<'a>(
                 90.
             };
         let root = rules.root(reference, target)?;
-        let prototype = reference
-            .prototypes
-            .iter()
-            .find(|p| &p.source == root)
-            .ok_or_else(|| ReferenceError("Missing checked source ramp prototype".into()))?;
+        let prototype = reference.prototype(root)?;
         let offset = super::placement::rotate(
             super::spawn_building::source_euler([0., angle, 0.]),
             [0., 0., -radius],
@@ -176,7 +123,7 @@ fn append_ramps_with<'a>(
             object_seed: local_seed,
         });
     }
-    Ok(true)
+    Ok(())
 }
 
 fn source_i32(value: f64) -> i32 {

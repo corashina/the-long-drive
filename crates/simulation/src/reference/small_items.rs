@@ -196,12 +196,10 @@ impl SmallItemsReference {
                 .filter(|i| i.index == item && i.name == name)
                 .and_then(|i| i.prototype.as_ref())
                 .filter(|p| *p == source)
-                .and_then(|p| m.world.prototypes.iter().find(|w| &w.source == p));
+                .and_then(|p| m.world.prototypes.find(p));
             owner.ok_or_else(|| invalid(name))
         };
-        let inside = |p: &WorldPrototypeReference, node: &SourceId| {
-            p.nodes.iter().any(|n| &n.source == node)
-        };
+        let inside = |p: &WorldPrototypeReference, node: &SourceId| p.nodes.find(node).is_some();
 
         let l = &self.spirit_level;
         let p = prototype(SPIRIT_LEVEL_ITEM, "waterlevel", &l.prototype)?;
@@ -403,14 +401,9 @@ impl SmallItemsReference {
             let p = m
                 .world
                 .prototypes
-                .iter()
-                .find(|p| p.source == w.prototype)
+                .find(&w.prototype)
                 .ok_or_else(|| invalid("wash prototype"))?;
-            let node = p
-                .nodes
-                .iter()
-                .position(|n| n.source == w.node)
-                .ok_or_else(|| invalid("wash node"))?;
+            let node = p.nodes.index(&w.node).ok_or_else(|| invalid("wash node"))?;
             let below = |mut i: usize| loop {
                 if i == node {
                     return true;
@@ -428,9 +421,7 @@ impl SmallItemsReference {
                             .iter()
                             .any(|pc| pc.source == *c && below(pc.node as usize))
                     })
-                    && w.objects
-                        .iter()
-                        .all(|o| p.nodes.iter().any(|n| n.source == *o))
+                    && w.objects.iter().all(|o| p.nodes.find(o).is_some())
                     && (0. ..1.).contains(&w.chance_to_start_disabled)
                     && w.particle_on_destroy
                         .as_ref()

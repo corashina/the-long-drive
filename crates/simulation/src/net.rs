@@ -127,7 +127,7 @@ impl Net {
             runtime.place(f32::from(self.slot) / MAX_PLAYERS as f32, &others);
         }
     }
-    /// The dead player respawns near the nearest other player, or in the garage when
+    /// The dead player respawns near the nearest living other player, or in the garage when
     /// there is none. `prepare` then moves it to a free spot.
     pub fn respawn(&mut self, reference: &ReferenceManifest, runtime: &mut GarageRuntime) {
         if !runtime.needs_output().dead {
@@ -137,6 +137,11 @@ impl Net {
         let base = self
             .figures
             .iter()
+            .filter(|(slot, _)| {
+                self.remotes
+                    .iter()
+                    .any(|r| r.slot == *slot && !r.smoothing.dead)
+            })
             .map(|(_, pose)| *pose)
             .min_by(|a, b| {
                 (a.translation - at)

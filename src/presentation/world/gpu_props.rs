@@ -234,17 +234,6 @@ impl GpuProps {
     pub fn batch_revision(&self) -> u64 {
         self.batch_revision
     }
-    pub fn retained_bytes(&self) -> usize {
-        self.rows.capacity() * std::mem::size_of::<PropRow>()
-            + self.free.capacity() * 4
-            + self.dirty.capacity() * 4
-            + self.marked.capacity()
-            + self.shadow_dirty.capacity() * 4
-            + self.shadow_marked.capacity()
-            + self.batches.capacity() * std::mem::size_of::<PropBatch>()
-            + self.free_batches.capacity() * 4
-            + self.index.capacity() * (std::mem::size_of::<(BatchKey, u32)>() + 1)
-    }
     /// Moves the dirty rows to `out` as sorted ranges. The render world uploads them.
     /// Small gaps join ranges, so many scattered rows give few uploads of little extra data.
     pub fn take_dirty(&mut self, out: &mut Vec<Range<u32>>) {

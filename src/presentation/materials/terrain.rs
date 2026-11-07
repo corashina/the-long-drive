@@ -241,7 +241,7 @@ impl AsBindGroup for TerrainMaterial {
     type Param = (
         <SourceReceiver as AsBindGroup>::Param,
         SRes<RenderAssets<GpuImage>>,
-        SRes<super::terrain_coverage::TerrainCoverageGpu>,
+        SRes<crate::presentation_logic::terrain_coverage::TerrainCoverageGpu>,
     );
     fn label() -> &'static str {
         "source TerrainBiome"
@@ -320,7 +320,9 @@ impl AsBindGroup for TerrainMaterial {
                     sampler(SamplerBindingType::Filtering),
                     texture_2d_array(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
-                    uniform_buffer::<super::terrain_coverage::TerrainCoverageUniform>(false),
+                    uniform_buffer::<
+                        crate::presentation_logic::terrain_coverage::TerrainCoverageUniform,
+                    >(false),
                 ),
             )
             .to_vec(),

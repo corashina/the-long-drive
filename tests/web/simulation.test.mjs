@@ -36,8 +36,9 @@ test('a command is copied, its frame is read once, and stats reset',()=>{
  simulation.read(out);
  assert.deepEqual([...out],[8,9]);
  assert.equal(simulation.frameLength(),-1);
- assert.deepEqual(simulation.stats(),{tickMs:3,wasmBytes:96});
- assert.deepEqual(simulation.stats(),{tickMs:null,wasmBytes:96});
+ assert.deepEqual(simulation.stats(),{tickMs:3});
+ assert.deepEqual(simulation.stats(),{tickMs:null});
+ assert.equal(simulation.wasmBytes(),96);
 });
 
 test('a worker failure fails once, rejects the start and drops later frames',async()=>{

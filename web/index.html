@@ -21,7 +21,6 @@
 <aside id="survival" aria-label="Player needs" hidden></aside>
 <section id="menu" class="covered" aria-label="Game menu">
 <div id="menu-art" aria-hidden="true"></div><div id="menu-frame" aria-hidden="true"></div>
-<p id="status" role="status" aria-live="polite"></p>
 <p id="capture-error" role="alert" hidden></p>
 <div id="start-actions" class="start-menu" hidden><div class="start-primary"><button id="new-game" data-w="mstart" type="button" disabled>New game</button><button id="start-load-last" data-w="mloadlast" type="button" disabled hidden>Load last</button><button id="start-load" data-w="mload" type="button" disabled>Load</button></div><div class="start-secondary"><button id="start-game-mode" type="button" disabled>Game mode</button><button id="start-appearance" data-w="mplayer" type="button" disabled>Appearance</button><button id="start-multiplayer" data-w="multiplayer" type="button" disabled>Multiplayer</button><button id="start-settings" data-w="msettings" type="button" disabled>Settings</button></div></div>
 <div id="pause-actions" class="pause-menu" hidden><div id="death-card" role="alert" hidden><h2>You died</h2><p id="death-hint"></p></div><button id="pause-respawn" type="button" hidden>Respawn</button><button id="resume" data-w="mcontinue" type="button">Continue</button><button id="save" data-w="msave" type="button">Save</button><button id="load" data-w="mload" type="button">Load</button><button id="pause-new-game" data-w="mstart" type="button">New game</button><button id="recover" type="button">Recover</button><button id="settings" data-w="msettings" type="button">Settings</button><button id="pause-game-mode" type="button">Game mode</button><button id="appearance" data-w="mplayer" type="button">Appearance</button><button id="multiplayer" data-w="multiplayer" type="button">Multiplayer</button></div>
@@ -95,6 +94,7 @@
 <label id="throw-charge" hidden>Throw strength <meter id="throw-level" min="0" max="1" value="0"></meter></label><p id="fluid-text" hidden></p><div id="hud-corner"><div id="help-text" hidden></div><div id="carry-help" hidden></div><div id="prompts"></div></div><p id="action-notice" role="status" hidden></p>
 </aside>
 <p id="autosave-notice" role="status" hidden></p>
+<p id="toast" role="status" aria-live="polite"></p>
 <section id="loading-details" aria-labelledby="loading-phase">
 <div id="loading-room" class="room-card" hidden><p class="room-title">Joining room</p><p id="loading-room-code" class="room-code" translate="no"></p>
 <dl class="room-facts"><dt>Host</dt><dd id="loading-room-host">…</dd><dt>Players</dt><dd><ul id="loading-room-players" class="room-players" aria-label="Players"></ul></dd></dl>

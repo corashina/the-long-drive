@@ -34,7 +34,6 @@ impl RendererSurface {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RendererStructure {
     pub fixed_decoration: bool,
-    pub cpu_bytes: usize,
     pub placement: Placement,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -122,9 +121,6 @@ pub struct WorldDelta {
     road_loaded: [bool; 3],
     holds_changed: bool,
     holds: Vec<SourceId>,
-    hold_insert_bytes: usize,
-    prototype_cpu_bytes: usize,
-    staging_configured: bool,
 }
 
 /// Deltas compare by their encoding. Frame tests use it.
@@ -191,9 +187,6 @@ pub struct RendererWorld {
     /// Road prototypes by index that the stream has built.
     road_loaded: [bool; 3],
     holds: HashSet<SourceId>,
-    hold_insert_bytes: usize,
-    prototype_cpu_bytes: usize,
-    staging_configured: bool,
     mark: u64,
 }
 
@@ -234,9 +227,6 @@ impl RendererWorld {
             road_required: [false; 3],
             road_loaded: [false; 3],
             holds: HashSet::new(),
-            hold_insert_bytes: 0,
-            prototype_cpu_bytes: 0,
-            staging_configured: false,
             mark: 0,
         }
     }
@@ -294,22 +284,6 @@ impl RendererWorld {
     }
     pub fn holds_prototype(&self, source: &SourceId) -> bool {
         self.holds.contains(source)
-    }
-    /// True if the stream holds the prototype or has room for the hold.
-    pub fn can_hold_prototype(&self, source: &SourceId) -> bool {
-        self.holds_prototype(source)
-            || self
-                .prototype_cpu_bytes
-                .checked_add(hold_cost(
-                    &self.lookups.reference,
-                    &self.road_loaded,
-                    self.hold_insert_bytes,
-                    source,
-                ))
-                .is_some_and(|v| v <= super::PROTOTYPE_CPU)
-    }
-    pub fn dependency_staging_configured(&self) -> bool {
-        self.staging_configured
     }
     pub fn contents_initialized(&self, id: &GeneratedId) -> bool {
         self.pending
@@ -419,35 +393,10 @@ impl RendererWorld {
             );
         }
     }
-    /// Squared source distance from the nearer of the player and vehicle.
-    pub fn focus_distance_squared(&self, position: [f64; 3]) -> f32 {
-        super::focus_distance_squared(self.request, position)
+    /// Structure load order, first is less. See `load_order`.
+    pub fn load_order(&self, a: &Placement, b: &Placement) -> std::cmp::Ordering {
+        super::load_order(self.request, a, b)
     }
-}
-
-/// Stream bytes of a new prototype hold.
-pub(super) fn hold_cost(
-    reference: &WorldReference,
-    road_loaded: &[bool; 3],
-    insert_bytes: usize,
-    source: &SourceId,
-) -> usize {
-    let road_bytes = reference
-        .road
-        .prototypes
-        .iter()
-        .position(|id| id == source)
-        .filter(|&index| !road_loaded[index])
-        .map_or(0, |_| {
-            crate::world::road::road_prototype_bytes(
-                reference
-                    .prototypes
-                    .iter()
-                    .find(|p| &p.source == source)
-                    .expect("validated road prototype"),
-            )
-        });
-    (insert_bytes + source.file.capacity()).saturating_add(road_bytes)
 }
 
 impl WorldStream {
@@ -540,7 +489,6 @@ impl WorldStream {
                 .structures
                 .extend(self.structures.iter().map(|s| RendererStructure {
                     fixed_decoration: s.fixed_decoration,
-                    cpu_bytes: s.cpu_bytes,
                     placement: s.placement.clone(),
                 }));
             delta.structures_changed = true;
@@ -673,15 +621,9 @@ impl WorldStream {
             delta.holds_changed = true;
             delta.holds.extend(world.holds.iter().cloned());
         }
-        world.hold_insert_bytes = crate::world::metrics::map_insert_bytes(&self.prototype_holds);
-        world.prototype_cpu_bytes = self.prototype_cpu_bytes();
-        world.staging_configured = self.dependency_staging_configured();
         delta.required_ready = world.required_ready;
         delta.road_required = world.road_required;
         delta.road_loaded = world.road_loaded;
-        delta.hold_insert_bytes = world.hold_insert_bytes;
-        delta.prototype_cpu_bytes = world.prototype_cpu_bytes;
-        delta.staging_configured = world.staging_configured;
     }
     /// Content appearance by placement. Active contents come before cursor roots.
     fn sync_renderer_contents(&self, world: &mut RendererWorld, delta: &mut WorldDelta) {
@@ -823,9 +765,6 @@ impl RendererWorld {
             self.holds.clear();
             self.holds.extend(delta.holds.iter().cloned());
         }
-        self.hold_insert_bytes = delta.hold_insert_bytes;
-        self.prototype_cpu_bytes = delta.prototype_cpu_bytes;
-        self.staging_configured = delta.staging_configured;
     }
 }
 

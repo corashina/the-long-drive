@@ -37,8 +37,6 @@ pub struct SpawnEvaluation<'a> {
     pub output: Vec<SpawnedContent>,
     pub limit: usize,
     depth: usize,
-    pub(super) staging: usize,
-    admitted: usize,
     pub(super) initialization: super::spawn_state::SpawnInitialization,
     pub(super) deferred: Vec<(Placement, SourceId)>,
     pub(super) starts: Vec<(Placement, Option<super::spawn_starts::ConditionOverride>)>,
@@ -64,8 +62,6 @@ impl<'a> SpawnEvaluation<'a> {
             output: Vec::new(),
             limit,
             depth: 0,
-            staging: 0,
-            admitted: 0,
             initialization: super::spawn_state::SpawnInitialization::default(),
             deferred: Vec::new(),
             starts: Vec::new(),
@@ -83,78 +79,6 @@ impl<'a> SpawnEvaluation<'a> {
         }
         #[cfg(not(test))]
         let _ = item;
-    }
-    /// Staging bytes that the initialization of `parent` admits.
-    pub(super) fn initialization_bytes(
-        reference: &WorldReference,
-        rules: &SourceRules,
-        parent: &Placement,
-    ) -> Result<usize, ReferenceError> {
-        let bytes = rules.initialization_bound(
-            reference,
-            &parent.prototype,
-            super::contents::identity_heap(&parent.id),
-            0,
-        )?;
-        Ok(bytes + std::mem::size_of::<Placement>() + super::contents::placement_heap(parent))
-    }
-    pub(super) fn admit_initialization(
-        &mut self,
-        parent: &Placement,
-    ) -> Result<(), ReferenceError> {
-        let bytes = Self::initialization_bytes(self.reference, self.rules, parent)?;
-        if self.admitted.saturating_add(bytes) > self.staging {
-            return Err(ReferenceError(
-                "Source initialization exceeds staging admission".into(),
-            ));
-        }
-        self.admitted += bytes;
-        Ok(())
-    }
-    pub(super) fn check_staging(&self, available: usize) -> Result<(), ReferenceError> {
-        use std::mem::size_of;
-        let bytes = self.output.capacity() * size_of::<SpawnedContent>()
-            + self
-                .output
-                .iter()
-                .map(|c| {
-                    c.inputs.retained_bytes()
-                        + super::contents::placement_heap(&c.placement)
-                        + c.tanks.capacity()
-                            * size_of::<(SourceId, crate::fluids::FluidContainer)>()
-                        + c.tanks
-                            .iter()
-                            .map(|(s, _)| s.file.capacity())
-                            .sum::<usize>()
-                        + c.lights.capacity() * size_of::<super::WorldLight>()
-                        + c.lights
-                            .iter()
-                            .map(super::WorldLight::heap_bytes)
-                            .sum::<usize>()
-                        + super::contents::appearance_bytes(&c.appearance)
-                        + super::contents::appearance_bytes(&c.cable)
-                })
-                .sum::<usize>()
-            + self.starts.capacity()
-                * size_of::<(Placement, Option<super::spawn_starts::ConditionOverride>)>()
-            + self
-                .starts
-                .iter()
-                .map(|(p, _)| super::contents::placement_heap(p))
-                .sum::<usize>()
-            + self.deferred.capacity() * size_of::<(Placement, SourceId)>()
-            + self
-                .deferred
-                .iter()
-                .map(|(p, s)| super::contents::placement_heap(p) + s.file.capacity())
-                .sum::<usize>()
-            + self.initialization.retained_bytes() * 2;
-        if bytes > available {
-            return Err(ReferenceError(
-                "Source atomic spawn exceeds admitted staging".into(),
-            ));
-        }
-        Ok(())
     }
     pub fn spawn(
         &mut self,
@@ -305,14 +229,7 @@ impl<'a> SpawnEvaluation<'a> {
                     .rules
                     .component(self.reference, actual, "newAiScript")?
                     .is_some();
-                if human
-                    || spawns
-                        && self
-                            .reference
-                            .prototypes
-                            .iter()
-                            .any(|p| p.source == child.prototype)
-                {
+                if human || spawns && self.reference.prototypes.find(&child.prototype).is_some() {
                     self.push(SpawnedContent {
                         inputs: super::spawn_state::SpawnInitialization::default(),
                         placement: child.clone(),
@@ -362,7 +279,6 @@ impl<'a> SpawnEvaluation<'a> {
             },
             object_seed: 0,
         };
-        self.admit_initialization(&placement)?;
         Ok(placement)
     }
     pub fn node_pose(

@@ -130,13 +130,7 @@ pub(super) fn bind(
         let (radius, tire_mount, tire_main_types, tire_types) = if let Some(rim) = rim {
             let slot = rules.get(&reference.world, link(rim.fields, "gumi")?)?;
             let target = link(slot.fields, "T")?;
-            let index = prototype
-                .nodes
-                .iter()
-                .position(|n| &n.source == target)
-                .ok_or_else(|| {
-                    ReferenceError("Generated rim mount is outside its prototype".into())
-                })?;
+            let index = prototype.node(target)?;
             (
                 number(rim.fields, "felniRadius")?,
                 Some(rim_local(prototype, node_index, index)),

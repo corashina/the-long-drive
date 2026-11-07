@@ -667,8 +667,7 @@ impl StructureViews {
         if let Some(trigger) = stream.spray_trigger(id)
             && let Some(n) = prototype
                 .nodes
-                .iter()
-                .position(|n| n.source == reference.small_items.spray_bottle.trigger)
+                .index(&reference.small_items.spray_bottle.trigger)
         {
             local(n, trigger);
         }

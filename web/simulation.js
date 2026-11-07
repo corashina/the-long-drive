@@ -48,8 +48,10 @@ export function createSimulation(worker,onFailure){
   get started(){return started;},
   frameLength:()=>frame?frame.length:-1,
   read(out){out.set(frame);frame=null;},
-  // Average tick time since the last read, and the worker WASM memory.
-  stats(){const value={tickMs:ticks?tickMs/ticks:null,wasmBytes};tickMs=0;ticks=0;return value;},
+  // Average tick time since the last read.
+  stats(){const value={tickMs:ticks?tickMs/ticks:null};tickMs=0;ticks=0;return value;},
+  // WASM memory of the simulation worker and its terrain and road workers.
+  wasmBytes:()=>wasmBytes,
  };
 }
 

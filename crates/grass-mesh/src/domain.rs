@@ -130,8 +130,4 @@ impl GrassDomain {
         }
         Ok(result)
     }
-    pub fn retained_bytes(&self) -> usize {
-        self.points.capacity() * std::mem::size_of::<[f32; 3]>()
-            + self.triangles.capacity() * std::mem::size_of::<[u16; 3]>()
-    }
 }

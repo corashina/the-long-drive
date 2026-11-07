@@ -87,12 +87,7 @@ impl SpawnEvaluation<'_> {
         for index in 0..self.output.len() {
             self.output[index].lights.clear();
             let parent = self.output[index].placement.clone();
-            let Some(prototype) = self
-                .reference
-                .prototypes
-                .iter()
-                .find(|p| p.source == parent.prototype)
-            else {
+            let Some(prototype) = self.reference.prototypes.find(&parent.prototype) else {
                 continue;
             };
             for (node_index, node) in prototype.nodes.iter().enumerate() {

@@ -212,18 +212,11 @@ pub struct PerfBlock {
     pub world_ms: f64,
     /// Milliseconds of `PhysicsWorld::step_physics` in the fixed steps.
     pub rapier_ms: f64,
-    pub render_cpu_bytes: f64,
-    pub render_gpu_bytes: f64,
     pub frame_steps: u32,
     /// Wheels of the current car that touch the ground.
     pub contacts: u32,
     pub bodies: u32,
     pub colliders: u32,
-    pub roads: u32,
-    pub terrain: u32,
-    pub objects: u32,
-    pub jobs: u32,
-    pub pending: u32,
     pub storms: u32,
     pub storm_strength: f32,
     pub weather_particles: u32,
@@ -240,6 +233,8 @@ pub struct PerfBlock {
     pub ccd_bodies: u32,
     /// Narrow-phase collider pairs with overlapping bounds.
     pub contact_pairs: u32,
+    /// Keeps the block free of padding.
+    pub pad: u32,
 }
 
 impl PerfBlock {
@@ -1057,7 +1052,7 @@ pub enum Change {
     /// The simulation part of a world measurement, as JSON.
     Measurements(String),
     Failure(String),
-    /// Renderer credit of the world step for the renderer report of the command.
+    /// The world step answer to the renderer step of the command.
     Grant(crate::world::PresentationGrant),
     /// The answer to a browser save request.
     SaveResult {
@@ -1121,7 +1116,7 @@ pub struct SimFrame {
     pub spray_colors: Vec<[f32; 4]>,
     /// Browser audio calls. Empty without audio.
     pub audio: Vec<AudioCall>,
-    /// World budgets in `BUDGET_LABELS` order. Empty after the start.
+    /// World counts against their caps, in `BUDGET_LABELS` order.
     pub budgets: Vec<BudgetRow>,
     pub lighting: FrameLighting,
     pub weather: WeatherFrame,
@@ -1212,8 +1207,8 @@ pub enum SaveCommand {
 pub struct WorldCommand {
     /// Facts of the renderer steps since the last command, in order.
     pub facts: crate::world::RendererFacts,
-    /// Renderer budget use. `None`: no renderer step since the last command.
-    pub report: Option<crate::world::PresentationReport>,
+    /// A renderer step ran since the last command.
+    pub renderer_step: bool,
     /// Camera views that select required content. Empty: no complete camera view.
     pub views: Vec<crate::world::RequiredView>,
     pub lamps: LampAdmission,
@@ -1237,16 +1232,13 @@ impl WorldCommand {
     pub fn merge(&mut self, next: Self) {
         let Self {
             facts,
-            report,
+            renderer_step,
             views,
             lamps,
             failure,
         } = next;
         self.facts.extend(facts);
-        self.report = match (self.report.take(), report) {
-            (Some(report), Some(next)) => Some(report.merge(next)),
-            (report, next) => next.or(report),
-        };
+        self.renderer_step |= renderer_step;
         self.views = views;
         if lamps != LampAdmission::Same {
             self.lamps = lamps;

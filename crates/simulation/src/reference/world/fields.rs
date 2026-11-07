@@ -226,9 +226,6 @@ impl WorldFields {
     pub fn iter(&self) -> impl Iterator<Item = (&String, &WorldValue)> {
         self.0.iter().map(|f| (&f.name, &f.value))
     }
-    pub(super) fn entries(&self) -> &Vec<WorldInitField> {
-        &self.0
-    }
 }
 impl std::ops::Index<&str> for WorldFields {
     type Output = WorldValue;

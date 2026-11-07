@@ -26,7 +26,6 @@ pub(in crate::world) struct TerrainMetadata {
     pub request: WorldRequest,
     pub key: SurfaceKey,
     pub tile: TerrainTile,
-    pub pending_bytes: usize,
     /// Hash of the encoded job input. Equal inputs build equal tiles.
     pub input: u64,
 }
@@ -48,12 +47,6 @@ impl TerrainExecution {
     /// Hash of the running job input.
     pub(in crate::world) fn input(&self) -> Option<u64> {
         self.pending.as_ref().map(|pending| pending.metadata.input)
-    }
-
-    pub(in crate::world) fn pending_bytes(&self) -> usize {
-        self.pending
-            .as_ref()
-            .map_or(0, |pending| pending.metadata.pending_bytes)
     }
 
     /// Keeps the job for the new request if `retain`. Otherwise drops it.

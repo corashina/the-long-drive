@@ -47,33 +47,28 @@ impl WorldStream {
         let placement = &content.content.placement;
         let reference = &self.reference;
         let rules = &self.contents.rules;
-        let prototype = reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == placement.prototype)
-            .ok_or_else(|| ReferenceError("Spirit level prototype missing".into()))?;
+        let prototype = reference.prototype(&placement.prototype)?;
         // The item pose is the pose of the pickup node, as content bindings place it.
         let pickup = match rules.component(reference, &placement.prototype, "childunparent")? {
             Some(unparent) => link(unparent.fields, "g")?,
             None => &placement.prototype,
         };
-        let index = |source| {
-            prototype
-                .nodes
-                .iter()
-                .position(|n| &n.source == source)
-                .ok_or_else(|| ReferenceError("Spirit level node outside its prototype".into()))
-        };
-        let anchor = index(pickup)?;
+        let anchor = prototype.node(pickup)?;
         let scale = Vector::from_array(placement.scale)
             * Vector::from_array(crate::world::placement::node_pose(prototype, anchor).scale);
         let mut bubbles = Vec::with_capacity(level.bubbles.len());
         for b in &level.bubbles {
-            let node = index(&b.bubble)?;
+            let node = prototype.node(&b.bubble)?;
             bubbles.push(LevelBubble {
                 node,
                 pose: prototype.nodes[node].transform,
-                vial: Vial::new(prototype, anchor, node, index(&b.t1)?, index(&b.t2)?)?,
+                vial: Vial::new(
+                    prototype,
+                    anchor,
+                    node,
+                    prototype.node(&b.t1)?,
+                    prototype.node(&b.t2)?,
+                )?,
                 value: b.startup_value,
             });
         }
@@ -158,10 +153,6 @@ impl Bound for LevelBinding {
     }
     fn set_slot(&mut self, slot: usize) {
         self.slot = slot;
-    }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.bubbles.capacity() * std::mem::size_of::<LevelBubble>()
     }
 }
 

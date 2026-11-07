@@ -555,11 +555,6 @@ impl RoadIndex {
     pub fn checkpoint_count(&self) -> usize {
         self.checkpoints.len()
     }
-    pub fn retained_index_bytes(&self) -> usize {
-        self.checkpoints.capacity() * std::mem::size_of::<RoadCheckpoint>()
-            + self.blocks.capacity() * std::mem::size_of::<RoadBlock>()
-            + self.buffer.capacity() * std::mem::size_of::<RoadSegment>()
-    }
 }
 
 fn runtime_point([x, y, z]: [f64; 3]) -> [f64; 3] {
@@ -575,16 +570,7 @@ fn empty_bounds() -> WorldBounds {
 pub fn bounds_radius(reference: &WorldReference) -> Result<f64, ReferenceError> {
     let mut radius = 0.0_f64;
     for identity in &reference.road.prototypes {
-        let prototype = reference
-            .prototypes
-            .iter()
-            .find(|p| &p.source == identity)
-            .ok_or_else(|| {
-                ReferenceError(format!(
-                    "Missing road prototype {}:{}",
-                    identity.file, identity.path_id
-                ))
-            })?;
+        let prototype = reference.prototype(identity)?;
         for skin in &prototype.skins {
             for (bone, bind) in skin.bones.iter().zip(&skin.bind_poses) {
                 for vertex in &skin.positions {
@@ -651,32 +637,6 @@ fn forward_step(rotation: [f32; 3], length: f32) -> [f32; 3] {
         ((y * z2 - w * x2) * length as f64) as f32,
         ((1.0 - (x * x2 + y * y2)) * length as f64) as f32,
     ]
-}
-
-/// Retained bytes for one converted source prototype, before allocation.
-pub fn road_prototype_bytes(prototype: &crate::reference::WorldPrototypeReference) -> usize {
-    prototype.nodes.len() * std::mem::size_of::<road_mesh::RoadNode>()
-        + prototype.controls.len() * std::mem::size_of::<u32>()
-        + prototype.skins.len() * std::mem::size_of::<road_mesh::RoadSkin>()
-        + prototype
-            .skins
-            .iter()
-            .map(|s| {
-                size_of_val(s.bones.as_slice())
-                    + size_of_val(s.bind_poses.as_slice())
-                    + size_of_val(s.positions.as_slice())
-                    + size_of_val(s.normals.as_slice())
-                    + size_of_val(s.tangents.as_slice())
-                    + size_of_val(s.uv.as_slice())
-                    + size_of_val(s.joints.as_slice())
-                    + size_of_val(s.weights.as_slice())
-                    + s.triangles.len() * size_of::<Vec<[u32; 3]>>()
-                    + s.triangles
-                        .iter()
-                        .map(|group| size_of_val(group.as_slice()))
-                        .sum::<usize>()
-            })
-            .sum::<usize>()
 }
 
 pub fn road_prototype(

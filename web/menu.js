@@ -10,10 +10,11 @@ const resultText={join:'Joined the game.',save:'Save complete.',load:'Game loade
 const SUBSCREENS=['settings','game-mode','saves','appearance','multiplayer'];
 // The start menus show the live road view of the simulation (no art). Appearance has its own preview.
 const ROAD_STATES=['start-menu','settings','game-mode','saves','multiplayer'];
+// How long a status toast stays.
+const TOAST_MS=4000;
 function operationError(error){
  const message=error?.message??String(error);
  if(message==='No saved game.')return 'No saved game is available.';
- const fit=message.match(/Draw distance [\d.]+ m does not fit\. Largest: [\d.]+ m/);if(fit)return fit[0]+'.';
  if(message.startsWith('Incompatible save:'))return 'This save uses a different schema or source export.';
  return message;
 }
@@ -54,13 +55,13 @@ export class MenuState {
 export async function captureWithAudio(model,action,request,audio){const success=await model.capture(action,request,()=>audio?.unlock());if(!success)audio?.pause();return success;}
 export function createMenu({canvas,language,ui,clearInput,queueAction,saveSession,buildId,thumbnail=()=>null,sleeping=()=>false,seated=()=>false,guest=()=>false,online=()=>false,worldDrawDistance=()=>NaN,slider,audio,bindings,defaultAssists,onPause,onNewGame,reloadNewGame=()=>false,autoNewGame=false,appearance,settings,resets}) {
  const model=new MenuState(),menu=document.querySelector('#menu'),settingsNode=document.querySelector('#settings-screen'),gameMode=document.querySelector('#game-mode-screen'),savesNode=document.querySelector('#save-screen'),appearanceNode=document.querySelector('#appearance-screen'),multiplayerNode=document.querySelector('#multiplayer-screen'),startLast=document.querySelector('#start-load-last');
- const initial=document.querySelector('#start-actions'),paused=document.querySelector('#pause-actions'),error=document.querySelector('#capture-error'),status=document.querySelector('#status'),distance=document.querySelector('#session-distance'),distanceLabel=document.querySelector('#session-distance-label'),distanceValue=document.querySelector('#session-distance-value'),deathCard=document.querySelector('#death-card'),deathHint=document.querySelector('#death-hint');
+ const initial=document.querySelector('#start-actions'),paused=document.querySelector('#pause-actions'),error=document.querySelector('#capture-error'),toast=document.querySelector('#toast'),distance=document.querySelector('#session-distance'),distanceLabel=document.querySelector('#session-distance-label'),distanceValue=document.querySelector('#session-distance-value'),deathCard=document.querySelector('#death-card'),deathHint=document.querySelector('#death-hint');
  const art=document.querySelector('#menu-art'),frame=document.querySelector('#menu-frame'),hud=document.querySelector('#hud');
  // The menus have their own layout (style.css), not the source sprites.
  const initialNodes=['#new-game','#start-load','#start-load-last','#start-settings','#start-game-mode','#start-appearance','#start-multiplayer'];
  const pauseNodes=['#pause-respawn','#resume','#save','#load','#pause-new-game','#recover','#settings','#pause-game-mode','#appearance','#multiplayer'];
  const actionNodes=[...initialNodes,...pauseNodes],backNodes=['#back','#game-mode-back','#save-back','#appearance-back','#multiplayer-back'];
- let lastState='',lastError='',lastStatus='',lastTravel=-1,pendingDriving=0,canLast=false,startResult=null;
+ let lastState='',lastError='',lastStatus='',toastTimer=0,lastTravel=-1,pendingDriving=0,canLast=false,startResult=null;
  const screen=createSaveScreen({settings,word:language.word,paint:()=>paint(),run:(operation,name)=>operate(operation,...(operation==='save'?[name,thumbnail()]:operation==='loadLast'?[buildId]:[name]))});
  const clutch=document.querySelector('#automatic-clutch'),gears=document.querySelector('#automatic-gears');
  function drivingState(assists){clutch.checked=Boolean(assists&1);gears.checked=Boolean(assists&2)&&clutch.checked;gears.disabled=!clutch.checked||model.pending;clutch.disabled=model.pending;}
@@ -103,7 +104,12 @@ export function createMenu({canvas,language,ui,clearInput,queueAction,saveSessio
   startLast.hidden=!canLast;
   if(state==='saves')screen.paint(!model.readyFlag||model.pending);
   error.hidden=!model.error;if(lastError!==model.error){error.textContent=model.error;lastError=model.error;}
-  if(lastStatus!==model.status){status.textContent=model.status;lastStatus=model.status;}
+  // A status text shows as a toast. A text that ends in '…' waits for its result. Other texts fade after `TOAST_MS`.
+  if(lastStatus!==model.status){
+   lastStatus=model.status;clearTimeout(toastTimer);
+   if(model.status){toast.textContent=model.status;toast.classList.add('shown');if(!model.status.endsWith('…'))toastTimer=setTimeout(()=>toast.classList.remove('shown'),TOAST_MS);}
+   else toast.classList.remove('shown');
+  }
   if(state!==lastState){
    // The preview and the save follow the screen, whatever closes it.
    if(lastState==='appearance')appearance?.close();

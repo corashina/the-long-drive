@@ -571,13 +571,11 @@ fn equip(
     reference: &ReferenceManifest,
     name: &str,
 ) -> Result<(String, Value), String> {
-    let guns = reference.guns.weapons.iter().filter_map(|g| {
-        reference
-            .world
-            .prototypes
-            .iter()
-            .find(|w| w.source == g.prototype.0)
-    });
+    let guns = reference
+        .guns
+        .weapons
+        .iter()
+        .filter_map(|g| reference.world.prototypes.find(&g.prototype.0));
     let Some(prototype) = guns
         .clone()
         .find(|w| WorldPrototypeReference::root_name(w).eq_ignore_ascii_case(name))
@@ -661,7 +659,7 @@ fn hand(
                 .iter()
                 .find(|i| i.name.eq_ignore_ascii_case(name))
                 .and_then(|i| i.prototype.as_ref())
-                .and_then(|p| reference.world.prototypes.iter().find(|w| &w.source == p))
+                .and_then(|p| reference.world.prototypes.find(p))
                 .ok_or(error)?;
             match loaded_world_item(runtime, &prototype.source, |_| true) {
                 Some(item) => item,
@@ -732,12 +730,7 @@ fn building(
     let mut sequence = crate::world::BuildingSequence::new(&reference.world, seed);
     let mut names = Vec::new();
     for placement in std::iter::from_fn(|| sequence.next()).take(BUILDING_SEARCH) {
-        let Some(prototype) = reference
-            .world
-            .prototypes
-            .iter()
-            .find(|p| p.source == placement.prototype)
-        else {
+        let Some(prototype) = reference.world.prototypes.find(&placement.prototype) else {
             continue;
         };
         let found = WorldPrototypeReference::root_name(prototype);
@@ -923,18 +916,13 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
         "supported": runtime.world_supported(),
         "pending": runtime.stream.pending_parts(),
         "required_ready": runtime.stream.required_ready(),
-        // Shared budgets with the renderer credit: [used, limit].
+        // World counts and caps: [used, limit].
         "budgets": runtime
             .stream
-            .presentation_budgets(runtime.stream.presentation_credit())
+            .budgets()
             .iter()
             .map(|b| (b.name.to_owned(), json!([b.used, b.limit])))
             .collect::<serde_json::Map<_, _>>(),
-        // Renderer asset CPU: [used, credit]. Credit above use goes back on a reclaim.
-        "renderer_asset_cpu": [
-            runtime.stream.presentation_used().prototype_cpu,
-            runtime.stream.presentation_credit().prototype_cpu,
-        ],
         // Sandbox world spawns and where each one waits.
         "world_spawns": runtime
             .stream
@@ -945,8 +933,7 @@ fn state(runtime: &GarageRuntime, reference: &ReferenceManifest, radius: f32) ->
                     "name": reference
                         .world
                         .prototypes
-                        .iter()
-                        .find(|w| w.source == p.prototype)
+                        .find(&p.prototype)
                         .map_or("", WorldPrototypeReference::root_name),
                     "position": p.pose.position,
                     "radius": p.bounds.max[0] - p.pose.position[0],
@@ -1081,8 +1068,7 @@ fn gap_json(reference: &ReferenceManifest, stream: &WorldStream, gap: SupportGap
             "structure": reference
                 .world
                 .prototypes
-                .iter()
-                .find(|w| w.source == p.prototype)
+                .find(&p.prototype)
                 .map_or("", WorldPrototypeReference::root_name),
             "position": p.pose.position,
             "scale": p.scale,

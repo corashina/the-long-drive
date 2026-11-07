@@ -37,7 +37,7 @@ The simulation runs in its own Web Worker. The main thread only renders.
 - The renderer shows state one tick late. Interpolation hides the step.
 - Every new state that the renderer shows needs a row or a message in `boundary.rs`.
 - The renderer must not read or change game state directly. It sends commands.
-- Each worker loads its own WASM module (5 in total, see `scripts/build.ps1`). Startup downloads and memory are larger.
+- Each worker loads its own WASM module (5 in total, see `tools/build.sh`). Startup downloads and memory are larger.
 - `SharedArrayBuffer` is not needed, so the server does not need cross-origin isolation headers.
 
 ## Rejected options

@@ -30,7 +30,6 @@ pub mod labels;
 pub mod level;
 pub mod mechanisms;
 pub mod melee;
-pub mod memory;
 pub mod parts;
 pub mod push;
 pub mod spray;
@@ -386,47 +385,6 @@ impl InteractionState {
         ids: &crate::save::IdentityMap,
     ) -> Result<Option<crate::save::CarrySnapshot>, crate::save::SaveError> {
         self.carry.capture_save(ids)
-    }
-    pub fn retained_binding_bytes(&self) -> usize {
-        use memory::{map, set, vector};
-        map(&self.light_controls)
-            + self.binoculars.heap_bytes()
-            + map(&self.light_nodes)
-            + set(&self.usable_light_controls)
-            + self.controls.heap_bytes()
-            + map(&self.kinds)
-            + map(&self.wheel_slots)
-            + self
-                .wheel_slots
-                .values()
-                .map(|r| {
-                    set(&r.fits)
-                        + r.source.file.capacity()
-                        + memory::strings(&r.rim_main_types)
-                        + memory::strings(&r.rim_types)
-                })
-                .sum::<usize>()
-            + set(&self.tire_fits)
-            + map(&self.pickup_layers)
-            + map(&self.removal_layers)
-            + set(&self.usable_items)
-            + set(&self.filling_items)
-            + map(&self.collider_bindings)
-            + map(&self.mechanism_bodies)
-            + vector(&self.openings)
-            + vector(&self.receipt_tanks)
-            + self
-                .receipt_tanks
-                .iter()
-                .map(|tank| tank.retained_cap_bytes())
-                .sum::<usize>()
-            + vector(&self.callback_nodes)
-            + set(&self.supplies)
-            + map(&self.source_supply_emission)
-            + map(&self.tank_rules)
-            + self.carry.retained_binding_bytes()
-            + self.parts.retained_binding_bytes()
-            + self.mechanisms.retained_binding_bytes()
     }
 
     pub fn new(reference: &ReferenceManifest) -> Result<Self, ReferenceError> {

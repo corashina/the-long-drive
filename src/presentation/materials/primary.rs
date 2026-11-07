@@ -1,13 +1,10 @@
 //! Dynamic primary materials share the accepted source material cache.
 use super::*;
-use crate::ownership::PresentationLedger;
+use crate::ownership::{PresentationLedger, RendererCounts};
 pub(super) use crate::reference::fixed_reservation::{png_chain_staging, primary_staging};
 use crate::{
     reference::{AssetId as SourceAssetId, ReferenceError},
-    world::{
-        RendererWorld,
-        stream::{PROTOTYPE_CPU, PROTOTYPE_GPU},
-    },
+    world::RendererWorld,
 };
 #[derive(Default, Clone)]
 pub struct PrimaryOwnership {
@@ -15,11 +12,7 @@ pub struct PrimaryOwnership {
     owners: HashMap<SourceAssetId, Arc<()>>,
     materials: std::collections::HashSet<(SourceAssetId, u32)>,
     pub(super) borrowed_records: std::collections::HashSet<SourceAssetId>,
-    cpu: usize,
-    gpu: usize,
-    jobs: usize,
-    pending: usize,
-    staging: usize,
+    counts: RendererCounts,
 }
 /// Renderer steps an added image may wait for its GPU upload before the chain loads again.
 const STALLED_STEPS: u32 = 600;
@@ -29,127 +22,28 @@ pub(super) fn pending_texture_cpu(texture: &SourceTexture) -> usize {
         texture.chain.is_some() || texture.image.is_some(),
     )
 }
-pub(super) fn texture_metadata(texture: &TextureRecord) -> usize {
-    4096 + texture.retained_cpu_bytes()
-}
-
-pub(super) fn record_bytes(record: &MaterialRecord) -> usize {
-    record.retained_cpu_bytes()
-}
-
 impl SourceMaterials {
     pub fn begin_world_session(&mut self) {
-        // Resources stay owned. The new stream receives their full charges on preparation.
-        self.world_primary.cpu = 0;
-        self.world_primary.gpu = 0;
-        self.world_primary.jobs = 0;
-        self.world_primary.pending = 0;
-        self.world_primary.staging = 0;
-        self.world_deferred = DeferredAllocation::default();
+        // Resources stay owned. The new stream receives their counts on preparation.
+        self.world_primary.counts = RendererCounts::default();
+        self.world_deferred = RendererCounts::default();
     }
 
-    fn container_bytes(&self) -> usize {
-        use std::mem::size_of;
-        self.generated.bytes()
-            + self.sort_data.capacity()
-                * (size_of::<(
-                    (SourceAssetId, u32),
-                    super::super::renderer_visibility::SourceSortData,
-                )>() + 1)
-            + self.records.capacity() * size_of::<Arc<MaterialRecord>>()
-            + self.textures.capacity() * size_of::<SourceTexture>()
-            + self
-                .textures
-                .iter()
-                .map(|t| t.label.capacity())
-                .sum::<usize>()
-            + self.texture_indices.capacity() * (size_of::<(String, usize)>() + 1)
-            + self
-                .texture_indices
-                .keys()
-                .map(String::capacity)
-                .sum::<usize>()
-            + self.handles.capacity()
-                * (size_of::<((SourceAssetId, u32, bool, u32), Handle<SourceMaterial>)>() + 1)
-            + self.standard_records.capacity()
-                * (size_of::<(AssetId<StandardMaterial>, (SourceAssetId, u32))>() + 1)
-            + self.world_primary.assets.capacity() * (size_of::<(SourceAssetId, Vec<String>)>() + 1)
-            + self
-                .world_primary
-                .assets
-                .values()
-                .map(|paths| {
-                    paths.capacity() * size_of::<String>()
-                        + paths.iter().map(String::capacity).sum::<usize>()
-                })
-                .sum::<usize>()
-            + self.world_primary.owners.capacity() * (size_of::<(SourceAssetId, Arc<()>)>() + 1)
-            + self.world_primary.borrowed_records.capacity() * (size_of::<SourceAssetId>() + 1)
-            + self.world_primary.materials.capacity() * (size_of::<(SourceAssetId, u32)>() + 1)
-    }
-    fn primary_bytes(&self) -> (usize, usize) {
-        let cpu = self
-            .textures
-            .iter()
-            .map(|t| pending_texture_cpu(t) + texture_metadata(&t.record))
-            .sum::<usize>()
-            + self
-                .records
-                .iter()
-                .map(|record| record_bytes(record))
-                .sum::<usize>();
-        let gpu = self
-            .textures
-            .iter()
-            .filter(|t| !t.failed || t.image.is_some())
-            .map(|t| t.payload_bytes)
-            .sum();
-        (cpu + self.container_bytes(), gpu)
-    }
     fn account_primary(
         &mut self,
         ledger: &mut PresentationLedger,
-        cpu: usize,
-        gpu: usize,
         jobs: usize,
         pending: usize,
-        staging: usize,
     ) -> Result<(), ReferenceError> {
-        let mut allocation = ledger.allocation();
-        allocation.prototype_cpu = allocation
-            .prototype_cpu
-            .saturating_sub(self.world_primary.cpu)
-            + cpu;
-        allocation.prototype_gpu = allocation
-            .prototype_gpu
-            .saturating_sub(self.world_primary.gpu)
-            + gpu;
-        allocation.jobs = allocation.jobs.saturating_sub(self.world_primary.jobs) + jobs;
-        allocation.pending = allocation
-            .pending
-            .saturating_sub(self.world_primary.pending)
-            + pending;
-        allocation.staging_bytes = allocation
-            .staging_bytes
-            .saturating_sub(self.world_primary.staging)
-            + staging;
-        allocation.dependency_staging_bytes = allocation
-            .dependency_staging_bytes
-            .saturating_sub(self.world_primary.staging)
-            + staging;
-        ledger.set_allocation(allocation)?;
-        self.world_primary.cpu = cpu;
-        self.world_primary.gpu = gpu;
-        self.world_primary.jobs = jobs;
-        self.world_primary.pending = pending;
-        self.world_primary.staging = staging;
+        let counts = RendererCounts { jobs, pending };
+        counts.apply(self.world_primary.counts, ledger)?;
+        self.world_primary.counts = counts;
         Ok(())
     }
     pub fn admit_world_primary(
         &mut self,
         identity: (SourceAssetId, u32),
         reference: &ReferenceManifest,
-        ledger: &mut PresentationLedger,
     ) -> Result<(), ReferenceError> {
         let asset = identity.0;
         if self.world_primary.materials.contains(&identity) {
@@ -168,10 +62,7 @@ impl SourceMaterials {
             return Err(ReferenceError("Missing selected primary material".into()));
         }
         let mut paths = Vec::new();
-        let mut added_cpu = 0usize;
-        let mut added_gpu = 0usize;
         for record in &records {
-            added_cpu += record_bytes(record);
             for texture in &record.properties.textures {
                 if paths.iter().any(|p| p == texture.file()) {
                     continue;
@@ -198,24 +89,8 @@ impl SourceMaterials {
                         ));
                     }
                 }
-                if !self.texture_indices.contains_key(texture.file()) {
-                    let bytes = texture.payload_bytes()?;
-                    added_gpu += bytes;
-                    added_cpu += 4096
-                        + std::mem::size_of::<SourceTexture>()
-                        + texture.retained_cpu_bytes()
-                        + 128;
-                }
             }
         }
-        self.account_primary(
-            ledger,
-            self.world_primary.cpu + added_cpu,
-            self.world_primary.gpu + added_gpu,
-            self.world_primary.jobs,
-            self.world_primary.pending,
-            self.world_primary.staging,
-        )?;
         for record in records {
             for texture in &record.properties.textures {
                 if !self.texture_indices.contains_key(texture.file()) {
@@ -331,9 +206,8 @@ impl SourceMaterials {
                 self.release_world_asset(asset, images, chains, materials, server)?;
             }
         }
-        let (jobs, staging) = self.primary_loading(chains, server);
-        let (cpu, gpu) = self.primary_bytes();
-        self.account_primary(ledger, cpu, gpu, jobs, self.pending_primary(), staging)?;
+        let jobs = self.primary_loading(chains, server);
+        self.account_primary(ledger, jobs, self.pending_primary())?;
         if !self.preparation.cancelled() && failure.is_none() && stream.frame().failure.is_none() {
             for index in 0..self.textures.len() {
                 let texture = &self.textures[index];
@@ -346,34 +220,17 @@ impl SourceMaterials {
                 {
                     continue;
                 }
-                let staging = texture.input_staging;
-                if staging > 32 * 1024 * 1024 {
-                    return Err(ReferenceError(
-                        "Primary input overlap exceeds staging cap".into(),
-                    ));
-                }
-                // Every request runs, so the report asks for all credit of the load at once.
-                let job = ledger.available_external_jobs() > 0;
-                let claim = ledger.can_request_independent(1);
-                let input = ledger.request_staging(staging);
-                // A retry keeps the CPU credit of its incomplete upload.
-                let decoded = if retry { 0 } else { texture.cpu_reservation };
-                // Without credit the load waits. Retired prototypes give their credit back.
-                let prototype = ledger.request_prototype(decoded, 0);
-                if !job {
+                if ledger.available_external_jobs() == 0 {
                     break;
                 }
-                if !(claim && input && prototype) {
+                // A retry keeps the pending claim of its incomplete upload.
+                if !retry && !ledger.can_request_independent(1) {
                     continue;
                 }
-                // All reads belong to this one job. Reserve the largest sequential input.
                 self.account_primary(
                     ledger,
-                    self.world_primary.cpu + decoded,
-                    gpu,
-                    self.world_primary.jobs + 1,
+                    self.world_primary.counts.jobs + 1,
                     self.pending_primary() + usize::from(!retry),
-                    self.world_primary.staging + staging,
                 )?;
                 let texture = &mut self.textures[index];
                 let record = Arc::clone(&texture.record);
@@ -400,19 +257,14 @@ impl SourceMaterials {
         if !self.preparation.cancelled() {
             self.texture_bytes += assemble_textures(&mut self.textures, chains, images);
         }
-        let (jobs, staging) = self.primary_loading(chains, server);
-        let (cpu, gpu) = self.primary_bytes();
-        self.account_primary(ledger, cpu, gpu, jobs, self.pending_primary(), staging)?;
+        let jobs = self.primary_loading(chains, server);
+        self.account_primary(ledger, jobs, self.pending_primary())?;
         if let Some(error) = failure {
             return Err(error);
         }
         Ok(())
     }
-    fn primary_loading(
-        &self,
-        chains: &Assets<SourcePrimaryImage>,
-        server: &AssetServer,
-    ) -> (usize, usize) {
+    fn primary_loading(&self, chains: &Assets<SourcePrimaryImage>, server: &AssetServer) -> usize {
         self.textures
             .iter()
             .filter(|t| {
@@ -421,9 +273,7 @@ impl SourceMaterials {
                         && !matches!(server.load_state(h.id()), LoadState::Failed(_))
                 })
             })
-            .fold((0, 0), |(jobs, bytes), t| {
-                (jobs + 1, bytes + t.input_staging)
-            })
+            .count()
     }
     /// World primary textures of `asset` are admitted.
     pub fn holds_world_asset(&self, asset: SourceAssetId) -> bool {
@@ -516,53 +366,18 @@ impl SourceMaterials {
     }
 }
 
-#[derive(Default, Clone)]
-pub struct DeferredAllocation {
-    pending: usize,
-    staging: usize,
-    cpu: usize,
-    gpu: usize,
-    jobs: usize,
-}
 impl SourceMaterials {
     fn account_deferred(
         &mut self,
         ledger: &mut PresentationLedger,
         jobs: usize,
-        staging: usize,
     ) -> Result<(), ReferenceError> {
-        let (cpu, gpu) = self.world_textures.bytes();
-        let mut allocation = ledger.allocation();
-        allocation.prototype_cpu = allocation
-            .prototype_cpu
-            .saturating_sub(self.world_deferred.cpu)
-            + cpu;
-        allocation.prototype_gpu = allocation
-            .prototype_gpu
-            .saturating_sub(self.world_deferred.gpu)
-            + gpu;
-        allocation.jobs = allocation.jobs.saturating_sub(self.world_deferred.jobs) + jobs;
-        let pending = self.world_textures.pending();
-        allocation.pending = allocation
-            .pending
-            .saturating_sub(self.world_deferred.pending)
-            + pending;
-        allocation.staging_bytes = allocation
-            .staging_bytes
-            .saturating_sub(self.world_deferred.staging)
-            + staging;
-        allocation.dependency_staging_bytes = allocation
-            .dependency_staging_bytes
-            .saturating_sub(self.world_deferred.staging)
-            + staging;
-        ledger.set_allocation(allocation)?;
-        self.world_deferred = DeferredAllocation {
-            pending,
-            cpu,
-            gpu,
+        let counts = RendererCounts {
             jobs,
-            staging,
+            pending: self.world_textures.pending(),
         };
+        counts.apply(self.world_deferred, ledger)?;
+        self.world_deferred = counts;
         Ok(())
     }
     pub fn admit_world_material(
@@ -574,7 +389,6 @@ impl SourceMaterials {
         if self.world_textures.admitted(&material.source) {
             return Ok(());
         }
-        let (cpu, gpu) = self.world_textures.bytes();
         self.world_textures.admit(
             material,
             if reference
@@ -599,15 +413,8 @@ impl SourceMaterials {
             } else {
                 std::slice::from_ref(material)
             },
-            // This is a charge, not a request. The stream checks the shared total.
-            PROTOTYPE_CPU.saturating_sub(ledger.allocation().prototype_cpu) + cpu,
-            PROTOTYPE_GPU.saturating_sub(ledger.allocation().prototype_gpu) + gpu,
         )?;
-        self.account_deferred(
-            ledger,
-            self.world_deferred.jobs,
-            self.world_deferred.staging,
-        )
+        self.account_deferred(ledger, self.world_deferred.jobs)
     }
     pub fn prepare_world_deferred(
         &mut self,
@@ -620,36 +427,19 @@ impl SourceMaterials {
         if self.preparation.cancelled() || stream.frame().failure.is_some() {
             self.world_textures.cancel();
         }
-        self.account_deferred(
-            ledger,
-            self.world_textures.jobs(),
-            self.world_textures.staging_bytes(),
-        )?;
+        self.account_deferred(ledger, self.world_textures.jobs())?;
         let result =
             self.world_textures
                 .prepare(server, images, batches, &self.preparation, ledger);
-        self.account_deferred(
-            ledger,
-            self.world_textures.jobs(),
-            self.world_textures.staging_bytes(),
-        )?;
+        self.account_deferred(ledger, self.world_textures.jobs())?;
         result?;
-        // CPU and pair staging are committed before either AssetServer request.
         let launch = match self.world_textures.queued_jobs() {
             0 => 0,
             queued => ledger.available_external_jobs().min(queued),
         };
-        self.account_deferred(
-            ledger,
-            self.world_textures.jobs() + launch,
-            self.world_textures.staging_bytes(),
-        )?;
+        self.account_deferred(ledger, self.world_textures.jobs() + launch)?;
         self.world_textures.start_jobs(server, launch);
-        self.account_deferred(
-            ledger,
-            self.world_textures.jobs(),
-            self.world_textures.staging_bytes(),
-        )
+        self.account_deferred(ledger, self.world_textures.jobs())
     }
 }
 
@@ -732,12 +522,7 @@ impl SourceMaterials {
 
 impl SourceMaterials {
     pub(crate) fn primary_startup_audit(&self, server: &AssetServer) -> serde_json::Value {
-        let (cpu, gpu) = self.primary_bytes();
-        let (_, deferred_gpu) = self.world_textures.bytes();
         serde_json::json!({
-            "cpu_bytes": cpu, "gpu_bytes": gpu, "deferred_gpu_bytes": deferred_gpu,
-            "accounted_primary_gpu_bytes": self.world_primary.gpu,
-            "accounted_deferred_gpu_bytes": self.world_deferred.gpu,
             "selected_materials": self.world_primary.materials.iter().collect::<Vec<_>>(),
             "textures": self.textures.iter().map(|t| serde_json::json!({
                 "source": t.record.source, "path": t.record.file(), "payload_bytes": t.payload_bytes, "storage": match &t.record.storage { source::TextureStorage::PngChain { .. } => "png_chain", source::TextureStorage::NativeBc { format: source::NativeBcFormat::Bc1, .. } => "bc1", source::TextureStorage::NativeBc { .. } => "bc3" },

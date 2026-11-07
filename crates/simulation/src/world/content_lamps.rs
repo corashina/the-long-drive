@@ -50,13 +50,6 @@ pub(super) struct LampBinding {
     pub control: LightControlId,
     pub baseline: ObjectSnapshot,
 }
-impl LampBinding {
-    pub fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.source.file.capacity()
-            + self.button.as_ref().map_or(0, |b| b.node.file.capacity())
-    }
-}
 impl WorldStream {
     pub(super) fn sync_lamp_bindings(
         &mut self,
@@ -109,15 +102,10 @@ impl WorldStream {
             let prototype = self
                 .reference
                 .prototypes
-                .iter()
-                .find(|p| p.source == instance.placement.prototype)
+                .find(&instance.placement.prototype)
                 .unwrap();
             let root = self.contents.rules.root(&self.reference, &source)?;
-            let root_index = prototype
-                .nodes
-                .iter()
-                .position(|n| &n.source == root)
-                .ok_or_else(|| ReferenceError("Generated lamp controller root missing".into()))?;
+            let root_index = prototype.node(root)?;
             let baseline = ObjectSnapshot {
                 conditions: Vec::new(),
                 pose: instance.placement.pose,
@@ -150,22 +138,12 @@ impl WorldStream {
                 .map(|s| (s.lamp, s.lamp_broken));
             if let Some((lamp, broken)) = saved {
                 if let Some(changed) = lamp {
-                    self.contents.set_lamp(
-                        &self.reference,
-                        &parent,
-                        &source,
-                        changed,
-                        self.available_staging_bytes(),
-                    )?;
+                    self.contents
+                        .set_lamp(&self.reference, &parent, &source, changed)?;
                 }
                 if let Some(broken) = broken {
-                    self.contents.break_lamps(
-                        &self.reference,
-                        &parent,
-                        &source,
-                        broken,
-                        self.available_staging_bytes(),
-                    )?;
+                    self.contents
+                        .break_lamps(&self.reference, &parent, &source, broken)?;
                 }
             }
             let button = self.lamp_button(&parent, &source)?;
@@ -177,8 +155,7 @@ impl WorldStream {
             let prototype = self
                 .reference
                 .prototypes
-                .iter()
-                .find(|p| p.source == instance.placement.prototype)
+                .find(&instance.placement.prototype)
                 .unwrap();
             let control = interaction.allocate_generated_light()?;
             for (source, handle) in &instance.colliders {
@@ -249,8 +226,7 @@ impl WorldStream {
             let prototype = self
                 .reference
                 .prototypes
-                .iter()
-                .find(|p| p.source == instance.placement.prototype)
+                .find(&instance.placement.prototype)
                 .unwrap();
             let appearance = self.contents.appearance(&binding.parent);
             for (source, handle) in &instance.colliders {
@@ -332,13 +308,8 @@ impl WorldStream {
             .and_then(|r| r.snapshot.as_ref())
             .and_then(|s| s.lamp)
         {
-            self.contents.set_lamp(
-                &self.reference,
-                &parent,
-                &source,
-                saved,
-                self.available_staging_bytes(),
-            )?;
+            self.contents
+                .set_lamp(&self.reference, &parent, &source, saved)?;
         }
         let button = self.lamp_button(&parent, &source)?;
         let baseline = self
@@ -400,13 +371,8 @@ impl WorldStream {
             .find(|(p, s, _)| p == &binding.parent && s == &binding.source)
             .ok_or_else(|| ReferenceError("Generated lamp state missing".into()))?
             .2;
-        self.contents.set_lamp(
-            &self.reference,
-            &binding.parent,
-            &binding.source,
-            !on,
-            self.available_staging_bytes(),
-        )?;
+        self.contents
+            .set_lamp(&self.reference, &binding.parent, &binding.source, !on)?;
         if binding.portable
             && let Some(item) = self.portable_lamp_item(&binding.parent)
         {
@@ -500,13 +466,8 @@ impl WorldStream {
             return Ok(());
         };
         let binding = &self.lamp_bindings[index];
-        self.contents.break_lamps(
-            &self.reference,
-            &binding.parent,
-            &binding.source,
-            lamps,
-            self.available_staging_bytes(),
-        )?;
+        self.contents
+            .break_lamps(&self.reference, &binding.parent, &binding.source, lamps)?;
         self.record_structure_lamp(index);
         self.presentation_lamp_changes.push(index);
         self.lamp_bindings[index].collision_dirty = true;

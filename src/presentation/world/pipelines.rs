@@ -1,9 +1,8 @@
 //! Compile admitted material variants before collision and visual publication.
 use crate::ownership::PresentationLedger;
 use crate::ownership::renderer_pending::{
-    PIPELINE_BATCH_KEYS, PIPELINE_DIAGNOSTIC_BYTES, PipelineAccounting, PipelineBufferGrowth,
-    PipelineContinuation, PipelineOperation, pipeline_diagnostic, pipeline_pair_ready,
-    write_pipeline_diagnostic,
+    PIPELINE_BATCH_KEYS, PipelineAccounting, PipelineContinuation, PipelineOperation,
+    pipeline_diagnostic, pipeline_pair_ready, write_pipeline_diagnostic,
 };
 use crate::ownership::upload_receipt::UploadReceipt;
 use crate::{
@@ -36,14 +35,6 @@ use bevy::{
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 
-fn arc_bytes<T>() -> usize {
-    std::alloc::Layout::new::<[usize; 2]>()
-        .extend(std::alloc::Layout::new::<T>())
-        .unwrap()
-        .0
-        .pad_to_align()
-        .size()
-}
 struct PipelineJob {
     physical: UploadReceipt,
     session: u64,
@@ -88,7 +79,6 @@ struct PipelineBank {
 pub struct WorldPipelines {
     jobs: Option<Arc<Mutex<PipelineBank>>>,
     accounting: PipelineAccounting,
-    cache_reserved: bool,
     session: u64,
 }
 pub struct WorldPipelinePlugin;
@@ -196,61 +186,14 @@ impl WorldPipelines {
         if append.is_none() && parent.as_ref().is_some_and(|parent| !parent.drained()) {
             return Ok(None);
         }
-        let (pair_len, pair_cap, batch_len, batch_cap) =
-            guard.as_ref().map_or((0, 0, 0, 0), |bank| {
-                (
-                    bank.pairs.len(),
-                    bank.pairs.capacity(),
-                    bank.batches.len(),
-                    bank.batches.capacity(),
-                )
-            });
-        let pair_growth_plan =
-            PipelineBufferGrowth::new(pair_cap, pair_len + 1, size_of::<PipelineTicket>());
-        let batch_growth_plan = PipelineBufferGrowth::new(
-            batch_cap,
-            batch_len + usize::from(append.is_none()),
-            size_of::<PipelineBatch>(),
-        );
-        let pair_capacity = pair_growth_plan.capacity;
-        let batch_capacity = batch_growth_plan.capacity;
-        let pair_growth = pair_growth_plan.admitted;
-        let batch_growth = batch_growth_plan.admitted;
-        let cpu = ticket_bytes()
-            + pair_growth
-            + batch_growth
-            + if shared.is_none() {
-                arc_bytes::<Mutex<PipelineBank>>()
-            } else {
-                0
-            }
-            + if self.cache_reserved {
-                0
-            } else {
-                super::super::pipeline_ownership::CACHE_BYTES
-            }
-            + if append.is_none() {
-                UploadReceipt::allocation_bytes()
-            } else {
-                0
-            };
         let operation = if let Some(index) = append {
             let operation = &guard.as_ref().unwrap().batches[index].operation;
-            operation.reserve_pair(ledger, cpu)?;
+            operation.live()?;
             operation.clone()
         } else {
             let operation = match parent.as_mut() {
-                Some(parent) => parent.start(
-                    stream,
-                    ledger,
-                    cpu,
-                    super::super::pipeline_ownership::DESCRIPTOR_BYTES,
-                )?,
-                None => PipelineOperation::independent(
-                    ledger,
-                    cpu,
-                    super::super::pipeline_ownership::DESCRIPTOR_BYTES,
-                )?,
+                Some(parent) => parent.start(stream, ledger)?,
+                None => PipelineOperation::independent(ledger),
             };
             let Some(operation) = operation else {
                 return Ok(None);
@@ -265,15 +208,6 @@ impl WorldPipelines {
             guard = Some(shared.as_ref().unwrap().lock().unwrap());
         }
         let bank = guard.as_mut().unwrap();
-        let mut released = 0;
-        if pair_growth != 0 {
-            grow(&mut bank.pairs, pair_capacity);
-            released += pair_growth_plan.released;
-        }
-        if batch_growth != 0 {
-            grow(&mut bank.batches, batch_capacity);
-            released += batch_growth_plan.released;
-        }
         let ids = Vec::with_capacity(PIPELINE_BATCH_KEYS);
         assert_eq!(ids.capacity(), PIPELINE_BATCH_KEYS);
         let ticket = PipelineTicket(Arc::new(Mutex::new(PipelineJob {
@@ -299,14 +233,7 @@ impl WorldPipelines {
         let batch = &mut bank.batches[index];
         batch.push(&ticket.0);
         bank.pairs.push(ticket.clone());
-        self.accounting.pair_admitted(ticket_bytes());
         self.session = stream.frame().request.session;
-        self.cache_reserved = true;
-        if released != 0 {
-            let mut allocation = ledger.allocation();
-            allocation.prototype_cpu -= released;
-            ledger.set_allocation(allocation)?;
-        }
         Ok(Some(ticket))
     }
     pub fn prepare(
@@ -337,26 +264,11 @@ impl WorldPipelines {
                 || Arc::strong_count(&ticket.0) > 1
                 || Arc::weak_count(&ticket.0) != 0
         });
-        let cpu = bank.pairs.len() * ticket_bytes()
-            + bank.batches.len() * UploadReceipt::allocation_bytes();
         self.accounting.reconcile(
             ledger,
             bank.batches.iter().map(|batch| batch.operation.clone()),
-            cpu,
-            super::super::pipeline_ownership::DESCRIPTOR_BYTES,
         )
     }
-}
-fn grow<T>(buffer: &mut Vec<T>, capacity: usize) {
-    let mut next = Vec::with_capacity(capacity);
-    assert_eq!(next.capacity(), capacity);
-    next.append(buffer);
-    *buffer = next;
-}
-fn ticket_bytes() -> usize {
-    arc_bytes::<Mutex<PipelineJob>>()
-        + PIPELINE_BATCH_KEYS * size_of::<CachedRenderPipelineId>()
-        + PIPELINE_DIAGNOSTIC_BYTES
 }
 
 // The keys live only on the render stack, then freeze into the dispatched IDs.

@@ -62,11 +62,6 @@ impl WorldLight {
             .sum::<f64>()
             <= (self.range as f64).powi(2)
     }
-    pub fn heap_bytes(&self) -> usize {
-        super::contents::identity_heap(&self.id)
-            + self.record.source.file.capacity()
-            + self.prototype.file.capacity()
-    }
 }
 struct RoadLightRecipe {
     reference: RoadLampReference,
@@ -118,18 +113,7 @@ pub fn object_node(
                 && matches!(r.fields.get("m_GameObject"), Some(WorldValue::Link(go)) if go == object)
         })
         .ok_or_else(|| ReferenceError("Missing source object transform".into()))?;
-    transform_node(prototype, &transform.source)
-}
-/// The prototype node of a source Transform.
-pub fn transform_node(
-    prototype: &WorldPrototypeReference,
-    transform: &SourceId,
-) -> Result<usize, ReferenceError> {
-    prototype
-        .nodes
-        .iter()
-        .position(|n| &n.source == transform)
-        .ok_or_else(|| ReferenceError("Missing source transform node".into()))
+    prototype.node(&transform.source)
 }
 /// Source `roadscript.RandomPoleRot` inputs of one road prototype.
 #[derive(Clone)]
@@ -159,7 +143,7 @@ impl RoadPole {
         controller: &WorldSourceRecord,
     ) -> Result<Self, ReferenceError> {
         let f = &controller.fields;
-        let node = transform_node(prototype, link(f, "randomPoleRotTransform")?)?;
+        let node = prototype.node(link(f, "randomPoleRotTransform")?)?;
         Ok(Self {
             node,
             scale: Vector::from_array(super::placement::node_pose(prototype, node).scale),
@@ -319,11 +303,7 @@ impl SourceRoadLight {
         let world = &reference.world;
         let mut recipes = Vec::with_capacity(3);
         for source in &world.road.prototypes {
-            let prototype = world
-                .prototypes
-                .iter()
-                .find(|p| &p.source == source)
-                .unwrap();
+            let prototype = world.prototypes.find(source).unwrap();
             let controller = road_controller(world, source)?;
             let pole = RoadPole::new(prototype, controller)?;
             let koz = record(world, link(&controller.fields, "koz")?)?;
@@ -357,21 +337,6 @@ impl SourceRoadLight {
     }
     pub fn influence_margin(&self) -> f64 {
         self.recipes.iter().map(|r| r.margin).fold(0., f64::max)
-    }
-    pub fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            + self.recipes.capacity() * std::mem::size_of::<RoadLightRecipe>()
-            + self
-                .recipes
-                .iter()
-                .map(|r| {
-                    r.reference.source.file.capacity()
-                        + r.reference.road_source.file.capacity()
-                        + r.reference.generator_source.file.capacity()
-                        + r.reference.lights.capacity() * std::mem::size_of::<LightId>()
-                        + r.light.source.file.capacity()
-                })
-                .sum::<usize>()
     }
     pub fn place(&self, reference: &WorldReference, segment: &RoadSegment) -> WorldLight {
         let recipe = &self.recipes[segment.biome as usize];
@@ -412,11 +377,7 @@ pub(super) fn road_prototype<'a>(
     segment: &RoadSegment,
 ) -> &'a WorldPrototypeReference {
     let source = &world.road.prototypes[segment.biome as usize];
-    world
-        .prototypes
-        .iter()
-        .find(|p| &p.source == source)
-        .unwrap()
+    world.prototypes.find(source).unwrap()
 }
 /// Select all influencing source lights. Visibility and pole mesh distance do not reject light influence.
 pub fn required_world_lights(

@@ -68,8 +68,7 @@ pub(super) fn bind(
             .collect::<Result<Vec<_>, _>>()?;
         let index = world
             .prototypes
-            .iter()
-            .position(|p| p.source == prototype.source)
+            .index(&prototype.source)
             .ok_or_else(|| ReferenceError("Car prototype missing".into()))?;
         // One state per electronicsscript node. Controllers that share a node share its jam.
         let mut electronics: Vec<NodeElectronics> = Vec::new();

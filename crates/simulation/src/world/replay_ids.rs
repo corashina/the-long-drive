@@ -38,9 +38,6 @@ impl ReplayIds {
     pub fn may_contain(&self, id: &GeneratedId) -> bool {
         self.hashes.contains(&self.hasher.hash_one(id))
     }
-    pub fn retained_bytes(&self) -> usize {
-        crate::world::metrics::map_bytes(self.hashes.capacity(), std::mem::size_of::<u64>())
-    }
 }
 
 /// A selected record is the change of `id`.
@@ -158,7 +155,6 @@ mod tests {
         for ordinal in [2, 4, 6, 3, 5] {
             structures.push(StructureInstance {
                 fixed_decoration: false,
-                cpu_bytes: 0,
                 placement: placement(ordinal),
                 bodies: Vec::new(),
                 colliders: Vec::new(),

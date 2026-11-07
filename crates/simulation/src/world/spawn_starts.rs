@@ -177,8 +177,7 @@ impl SpawnEvaluation<'_> {
         let Some(grip) = self
             .reference
             .prototypes
-            .iter()
-            .find(|p| p.source == parent.prototype)
+            .find(&parent.prototype)
             .and_then(|p| p.trailer.as_ref())
             .map(|t| &t.grip)
             .filter(|g| &g.source == source)

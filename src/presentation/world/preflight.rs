@@ -13,34 +13,11 @@ use wasm_bindgen::prelude::*;
 extern "C" {
     #[wasm_bindgen(catch,js_namespace=window,js_name=sourceInputBytes)]
     fn input_bytes(path: &str) -> Result<u32, JsValue>;
-    #[wasm_bindgen(catch,js_namespace=window,js_name=sourceInputMetadataBytes)]
-    fn metadata_bytes() -> Result<u32, JsValue>;
 }
 pub fn checked_input_bytes(path: &str) -> Result<usize, ReferenceError> {
     input_bytes(path)
         .map(|bytes| bytes as usize)
         .map_err(|e| ReferenceError(format!("World input size: {e:?}")))
-}
-pub fn configure_staging(
-    stream: &crate::world::RendererWorld,
-    ledger: &mut crate::ownership::PresentationLedger,
-    facts: &mut crate::world::RendererFacts,
-    catalog: &FileCatalog,
-) -> Result<(), ReferenceError> {
-    if stream.dependency_staging_configured() || facts.configures_staging() {
-        return Ok(());
-    }
-    let browser =
-        metadata_bytes().map_err(|e| ReferenceError(format!("Input metadata: {e:?}")))? as usize;
-    let metadata = browser + catalog.retained_bytes();
-    facts.push(crate::world::RendererFact::ConfigureStaging {
-        reserve: catalog.dependency_staging_reserve as usize,
-        metadata,
-    });
-    // The renderer owns the input metadata.
-    let mut allocation = ledger.allocation();
-    allocation.prototype_cpu += metadata;
-    ledger.set_allocation(allocation)
 }
 #[derive(Asset, TypePath)]
 pub struct SourcePlan(pub std::sync::Arc<PrototypePlan>);
@@ -72,10 +49,6 @@ impl AssetLoader for SourcePlanLoader {
         }
         let plan: PrototypePlan =
             serde_json::from_slice(&bytes).map_err(|e| invalid(e.to_string()))?;
-        plan.reservation().map_err(|e| invalid(e.to_string()))?;
-        if selected::retained_plan_bytes(&plan) > size * 18 {
-            return Err(invalid("Plan exceeds metadata reservation".into()));
-        }
         Ok(SourcePlan(std::sync::Arc::new(plan)))
     }
 }
@@ -84,10 +57,7 @@ pub fn load_plan(
     server: &AssetServer,
     catalog: &FileCatalog,
     asset: &str,
-    budget: usize,
-    staging: usize,
 ) -> Result<Handle<SourcePlan>, ReferenceError> {
-    catalog.check_plan_reservation(asset, budget, staging)?;
     let input = catalog.plan(asset)?;
     let size = input.bytes as usize;
     Ok(server

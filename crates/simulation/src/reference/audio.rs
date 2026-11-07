@@ -812,10 +812,7 @@ impl AudioReference {
         )?;
         for a in &self.ambience {
             require(
-                game.world
-                    .prototypes
-                    .iter()
-                    .any(|p| p.source == a.prototype)
+                game.world.prototypes.find(&a.prototype).is_some()
                     && !a.clips.is_empty()
                     && a.clips.iter().all(|id| clips.contains(id))
                     && [
@@ -838,11 +835,7 @@ impl AudioReference {
         }
         for z in &self.ambience_zones {
             require(
-                game.world
-                    .prototypes
-                    .iter()
-                    .any(|p| p.source == z.prototype)
-                    && clips.contains(&z.clip),
+                game.world.prototypes.find(&z.prototype).is_some() && clips.contains(&z.clip),
                 "ambience zone source",
             )?;
         }

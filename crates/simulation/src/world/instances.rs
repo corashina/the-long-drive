@@ -51,7 +51,6 @@ impl TriggerRoles {
 }
 
 pub struct StructureRecipe {
-    pub cpu_bytes: usize,
     source: SourceId,
     scale: [f32; 3],
     bodies: Vec<BodyRecipe>,
@@ -64,47 +63,11 @@ pub fn fixed_decoration_source(source: &SourceId) -> bool {
 
 pub struct StructureInstance {
     pub fixed_decoration: bool,
-    pub cpu_bytes: usize,
     pub placement: Placement,
     pub bodies: Vec<RigidBodyHandle>,
     pub colliders: Vec<(SourceId, ColliderHandle)>,
 }
 impl StructureRecipe {
-    /// Collider construction and retained shape bounds include scaled input copies and topology storage.
-    pub fn reservation(prototype: &WorldPrototypeReference) -> usize {
-        use crate::reference::ColliderGeometry::*;
-        std::mem::size_of::<Self>()
-            + prototype.source.file.len()
-            + prototype.bodies.len() * std::mem::size_of::<BodyRecipe>()
-            + prototype
-                .colliders
-                .iter()
-                .map(|c| {
-                    std::mem::size_of::<ColliderRecipe>()
-                        + c.source.file.len()
-                        + match &c.geometry {
-                            Some(Convex { points }) => points.len() * 512,
-                            Some(Trimesh { points, triangles }) => {
-                                points.len() * 48 + triangles.len() * 256
-                            }
-                            Some(_) => 512,
-                            None => 0,
-                        }
-                })
-                .sum::<usize>()
-    }
-    pub fn instance_bytes(&self) -> usize {
-        std::mem::size_of::<StructureInstance>()
-            + self.bodies.len() * std::mem::size_of::<RigidBodyHandle>()
-            + self.colliders.len() * std::mem::size_of::<(SourceId, ColliderHandle)>()
-            + self.bodies.len() * (std::mem::size_of::<rapier3d::prelude::RigidBody>() + 512)
-            + self
-                .colliders
-                .iter()
-                .map(|c| std::mem::size_of::<Collider>() + 512 + c.source.file.capacity())
-                .sum::<usize>()
-    }
-
     pub fn new(
         reference: &WorldReference,
         prototype: &WorldPrototypeReference,
@@ -261,7 +224,6 @@ impl StructureRecipe {
             });
         }
         Ok(Self {
-            cpu_bytes: Self::reservation(prototype),
             source: prototype.source.clone(),
             scale,
             bodies,
@@ -328,7 +290,6 @@ impl StructureRecipe {
         physics.refresh_queries();
         Ok(StructureInstance {
             fixed_decoration,
-            cpu_bytes: self.instance_bytes() + super::contents::placement_heap(&placement),
             placement,
             bodies,
             colliders,

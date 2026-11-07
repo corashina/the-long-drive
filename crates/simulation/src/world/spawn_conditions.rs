@@ -16,13 +16,6 @@ pub struct ConditionState {
     child_new_color: bool,
     pub color: [f32; 4],
 }
-impl ConditionState {
-    pub fn retained_heap(&self) -> usize {
-        super::contents::identity_heap(&self.parent)
-            + self.source.file.capacity()
-            + self.kind.capacity()
-    }
-}
 impl SpawnEvaluation<'_> {
     fn condition_index(
         &mut self,

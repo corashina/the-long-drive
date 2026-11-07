@@ -125,18 +125,9 @@ pub fn run() -> Result<(), JsValue> {
     if let Err(error) = reference.audio.playback() {
         game_audio_error(&error.to_string());
     }
-    let mut ledger = crate::ownership::PresentationLedger::default();
-    let (fixed, graph) = crate::ownership::fixed::admit_control(
-        &mut ledger,
-        presentation::readiness::control_bytes(),
-        presentation::readiness::RendererStateHandle::default,
-    )
-    .map_err(js_error)?;
-    let allocation =
-        presentation::world::runtime::SourcePresentationAllocation::bootstrap(fixed, ledger);
     App::new()
-        .insert_resource(graph)
-        .insert_resource(allocation)
+        .insert_resource(presentation::readiness::RendererStateHandle::default())
+        .init_resource::<presentation::world::runtime::SourcePresentationAllocation>()
         .insert_resource(materials)
         .insert_resource(fixed_assets)
         .insert_resource(RuntimeReference(reference.clone()))
@@ -224,7 +215,7 @@ pub fn run() -> Result<(), JsValue> {
         .init_resource::<SimFrameResource>()
         .init_resource::<presentation::world::grass_jobs::GrassJobs>()
         .init_resource::<crate::presentation::world_metrics::MeshMeasurements>()
-        .add_plugins(presentation::upload_budget::install)
+        .add_plugins(crate::presentation_logic::upload_budget::install)
         .add_systems(
             Last,
             (

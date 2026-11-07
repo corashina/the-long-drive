@@ -110,12 +110,10 @@ impl ComputerRecord {
                 .filter(|i| i.index == item && i.name == name)
                 .and_then(|i| i.prototype.as_ref())
                 .filter(|p| *p == source)
-                .and_then(|p| m.world.prototypes.iter().find(|w| &w.source == p))
+                .and_then(|p| m.world.prototypes.find(p))
                 .ok_or_else(|| ReferenceError(format!("Invalid computer owner {name}")))
         };
-        let inside = |p: &WorldPrototypeReference, node: &SourceId| {
-            p.nodes.iter().any(|n| &n.source == node)
-        };
+        let inside = |p: &WorldPrototypeReference, node: &SourceId| p.nodes.find(node).is_some();
         let c = &self.computer;
         prototype(COMPUTER_ITEM, "gep01", &c.prototype)?;
         checked(

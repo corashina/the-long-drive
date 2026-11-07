@@ -21,17 +21,6 @@ pub(crate) struct SharedMaterialKey {
     /// Entity condition color as sRGBA bits. Entities with the same color share one material.
     pub color: Option<[u32; 4]>,
 }
-impl SharedMaterialKey {
-    fn heap_bytes(&self) -> usize {
-        match &self.material {
-            MaterialIdentity::Specular(source) | MaterialIdentity::Impostor(source) => {
-                source.file.capacity()
-            }
-            MaterialIdentity::Primary(..) => 0,
-        }
-    }
-}
-
 pub(crate) fn shareable_primary(record: &MaterialRecord) -> bool {
     matches!(
         record.shader_family,
@@ -45,13 +34,11 @@ pub(crate) fn shareable_primary(record: &MaterialRecord) -> bool {
 
 pub(crate) struct SharedMaterials<T> {
     entries: HashMap<SharedMaterialKey, (T, usize)>,
-    heap_bytes: usize,
 }
 impl<T> Default for SharedMaterials<T> {
     fn default() -> Self {
         Self {
             entries: HashMap::new(),
-            heap_bytes: 0,
         }
     }
 }
@@ -68,13 +55,10 @@ impl<T: Clone> SharedMaterials<T> {
         Some(binding.clone())
     }
     pub fn insert(&mut self, key: SharedMaterialKey, binding: T) {
-        self.heap_bytes += key.heap_bytes();
         assert!(self.entries.insert(key, (binding, 1)).is_none());
     }
     fn remove(&mut self, key: &SharedMaterialKey) -> T {
-        let (key, (binding, _)) = self.entries.remove_entry(key).unwrap();
-        self.heap_bytes -= key.heap_bytes();
-        binding
+        self.entries.remove(key).unwrap().0
     }
     pub fn make_private(&mut self, key: &SharedMaterialKey, copy: impl FnOnce(&T) -> T) -> T {
         if self.entries[key].1 == 1 {
@@ -97,9 +81,5 @@ impl<T: Clone> SharedMaterials<T> {
         } else {
             false
         }
-    }
-    pub fn bytes(&self) -> usize {
-        self.entries.capacity() * (std::mem::size_of::<(SharedMaterialKey, (T, usize))>() + 1)
-            + self.heap_bytes
     }
 }

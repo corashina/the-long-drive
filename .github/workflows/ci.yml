@@ -1,24 +1,18 @@
 name: CI
+# Free Actions minutes are limited. PR runs need the `ci` label.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [master]
+    paths-ignore: ["**.md", "docs/**"]
+  workflow_dispatch:
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 jobs:
-  rust:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.99"
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --locked --target wasm32-unknown-unknown --workspace --lib
-      - run: cargo test --locked --workspace
-  web:
+  check:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,3 +23,10 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: node --test tests/web/*.test.mjs
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99"
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --locked --target wasm32-unknown-unknown --workspace --lib
+      - run: cargo test --locked --workspace

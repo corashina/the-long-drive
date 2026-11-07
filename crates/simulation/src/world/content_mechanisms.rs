@@ -100,7 +100,6 @@ pub(super) fn bind(
                     .build(),
             );
             instance.bodies.push(body);
-            instance.cpu_bytes += 2048;
             items.set_body(root_item, Some(body));
             body
         };

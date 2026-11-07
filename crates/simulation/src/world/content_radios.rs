@@ -119,27 +119,16 @@ impl WorldStream {
         let parent = content.content.placement.id.clone();
         let rules = &self.contents.rules;
         let reference = &self.reference;
-        let prototype = reference
-            .prototypes
-            .iter()
-            .find(|p| p.source == content.content.placement.prototype)
-            .ok_or_else(|| ReferenceError("Radio prototype missing".into()))?;
-        let index = |link: &SourceId| -> Result<usize, ReferenceError> {
-            prototype
-                .nodes
-                .iter()
-                .position(|n| &n.source == link)
-                .ok_or_else(|| ReferenceError("Radio node outside its prototype".into()))
-        };
+        let prototype = reference.prototype(&content.content.placement.prototype)?;
         let f = rules.get(reference, script)?.fields;
         let electronics = link(f, "electronics")?;
-        let node = index(rules.root(reference, electronics)?)?;
+        let node = prototype.node(rules.root(reference, electronics)?)?;
         let electronics = NodeElectronics {
             node: node as u32,
             layer: u32::from(prototype.nodes[node].layer),
             state: Electronics::from_fields(rules.get(reference, electronics)?.fields)?,
         };
-        let needle_node = index(link(f, "TMutato")?)?;
+        let needle_node = prototype.node(link(f, "TMutato")?)?;
         let needle_parent = prototype.nodes[needle_node]
             .parent
             .map_or(Affine3A::IDENTITY, |p| {
@@ -147,7 +136,7 @@ impl WorldStream {
             })
             .inverse();
         let local = |name: &str| -> Result<Vec3, ReferenceError> {
-            let world = prototype_affine(prototype, index(link(f, name)?)?);
+            let world = prototype_affine(prototype, prototype.node(link(f, name)?)?);
             Ok(needle_parent.transform_point3(world.translation.into()))
         };
         let screen = |renderer: &str, on: &str, off: &str| -> Result<_, ReferenceError> {
@@ -399,16 +388,6 @@ impl Bound for RadioBinding {
     }
     fn set_slot(&mut self, slot: usize) {
         self.slot = slot;
-    }
-    fn heap_bytes(&self) -> usize {
-        crate::world::contents::identity_heap(&self.parent)
-            + self.script.file.capacity()
-            + self.knobs.capacity() * std::mem::size_of::<(ColliderId, Knob)>()
-            + self
-                .screens
-                .iter()
-                .map(|(n, m)| n.file.capacity() + m[0].file.capacity() + m[1].file.capacity())
-                .sum::<usize>()
     }
 }
 
