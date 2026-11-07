@@ -2,6 +2,18 @@
 #[path = "stream_tests/kit.rs"]
 pub mod kit;
 
+/// The renderer finishes only a surface that it reserved. The finish keeps the stale fact.
+#[test]
+fn a_surface_finishes_only_after_its_reservation() {
+    use super::SurfaceState;
+    for mut state in [SurfaceState::Prepared, SurfaceState::Offered] {
+        assert_eq!(state.accept().unwrap_err().0, "Unreserved source renderer");
+    }
+    let mut state = SurfaceState::Reserved { stale: true };
+    state.accept().unwrap();
+    assert_eq!(state, SurfaceState::RendererReady { stale: true });
+}
+
 /// The stream drops a structure while the renderer finishes it. The late receipt ends its claim
 /// and does not stop the game.
 #[test]
@@ -45,7 +57,9 @@ fn a_request_change_keeps_a_finished_terrain_tile() {
             stream
                 .ready
                 .as_ref()
-                .filter(|w| w.published.key.layer == crate::world::WorldLayer::Terrain && w.offered)
+                .filter(|w| {
+                    w.published.key.layer == crate::world::WorldLayer::Terrain && w.state.offered()
+                })
                 .map(|w| w.published.key)
         })
         .expect("a finished near tile");

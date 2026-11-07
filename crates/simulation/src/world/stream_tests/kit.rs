@@ -140,7 +140,7 @@ pub(crate) fn prepare_step_for_views(
     }
     if let Some((request, surface)) = stream.prepared_surface() {
         let key = surface.key;
-        if !stream.ready.as_ref().unwrap().renderer_reserved {
+        if !stream.ready.as_ref().unwrap().state.reserved() {
             stream.reserve_surface_renderer(request, key).unwrap();
             stream.accept_surface_renderer(request, key).unwrap();
             *surface_claim = Some((request, key));
