@@ -314,13 +314,13 @@ impl Net {
             self.figures
                 .push((remote.slot, crate::vehicle::to_rapier(pose)));
             let flags = if remote.ragdoll.step(
-                remote.smoothing.dead,
+                remote.smoothing.dead(),
                 real_dt,
                 origin,
                 &mut frame.remote_ragdolls,
             ) {
                 RemoteRow::RAGDOLL
-            } else if remote.smoothing.dead {
+            } else if remote.smoothing.dead() {
                 0
             } else {
                 RemoteRow::VISIBLE
