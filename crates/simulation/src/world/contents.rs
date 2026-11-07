@@ -118,7 +118,7 @@ impl ContentInstance {
             content: SpawnedContent {
                 placement,
                 inputs: super::spawn_state::SpawnInitialization::default(),
-                appearance: Vec::new(),
+                appearance: Default::default(),
                 cable: Vec::new(),
                 lights: Vec::new(),
                 fluid: None,
@@ -584,7 +584,7 @@ impl SourceContents {
                 e.output.push(SpawnedContent {
                     inputs: super::spawn_state::SpawnInitialization::default(),
                     placement: parent.clone(),
-                    appearance: Vec::new(),
+                    appearance: Default::default(),
                     cable: cables
                         .iter()
                         .find(|(id, _)| id == &parent.id)

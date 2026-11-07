@@ -24,6 +24,42 @@ impl NodeAppearance {
                 .map_or(0, |s| s.file.capacity())
     }
 }
+/// Node appearance of a content. Each mutable access takes a new revision from one process
+/// counter, so an equal revision means equal nodes. The renderer sync compares revisions.
+#[derive(Clone, Debug)]
+pub struct Appearance {
+    nodes: Vec<NodeAppearance>,
+    revision: u64,
+}
+static APPEARANCE_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+fn next_revision() -> u64 {
+    APPEARANCE_REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+impl Default for Appearance {
+    fn default() -> Self {
+        Self {
+            nodes: Vec::new(),
+            revision: next_revision(),
+        }
+    }
+}
+impl Appearance {
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+}
+impl std::ops::Deref for Appearance {
+    type Target = Vec<NodeAppearance>;
+    fn deref(&self) -> &Vec<NodeAppearance> {
+        &self.nodes
+    }
+}
+impl std::ops::DerefMut for Appearance {
+    fn deref_mut(&mut self) -> &mut Vec<NodeAppearance> {
+        self.revision = next_revision();
+        &mut self.nodes
+    }
+}
 pub fn node_active(
     prototype: &crate::reference::WorldPrototypeReference,
     mut node: usize,

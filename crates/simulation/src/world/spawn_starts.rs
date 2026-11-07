@@ -199,7 +199,7 @@ impl SpawnEvaluation<'_> {
         self.push(super::spawn_contents::SpawnedContent {
             inputs: super::spawn_state::SpawnInitialization::default(),
             placement: child,
-            appearance: Vec::new(),
+            appearance: Default::default(),
             cable: Vec::new(),
             lights: Vec::new(),
             fluid: None,
