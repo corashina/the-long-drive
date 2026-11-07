@@ -1,3 +1,4 @@
+use super::query_bounds::HandleQueue;
 use bevy_platform::collections::{HashMap, HashSet};
 use rapier3d::math::{Pose, Vector};
 use rapier3d::prelude::{RigidBody, RigidBodyHandle, RigidBodySet, RigidBodyType};
@@ -31,6 +32,8 @@ pub(super) struct PresentationBodies {
     steps: HashMap<RigidBodyHandle, (Pose, Pose)>,
     /// Bodies that follow the player after the step. They blend while asleep or disabled too.
     followers: HashSet<RigidBodyHandle>,
+    /// Bodies marked since the last item pose sync. Frame clears keep them.
+    moved: HandleQueue<RigidBodyHandle>,
 }
 
 impl PresentationBodies {
@@ -38,6 +41,7 @@ impl PresentationBodies {
         if self.queued.insert(handle) {
             self.handles.push(handle);
         }
+        self.moved.mark(handle, slot(handle));
     }
 
     pub(super) fn mark_if_changed(
@@ -122,7 +126,12 @@ impl PresentationBodies {
             + table
             + self.steps.capacity() * (std::mem::size_of::<(RigidBodyHandle, (Pose, Pose))>() + 1)
             + self.followers.capacity() * (std::mem::size_of::<RigidBodyHandle>() + 1)
+            + self.moved.retained_bytes()
     }
+}
+
+fn slot(handle: RigidBodyHandle) -> usize {
+    handle.into_raw_parts().0 as usize
 }
 
 impl super::PhysicsWorld {
@@ -168,6 +177,14 @@ impl super::PhysicsWorld {
         self.presentation_bodies
             .blended(handle, body, alpha)
             .unwrap_or_else(|| fallback * *body.position())
+    }
+
+    /// Writes the bodies that moved, woke, slept or changed since the last call to `out`.
+    pub fn take_moved_bodies(&mut self, out: &mut Vec<RigidBodyHandle>) {
+        let moved = &mut self.presentation_bodies.moved;
+        out.clear();
+        out.extend_from_slice(&moved.handles);
+        moved.clear(slot);
     }
 
     /// Clear after presentation sync. Query refreshes use separate queues.

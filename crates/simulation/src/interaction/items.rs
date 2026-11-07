@@ -1,6 +1,6 @@
 use crate::reference::WorldPrototypeReference;
 use crate::world::{AbsolutePose, GeneratedId, SupplyDefinition, WorldOrigin};
-use bevy_platform::collections::HashMap as BevyHashMap;
+use bevy_platform::collections::{HashMap as BevyHashMap, HashSet as BevyHashSet};
 use std::collections::{HashMap, HashSet};
 
 use rapier3d::math::{Rotation, Vector};
@@ -74,6 +74,10 @@ pub struct ItemState {
 
 pub struct ItemStore {
     dirty: HashSet<ItemId>,
+    /// Items with a mutable access or a body change since the last `sync_poses`.
+    stale_poses: BevyHashSet<ItemId>,
+    /// Scratch list of the bodies that moved since the last `sync_poses`.
+    moved_bodies: Vec<RigidBodyHandle>,
     states: Vec<ItemState>,
     indices: BevyHashMap<ItemId, usize>,
     body_ids: Vec<BodyId>,
@@ -289,6 +293,8 @@ impl ItemStore {
         }
         Ok(Self {
             dirty: HashSet::new(),
+            stale_poses: BevyHashSet::new(),
+            moved_bodies: Vec::new(),
             generated: BevyHashMap::new(),
             generated_keys: BevyHashMap::new(),
             membership_revision: 0,
@@ -690,6 +696,7 @@ impl ItemStore {
         });
         self.membership_revision += 1;
         self.by_body.entry(body).or_default().push(id);
+        self.stale_poses.insert(id);
         Ok(())
     }
 
@@ -728,7 +735,7 @@ impl ItemStore {
         });
         self.membership_revision += 1;
         self.by_body.entry(body).or_default().push(id);
-        self.dirty.insert(id);
+        self.touch(id);
         Ok(())
     }
 
@@ -946,6 +953,7 @@ impl ItemStore {
     pub fn on_body_mut(&mut self, body: RigidBodyHandle, mut edit: impl FnMut(&mut ItemState)) {
         for id in self.by_body.get(&body).into_iter().flatten() {
             self.dirty.insert(*id);
+            self.stale_poses.insert(*id);
             edit(&mut self.states[self.indices[id]]);
         }
     }
@@ -958,6 +966,7 @@ impl ItemStore {
     }
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut ItemState> {
         self.dirty.extend(self.states.iter().map(|s| s.id));
+        self.stale_poses.extend(self.states.iter().map(|s| s.id));
         self.states.iter_mut()
     }
 
@@ -967,8 +976,14 @@ impl ItemStore {
 
     pub fn get_mut(&mut self, id: ItemId) -> Option<&mut ItemState> {
         let index = *self.indices.get(&id)?;
-        self.dirty.insert(id);
+        self.touch(id);
         self.states.get_mut(index)
+    }
+
+    /// Marks `id` for change capture and for the next pose sync.
+    fn touch(&mut self, id: ItemId) {
+        self.dirty.insert(id);
+        self.stale_poses.insert(id);
     }
 
     /// Changes only when items enter, leave, or change physical bodies.
@@ -989,7 +1004,7 @@ impl ItemStore {
             self.membership_revision += 1;
             self.move_body(id, old, body);
         }
-        self.dirty.insert(id);
+        self.touch(id);
         self.states.get_mut(index)
     }
 
@@ -999,8 +1014,8 @@ impl ItemStore {
         second: ItemId,
     ) -> Option<(&mut ItemState, &mut ItemState)> {
         let indices = [*self.indices.get(&first)?, *self.indices.get(&second)?];
-        self.dirty.insert(first);
-        self.dirty.insert(second);
+        self.touch(first);
+        self.touch(second);
         let [first, second] = self.states.get_disjoint_mut(indices).ok()?;
         Some((first, second))
     }
@@ -1042,28 +1057,32 @@ impl ItemStore {
             if self.body_ids[index] == id && old != Some(handle) {
                 self.states[index].body = Some(handle);
                 self.membership_revision += 1;
+                self.stale_poses.insert(self.states[index].id);
                 self.move_body(self.states[index].id, old, Some(handle));
             }
         }
     }
 
-    pub fn sync_poses(&mut self, physics: &PhysicsWorld) {
-        for state in &mut self.states {
-            if state.inactive_pose.is_some() {
-                continue;
+    /// Recomputes the poses of the items on bodies that moved or are awake, and of stale items.
+    pub fn sync_poses(&mut self, physics: &mut PhysicsWorld) {
+        physics.take_moved_bodies(&mut self.moved_bodies);
+        let awake = physics.rapier().islands.active_bodies();
+        let bodies = self.moved_bodies.iter().copied().chain(awake);
+        for id in bodies.flat_map(|body| self.by_body.get(&body)).flatten() {
+            sync_pose(&mut self.states[self.indices[id]], physics, &mut self.dirty);
+        }
+        for id in self.stale_poses.drain() {
+            if let Some(&index) = self.indices.get(&id) {
+                sync_pose(&mut self.states[index], physics, &mut self.dirty);
             }
-            if let Some(handle) = state.body
-                && let Some(body) = physics.rapier().bodies.get(handle)
-            {
-                let pose = from_rapier(&(*body.position() * to_rapier(state.local_pose)));
-                if state.pose.position != pose.position
-                    || state.pose.rotation != pose.rotation
-                    || !body.is_sleeping()
-                {
-                    self.dirty.insert(state.id);
-                }
-                state.pose = pose;
-            }
+        }
+        #[cfg(debug_assertions)]
+        for state in &self.states {
+            debug_assert!(
+                body_pose(state, physics).is_none_or(|(pose, _)| pose == state.pose),
+                "item {} pose missed the moved-body sync",
+                state.id.0
+            );
         }
     }
 
@@ -1077,6 +1096,26 @@ impl ItemStore {
                 *position -= shift;
             }
         }
+    }
+}
+
+/// Pose of an active `state` from its body, and whether the body is awake.
+fn body_pose(state: &ItemState, physics: &PhysicsWorld) -> Option<(VehiclePose, bool)> {
+    if state.inactive_pose.is_some() {
+        return None;
+    }
+    let body = physics.rapier().bodies.get(state.body?)?;
+    let pose = from_rapier(&(*body.position() * to_rapier(state.local_pose)));
+    Some((pose, !body.is_sleeping()))
+}
+
+/// Sets the pose of `state` from its body. Marks it dirty when it moved or its body is awake.
+fn sync_pose(state: &mut ItemState, physics: &PhysicsWorld, dirty: &mut HashSet<ItemId>) {
+    if let Some((pose, awake)) = body_pose(state, physics) {
+        if state.pose != pose || awake {
+            dirty.insert(state.id);
+        }
+        state.pose = pose;
     }
 }
 
@@ -1145,6 +1184,8 @@ mod generated_key_tests {
     fn empty() -> ItemStore {
         ItemStore {
             dirty: HashSet::new(),
+            stale_poses: BevyHashSet::new(),
+            moved_bodies: Vec::new(),
             states: Vec::new(),
             indices: BevyHashMap::new(),
             body_ids: Vec::new(),
@@ -1197,6 +1238,37 @@ mod generated_key_tests {
         check(&items);
         items.set_body(ItemId(4), None);
         assert!(items.on_body(b).is_empty() && !items.by_body.contains_key(&b));
+    }
+
+    #[test]
+    fn pose_sync_follows_moved_bodies_only() {
+        use rapier3d::prelude::RigidBodyBuilder;
+        let mut physics = PhysicsWorld::empty_for_tests();
+        let mut items = empty();
+        let [moving, resting] = [1., 5.].map(|x| {
+            physics.insert_body(RigidBodyBuilder::fixed().translation(Vector::new(x, 0., 0.)))
+        });
+        let pose = VehiclePose {
+            position: [0.; 3],
+            rotation: [0., 0., 0., 1.],
+        };
+        for (id, body) in [(1, moving), (2, resting)] {
+            items
+                .insert_spawned(ItemId(id), "item", pose, body, None)
+                .unwrap();
+        }
+        items.sync_poses(&mut physics);
+        let x = |items: &ItemStore, id| items.get(ItemId(id)).unwrap().pose.position[0];
+        assert_eq!((x(&items, 1), x(&items, 2)), (1., 5.));
+        physics.edit_body(moving, |b| {
+            b.set_translation(Vector::new(3., 0., 0.), false)
+        });
+        items.sync_poses(&mut physics);
+        assert_eq!(x(&items, 1), 3., "an edited body moves its item");
+        // The debug full walk in `sync_poses` checks every other item.
+        items.get_mut(ItemId(2)).unwrap().local_pose.position = [0., 1., 0.];
+        items.sync_poses(&mut physics);
+        assert_eq!(items.get(ItemId(2)).unwrap().pose.position, [5., 1., 0.]);
     }
 
     #[test]

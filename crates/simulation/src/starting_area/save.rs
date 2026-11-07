@@ -504,7 +504,7 @@ impl GarageRuntime {
         candidate
             .area
             .sync_equipment(reference, &mut candidate.physics);
-        candidate.area.items.sync_poses(&candidate.physics);
+        candidate.area.items.sync_poses(&mut candidate.physics);
         candidate.vehicle = saved.progress.selected_vehicle.clone();
         candidate.driving_assists = saved.driving_assists;
         candidate.attempts = crate::save::identity::unsigned(&saved.progress.start_attempts)?;

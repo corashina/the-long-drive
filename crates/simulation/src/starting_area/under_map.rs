@@ -64,7 +64,7 @@ impl GarageRuntime {
             return;
         }
         self.physics.refresh_queries();
-        self.area.items.sync_poses(&self.physics);
+        self.area.items.sync_poses(&mut self.physics);
         self.area.commit_poses(&self.physics, true);
     }
 
