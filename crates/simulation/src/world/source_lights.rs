@@ -24,13 +24,15 @@ pub struct WorldLight {
     pub intensity: f32,
     /// Prototype node of a structure light. None: a road light.
     pub node: Option<u32>,
-    /// The item that moves the light, such as a car. The renderer places the light on the drawn item.
-    pub item: Option<ItemLight>,
+    /// The structure body that moves the light, such as a car. The renderer places the light on the drawn body.
+    pub body: Option<BodyLight>,
 }
-/// The pose of a light in the frame of the item that moves it.
-#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ItemLight {
-    pub item: crate::reference::ItemId,
+/// The pose of a light in the frame of the structure body that moves it.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BodyLight {
+    pub structure: GeneratedId,
+    /// Prototype body index, as in `NodePoseRow::BODY` rows.
+    pub body: u32,
     pub position: [f32; 3],
     pub rotation: [f32; 4],
 }
@@ -367,7 +369,7 @@ impl SourceRoadLight {
             enabled: true,
             intensity: recipe.light.startup_intensity,
             node: None,
-            item: None,
+            body: None,
         }
     }
 }

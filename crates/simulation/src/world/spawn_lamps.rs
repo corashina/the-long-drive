@@ -210,7 +210,7 @@ impl SpawnEvaluation<'_> {
                     scale: parent.scale,
                     enabled,
                     node: Some(node_index as u32),
-                    item: None,
+                    body: None,
                 });
             }
         }

@@ -300,19 +300,25 @@ pub(crate) fn finish_road_lamp_warmup(commands: &mut Commands, source: &mut Sour
     source.road_lamps.prototype_nodes.clear();
 }
 
-/// A light of a moving item sits on the drawn item pose, between the last two steps.
-/// The newest step pose leads the drawn car at speed, and the light flickers.
+/// A light of a moving structure, such as a car, sits on the drawn body pose, between the last two steps.
+/// The newest step pose leads the drawn car at speed, and the light jumps each step.
 fn light_transform(
     frame: &crate::world::RendererFrame<'_>,
     poses: &crate::presentation::sim_frame::SimFrameResource,
     light: &crate::world::WorldLight,
 ) -> Transform {
-    if let Some(local) = &light.item
-        && let Some(item) = poses.interpolated(simulation::boundary::PoseKey::Item(local.item))
+    if let Some(local) = &light.body
+        && let Some(slot) = poses.structure_slot(&local.structure)
+        && let Some(row) = poses.structure_views[slot as usize]
+            .poses
+            .iter()
+            .find(|row| {
+                row.kind == simulation::boundary::NodePoseRow::BODY && row.node == local.body
+            })
     {
-        let rotation = Quat::from_array(item.rotation);
+        let rotation = Quat::from_array(row.rotation);
         return Transform::from_translation(
-            Vec3::from_array(item.position) + rotation * Vec3::from_array(local.position),
+            Vec3::from_array(row.translation) + rotation * Vec3::from_array(local.position),
         )
         .with_rotation(rotation * Quat::from_array(local.rotation));
     }
