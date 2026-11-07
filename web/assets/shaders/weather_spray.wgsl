@@ -26,6 +26,10 @@ const EMITTERS: u32 = 32u;
 const DRAG: f32 = 2.5;
 // Fall acceleration of the mist, m/s^2.
 const FALL: f32 = 3.0;
+// Largest sprite half size per meter of distance. It limits the screen size near the camera.
+const NEAR_SIZE: f32 = 0.25;
+// Alpha below this value adds less than one 8-bit step.
+const MIN_ALPHA: f32 = 1.0 / 255.0;
 
 @group(0) @binding(0) var<uniform> spray: Spray;
 @group(0) @binding(1) var<uniform> emitters: array<Emitter, 512>;
@@ -84,6 +88,10 @@ fn vertex(@builtin(vertex_index) corner: u32, @builtin(instance_index) id: u32) 
     let offset = center - spray.camera.xyz;
     let dist = length(offset);
     let fade = (1.0 - t) * (1.0 - t) * smoothstep(0.0, 0.05, age) * smoothstep(0.5, 2.0, dist);
+    let alpha = spray.color.a * emitter.position.w * fade;
+    if alpha < MIN_ALPHA {
+        return out;
+    }
     // Two triangles: corners 0 1 2 and 0 2 3 of the quad.
     let x = select(-1.0, 1.0, corner == 1u || corner == 2u || corner == 4u);
     let y = select(-1.0, 1.0, corner == 2u || corner == 4u || corner == 5u);
@@ -91,16 +99,20 @@ fn vertex(@builtin(vertex_index) corner: u32, @builtin(instance_index) id: u32) 
     let level = cross(view, vec3(0.0, 1.0, 0.0));
     let right = select(normalize(level), vec3(1.0, 0.0, 0.0), abs(view.y) > 0.999);
     let up = cross(right, view);
-    let size = mix(0.15, 0.8, t) * (0.7 + 0.6 * unit(seed + 6u));
+    let size = min(mix(0.15, 0.8, t) * (0.7 + 0.6 * unit(seed + 6u)), NEAR_SIZE * dist);
     let world = center + (right * x + up * y) * size;
     out.clip = spray.clip_from_world * vec4(world, 1.0);
     out.uv = vec2(x, y);
-    out.alpha = spray.color.a * emitter.position.w * fade;
+    out.alpha = alpha;
     return out;
 }
 
 @fragment
 fn fragment(in: Varyings) -> @location(0) vec4<f32> {
-    let soft = 1.0 - smoothstep(0.2, 1.0, length(in.uv));
-    return vec4(spray.color.rgb, in.alpha * soft);
+    let alpha = in.alpha * (1.0 - smoothstep(0.2, 1.0, length(in.uv)));
+    // The quad corners and the faint edge write nothing. Skip their blend.
+    if alpha < MIN_ALPHA {
+        discard;
+    }
+    return vec4(spray.color.rgb, alpha);
 }
