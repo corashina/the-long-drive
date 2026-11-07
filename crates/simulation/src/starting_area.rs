@@ -961,10 +961,11 @@ impl GarageRuntime {
         let mut profile = Timer::new(Stage::StepConditions);
         self.wheels
             .refresh_conditions(&self.area.interaction.conditions);
-        profile.next(Stage::StepWorld);
+        profile.next(Stage::StepPersistent);
         if let Err(error) = self.sync_world_activity(reference) {
             self.stream.fail(ReferenceError(error.to_string()));
         }
+        profile.next(Stage::StepWorld);
         // The check reads the stream request, so the request is the current position.
         let held = !self.started || self.paused() || self.recovering || {
             self.request_focus();
@@ -1557,6 +1558,7 @@ impl GarageRuntime {
                 .cycle
                 .set_terrain_color(&reference.lighting.cycle, &color, 0.);
         }
+        profile.next(Stage::StepPersistent);
         self.persistent_world
             .sync(
                 reference,
@@ -1566,6 +1568,7 @@ impl GarageRuntime {
                 &mut self.physics,
             )
             .expect("persistent world bindings");
+        profile.next(Stage::StepWorld);
         self.rebase_to(focus);
         self.stream.capture_changes(
             reference,
@@ -1573,6 +1576,7 @@ impl GarageRuntime {
             &self.area.interaction,
             &self.physics,
         );
+        profile.next(Stage::StepPersistent);
         self.persistent_world
             .sync(
                 reference,

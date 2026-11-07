@@ -72,6 +72,10 @@ impl PhysicsWorld {
             .get_mut(handle)
             .expect("Invalid collider handle");
         self.query_bounds.mark_collider(handle, true);
+        if let Some(parent) = collider.parent() {
+            self.shape_edits += 1;
+            self.body_shapes.insert(parent, self.shape_edits);
+        }
         edit(collider)
     }
     pub fn try_edit_collider<R>(
@@ -81,7 +85,20 @@ impl PhysicsWorld {
     ) -> Option<R> {
         let collider = self.physics.colliders.get_mut(handle)?;
         self.query_bounds.mark_collider(handle, true);
+        if let Some(parent) = collider.parent() {
+            self.shape_edits += 1;
+            self.body_shapes.insert(parent, self.shape_edits);
+        }
         Some(edit(collider))
+    }
+    /// Marks a change of the collider set or of a collider on `body`.
+    pub(super) fn shapes_changed(&mut self, body: RigidBodyHandle) {
+        self.shape_edits += 1;
+        self.body_shapes.insert(body, self.shape_edits);
+    }
+    /// Changes when a collider of `body` is added, removed or edited. Unedited bodies give 0.
+    pub fn shape_revision(&self, body: RigidBodyHandle) -> u64 {
+        self.body_shapes.get(&body).copied().unwrap_or(0)
     }
     pub fn insert_body(&mut self, body: impl Into<RigidBody>) -> RigidBodyHandle {
         let mut body = body.into();
@@ -119,6 +136,7 @@ impl PhysicsWorld {
                 .insert_with_parent(collider, parent, &mut self.physics.bodies);
         self.query_bounds.mark_body(parent);
         self.query_bounds.mark_collider(handle, true);
+        self.shapes_changed(parent);
         handle
     }
     pub fn set_collider_parent(
@@ -132,9 +150,11 @@ impl PhysicsWorld {
                 .filter(|parent| self.physics.bodies.contains(*parent))
             {
                 self.query_bounds.mark_body(old);
+                self.shapes_changed(old);
             }
             if let Some(parent) = parent.filter(|parent| self.physics.bodies.contains(*parent)) {
                 self.query_bounds.mark_body(parent);
+                self.shapes_changed(parent);
             }
             self.query_bounds.mark_collider(collider, false);
         }
@@ -195,6 +215,7 @@ impl PhysicsWorld {
             self.body_mass_override = None;
         }
         self.forget_body_cargo(body);
+        self.body_shapes.remove(&body);
         self.physics.remove_body(body)
     }
     pub fn recompute_body_mass(&mut self, body: RigidBodyHandle) {

@@ -237,6 +237,9 @@ pub struct PhysicsWorld {
     sleep_speed: f32,
     /// Milliseconds of `step_physics` since the last `take_step_ms`. Zero off the web.
     step_ms: f64,
+    /// Count of the last collider edit of each body. See `shape_revision`.
+    body_shapes: HashMap<RigidBodyHandle, u64>,
+    shape_edits: u64,
 }
 
 impl PhysicsWorld {
@@ -259,6 +262,8 @@ impl PhysicsWorld {
             sleep_speed:
                 rapier3d::prelude::RigidBodyActivation::default_normalized_linear_threshold(),
             step_ms: 0.,
+            body_shapes: HashMap::new(),
+            shape_edits: 0,
         };
         physics.physics.integration_parameters.dt = FIXED_DT;
         // A recycled contact keeps its fixed-collider points in world space. The origin rebase
@@ -756,6 +761,7 @@ impl PhysicsWorld {
             .and_then(|collider| collider.parent())
         {
             self.query_bounds.mark_body(parent);
+            self.shapes_changed(parent);
         }
         self.physics.remove_collider(handle);
         self.refresh_queries();
