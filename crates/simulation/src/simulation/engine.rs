@@ -4,6 +4,7 @@ use crate::fluids::{FluidContainer, FluidMixture, VehicleFluids, suitability};
 use crate::reference::{EngineGlobals, EnginePartReference, RadiatorPartReference, TorqueCurve};
 use crate::save::{EngineSnapshot, SaveError, identity::unsigned};
 use crate::simulation::dials::{inverse_lerp, lerp};
+use crate::simulation::ignition::Key;
 
 const RUN_GRACE_SECONDS: f32 = 0.2;
 
@@ -94,8 +95,7 @@ fn two_stroke_oil_penalty(fuel: Option<&FluidContainer>, reference: &EnginePartR
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct InstalledEngineInput {
-    pub ignition: bool,
-    pub starter: bool,
+    pub key: Key,
     pub throttle: f32,
     /// Clutch engagement. Zero disconnects the wheels.
     pub clutch: f32,
@@ -306,7 +306,7 @@ impl EngineState {
             && self.heat_penalty < 0.99
             && self.fuel_suitability > 0.3
             && self.random_start <= reference.start_chance;
-        let ignition = installed.ignition && installed.electronics_enabled;
+        let ignition = installed.key != Key::Off && installed.electronics_enabled;
         let min_supplied = inverse_lerp(0.0, reference.max_rpm, reference.idle_rpm);
         if ignition && can_run {
             self.supplied_fuel = lerp(
@@ -354,7 +354,7 @@ impl EngineState {
             .audio
             .as_ref()
             .is_some_and(|audio| audio.starter.is_some());
-        if installed.starter {
+        if installed.key == Key::Cranking {
             if self.rpm < reference.starter_rpm {
                 self.rpm = lerp(
                     self.rpm,
@@ -386,7 +386,7 @@ impl EngineState {
         } else {
             0.0
         };
-        if installed.starter && target_rpm <= reference.starter_rpm {
+        if installed.key == Key::Cranking && target_rpm <= reference.starter_rpm {
             rpm_difference =
                 (self.rpm - reference.starter_rpm) * reference.starter_rpm_lerp * 100.0;
             actual_output =
@@ -503,7 +503,7 @@ impl EngineState {
             );
         }
         self.last_output = EngineOutput {
-            starter: installed.starter,
+            starter: installed.key == Key::Cranking,
             kick_start,
             running,
             rpm: self.rpm,
