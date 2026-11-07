@@ -28,10 +28,9 @@ const LIFE: f32 = 0.7;
 const PERIOD: f32 = 1000.;
 /// The birth of an empty slot. Its age is always more than `LIFE`.
 const EMPTY: f32 = -1e9;
-/// Opacity of one particle at full amount.
-const OPACITY: f32 = 0.22;
-/// Particles per emitter in each slot, by the "Rain" display level.
-const PARTICLES: [u32; 3] = [8, 4, 2];
+/// Particles per emitter in each slot and the opacity of one particle at full amount,
+/// by the "Rain" display level. High has 6 particles at 0.22 * 8 / 6: the same cover as 8 at 0.22.
+const LEVELS: [(u32, f32); 3] = [(6, 0.29), (4, 0.22), (2, 0.22)];
 
 #[derive(Resource, Clone, Copy, ExtractResource)]
 struct SprayInput {
@@ -43,6 +42,7 @@ struct SprayInput {
     epoch: u32,
     origin: [f64; 3],
     particles: u32,
+    opacity: f32,
 }
 
 impl Default for SprayInput {
@@ -53,7 +53,8 @@ impl Default for SprayInput {
             dt: 0.,
             epoch: 0,
             origin: [0.; 3],
-            particles: PARTICLES[0],
+            particles: LEVELS[0].0,
+            opacity: LEVELS[0].1,
         }
     }
 }
@@ -131,7 +132,7 @@ fn snapshot(
         input.origin = frame.state.stream_origin;
         input.epoch = input.epoch.wrapping_add(1);
     }
-    input.particles = PARTICLES[(display.rain as usize).min(PARTICLES.len() - 1)];
+    (input.particles, input.opacity) = LEVELS[(display.rain as usize).min(LEVELS.len() - 1)];
 }
 
 fn layout() -> BindGroupLayoutDescriptor {
@@ -223,7 +224,7 @@ fn prepare(
         &SprayParams {
             clip_from_world: view.raster_projection * view.view_from_world,
             camera: camera.extend(pass.clock),
-            color: fog.extend(OPACITY),
+            color: fog.extend(input.opacity),
             controls: Vec4::new(input.particles as f32, LIFE, SLOT_SECONDS, PERIOD),
             births: std::array::from_fn(|i| Vec4::from_slice(&pass.births[i * 4..i * 4 + 4])),
         },
