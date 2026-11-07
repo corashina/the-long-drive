@@ -266,9 +266,6 @@ impl PhysicsWorld {
             shape_edits: 0,
         };
         physics.physics.integration_parameters.dt = FIXED_DT;
-        // A recycled contact keeps its fixed-collider points in world space. The origin rebase
-        // moves fixed colliders, so a recycled contact would push against the old surface.
-        physics.physics.integration_parameters.contact_recycling = false;
         physics
     }
 }
@@ -442,6 +439,7 @@ impl PhysicsWorld {
             .begin_step(&self.physics.bodies, self.physics.islands.active_bodies());
         self.physics
             .step_with_events(&self.ignored, &self.hit_collector);
+        self.physics.integration_parameters.contact_recycling = true;
         self.presentation_bodies.end_step(&self.physics.bodies);
         self.hit_collector.take(&mut self.hits);
         self.hit_collector.take_enters(&mut self.trigger_enters);
@@ -786,6 +784,9 @@ impl PhysicsWorld {
                 collider.set_translation(collider.translation() - shift);
             }
         }
+        // A recycled contact keeps its fixed-collider points in world space. The rebase moves
+        // fixed colliders, so the next step computes every moved contact again.
+        self.physics.integration_parameters.contact_recycling = false;
         // Rapier refreshes private wheel ray points before applying forces next step.
         // Keep suspension lengths, wheel rotations, and velocities unchanged here.
         self.refresh_queries();
