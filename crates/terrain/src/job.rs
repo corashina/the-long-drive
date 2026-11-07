@@ -1,7 +1,7 @@
 //! Byte boundary for one terrain tile job. Values cross it without change.
 use super::{
-    TerrainContext, TerrainEvaluator, TerrainFoundation, TerrainMesh, TerrainRoadPoint,
-    TerrainSettings, TerrainTile,
+    TerrainContext, TerrainEvaluator, TerrainFoundation, TerrainMesh, TerrainRoadGrid,
+    TerrainRoadPoint, TerrainSettings, TerrainTile,
 };
 
 /// One tile job. Tile jobs use every road point without a radius filter.
@@ -95,6 +95,7 @@ pub struct TerrainTask {
     tile: TerrainTile,
     biome_override: Option<u8>,
     roads: Vec<TerrainRoadPoint>,
+    road_grid: TerrainRoadGrid,
     foundations: Vec<TerrainFoundation>,
     holes: Vec<[[f32; 3]; 4]>,
     job: crate::TerrainSurfaceJob,
@@ -164,6 +165,7 @@ impl TerrainTask {
             return Err("Terrain job input has trailing bytes".into());
         }
         let evaluator = TerrainEvaluator::new(settings);
+        let road_grid = TerrainRoadGrid::new(&roads);
         let mut job = crate::TerrainSurfaceJob::default();
         let mut output = TerrainMesh::default();
         job.begin(
@@ -172,6 +174,7 @@ impl TerrainTask {
                 evaluator: &evaluator,
                 tile,
                 roads: &roads,
+                road_grid: Some(&road_grid),
                 road_radius_squared: None,
                 foundations: &foundations,
                 holes: &holes,
@@ -184,6 +187,7 @@ impl TerrainTask {
             tile,
             biome_override,
             roads,
+            road_grid,
             foundations,
             holes,
             job,
@@ -196,6 +200,7 @@ impl TerrainTask {
                 evaluator: &self.evaluator,
                 tile: self.tile,
                 roads: &self.roads,
+                road_grid: Some(&self.road_grid),
                 road_radius_squared: None,
                 foundations: &self.foundations,
                 holes: &self.holes,
