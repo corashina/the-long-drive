@@ -10,6 +10,7 @@ pub mod creatures;
 pub mod decals;
 pub mod figure_stage;
 pub mod fixed_assets;
+mod fog_far;
 pub mod gpu_prepare;
 pub mod gpu_timing;
 pub mod humans;
