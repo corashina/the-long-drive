@@ -24,6 +24,15 @@ pub struct WorldLight {
     pub intensity: f32,
     /// Prototype node of a structure light. None: a road light.
     pub node: Option<u32>,
+    /// The item that moves the light, such as a car. The renderer places the light on the drawn item.
+    pub item: Option<ItemLight>,
+}
+/// The pose of a light in the frame of the item that moves it.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ItemLight {
+    pub item: crate::reference::ItemId,
+    pub position: [f32; 3],
+    pub rotation: [f32; 4],
 }
 impl WorldLight {
     /// Structure lights append their component identity. Road lights share the pole identity.
@@ -393,6 +402,7 @@ impl SourceRoadLight {
             enabled: true,
             intensity: recipe.light.startup_intensity,
             node: None,
+            item: None,
         }
     }
 }
