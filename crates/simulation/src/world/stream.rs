@@ -157,19 +157,46 @@ pub struct RecoveryPermit {
     player: [f64; 3],
     vehicle: [f64; 3],
 }
+/// Renderer phase of the prepared surface. Each phase follows the one before it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum SurfaceState {
+    /// The renderer cannot see the surface.
+    Prepared,
+    /// The renderer may see the surface. The stream charges its render staging and memory.
+    Offered,
+    /// The renderer owns its claim. `stale`: the inputs changed, so the renderer discards it.
+    Reserved { stale: bool },
+    /// The renderer finished the surface. Its work drained.
+    RendererReady { stale: bool },
+}
+impl SurfaceState {
+    fn offered(self) -> bool {
+        self != Self::Prepared
+    }
+    fn reserved(self) -> bool {
+        matches!(self, Self::Reserved { .. } | Self::RendererReady { .. })
+    }
+    /// The renderer finished its claim. A repeat keeps the state.
+    fn accept(&mut self) -> Result<(), ReferenceError> {
+        match *self {
+            Self::Reserved { stale } | Self::RendererReady { stale } => {
+                *self = Self::RendererReady { stale };
+                Ok(())
+            }
+            Self::Prepared | Self::Offered => {
+                Err(ReferenceError("Unreserved source renderer".into()))
+            }
+        }
+    }
+}
 struct PreparedSurface {
     road_claim: Option<(RoadJobId, u64)>,
     pending_bytes: usize,
-    renderer_ready: bool,
-    /// The renderer may see the surface. The stream charges its render staging and memory.
-    offered: bool,
-    renderer_reserved: bool,
+    state: SurfaceState,
     /// The request at creation. It names the surface to the renderer and never changes.
     request: WorldRequest,
     /// Terrain job input. None for a road.
     input: Option<TileInput>,
-    /// The inputs of the reserved surface changed. The renderer discards it.
-    stale: bool,
     published: PublishedSurface,
 }
 struct SelectedRoad {
@@ -185,8 +212,16 @@ struct RoadWork {
     identity: RoadJobId,
     segment: RoadSegment,
     source_revision: u64,
-    completed: bool,
-    canceled: bool,
+    state: RoadWorkState,
+}
+/// Phase of the owned road job.
+#[derive(Clone, Copy, PartialEq)]
+enum RoadWorkState {
+    Running,
+    /// The worker holds the finished surface.
+    Completed,
+    /// The stream no longer wants the result. The worker discards it.
+    Canceled,
 }
 
 /// Retained bytes of the stores that bindings grow.
@@ -1034,10 +1069,9 @@ impl WorldStream {
         // for a required structure. The renderer work that finishes the receipt or the
         // structure can itself wait for the slot.
         self.publication_lent = self.failure.is_none()
-            && self
-                .ready
-                .as_ref()
-                .is_none_or(|work| !work.renderer_ready || self.surface_waits)
+            && self.ready.as_ref().is_none_or(|work| {
+                !matches!(work.state, SurfaceState::RendererReady { .. }) || self.surface_waits
+            })
             && self.ready_structures.is_empty();
         let own = self.stream_use();
         if let Err(error) = self.ledger.take_report(&own, report) {
@@ -1064,7 +1098,7 @@ impl WorldStream {
             + self.road_work.as_ref().map_or(0, |w| w.pending_bytes)
             + self.ready.as_ref().map_or(0, |w| {
                 w.pending_bytes
-                    + if w.offered {
+                    + if w.state.offered() {
                         surface_render_cpu(&w.published.surface)
                     } else {
                         0
@@ -1249,11 +1283,11 @@ impl WorldStream {
         let ready = self.ready.as_ref().map(|w| {
             serde_json::json!({
                 "key": format!("{:?}", w.published.key),
-                "offered": w.offered,
-                "renderer_ready": w.renderer_ready,
-                "renderer_reserved": w.renderer_reserved,
+                "offered": w.state.offered(),
+                "renderer_ready": matches!(w.state, SurfaceState::RendererReady { .. }),
+                "renderer_reserved": w.state.reserved(),
                 "current": self.surface_current(w),
-                "stale": w.stale,
+                "stale": matches!(w.state, SurfaceState::Reserved { stale: true } | SurfaceState::RendererReady { stale: true }),
                 "input_revision": w.input.map(|input| input.revision),
                 "terrain_revision": self.terrain_revision,
             })
@@ -1452,7 +1486,7 @@ impl WorldStream {
                 .as_ref()
                 .is_some_and(|w| w.published.prototype.as_ref() == Some(source))
             {
-                if self.ready.as_ref().unwrap().renderer_reserved {
+                if self.ready.as_ref().unwrap().state.reserved() {
                     return Err(ReferenceError(
                         "Cannot release a reserved road prototype".into(),
                     ));
@@ -1574,7 +1608,7 @@ impl WorldStream {
         }
     }
     fn discard_unreserved_surface(&mut self) {
-        if self.ready.as_ref().is_some_and(|w| !w.renderer_reserved) {
+        if self.ready.as_ref().is_some_and(|w| !w.state.reserved()) {
             let key = self.ready.take().unwrap().published.key;
             if key.layer == WorldLayer::Road {
                 self.road_worker.publication_ended(false);
@@ -2750,7 +2784,7 @@ impl WorldStream {
         self.terrain_execution
             .reconcile(self.request, retain_terrain);
         if let Some(work) = &self.ready
-            && !work.renderer_reserved
+            && !work.state.reserved()
         {
             let valid = match work.published.road {
                 Some(road) => {
@@ -3035,7 +3069,7 @@ impl WorldStream {
             Err(error) => self.road_failure(error),
             Ok(RoadPoll::Idle) => {
                 if let Some(work) = self.road_work.take()
-                    && !work.canceled
+                    && work.state != RoadWorkState::Canceled
                 {
                     self.road_failure(ReferenceError("Road worker lost its owned job".into()));
                 }
@@ -3044,9 +3078,9 @@ impl WorldStream {
                 if let Some(work) = self
                     .road_work
                     .as_mut()
-                    .filter(|w| w.identity == id && !w.canceled)
+                    .filter(|w| w.identity == id && w.state != RoadWorkState::Canceled)
                 {
-                    work.completed = true;
+                    work.state = RoadWorkState::Completed;
                 } else {
                     self.road_worker.discard();
                 }
@@ -3074,19 +3108,21 @@ impl WorldStream {
                     .any(|r| r.segment == work.segment)
                 && !work_published
                 && (!required_road_missing || self.required.roads.contains(&work.segment.index));
-            if valid && !work.canceled {
-                // Keep the submitted identity immutable. Retarget only the main-thread claim.
-                work.request = self.request;
-            } else if !work.canceled {
-                work.canceled = true;
-                self.road_worker.discard();
+            if work.state != RoadWorkState::Canceled {
+                if valid {
+                    // Keep the submitted identity immutable. Retarget only the main-thread claim.
+                    work.request = self.request;
+                } else {
+                    work.state = RoadWorkState::Canceled;
+                    self.road_worker.discard();
+                }
             }
         }
     }
     fn prepare_road(&mut self) {
         let _timer = super::stream_profile::Timer::new(super::stream_profile::Stage::Road);
         if let Some(work) = &self.road_work {
-            if !work.completed || work.canceled || self.ready.is_some() {
+            if work.state != RoadWorkState::Completed || self.ready.is_some() {
                 return;
             }
             if !same_request(work.request, self.request)
@@ -3104,12 +3140,9 @@ impl WorldStream {
             self.ready = Some(PreparedSurface {
                 road_claim: Some((work.identity, work.source_revision)),
                 pending_bytes: work.surface_bytes,
-                renderer_ready: false,
-                offered: false,
-                renderer_reserved: false,
+                state: SurfaceState::Prepared,
                 request: self.request,
                 input: None,
-                stale: false,
                 published: PublishedSurface {
                     key: SurfaceKey {
                         layer: WorldLayer::Road,
@@ -3229,8 +3262,7 @@ impl WorldStream {
             identity,
             segment,
             source_revision,
-            completed: false,
-            canceled: false,
+            state: RoadWorkState::Running,
         });
         if let Err(error) = self.road_worker.packing_started() {
             self.road_failure(error);
@@ -3309,12 +3341,9 @@ impl WorldStream {
                 self.ready = Some(PreparedSurface {
                     road_claim: None,
                     pending_bytes: metadata.pending_bytes,
-                    renderer_ready: false,
-                    offered: false,
-                    renderer_reserved: false,
+                    state: SurfaceState::Prepared,
                     request: metadata.request,
                     input: Some(metadata.input),
-                    stale: false,
                     published: PublishedSurface {
                         key: metadata.key,
                         bounds: surface_bounds(&surface),
@@ -3483,8 +3512,10 @@ impl WorldStream {
             let work = self.ready.as_mut().unwrap();
             if current {
                 work.input = Some(input);
-            } else if work.renderer_reserved {
-                work.stale = true;
+            } else if let SurfaceState::Reserved { stale } | SurfaceState::RendererReady { stale } =
+                &mut work.state
+            {
+                *stale = true;
             } else {
                 self.discard_unreserved_surface();
             }
@@ -3564,7 +3595,11 @@ impl WorldStream {
     /// A request change alone keeps it.
     fn surface_current(&self, work: &PreparedSurface) -> bool {
         work.request.session == self.request.session
-            && !work.stale
+            && !matches!(
+                work.state,
+                SurfaceState::Reserved { stale: true }
+                    | SurfaceState::RendererReady { stale: true }
+            )
             && !self.has_surface(work.published.key)
             && match work.published.road {
                 Some(_) => self.road_current(work),
@@ -3590,7 +3625,7 @@ impl WorldStream {
     pub fn prepared_surface(&self) -> Option<(WorldRequest, &PublishedSurface)> {
         self.ready
             .as_ref()
-            .filter(|work| work.offered && self.surface_current(work))
+            .filter(|work| work.state.offered() && self.surface_current(work))
             .map(|work| (work.request, &work.published))
     }
     /// Applies the facts of the last renderer step in order.
@@ -3645,17 +3680,17 @@ impl WorldStream {
         else {
             return Ok(());
         };
-        if work.renderer_reserved {
+        if work.state.reserved() {
             return Err(ReferenceError(
                 "Source renderer already owns its claim".into(),
             ));
         }
-        if !work.offered && !self.offer_surface()? {
+        if !work.state.offered() && !self.offer_surface()? {
             return Err(ReferenceError(
                 "Source renderer staging exceeds its resource budget".into(),
             ));
         }
-        self.ready.as_mut().unwrap().renderer_reserved = true;
+        self.ready.as_mut().unwrap().state = SurfaceState::Reserved { stale: false };
         Ok(())
     }
     /// Charges the render staging and memory of the prepared surface before the renderer sees
@@ -3665,7 +3700,7 @@ impl WorldStream {
         let Some(work) = self.ready.as_ref() else {
             return Ok(false);
         };
-        if work.offered {
+        if work.state.offered() {
             return Ok(true);
         }
         let cpu = surface_render_cpu(&work.published.surface);
@@ -3692,7 +3727,7 @@ impl WorldStream {
         ) {
             return Ok(false);
         }
-        self.ready.as_mut().unwrap().offered = true;
+        self.ready.as_mut().unwrap().state = SurfaceState::Offered;
         Ok(true)
     }
     /// The renderer dropped the prepared surface after its work drained.
@@ -3726,11 +3761,7 @@ impl WorldStream {
         else {
             return Ok(());
         };
-        if !work.renderer_reserved {
-            return Err(ReferenceError("Unreserved source renderer".into()));
-        }
-        work.renderer_ready = true;
-        Ok(())
+        work.state.accept()
     }
     /// Publish at most one completed unit. Stale work never changes accepted collision.
     pub fn publish(
@@ -3788,7 +3819,10 @@ impl WorldStream {
                 .input
                 .is_some_and(|input| input.revision == self.terrain_revision),
         };
-        admitted && work.renderer_ready && settled && self.surface_current(work)
+        admitted
+            && matches!(work.state, SurfaceState::RendererReady { .. })
+            && settled
+            && self.surface_current(work)
     }
     fn publish_unit(
         &mut self,
@@ -5292,7 +5326,7 @@ impl WorldStream {
             }
             metrics.active_gpu_bytes += surface_render_bytes(&surface.surface);
         }
-        if let Some(work) = self.ready.as_ref().filter(|work| work.offered) {
+        if let Some(work) = self.ready.as_ref().filter(|work| work.state.offered()) {
             metrics.active_gpu_bytes += surface_render_bytes(&work.published.surface);
         }
         metrics
@@ -5506,7 +5540,7 @@ impl WorldStream {
                     .prototype
                     .as_ref()
                     .map_or(0, |id| id.file.capacity());
-            if work.offered {
+            if work.state.offered() {
                 bytes += surface_render_cpu(&work.published.surface);
             }
         }
