@@ -42,6 +42,10 @@ impl CoolantSteamState {
     pub fn particles(&self) -> &[ParticleOutput] {
         self.system.as_ref().map_or(&[], |(s, _)| s.particles())
     }
+    /// The last step did not boil and no steam particle is alive.
+    pub fn idle(&self) -> bool {
+        self.boil == 0. && self.particles().is_empty()
+    }
 }
 
 /// Source `CoolantSteamEmission.rateOverTime = Lerp(0, CoolantSteamMaxRate, f)`.

@@ -17,11 +17,59 @@ const DEPTH: f32 = 2.;
 const LIFT: f32 = 5.;
 
 impl GarageRuntime {
+    /// Cars and the player every two seconds. Loose items once per two seconds, a share of the
+    /// items each step, so no step checks them all.
     pub(super) fn advance_under_map(&mut self) {
-        if self.simulation_seconds < self.under_map_check {
+        let mut lifted = false;
+        if self.simulation_seconds >= self.under_map_check {
+            self.under_map_check = self.simulation_seconds + INTERVAL;
+            lifted = self.lift_under_map_actors();
+        }
+        let range = self.under_map_items.take(
+            self.area.items.len(),
+            (INTERVAL / f64::from(FIXED_DT)).round() as usize,
+        );
+        let held = self.area.interaction.held();
+        let mut fallen = std::mem::take(&mut self.under_map_fallen);
+        fallen.extend(
+            self.area
+                .items
+                .iter()
+                .skip(range.start)
+                .take(range.len())
+                .filter(|item| {
+                    item.location == ItemLocation::World
+                        && !held.is_some_and(|root| self.area.items.attached_to(item.id, root))
+                })
+                .filter_map(|item| item.body)
+                .filter(|&handle| {
+                    self.physics.vehicle_of(handle).is_none()
+                        && self.physics.body_active(handle)
+                        && self.physics.rapier().bodies[handle].is_dynamic()
+                })
+                .filter_map(|handle| Some((handle, self.under_map(handle)?))),
+        );
+        lifted |= !fallen.is_empty();
+        for (handle, ground) in fallen.drain(..) {
+            self.physics.edit_body(handle, |body| {
+                let mut pose = *body.position();
+                pose.translation.y = ground + LIFT;
+                body.set_position(pose, true);
+                body.set_linvel(Vector::ZERO, true);
+                body.set_angvel(Vector::ZERO, true);
+            });
+        }
+        self.under_map_fallen = fallen;
+        if !lifted {
             return;
         }
-        self.under_map_check = self.simulation_seconds + INTERVAL;
+        self.physics.refresh_queries();
+        self.area.items.sync_poses(&self.physics);
+        self.area.commit_poses(&self.physics, true);
+    }
+
+    /// Lifts the cars and the walking player that fell under the map. True when one moved.
+    fn lift_under_map_actors(&mut self) -> bool {
         let player = self.area.player.body_handle();
         // A seated player follows the seat owner, which this check lifts.
         let seated = self.area.player.seated();
@@ -45,38 +93,7 @@ impl GarageRuntime {
             pose.position[1] = ground + LIFT;
             self.area.player.recover(pose, &mut self.physics);
         }
-        let held = self.area.interaction.held();
-        let fallen: Vec<_> = self
-            .area
-            .items
-            .iter()
-            .filter(|item| {
-                item.location == ItemLocation::World
-                    && !held.is_some_and(|root| self.area.items.attached_to(item.id, root))
-            })
-            .filter_map(|item| item.body)
-            .filter(|&handle| {
-                self.physics.vehicle_of(handle).is_none()
-                    && self.physics.body_active(handle)
-                    && self.physics.rapier().bodies[handle].is_dynamic()
-            })
-            .filter_map(|handle| Some((handle, self.under_map(handle)?)))
-            .collect();
-        if !lifted && fallen.is_empty() {
-            return;
-        }
-        for (handle, ground) in fallen {
-            self.physics.edit_body(handle, |body| {
-                let mut pose = *body.position();
-                pose.translation.y = ground + LIFT;
-                body.set_position(pose, true);
-                body.set_linvel(Vector::ZERO, true);
-                body.set_angvel(Vector::ZERO, true);
-            });
-        }
-        self.physics.refresh_queries();
-        self.area.items.sync_poses(&self.physics);
-        self.area.commit_poses(&self.physics, true);
+        lifted
     }
 
     /// Ground height when the body is below it and nothing is under the body.

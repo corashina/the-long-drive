@@ -39,6 +39,7 @@ pub mod render_readiness;
 pub mod render_scale;
 #[cfg(test)]
 mod roadmap_tests;
+pub mod round_robin;
 pub mod sandbox;
 pub mod save;
 pub mod save_requests;
