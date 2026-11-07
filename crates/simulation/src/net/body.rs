@@ -50,6 +50,8 @@ pub struct RemoteBody {
     enable_at: f64,
     enabled: bool,
     seated: bool,
+    /// The player is dead. The colliders stay off.
+    dead: bool,
     /// Bodies that this body ignores: the items its player holds.
     ignored: Vec<RigidBodyHandle>,
 }
@@ -112,6 +114,7 @@ impl RemoteBody {
             enable_at: now + SPAWN_DELAY,
             enabled: true,
             seated: false,
+            dead: false,
             ignored: Vec::new(),
         };
         body.set_enabled(physics, false);
@@ -120,15 +123,23 @@ impl RemoteBody {
         body
     }
 
-    /// Source `UpdCollider` on each received pose.
+    /// Source `UpdCollider` on each received pose. A dead figure has no colliders. They turn on
+    /// again 1 s after the respawn.
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
         r: &RemotePlayerReference,
         shapes: Shapes,
         seated: bool,
+        dead: bool,
         now: f64,
         physics: &mut PhysicsWorld,
     ) {
+        if dead != self.dead {
+            self.dead = dead;
+            self.set_enabled(physics, false);
+            self.enable_at = now + STAND_DELAY;
+        }
         if self.seated && !seated {
             self.set_enabled(physics, false);
             self.enable_at = now + STAND_DELAY;
@@ -165,6 +176,7 @@ impl RemoteBody {
     /// `player`, so a spawn on a player never pushes the player out.
     pub fn tick(&mut self, now: f64, physics: &mut PhysicsWorld, player: RigidBodyHandle) {
         if !self.enabled
+            && !self.dead
             && now >= self.enable_at
             && (self.seated || !self.overlaps(physics, player))
         {
@@ -330,7 +342,7 @@ mod tests {
         let capsule = body.colliders[0];
         let groups =
             |physics: &PhysicsWorld| physics.rapier().colliders[capsule].collision_groups();
-        body.update(&r, shapes, true, 14., &mut physics);
+        body.update(&r, shapes, true, false, 14., &mut physics);
         assert!(body.enabled(), "sitting down keeps the colliders");
         let solver = physics.rapier().colliders[capsule].solver_groups();
         assert_eq!(
@@ -340,13 +352,33 @@ mod tests {
         );
         assert!(physics.rapier().bodies[body.handle].is_kinematic());
         assert_eq!(groups(&physics).memberships.bits(), 1 << 10);
-        body.update(&r, shapes, false, 20., &mut physics);
+        body.update(&r, shapes, false, false, 20., &mut physics);
         assert!(!body.enabled());
         assert!(physics.rapier().bodies[body.handle].is_dynamic());
         assert_eq!(groups(&physics).memberships.bits(), 1);
         body.tick(20.9, &mut physics, player);
         assert!(!body.enabled());
         body.tick(21., &mut physics, player);
+        assert!(body.enabled());
+    }
+
+    #[test]
+    fn a_dead_figure_has_no_colliders_until_1_s_after_respawn() {
+        let r = reference();
+        let mut physics = PhysicsWorld::empty_for_tests();
+        let shapes = Shapes::new(&r, Vector::new(0., 0.65, 0.), 1.);
+        let mut body = RemoteBody::new(&r, shapes, Pose::IDENTITY, 0., &mut physics);
+        let player = player_at(&mut physics, 5.);
+        body.tick(3., &mut physics, player);
+        assert!(body.enabled());
+        body.update(&r, shapes, false, true, 10., &mut physics);
+        assert!(!body.enabled());
+        body.tick(20., &mut physics, player);
+        assert!(!body.enabled(), "a dead figure stays open");
+        body.update(&r, shapes, false, false, 30., &mut physics);
+        body.tick(30.9, &mut physics, player);
+        assert!(!body.enabled());
+        body.tick(31., &mut physics, player);
         assert!(body.enabled());
     }
 
