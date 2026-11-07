@@ -82,6 +82,7 @@ fn frame_round_trips() {
         }],
         remote_joints: vec![row(13.)],
         ragdoll: vec![row(10.)],
+        remote_ragdolls: vec![row(14.)],
         cigarettes: vec![CigaretteRow {
             item: 7,
             blend: 0.5,
