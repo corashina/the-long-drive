@@ -8,7 +8,8 @@ use super::{
     frame_copy::FrameCopy,
     lighting_assets::LightingRenderAssets,
     materials::RenderingState,
-    probes::{ProbeFilter, ProbePublication},
+    probe_publication::ProbePublication,
+    probes::ProbeFilter,
     readiness::{RendererState, RendererStateHandle, SourceExecutionGate},
     source_lighting::SourceViewCamera,
     source_sky::SkyPass,
@@ -1800,12 +1801,13 @@ fn filter_probe(
             return;
         };
         let result = probe.publication.validated(token, true).and_then(|()| {
-            probe.publication.encode_publication(
-                context.command_encoder(),
-                &surfaces.probes[frame.probe_index],
-                &probe.filter,
-                &cache,
-            )
+            probe.publication.encode_publication(|| {
+                probe.filter.publish(
+                    context.command_encoder(),
+                    &cache,
+                    &surfaces.probes[frame.probe_index],
+                )
+            })
         });
         match result {
             Ok(token) => {
