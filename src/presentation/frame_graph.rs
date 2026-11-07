@@ -17,7 +17,7 @@ use super::{
     view_frame::{SourceSubmissionAcks, SourceViewFrame},
 };
 use crate::presentation_logic::probe_publication::ProbePublication;
-use crate::presentation_logic::view_gate::{FrameFacts, ViewFacts, view_may_draw};
+use crate::presentation_logic::view_gate::{FrameFacts, ViewFacts, frame_blocker, view_may_draw};
 use crate::reference::reflections::ProbeJob;
 use bevy::camera::{RenderTarget, visibility::RenderLayers};
 use bevy::core_pipeline::core_3d::Transparent3d;
@@ -95,6 +95,21 @@ pub(crate) struct FrameAudit {
     gpu_boundary: GpuBoundary,
     probes: [ProbeAudit; PROBE_COUNT],
     pub(crate) effects: super::source_effects::EffectsAudit,
+    /// The first gate that held the world view in its last frame. Empty when it drew.
+    world_hold: WorldHold,
+}
+#[derive(Clone, Copy, Default, serde::Serialize)]
+struct WorldHold {
+    frame: u32,
+    gate: &'static str,
+}
+impl FrameAudit {
+    /// Keeps the first gate of `frame` that holds the world view. "" when it drew.
+    pub(crate) fn hold_world(&mut self, frame: u32, gate: &'static str) {
+        if self.world_hold.frame != frame {
+            self.world_hold = WorldHold { frame, gate };
+        }
+    }
 }
 #[derive(Resource)]
 pub(crate) struct FrameResources {
@@ -775,7 +790,7 @@ pub(crate) fn surface_ready(
     if index >= VIEW_COUNT {
         return false;
     }
-    let state = progress.lock();
+    let mut state = progress.lock();
     let facts = FrameFacts {
         view: frame.views[index].is_some(),
         allowed: frame_allowed(&frame, &state),
@@ -803,6 +818,11 @@ pub(crate) fn surface_ready(
     } else {
         return false;
     };
+    if index == 0
+        && let Some(gate) = frame_blocker(facts)
+    {
+        state.audit.hold_world(frame.frame, gate);
+    }
     view_may_draw(facts, kind)
 }
 
@@ -996,13 +1016,22 @@ fn finish_surface(
     mut context: RenderContext,
 ) {
     let (source, target, lighting, shadow, targets, glass) = view.into_inner();
-    if sun.encoded_frame() != frame.frame || glass.audit().frame != frame.frame {
-        return;
-    }
-    if status.failure().is_some() {
-        return;
-    }
+    let held = if sun.encoded_frame() != frame.frame {
+        Some("sun shadows not encoded")
+    } else if glass.audit().frame != frame.frame {
+        Some("stained glass")
+    } else if status.failure().is_some() {
+        Some("failure")
+    } else {
+        None
+    };
     let mut state = progress.lock();
+    if source.index == 0 {
+        state.audit.hold_world(frame.frame, held.unwrap_or(""));
+    }
+    if held.is_some() {
+        return;
+    }
     if audit_watched() {
         // Only world views draw shadows. The other views sample them.
         let (shadow_epoch, shadow_attempts, shadow_issued) =

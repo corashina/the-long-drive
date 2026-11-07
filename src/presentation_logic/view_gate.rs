@@ -33,19 +33,27 @@ pub(crate) enum ViewFacts {
 
 /// True when the view may draw. Mirrors and probes draw only after the world view presented.
 pub(crate) fn view_may_draw(frame: FrameFacts, view: ViewFacts) -> bool {
-    let shared = frame.view
-        && frame.allowed
-        && frame.camera
-        && frame.display
-        && frame.effects
-        && frame.preprocess
-        && frame.sky;
-    shared
+    frame_blocker(frame).is_none()
         && match view {
             ViewFacts::World => true,
             ViewFacts::Mirror { copy } => frame.presented && copy,
             ViewFacts::Probe { face, probe } => frame.presented && face && probe,
         }
+}
+
+/// The first frame-wide fact that holds every view, or `None`. F3 shows it for the world view.
+pub(crate) fn frame_blocker(frame: FrameFacts) -> Option<&'static str> {
+    [
+        (frame.view, "no view"),
+        (frame.allowed, "loading frame"),
+        (frame.camera, "camera"),
+        (frame.display, "display"),
+        (frame.effects, "effects"),
+        (frame.preprocess, "preprocess"),
+        (frame.sky, "sky"),
+    ]
+    .into_iter()
+    .find_map(|(ready, gate)| (!ready).then_some(gate))
 }
 
 #[cfg(test)]

@@ -49,12 +49,12 @@ function renderCounts(audit){
  if(!audit?.graph)return null;
  const view=audit.graph.views[0],[rows,visible,draws]=view.props;
  return {shadowDraws:view.shadow_issued.reduce((a,b)=>a+b,0),surfaceDraws:view.surface[2]+view.surface[4],
-  propRows:rows,propVisible:visible,propDraws:draws,gpuMs:audit.gpu_ms??null,sceneScale:audit.scene_scale};
+  propRows:rows,propVisible:visible,propDraws:draws,gpuMs:audit.gpu_ms??null,sceneScale:audit.scene_scale,worldHold:audit.graph.world_hold?.gate??''};
 }
 function renderLines(audit){
  const c=renderCounts(audit);
  if(!c)return '';
- return '\nDraws shadow / surface: '+c.shadowDraws+' / '+c.surfaceDraws+
+ return '\nWorld view: '+(c.worldHold?'held by '+c.worldHold:'drawn')+'\nDraws shadow / surface: '+c.shadowDraws+' / '+c.surfaceDraws+
   '\nGPU props rows / visible / indirect draws: '+c.propRows+' / '+c.propVisible+' / '+c.propDraws+gpuLine(c.gpuMs)+'\nScene scale: '+c.sceneScale+'%';
 }
 
