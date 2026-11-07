@@ -26,7 +26,7 @@ pub enum SourceSurfaceStage {
     Collector,
     Opaque,
     AfterOpaque,
-    /// Rain, wheel spray and lightning bolt. F3 times it apart from AO.
+    /// Rain, wheel spray and lightning bolt in one pass (weather_pass.rs). F3 times it apart from AO.
     Weather,
     Transparent,
     Postprocessing,
