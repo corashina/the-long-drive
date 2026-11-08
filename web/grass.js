@@ -6,7 +6,7 @@ const valid=id=>id?.kind==='grass'&&u64(id.session)&&u64(id.revision)&&u64(id.en
 const same=(a,b)=>valid(a)&&valid(b)&&a.session===b.session&&a.revision===b.revision&&a.entity===b.entity;
 const identity=bytes=>{if(!(bytes instanceof Uint8Array)||bytes.length!==24)throw Error('Invalid grass identity.');const v=new DataView(bytes.buffer,bytes.byteOffset,24);return {kind:'grass',session:v.getBigUint64(0,true).toString(),revision:v.getBigUint64(8,true).toString(),entity:v.getBigUint64(16,true).toString()};};
 const entity=bytes=>{if(!(bytes instanceof Uint8Array)||bytes.length!==8)throw Error('Invalid grass entity.');return new DataView(bytes.buffer,bytes.byteOffset,8).getBigUint64(0,true).toString();};
-export function createGrass(worker,profile,now=()=>performance.now()){
+function createGrass(worker,profile,now=()=>performance.now()){
  let state='Idle',job=null,result=null,lastRevision=0n,packingStart=null,packingMs=null;
  const sources=new Map(),publications=new Map();
  const release=(reason)=>{if(job?.record)link.diagnostic(()=>{job.record.physicalReleaseAt=now();job.record.releaseReason=reason;link.emit(job.record);});job=null;result=null;state='Idle';};

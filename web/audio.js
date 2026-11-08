@@ -1,6 +1,6 @@
 import {ClipCache} from './audio/clips.js';
 import {VoiceBank,PORTABLE_RADIO_EMITTER,PORTABLE_RADIO_SLOTS} from './audio/voices.js';
-export const sourceGainDb=value=>20*Math.log(Math.max(.001,Math.min(1,value)));
+const sourceGainDb=value=>20*Math.log(Math.max(.001,Math.min(1,value)));
 export class AudioController {
  constructor(raw){this.raw=raw;this.soundGain=1;this.session=1;this.sequence=0;this.context=null;this.bank=null;this.cache=null;this.mixers=new Map();this.disabled=false;this.paused=true;this.started=false;this.disposed=false;this.epoch=0;this.diagnostics=new Set();this.unlocking=false;this.awaitingPlaying=false;this.accepted=true;try{if(raw.schema_version!==1||!raw.clips.length||!raw.voices.length||!raw.bindings.length||!raw.mixers.length||!raw.shared.settings)throw Error('Invalid audio data');this.bindings=new Map(raw.bindings.map(b=>[b.id,b]));this.radios=[];for(let i=0;i<raw.portable_radios.length*PORTABLE_RADIO_SLOTS;i++){const base=PORTABLE_RADIO_EMITTER+i*4;this.radios.push({emitter:PORTABLE_RADIO_EMITTER+i,voices:[base+1,base+2,base+3],current:[null,null],next:[null,null],seen:0});}this.radioDemand=new Array(this.radios.length*4).fill(null);}catch(error){this.fail(error);}}
  fail(error){if(this.disposed)return;this.disabled=true;this.paused=true;try{this.bank?.pause();this.context?.suspend().catch(()=>{});}catch{}const message=error?.message??String(error);if(!this.diagnostics.has(message)){this.diagnostics.add(message);console.warn('Audio disabled: '+message);}}

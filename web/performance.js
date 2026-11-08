@@ -2,7 +2,7 @@ const WINDOW_MS=2000,CAPACITY=4096;
 // `WeatherKind` order.
 const WEATHER=['clear','cloudy','rain','thunderstorm','fog'];
 
-export class FrameTimings {
+class FrameTimings {
  constructor(){
   this.times=new Float64Array(CAPACITY);this.intervals=new Float64Array(CAPACITY);
   this.physics=new Float64Array(CAPACITY);this.rapier=new Float64Array(CAPACITY);this.world=new Float64Array(CAPACITY);
@@ -38,7 +38,7 @@ export class FrameTimings {
 }
 
 // GPU ms per world view stage, from timestamp queries. Unavailable without the browser feature.
-export function gpuLine(stages){
+function gpuLine(stages){
  if(!stages)return '\nGPU ms: unavailable';
  const total=stages.reduce((a,b)=>a+b,0);
  return '\nGPU ms shadow / opaque / resolve+AO / weather / transparent / post: '+stages.map(v=>v.toFixed(2)).join(' / ')+' (sum '+total.toFixed(2)+')';

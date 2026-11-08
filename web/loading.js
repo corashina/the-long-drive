@@ -7,7 +7,7 @@ export function formatBudget(used,limit,unit){
 }
 
 // Weights follow the startup trace. Steps after `host` run at the same time. `join` steps show only while the boot joins a room.
-export const STEPS=[
+const STEPS=[
  {id:'download',label:'Download game data',weight:3,boot:true},
  {id:'code',label:'Start game code',weight:1,boot:true},
  {id:'interface',label:'Load interface',weight:1,boot:true},

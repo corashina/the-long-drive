@@ -11,20 +11,21 @@ import {gunzip} from './gzip.js';
 export const RELIABLE=0x8000;
 // The largest `pose` message. A larger message splits into IP fragments, and the loss of one drops all of it.
 export const DATAGRAM=1150;
-export const PREFIX='tls-',MAX_PLAYERS=8,TIMEOUT_MS=5000,JOIN_TIMEOUT_MS=15000,LOAD_TIMEOUT_MS=120000,TICK_MS=1000,CHUNK=16384,CHAT_BYTES=200;
+export const PREFIX='tls-',TIMEOUT_MS=5000,TICK_MS=1000;
+const MAX_PLAYERS=8,JOIN_TIMEOUT_MS=15000,LOAD_TIMEOUT_MS=120000,CHUNK=16384,CHAT_BYTES=200;
 const LETTERS='ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const ROLE={OFF:0,HOST:1,GUEST:2};
 export const STATUS={
  notFound:'Room not found.',full:'Room is full.',password:'Wrong password.',version:'Different game version.',
  server:'Cannot reach the connection server.',connect:'Cannot connect to the host.',hostLeft:'Host left.',save:'The host world could not be loaded.',
 };
-export function roomCode(random=Math.random){return Array.from({length:6},()=>LETTERS[Math.floor(random()*LETTERS.length)]).join('');}
-export function validCode(code){return typeof code==='string'&&code.length===6&&[...code].every(c=>LETTERS.includes(c));}
+function roomCode(random=Math.random){return Array.from({length:6},()=>LETTERS[Math.floor(random()*LETTERS.length)]).join('');}
+function validCode(code){return typeof code==='string'&&code.length===6&&[...code].every(c=>LETTERS.includes(c));}
 // A peer record `link` goes 'connected' -> 'welcomed' (after `hello` and the save chunks) -> 'ready' (the guest runs the world).
 const linked=p=>p!=null&&p.link!=='connected';
 const bytes=data=>data instanceof Uint8Array?data:new Uint8Array(data);
 // Splits a frame outbox into the unreliable and the reliable batch. Each length loses bit `RELIABLE`.
-export function splitOutbox(outbox){
+function splitOutbox(outbox){
  let sizes=[0,0];
  for(let at=0;at+2<=outbox.length;){const raw=outbox[at]|outbox[at+1]<<8,n=raw&~RELIABLE;if(at+2+n>outbox.length)break;sizes[raw&RELIABLE?1:0]+=2+n;at+=2+n;}
  const out=sizes.map(n=>new Uint8Array(n));sizes=[0,0];
@@ -46,7 +47,7 @@ export function datagrams(batch,send){
 }
 // A copy of a guest batch with sender `slot` in each packet. The host stamps it, so a guest cannot speak for another.
 // A truncated tail drops. Null when no packet is left.
-export function stamp(data,slot){
+function stamp(data,slot){
  const batch=bytes(data);let at=0;
  while(at+2<=batch.length){const end=at+2+(batch[at]|batch[at+1]<<8);if(end>batch.length)break;at=end;}
  if(at===0)return null;
@@ -55,7 +56,7 @@ export function stamp(data,slot){
  return out;
 }
 // Cuts a chat line to `CHAT_BYTES` UTF-8 bytes, like the source chat field limit.
-export function chatText(text){
+function chatText(text){
  const encoded=new TextEncoder().encode(String(text).trim());
  return new TextDecoder().decode(encoded.subarray(0,CHAT_BYTES)).replace(/�$/,'');
 }

@@ -11,7 +11,7 @@ let topPacks=[],topPackOf=new Map(),topStarted=0,topRead=0;
 export const worldBootstrapMeasurements={dependencyWorkers:0,maxDependencyBytes:0,dependencyPayloadCopyBytes:0,dependencyStagingReserve:0};
 export const startPackMeasurements={packs:0,topPacks:0,entries:0,read:0,unused:0,heldPeakBytes:0};
 function canonical(path){return typeof path==='string'&&!/[^a-zA-Z0-9_./ -]/.test(path)&&!path.split('/').some(p=>!p||p==='.'||p==='..'||p.startsWith(' ')||p.endsWith(' '));}
-export function assetUrl(base,path){
+function assetUrl(base,path){
  if(typeof base!=='string'||!/^\.?\/?assets\/runtime\/[a-zA-Z0-9_-]+\/$/.test(base)||!canonical(path))throw Error('Invalid package path.');
  return base+path;
 }

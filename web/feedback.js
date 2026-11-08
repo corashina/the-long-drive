@@ -1,19 +1,19 @@
 import {applyLayout,layoutBox} from './ui-layout.js';
 import {boundNames} from './bindings.js';
 import {HELP,helpText} from './help-text.js';
-export function formatGear(gear){return gear<0?'R':gear===0?'N':String(gear);}
+function formatGear(gear){return gear<0?'R':gear===0?'N':String(gear);}
 /** Item prompt bits (Rust `ItemPrompt`). */
-export const PROMPT={ATTACH:1,COIL:2,DRAIN:4,RELOAD:8,UNLOAD:16,LOOK:32,FOCUS:64,BREAK_BARREL:128,OPEN_CYLINDER:256};
+const PROMPT={ATTACH:1,COIL:2,DRAIN:4,RELOAD:8,UNLOAD:16,LOOK:32,FOCUS:64,BREAK_BARREL:128,OPEN_CYLINDER:256};
 /** Computer prompt bits (Rust `ComputerPrompt`). TYPING routes the keyboard to the computer. */
-export const COMPUTER={TURN_ON:1,TURN_OFF:2,USE:4,CONNECT:8,DISCONNECT:16,TYPING:32};
-export const ACTION={USE:1,DOOR:2,PICKUP:4,DROP:8,MOUNT:16,DISMOUNT:32,FILL:64,TUNE:128,ENTER:256,EXIT:512,SWITCH:1024,PUSH:2048,GRIP:4096,THROW:8192,ROTATE:32768,RELEASE_GRIP:65536,PRIMARY_SWITCH:131072,SCROLL:262144,CONSUME:524288,DRINK:1048576,HELD_SWITCH:2097152,WASH:4194304,SCRUB:8388608,EQUIP:16777216,RECENTER:33554432,RELEASE_EQUIPMENT:67108864,RELEASE_EQUIPMENT_SEATED:134217728,TAKE_ONE:268435456,SMOKE:536870912,PUT_ON:1073741824,CRANK:2147483648};
+const COMPUTER={TURN_ON:1,TURN_OFF:2,USE:4,CONNECT:8,DISCONNECT:16,TYPING:32};
+const ACTION={USE:1,DOOR:2,PICKUP:4,DROP:8,MOUNT:16,DISMOUNT:32,FILL:64,TUNE:128,ENTER:256,EXIT:512,SWITCH:1024,PUSH:2048,GRIP:4096,THROW:8192,ROTATE:32768,RELEASE_GRIP:65536,PRIMARY_SWITCH:131072,SCROLL:262144,CONSUME:524288,DRINK:1048576,HELD_SWITCH:2097152,WASH:4194304,SCRUB:8388608,EQUIP:16777216,RECENTER:33554432,RELEASE_EQUIPMENT:67108864,RELEASE_EQUIPMENT_SEATED:134217728,TAKE_ONE:268435456,SMOKE:536870912,PUT_ON:1073741824,CRANK:2147483648};
 // Source `mainscript.fluids[type].lname` words.
 const FLUIDS=['gas','oil','alcohol','water','blood','diesel'];
 // `word` returns a source `ls.w` word by name.
-export function formatRadio(r,word){if(r.context===11&&Number.isFinite(r.radioVolume))return word('volume')+': '+Math.round(r.radioVolume*10).toString().padStart(2,'0');if(r.context===12&&Number.isFinite(r.radioFrequency))return (r.radioAm?word('am')+' '+r.radioFrequency.toFixed(0).padStart(3,'0'):word('fm')+' '+r.radioFrequency.toFixed(1).padStart(4,'0'));return '';}
+function formatRadio(r,word){if(r.context===11&&Number.isFinite(r.radioVolume))return word('volume')+': '+Math.round(r.radioVolume*10).toString().padStart(2,'0');if(r.context===12&&Number.isFinite(r.radioFrequency))return (r.radioAm?word('am')+' '+r.radioFrequency.toFixed(0).padStart(3,'0'):word('fm')+' '+r.radioFrequency.toFixed(1).padStart(4,'0'));return '';}
 function volume(value){return (Math.round(value*10)/10).toFixed(1).replace(/\.0$/,'');}
 // Source `GetCapString`. `index` returns the word of an `ls.w` index.
-export function formatTank(r,word,index) {
+function formatTank(r,word,index) {
  if(r.noText)return '';
  if(r.context===14)return Math.round(r.amount).toString();
  const prefix=r.hasName?index(r.fluidWord)+':\n':'';
@@ -25,10 +25,10 @@ export function formatTank(r,word,index) {
  return result;
 }
 /** Rust `Crosshair` layer bits. E, adjust and F hold a sprite choice. */
-export const CROSSHAIR={E_SHIFT:0,ADJUST_SHIFT:2,F_SHIFT:4,MMB:128,LMB:256,DISMOUNT:512,CAN_PICKUP:1024,PICKUP:2048,TOO_HEAVY:4096,DEFAULT:8192,WEAPON:16384,MMB_SPRITE_SHIFT:16};
+const CROSSHAIR={E_SHIFT:0,ADJUST_SHIFT:2,F_SHIFT:4,MMB:128,LMB:256,DISMOUNT:512,CAN_PICKUP:1024,PICKUP:2048,TOO_HEAVY:4096,DEFAULT:8192,WEAPON:16384,MMB_SPRITE_SHIFT:16};
 const E_ICONS=['','enter','exit','switch'],ADJUST_ICONS=['','door','slide','slide-vertical'],F_ICONS=['','push','mount','hose','attach'];
 /** Source `mainscript.CrossHairStuff` layers in sibling (draw) order: the icon role or `ui.sprites` index, or null when hidden, and the source size. */
-export function crosshairLayers(bits){
+function crosshairLayers(bits){
  const e=E_ICONS[bits>>CROSSHAIR.E_SHIFT&3],adjust=ADJUST_ICONS[bits>>CROSSHAIR.ADJUST_SHIFT&3],f=F_ICONS[bits>>CROSSHAIR.F_SHIFT&7];
  const on=(bit,role)=>bits&bit?role:null,mmb=bits>>>CROSSHAIR.MMB_SPRITE_SHIFT;
  return [[on(CROSSHAIR.DISMOUNT,'dismount'),75,40],[on(CROSSHAIR.CAN_PICKUP,'pickup'),75,40],[on(CROSSHAIR.PICKUP,'carrying'),75,40],
@@ -36,12 +36,12 @@ export function crosshairLayers(bits){
   [on(CROSSHAIR.WEAPON,'weapon'),50,50],[e||null,40,40],[on(CROSSHAIR.MMB,mmb?mmb-1:'cap'),40,40],[on(CROSSHAIR.LMB,'fill'),40,40]];
 }
 /** Source `GCPickups` alphas under the carrying layer: medium and heavy, by `weightM`. */
-export function pickupWeightAlphas(weight){
+function pickupWeightAlphas(weight){
  if(!(weight<0.9))return [0,0];
  const inverse=(a,b,v)=>Math.max(0,Math.min(1,(v-a)/(b-a)));
  return [inverse(0.9,0.5,weight),inverse(0.5,0,weight)];
 }
-export class FeedbackState {
+class FeedbackState {
  constructor(word=name=>name,index=String){this.word=word;this.index=index;this.record=null;this.help=0;this.visible=false;this.enabled=true;this.active=false;this.fluidText='';this.fluidWord=undefined;this.capacity=undefined;this.amountKey=undefined;this.percentKeys=[-1,-1,-1,-1,-1,-1];this.hasName=undefined;this.noText=undefined;this.empty=undefined;this.lmbUse=false;this.actions=-1;this.context=-1;this.carrying=false;this.notice='';this.throwCharge=0;this.throwActive=false;this.prompts=0;this.computer=0;this.crosshair=0;this.weight=1;}
  // Formats the fluid text again with the current words.
  relabel(){this.amountKey=undefined;if(this.record)this.update(this.record);}
@@ -63,7 +63,7 @@ export class FeedbackState {
  }
 }
 /** Source `mainscript.CrosshairColor` tint of the old crosshair, from the layer bits. */
-export function oldCrosshairColor(bits,colors){
+function oldCrosshairColor(bits,colors){
  if(bits&(3<<CROSSHAIR.E_SHIFT|3<<CROSSHAIR.ADJUST_SHIFT))return colors.e;
  if(bits&(7<<CROSSHAIR.F_SHIFT|CROSSHAIR.CAN_PICKUP|CROSSHAIR.DISMOUNT))return colors.f;
  if(bits&CROSSHAIR.MMB)return colors.mmb;
@@ -71,7 +71,7 @@ export function oldCrosshairColor(bits,colors){
 }
 // Hint templates: `{action}` is the bound key name of a source action in brackets, `<word>` an `ls.w` word.
 // They fill once per binding or language change.
-export const HINTS={translationHelp:'{rmb}+[Mouse]: <move>\n{scrollup}: Distance\n{looklean}+{scrollup}: Posture',
+const HINTS={translationHelp:'{rmb}+[Mouse]: <move>\n{scrollup}: Distance\n{looklean}+{scrollup}: Posture',
  rotationHelp:'{rmb}+[Mouse]: <move>\n{mmb}+[Mouse]: <rotate>\n{rmb}+{mmb}+[Mouse]: Roll\n{scrollup}: Distance\n{looklean}+{scrollup}: Posture',
  doorMove:'{lmb}+[Mouse]: <move>',doorOpen:'{lmb}+[Mouse]: <openclose>',useLmbSwitch:'{use} / {lmb}: <turnSwitch>',useSwitch:'{use}: <turnSwitch>',useOpen:'{use}: <openclose>',
  tuneLmb:'{use} / {lmb}+[Mouse]: <tune>',tune:'{use}+[Mouse]: <tune>',tuneOpen:'{use}+[Mouse] / {scrollup}: <openclose>',scrollTune:'{scrollup}: <tune>',scrollOpen:'{scrollup}: <openclose>',

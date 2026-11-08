@@ -39,12 +39,12 @@ const NAMES=Object.keys(ROWS);
 const POSITIONS=1000;
 // Source settingsslider with useHalf: the left half covers minimum..half, the right half half..maximum.
 // The value rounds to `step`.
-export function mirrorDistance(position,{minimum,maximum,half,step}){
+function mirrorDistance(position,{minimum,maximum,half,step}){
  const t=position/POSITIONS*2;
  const value=t<1?minimum+(half-minimum)*t:half+(maximum-half)*(t-1);
  return Math.min(maximum,Math.max(minimum,Math.round(value/step)*step));
 }
-export function mirrorPosition(value,{minimum,maximum,half}){
+function mirrorPosition(value,{minimum,maximum,half}){
  const t=value<half?(value-minimum)/(half-minimum):1+(value-half)/(maximum-half);
  return Math.round(Math.min(2,Math.max(0,t))*POSITIONS/2);
 }

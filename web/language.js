@@ -1,8 +1,8 @@
 // Source `ls` words. `record` is the exported `language`: `ls.w` names, English words and the language files.
 // The settings store field `language` holds the language name (source PlayerPrefs `SelectedLanguage`).
-export const ENGLISH='English';
+const ENGLISH='English';
 // Source `ls.ScanLanguages`: English, then the files in directory order.
-export function languageNames(record){return [ENGLISH,...record.languages.map(l=>l.name)];}
+function languageNames(record){return [ENGLISH,...record.languages.map(l=>l.name)];}
 export function languageField(record){const names=languageNames(record);return {default:ENGLISH,valid:v=>names.includes(v)};}
 // Source `ls.menu` dropdown.
 export function installLanguageSelect(select,settings,names){
@@ -12,7 +12,7 @@ export function installLanguageSelect(select,settings,names){
  settings.listen(paint);paint(settings.values);
 }
 // Source `ls.LoadSelectedLanguage`: a missing or empty word shows the English word. Returns words by `ls.w` name.
-export function wordTable(record,name){
+function wordTable(record,name){
  const file=record.languages.find(l=>l.name===name),words={};
  record.names.forEach((n,i)=>{words[n]=file?.words[i]||record.english[i];});
  return words;

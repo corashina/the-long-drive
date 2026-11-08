@@ -1,18 +1,18 @@
 // "Steering wheel" block of the Controls screen: pad axis and button binds, H-shifter and live values.
 import {AXES} from './gamepad.js';
 // Source `inputscript.axisMove`.
-export const AXIS_MOVE=0.25;
+const AXIS_MOVE=0.25;
 const AXIS_NAMES=['Steer','Gas','Brake','Clutch','Handbrake'];
 const BUTTON_NAMES=['Clutch','Shift up','Shift down','Reverse','Neutral','Gear 1','Gear 2','Gear 3','Gear 4','Gear 5','Gear 6'];
 // Source menu text names.
 const LIVE_NAMES=['Steer','Throttle','Brake','Clutch','HandBrake'];
 // The first axis more than `AXIS_MOVE` from its rest value, as `{pad,axis}`, or null.
-export function movedAxis(axes,rest){
+function movedAxis(axes,rest){
  for(let i=0;i<axes.length;i++)if(Math.abs(axes[i]-rest[i])>AXIS_MOVE)return {pad:Math.floor(i/AXES),axis:i%AXES};
  return null;
 }
 // The first button pressed that is not in `held`, as `{pad,button}`, or null. `held` takes the current bits.
-export function pressedButton(buttons,held){
+function pressedButton(buttons,held){
  for(let p=0;p<buttons.length;p++){
   const fresh=buttons[p]&~held[p];held[p]=buttons[p];
   if(fresh)return {pad:p,button:31-Math.clz32(fresh&-fresh)};

@@ -2,7 +2,7 @@
 // It edits the `outfit.js` outfit. Each change goes to Rust at once. Close saves it (`OnDisable`).
 import {resetCharacter} from './outfit.js';
 // Unity `Color.HSVToRGB(h, s, v)` for values in 0..1.
-export function hsvToRgb(h,s,v){
+function hsvToRgb(h,s,v){
  const h6=h*6,i=Math.floor(h6)%6,f=h6-Math.floor(h6),p=v*(1-s),q=v*(1-s*f),t=v*(1-s*(1-f));
  return [[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]][i];
 }

@@ -3,7 +3,7 @@ import {createSettingsScreen} from './settings-screen.js';
 import {createControlsScreen} from './controls-screen.js';
 import {canLoadLast} from './save-session.js';
 import {AUTOSAVE} from './save-storage.js';
-export const ACTIONS={PAUSE:2,CONTINUE:4,RESPAWN:8,RECOVER:16};
+const ACTIONS={PAUSE:2,CONTINUE:4,RESPAWN:8,RECOVER:16};
 const pendingText={save:'Saving…',load:'Loading…',loadLast:'Loading…',remove:'Deleting…',newGame:'Starting a new game…'};
 // Result texts confirm a menu action. They clear when play continues.
 const resultText={join:'Joined the game.',save:'Save complete.',load:'Game loaded.',loadLast:'Game loaded.',remove:'Save deleted.',newGame:''};
@@ -54,7 +54,7 @@ export class MenuState {
   finally {if(token===this.generation)this.pending=false;}
  }
 }
-export async function captureWithAudio(model,action,request,audio){const success=await model.capture(action,request,()=>audio?.unlock());if(!success)audio?.pause();return success;}
+async function captureWithAudio(model,action,request,audio){const success=await model.capture(action,request,()=>audio?.unlock());if(!success)audio?.pause();return success;}
 export function createMenu({canvas,language,ui,clearInput,queueAction,saveSession,buildId,thumbnail=()=>null,sleeping=()=>false,seated=()=>false,guest=()=>false,online=()=>false,worldDrawDistance=()=>NaN,slider,audio,bindings,defaultAssists,onPause,onNewGame,reloadNewGame=()=>false,autoNewGame=false,appearance,settings,resets}) {
  const model=new MenuState(),menu=document.querySelector('#menu'),settingsNode=document.querySelector('#settings-screen'),gameMode=document.querySelector('#game-mode-screen'),savesNode=document.querySelector('#save-screen'),appearanceNode=document.querySelector('#appearance-screen'),multiplayerNode=document.querySelector('#multiplayer-screen'),startLast=document.querySelector('#start-load-last');
  const initial=document.querySelector('#start-actions'),paused=document.querySelector('#pause-actions'),error=document.querySelector('#capture-error'),toast=document.querySelector('#toast'),distance=document.querySelector('#session-distance'),distanceLabel=document.querySelector('#session-distance-label'),distanceValue=document.querySelector('#session-distance-value'),deathCard=document.querySelector('#death-card'),deathHint=document.querySelector('#death-hint');

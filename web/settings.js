@@ -51,7 +51,7 @@ export function createSettings(storage,reference,fields={}){
  };
 }
 // Rust `PlayerSettings` JSON. `index` is the action index by source name (`actionIndex`).
-export function playerSettings(v,index){
+function playerSettings(v,index){
  return JSON.stringify({mouse:[v.FMouseSensXY,v.FMouseSensX,v.FMouseSensY],scroll:v.FMouseSensZ,object_move:v.FMouseMove,object_rotation:v.FMouseRot,
   key_look:v.FKeyLookSens,key_steer:v.FKeySteerSens,fov:[v.FFieldOfViewFoot,v.FFieldOfViewCar],
   invert:[v.BInvertMouseSensX,v.BInvertMouseSensY,v.BInvertMouseSensZ,v.BInvertMouseMove,v.BInvertMouseRot],head_bob:[v.BWalkHeadBob,v.BDriveHeadBob],

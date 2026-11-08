@@ -7,7 +7,7 @@ const IGNITION='<ignition>: {ignition} ',HANDBRAKE='<swhandbrake>: {handbrake} '
  STEER='<swsteer>: {steerleft}/{steerright} ',NEUTRAL='<neutral>: {clutch}+{gearn} ',SHIFT='<shiftgear>: {clutch}+{szamok} ',UP='<upshift>: {shiftup} ',DOWN='<downshift>: {shiftdown} ',
  LEAN='<lean>: {looklean}+{mouse} ',LEAN_UP_DOWN='<leanupdown>: {looklean}+{scrollup} ',LIGHTS='<lights>: {lights} ';
 // Sets by vehicle, then by assists: manual, auto clutch, auto shift.
-export const SETS={
+const SETS={
  car:[[IGNITION,HANDBRAKE,'<reverse>: {clutch}+{gearr} ',NEUTRAL,SHIFT,LEAN,LEAN_UP_DOWN,LIGHTS],
   [IGNITION,HANDBRAKE,UP,DOWN,LEAN,LEAN_UP_DOWN,LIGHTS],
   [HANDBRAKE,ACCELERATE,'<swbrake>/<reverse>: {brake} ',STEER,IGNITION,LEAN,LEAN_UP_DOWN,LIGHTS]],
@@ -23,7 +23,7 @@ export function helpLines(help,assists){
  return sets[assists&2?2:1];
 }
 // Fills the template tokens. `names` are the bound key names by action (`boundNames`), `inputs` the settings store keys.
-export function fillHelp(template,word,names,mouseLook){
+function fillHelp(template,word,names,mouseLook){
  return template.replace(/<(\w+)>/g,(_,w)=>word(w)).replace(/\{(\w+)\}/g,(_,a)=>a==='szamok'?'['+names.gear1+'-'+names.gear4+']':a==='mouse'?'['+(mouseLook?'Mouse':names.lookright)+']':'['+names[a]+']');
 }
 // Source ThelpText: each line, a space and a line break.
