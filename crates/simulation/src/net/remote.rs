@@ -104,12 +104,13 @@ impl Remote {
         if let Some(head) = self.body.node_local(reference.head) {
             let shapes = Shapes::new(reference, head.position, self.smoothing.duck);
             let collision = self.collision.get_or_insert_with(|| {
-                RemoteBody::new(reference, shapes, to_rapier(pose), now, physics)
+                RemoteBody::new(self.slot, reference, shapes, to_rapier(pose), now, physics)
             });
             if std::mem::take(&mut self.smoothing.fresh) {
                 collision.update(reference, shapes, self.smoothing.stance, now, physics);
             }
             collision.place(physics, to_rapier(pose));
+            collision.place_hits(physics, &self.body);
             self.written = shown.position;
         }
         Some((pose, self.body.root_local()))

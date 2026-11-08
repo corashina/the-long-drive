@@ -28,7 +28,9 @@ use creatures::CreatureSync;
 use inventory::InventorySync;
 use items::ItemSync;
 use lamps::LampSync;
-use message::{BodyMessage, BrokeMessage, Message, PoseMessage, RagdollMessage};
+use message::{
+    BodyMessage, BrokeMessage, DamagePlayerMessage, Message, PoseMessage, RagdollMessage,
+};
 use mounts::MountSync;
 use objects::ObjectIndex;
 use rapier3d::math::Vector;
@@ -214,6 +216,9 @@ impl Net {
             runtime.area.interaction.push.pushes.clear();
             runtime.shared_radios.clear();
             runtime.weather.strike = None;
+            let interaction = &mut runtime.area.interaction;
+            interaction.melee.player_damage.clear();
+            interaction.guns.player_damage.clear();
             self.cars.end(runtime);
             self.inventory.clear(runtime);
             self.objects.skip(&mut runtime.area.items);
@@ -276,6 +281,18 @@ impl Net {
             self.role == NetRole::Host,
             out,
         );
+        let interaction = &mut runtime.area.interaction;
+        for (slot, damage) in interaction
+            .melee
+            .player_damage
+            .take()
+            .chain(interaction.guns.player_damage.take())
+        {
+            out.push(&DamagePlayerMessage {
+                target: slot.into(),
+                damage,
+            });
+        }
         for (item, record) in runtime.shared_breaks.drain(..) {
             if let Some(key) = self.objects.key(item) {
                 out.push(&BrokeMessage {
@@ -480,6 +497,7 @@ impl Net {
                 | message::SOUND
                 | message::WEATHER
                 | message::STRIKE => WorldSync::receive(self.role, packet, index, runtime),
+                message::DAMAGE_PLAYER => self.read_damage(runtime, packet),
                 message::CREATURE if self.role == NetRole::Guest => {
                     creatures::receive(reference, packet, runtime)
                 }
@@ -489,6 +507,19 @@ impl Net {
         // The buffer keeps its capacity.
         self.inbox = inbox;
         self.inbox.clear();
+    }
+
+    /// Source `msgType.dmgPlayer` receiver: `survival.Damage` of a hit on this player.
+    fn read_damage(&self, runtime: &mut GarageRuntime, packet: &[u8]) {
+        if let Ok((_, m)) = DamagePlayerMessage::decode(packet)
+            && m.target == u32::from(self.slot)
+            && m.damage > 0.
+        {
+            runtime.survival.queue(crate::reference::ConsumptionEffect {
+                hp: -m.damage,
+                ..Default::default()
+            });
+        }
     }
 
     /// Source `UpdPos` and `UpdAnim`: the pose and the body of a remote figure. A new slot joins.

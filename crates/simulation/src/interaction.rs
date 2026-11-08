@@ -31,6 +31,7 @@ pub mod level;
 pub mod mechanisms;
 pub mod melee;
 pub mod parts;
+pub mod player_damage;
 pub mod push;
 pub mod spray;
 pub mod storage;

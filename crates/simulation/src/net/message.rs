@@ -44,6 +44,8 @@ pub const WEAPON: u8 = 40;
 pub const PUSH: u8 = 39;
 /// Source `msgType.broke`.
 pub const BROKE: u8 = 43;
+/// Source `msgType.dmgPlayer`.
+pub const DAMAGE_PLAYER: u8 = 44;
 /// Source `msgType.partslot`.
 pub const PART_SLOT: u8 = 21;
 /// Source `msgType.usable`.
@@ -546,6 +548,16 @@ pub struct BrokeMessage {
     pub pad: u32,
 }
 
+/// Source `SDmgPlayer`: a melee or gun hit on the figure of player `target`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct DamagePlayerMessage {
+    /// The player slot. The source sends the Steam id.
+    pub target: u32,
+    /// HP that `survivalscript.Damage` takes.
+    pub damage: f32,
+}
+
 /// Source `SRemoveItem`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -710,6 +722,10 @@ impl Message for PushMessage {
 }
 impl Message for BrokeMessage {
     const TYPE: u8 = BROKE;
+    const RELIABLE: bool = true;
+}
+impl Message for DamagePlayerMessage {
+    const TYPE: u8 = DAMAGE_PLAYER;
     const RELIABLE: bool = true;
 }
 impl Message for RemoveMessage {

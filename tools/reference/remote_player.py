@@ -1,11 +1,14 @@
 """Recover the remote player body: source `mpplayerscript` on `snTempPlayerSync.playerPrefab`."""
 from .source import continuous, key, source_id, vector
 from .gltf import convert_point
-from .collision import geometry, world_pose
+from .collision import collider_tag, geometry, world_pose
 from .survival import managed_evidence
 
 STANDING_LAYER = 0
 SEATED_LAYER = 10
+# `meleeweaponscript` and `weaponscript` send `SDmgPlayer` for a hit on this layer.
+HIT_LAYER = 9
+HIT_COLLIDERS = 10
 
 
 def recover_remote_player(source, local_player, by_source, matrix):
@@ -32,22 +35,26 @@ def recover_remote_player(source, local_player, by_source, matrix):
             raise ValueError('Remote player node is rotated or scaled')
         return local
 
+    def local_node(transform):
+        """The node of the local player rig with the same path as prefab Transform `transform`."""
+        path = []
+        node = transform
+        while key(node) != key(root):
+            path.insert(0, source.read(source.resolve(node, source.read(node)['m_GameObject']))['m_Name'])
+            node = source.resolve(node, source.read(node)['m_Father'])
+            if node is None:
+                raise ValueError('Remote player node is outside the prefab')
+        local = local_player
+        for name in path:
+            children = [source.resolve(local, c) for c in source.read(local)['m_Children']]
+            matches = [c for c in children if source.read(source.resolve(c, source.read(c)['m_GameObject']))['m_Name'] == name]
+            if len(matches) != 1:
+                raise ValueError(f'Local player lacks remote path {path}')
+            local = matches[0]
+        return by_source[key(local)]
+
     # `THead` sits in the skeleton. The local player rig holds the same path.
-    path = []
-    node = source.resolve(script, data['THead'])
-    while key(node) != key(root):
-        path.insert(0, source.read(source.resolve(node, source.read(node)['m_GameObject']))['m_Name'])
-        node = source.resolve(node, source.read(node)['m_Father'])
-        if node is None:
-            raise ValueError('Remote player head is outside the prefab')
-    local = local_player
-    for name in path:
-        children = [source.resolve(local, c) for c in source.read(local)['m_Children']]
-        matches = [c for c in children if source.read(source.resolve(c, source.read(c)['m_GameObject']))['m_Name'] == name]
-        if len(matches) != 1:
-            raise ValueError(f'Local player lacks remote head path {path}')
-        local = matches[0]
-    head = by_source[key(local)]
+    head = local_node(source.resolve(script, data['THead']))
 
     prone = child_of_root(source.resolve(script, data['TProneHeadPos']))
     head_transform = source.resolve(script, data['HeadCollider'])
@@ -86,6 +93,24 @@ def recover_remote_player(source, local_player, by_source, matrix):
     # Constraints 112 is FreezeRotation.
     if rigidbody['m_UseGravity'] or rigidbody['m_IsKinematic'] or rigidbody['m_Constraints'] != 112 or rigidbody['m_Mass'] != mass['mass']:
         raise ValueError('Remote player rigidbody differs')
+    # The bone colliders on layer 9. Each one follows its bone.
+    hits = []
+    for entry in source.hierarchy(root):
+        if source.read(entry['game_object'])['m_Layer'] != HIT_LAYER:
+            continue
+        for collider in entry['components']:
+            if collider.type.name not in ('BoxCollider', 'CapsuleCollider'):
+                continue
+            raw = source.read(collider)
+            if raw['m_IsTrigger'] or not raw['m_Enabled'] or not entry['active']:
+                raise ValueError('Remote player hit collider differs')
+            bone = entry['parent']
+            hits.append(dict(
+                source=source_id(collider), node=local_node(bone),
+                geometry=geometry(source, None, collider, entry['reader'], world_pose(source, bone), True),
+                tag=collider_tag(source, entry['game_object'])))
+    if len(hits) != HIT_COLLIDERS:
+        raise ValueError('Remote player hit colliders differ')
     box = head_box[2]
     result = dict(
         source=source_id(script), head=head,
@@ -98,6 +123,7 @@ def recover_remote_player(source, local_player, by_source, matrix):
         friction=body_friction, mass_kg=mass['mass'], ccd=continuous(rigidbody),
         standing_membership=1 << STANDING_LAYER, standing_filter=matrix[STANDING_LAYER],
         seated_membership=1 << SEATED_LAYER, seated_filter=matrix[SEATED_LAYER],
+        hits=hits, hit_membership=1 << HIT_LAYER,
         evidence=managed_evidence(source, [
             'StartCoroutine(EnableCollidersWithDelay(3f, _enable: true));',
             'StartCoroutine(EnableCollidersWithDelay(1f, _enable: true));',
@@ -107,5 +133,11 @@ def recover_remote_player(source, local_player, by_source, matrix):
             'cols[i].gameObject.layer = 10;',
             'mass.RB.constraints = RigidbodyConstraints.FreezeRotation;',
             'mpscript.UpdCollider(_duckValue, _sitting);',
+            'mpplayerscript componentInParent = collider.GetComponentInParent<mpplayerscript>();',
+            'if (!(componentInParent != null) || collider.gameObject.layer != 9)',
+            'sns.s.SDmgPlayer(componentInParent, damage * Time.deltaTime * playerDamageMultiplier);',
+            'public static float playerDamageMultiplier = 0.25f;',
+            'sns.s.SDmgPlayer(componentInParent, tempForce * mainscript.M.jouleToHp);',
+            'mainscript.M.player.survival.Damage(d, show: true);',
         ]))
     return result

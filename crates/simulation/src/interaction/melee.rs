@@ -3,6 +3,7 @@
 //! breakable damage, food cuts, tank and explosive hits).
 use super::buried::BuriedItems;
 use super::items::ItemStore;
+use super::player_damage::{MELEE_MULTIPLIER, PlayerDamage};
 use crate::animation::controller::{MotionController, StateEvent};
 use crate::damage::Breakables;
 use crate::particles::ParticleState;
@@ -11,7 +12,7 @@ use crate::reference::{
     ReferenceManifest, SourceId,
 };
 use crate::simulation::FIXED_DT;
-use crate::vehicle::{PhysicsWorld, VehiclePose, collider_tag, to_rapier};
+use crate::vehicle::{PhysicsWorld, VehiclePose, collider_tag, figure_slot, to_rapier};
 use crate::world::unity_random::UnityRandom;
 use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{ColliderHandle, Cuboid, QueryFilter, RigidBodyHandle};
@@ -136,6 +137,8 @@ pub struct MeleeState {
     cuts: Vec<ItemId>,
     /// Items hit this frame with `damageTank`: tanks and explosive props try to explode.
     strikes: Vec<(ItemId, f32)>,
+    /// `SDmgPlayer` of the hits on other players.
+    pub player_damage: PlayerDamage,
 }
 
 impl MeleeState {
@@ -208,6 +211,7 @@ impl MeleeState {
             sounds: Vec::with_capacity(4),
             cuts: Vec::with_capacity(OVERLAP_CAPACITY),
             strikes: Vec::with_capacity(OVERLAP_CAPACITY),
+            player_damage: PlayerDamage::default(),
         })
     }
     /// The weapon whose pickup rule is the held item's rule.
@@ -420,9 +424,12 @@ impl MeleeState {
         if let Some(player) = player {
             filter = filter.exclude_rigid_body(player);
         }
+        // A remote figure takes hits only on its layer 9 bone colliders. Other layer 9 colliders
+        // take none.
         let predicate = |_, c: &rapier3d::prelude::Collider| {
             let layers = c.collision_groups().memberships.bits();
-            c.is_enabled() && layers & mask != 0 && layers != 1 << PLAYER_LAYER
+            let figure = figure_slot(c.user_data).is_some();
+            c.is_enabled() && layers & mask != 0 && figure == (layers == 1 << PLAYER_LAYER)
         };
         filter.predicate = Some(&predicate);
         self.overlaps.clear();
@@ -448,6 +455,10 @@ impl MeleeState {
                 .bits()
                 .trailing_zeros();
             let tag = collider_tag(collider.user_data);
+            if let Some(slot) = figure_slot(collider.user_data) {
+                self.player_damage
+                    .add(slot, contact.damage * dt * MELEE_MULTIPLIER);
+            }
             let parent = collider.parent();
             let owned = (collider.user_data & 0xffff_ffff) as u32;
             let body_item = parent.and_then(|b| items.on_body(b).first().copied());

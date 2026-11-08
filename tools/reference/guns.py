@@ -170,7 +170,7 @@ def recover_guns(source, manifest, output) -> dict:
                 except (ValueError,KeyError) as error:raise ValueError(f'Gun {key(c)}: {error}') from error
     weapons.sort(key=lambda w:(id_key(w['prototype']),id_key(w['source'])))
     print(f"Exported guns: {', '.join(str(w['source']['path_id']) for w in weapons)}; {len(decals)} decals",flush=True)
-    return {'source':source_id(main),'ammo_mass':AMMO_MASS,'ammo_velocity':AMMO_VELOCITY,'tracer':tracer,'decals':decals,'weapons':weapons}
+    return {'source':source_id(main),'ammo_mass':AMMO_MASS,'ammo_velocity':AMMO_VELOCITY,'joule_to_hp':d['jouleToHp'],'tracer':tracer,'decals':decals,'weapons':weapons}
 
 
 def _sid(value):
