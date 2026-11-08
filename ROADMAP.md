@@ -45,7 +45,6 @@ Not planned: VR, stereo 3D, mod events, Steam features.
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
 | A06 | Steering wheel settings reset | S | `web/settings-screen.js` does not port the source reset. |
-| A07 | Remove the Access email from analytics | S | The site has no Access login. Remove `email()` from `functions/api/event.js`, drop the `email` column with a migration, and group `scripts/analytics.mjs` by session. Update the README. |
 | A09 | Name the scenario tests by game area | S | `roadmap_tests/` names tests by removed rows. `known_failures.rs` holds fixed bugs. Rename the folder, files and tests by area. |
 | A10 | Remove web exports with no importer | S | About 45 exports in `web/*.js` are used only in their own file. Remove the `export` word, or the code if it is dead. |
 
