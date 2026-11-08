@@ -1220,6 +1220,16 @@ impl GarageRuntime {
                 _ => {}
             }
         }
+        if let Some((item, clips, volume)) = self.area.interaction.mechanisms.take_turned()
+            && let Some(record) = self.area.items.get(item)
+        {
+            let origin = self.area.origin;
+            self.audio.turn_click(
+                clips,
+                volume,
+                std::array::from_fn(|i| origin[i] + f64::from(record.pose.position[i])),
+            );
+        }
         self.area.sync_portable_mass(&mut self.physics);
         if seated
             && input.pressed & keys::USE != 0

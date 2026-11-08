@@ -332,7 +332,7 @@ impl WorldStream {
                 input,
                 &[],
                 |i| i == item || items.descends(i, item),
-                |i| interaction.mechanisms.value(i, false).unwrap_or(0.),
+                |_, _| None,
                 |_| None,
                 FIXED_DT,
             );

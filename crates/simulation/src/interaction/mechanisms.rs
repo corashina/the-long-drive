@@ -51,6 +51,8 @@ pub struct MechanismState {
     /// Source `FMouseSensZ`.
     pub(super) scroll_sensitivity: f32,
     control_action: Option<ControlAction>,
+    /// The switch that turned this step. Its `Turn` sound plays once.
+    turned: Option<ItemId>,
     item_nodes: HashMap<ItemId, NodeId>,
     order: Vec<usize>,
 }
@@ -76,6 +78,7 @@ impl MechanismState {
             self.apply(index);
         }
         self.control_action = None;
+        self.turned = None;
     }
     pub fn capture_save(
         &self,
@@ -281,6 +284,7 @@ impl MechanismState {
             bodies,
             scroll_sensitivity: reference.settings.sliders.scroll.value(),
             control_action: None,
+            turned: None,
             item_nodes: reference.items.iter().map(|i| (i.id, i.node)).collect(),
         };
         state.propagate();
@@ -447,6 +451,12 @@ impl MechanismState {
     pub fn take_control_action(&mut self) -> Option<ControlAction> {
         self.control_action.take()
     }
+    /// The switch that turned, with its `turnClips` and `turnVolume`.
+    pub fn take_turned(&mut self) -> Option<(ItemId, &[u32], f32)> {
+        let item = self.turned.take()?;
+        let turn = self.controls[self.items[&item]].reference.turn.as_ref()?;
+        Some((item, &turn.clips, turn.volume))
+    }
     /// fpscontroller: left click turns every `turnable` usable, as E does.
     pub fn primary_switch(&self, item: ItemId) -> bool {
         self.items.get(&item).is_some_and(|i| {
@@ -538,16 +548,13 @@ impl MechanismState {
             (self.controls[i].audio_active, self.controls[i].audio_delta)
         })
     }
-    pub fn audio_values(&self, item: ItemId) -> Option<([f32; 2], u8)> {
+    pub fn audio_values(&self, item: ItemId) -> Option<[f32; 2]> {
         let c = &self.controls[*self.items.get(&item)?];
-        Some((
-            if c.reference.slide.is_some() {
-                [c.slide, 0.]
-            } else {
-                c.degrees
-            },
-            c.turn_state,
-        ))
+        Some(if c.reference.slide.is_some() {
+            [c.slide, 0.]
+        } else {
+            c.degrees
+        })
     }
     pub fn rotation_degrees(&self, item: ItemId) -> Option<[f32; 2]> {
         let c = &self.controls[*self.items.get(&item)?];
@@ -670,6 +677,7 @@ impl MechanismState {
     pub fn cancel_input(&mut self) {
         self.clear_reactions();
         self.control_action = None;
+        self.turned = None;
     }
     pub fn set_part_root(&mut self, node: NodeId, body: Option<RigidBodyHandle>) {
         if self.frames[self.nodes[&node]].external != body {
@@ -777,6 +785,7 @@ impl MechanismState {
                 } else {
                     c.turn_state + 1
                 };
+                self.turned = Some(item);
                 // The car lights read the cabin switch state.
                 self.control_action = match &turn.action {
                     TurnAction::ToggleHandbrake => Some(ControlAction::ToggleHandbrake(item)),

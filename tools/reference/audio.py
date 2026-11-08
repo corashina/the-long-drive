@@ -16,9 +16,9 @@ ASSEMBLY_HASH = '9919a9eeddcce23bb4ff86e890437f32b4a3ef3c10af2efe3b8d889d894dd62
 NATIVE_HASH = '553c1e7560e1b42bd4638c53d0168dcd1b4b9eb5b9df324b0a44f14b3f18bc86'
 PRIORITIES = [10, 25, 40, 55, 70, 80, 85, 100]
 # These survival roles play once through the shared prefab.
-ONE_SHOT = {'eat': 0, 'eat_crunchy': 10, 'item_hit': 11, 'car_hit': 12, 'rock_heat': 13, 'music_box': 14, 'footstep': 15, 'melee_hit': 17, 'radio_click': 21, 'break': 22}
+ONE_SHOT = {'eat': 0, 'eat_crunchy': 10, 'item_hit': 11, 'car_hit': 12, 'rock_heat': 13, 'music_box': 14, 'footstep': 15, 'melee_hit': 17, 'radio_click': 21, 'break': 22, 'turn_click': 33}
 # Other one-shots use AudioPriorities[7]. The music box keeps its source priority.
-ONE_SHOT_PRIORITY = {'eat': 70, 'eat_crunchy': 70, 'footstep': PRIORITIES[3], 'radio_click': PRIORITIES[4], 'break': PRIORITIES[6]}
+ONE_SHOT_PRIORITY = {'eat': 70, 'eat_crunchy': 70, 'footstep': PRIORITIES[3], 'radio_click': PRIORITIES[4], 'turn_click': PRIORITIES[4], 'break': PRIORITIES[6]}
 TIER_THRESHOLDS = [0.05, 0.2, 0.5, 0.7]
 PHASES = (('morning', 'reggeledik', 'Reggel'), ('day', 'nappal', 'Nappal'),
           ('dusk', 'esteledik', 'Esteledik'), ('night', 'este', 'Este'))
@@ -552,8 +552,7 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
             for field in ['startPosEnd','endPosEnd','startPosStart','endPosStart']:
                 bid = binding(c, field, [d[field]], d['audioM'], [0.85,1.15], PRIORITIES[4], method(cls,'StartEndStuff'))
                 if bid: entry['endpoints'].append(bid)
-            entry['turn_binding'] = binding(c,'turn', d['turnClips'],d['turnVolume'],[0.85,1.15],PRIORITIES[4],method(cls,'Turn'))
-            if movement or entry['endpoints'] or entry['turn_binding']:audio['mechanisms'].append(entry)
+            if movement or entry['endpoints']:audio['mechanisms'].append(entry)
         elif cls == 'pickupable' and d['collideSound']['m_PathID']:
             binding(c,'crafted', [d['collideSound']],0.25,[0.85,1.15],PRIORITIES[4],method(cls,'Crafted'))
         elif cls == 'tankcapscript':
@@ -747,9 +746,15 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
     if len(clicks)!=1:raise ValueError('World radio clicks differ or are missing')
     (click,turn_volume),=clicks
     survival_groups.append(('radio_click',21,radios[0],[source.get(*click)],prefab,[turn_volume]*2,[0.85,1.15]))
+    # usablescript.Turn plays one of turnClips through mainscript.PlayClipAtPoint at AudioPriorities[4].
+    # The runtime passes turnVolume. Every scene and world switch uses this row.
+    turns=[m['turn'] for m in [*manifest['mechanisms'],*(w['recipe'] for w in manifest['world']['mechanisms'])] if m['turn']]
+    turn_clips=unique(source.get(c['file'],c['path_id']) for t in turns for c in t['clips'])
+    if not turn_clips:raise ValueError('Missing switch turn clips')
+    survival_groups.append(('turn_click',33,main,turn_clips,prefab,[1.,1.],[0.85,1.15]))
     survival_groups.append(('footstep',15,step,unique(r for group in walk for r in group),prefab,[1.,1.],list(audio['shared']['random_pitch'])))
     default_route=source.resolve(main,md['defGroup'])
-    routes={'death':source.resolve(player,pd['deathbellGroup']),'item_hit':default_route,'melee_hit':default_route,'radio_click':default_route,'break':default_route,'fluid_fill':default_route,'rock_heat':default_route,'footstep':default_route,
+    routes={'death':source.resolve(player,pd['deathbellGroup']),'item_hit':default_route,'melee_hit':default_route,'radio_click':default_route,'turn_click':default_route,'break':default_route,'fluid_fill':default_route,'rock_heat':default_route,'footstep':default_route,
         'car_hit':car_hits}
 
     audio['survival']=[]
@@ -769,10 +774,11 @@ def recover_audio(source, roots: dict, manifest: dict, library, output: Path) ->
         if one_shot:
             for k in settings['spatial_blend_curve']['keys']:k['value']=1.
         cls,name={'eat':('mainscript','PlayClipAtPoint'),'eat_crunchy':('mainscript','PlayClipAtPoint'),'burp':('fpscontroller','Burp'),'fart':('fpscontroller','Fart'),'shit':('fpscontroller','Shit'),'death':('fpscontroller','Death2'),'sleep':('mainscript','Update'),'horror':('mainscript','RandomHorrorSound'),'hum':('fpscontroller','Update'),
-            'item_hit':('pickupable','OnCollisionEnter'),'car_hit':('carscript','OnCollisionEnter'),'rock_heat':('soundplayscript','PlaySound'),'footstep':('stepSoundScript','Step'),'storm':('sandstormscript','Update'),'melee_hit':('meleeweaponscript','Update'),'metal_detector':('metalDetectorScript','UpdSound'),'ambience_zone':('ambienceZone','Upd'),'sled':('szankoScript','Update'),'fluid_fill':('tankcapscript','PlayFillSound'),'radio_click':('radioscript','TurnRadio'),'break':('breakablescript','Break')}.get(role,('napszakvaltakozas','FixedUpdate'))
+            'item_hit':('pickupable','OnCollisionEnter'),'car_hit':('carscript','OnCollisionEnter'),'rock_heat':('soundplayscript','PlaySound'),'footstep':('stepSoundScript','Step'),'storm':('sandstormscript','Update'),'melee_hit':('meleeweaponscript','Update'),'metal_detector':('metalDetectorScript','UpdSound'),'ambience_zone':('ambienceZone','Upd'),'sled':('szankoScript','Update'),'fluid_fill':('tankcapscript','PlayFillSound'),'radio_click':('radioscript','TurnRadio'),'turn_click':('usablescript','Turn'),'break':('breakablescript','Break')}.get(role,('napszakvaltakozas','FixedUpdate'))
         audio['survival'].append({'role':role,'kind':kind,'one_shot':one_shot,'source':source_id(owner),'audio_source':source_id(reader),
             'clips':[clip(r) for r in clip_readers], 'gain':gain,'pitch':pitch,'offset':position,
             'settings':settings,'mixer':mixer(route),'doppler':d['DopplerLevel'],'pan':d['Pan2D'],'method':method(cls,name)})
+    for t in turns:t['clips']=[clip(source.get(c['file'],c['path_id'])) for c in t['clips']]
     # musicboxscript.PlayNote adds a default AudioSource for each note.
     boxes=[r['source'] for r in manifest['world']['records'] if r['class_name']=='musicboxscript']
     notes=[]

@@ -393,6 +393,10 @@ pub struct TurnReference {
     pub action: TurnAction,
     pub max_state: u8,
     pub initial_state: u8,
+    /// Source `usablescript.turnClips`: audio clip ids. `Turn` plays one at the usable.
+    pub clips: Vec<u32>,
+    /// Source `usablescript.turnVolume`.
+    pub volume: f32,
 }
 tagged_enum! {
 "EndpointReactionReference",
@@ -1793,7 +1797,12 @@ impl ReferenceManifest {
                 "empty mechanism",
             )?;
             if let Some(turn) = &r.turn {
-                require(turn.initial_state <= turn.max_state, "switch state")?;
+                require(
+                    turn.initial_state <= turn.max_state
+                        && turn.volume.is_finite()
+                        && turn.volume >= 0.,
+                    "switch state",
+                )?;
                 match &turn.action {
                     TurnAction::ToggleHomeLight { source } => require(
                         self.lighting
