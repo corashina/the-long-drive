@@ -4,7 +4,6 @@ use crate::session::Session;
 use crate::world::stream::tests::kit::*;
 use std::sync::Arc;
 
-
 /// Load and Load last reload the page, then `Session::new` starts from the stored save, as
 /// the source `SceneManager.LoadScene` loads the save at scene start. The save opens without an
 /// error and its restore finishes. A save after a death opens the same way.

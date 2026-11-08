@@ -95,6 +95,10 @@ impl CameraInput {
             self.wheel += frame.wheel;
         }
     }
+    /// Key bits pressed since the last frame.
+    pub fn pressed(&self) -> u32 {
+        self.pressed
+    }
     /// Keeps the held keys for the next frame.
     fn consume(&mut self) {
         *self = Self {

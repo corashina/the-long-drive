@@ -2,7 +2,6 @@
 use crate::starting_area::GarageRuntime;
 use crate::world::stream::tests::kit::*;
 
-
 /// Source `fpscontroller` use ray on a car door handle from outside. The aim takes the door
 /// mechanism, the HUD shows the door action and E with the mouse opens the door.
 #[test]

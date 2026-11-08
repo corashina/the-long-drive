@@ -19,6 +19,7 @@ pub mod exhaust;
 pub mod fluids;
 pub mod flyers;
 pub mod food_particles;
+pub mod foot_camera;
 pub mod ground_ufo;
 pub mod hearing;
 pub mod heat_haze;
@@ -37,12 +38,12 @@ pub mod player;
 pub mod reference;
 pub mod render_readiness;
 pub mod render_scale;
-#[cfg(test)]
-mod scenario_tests;
 pub mod round_robin;
 pub mod sandbox;
 pub mod save;
 pub mod save_requests;
+#[cfg(test)]
+mod scenario_tests;
 pub mod session;
 pub mod simulation;
 pub mod sky_traffic;
