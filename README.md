@@ -115,7 +115,7 @@ The site is public.
 ### Analytics
 
 The game sends a few events to `/api/event` on the hosted site only: start, ready (load time, GPU, quality), a heartbeat every 5 minutes (play time, FPS, worst frame, multiplayer role), end and start-up failure.
-`functions/api/event.js` adds the Access email (when a request has one), country and user agent, and stores each event in the D1 database `the-long-slop-events`.
+`functions/api/event.js` adds the country and user agent, and stores each event in the D1 database `the-long-slop-events`.
 The deploy script applies [migrations](migrations) before the upload. Print a summary of the last 30 days:
 
 ```powershell
