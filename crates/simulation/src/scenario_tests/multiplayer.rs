@@ -1,4 +1,4 @@
-//! Headless scenario tests: Multiplayer (MP rows).
+//! Headless scenario tests: multiplayer.
 use crate::boundary::SimFrame;
 use crate::interaction::items::ItemLocation;
 use crate::net::{Net, NetRole};
@@ -43,11 +43,11 @@ fn stands_free(run: &GarageRuntime) -> bool {
             .is_none()
 }
 
-/// MP2. The host shares its save (`saveSession.share`) with its player in the garage. The host
+/// The host shares its save (`saveSession.share`) with its player in the garage. The host
 /// sits in its car, but the guest starts on foot near the garage start spot and clips nothing.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_mp2_a_joining_guest_starts_in_the_garage() {
+fn a_joining_guest_starts_in_the_garage() {
     let (reference, mut host) = load_garage();
     settle(&mut host, &reference);
     act(
@@ -76,11 +76,11 @@ fn tp_mp2_a_joining_guest_starts_in_the_garage() {
     assert!(stands_free(&guest), "the guest clips nothing");
 }
 
-/// MP3. Source `snTempPlayerSync` and `SPlayerAnim`. The host sends its pose, duck value and body
+/// Source `snTempPlayerSync` and `SPlayerAnim`. The host sends its pose, duck value and body
 /// targets. The guest figure stands at the host, and ducks and looks up with it.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_mp3_the_other_figure_follows_walk_duck_and_look() {
+fn the_other_figure_follows_walk_duck_and_look() {
     let (reference, mut run) = load_garage();
     settle(&mut run, &reference);
     let (mut host, mut guest) = (Net::default(), Net::default());
@@ -158,12 +158,12 @@ fn exchange(
     a_net.receive(&packets);
 }
 
-/// MP4. Source `SCarFloats`, `SCarHandbrake`, `SCarGear`, `SCarIgnition` and `SPlayerPosUpd`
+/// Source `SCarFloats`, `SCarHandbrake`, `SCarGear`, `SCarIgnition` and `SPlayerPosUpd`
 /// sitting. The guest drives the start car. The host copy takes its gas, handbrake, gear and
 /// ignition, and the guest figure sits in the host copy of the car.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
+fn the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
     let (reference, mut host) = load_garage();
     settle(&mut host, &reference);
     let mut guest = save_load(&host, &reference);
@@ -252,7 +252,7 @@ fn tp_mp4_the_guest_drives_the_host_copy_of_the_car_and_sits_in_it() {
 /// shows the guest figure at the same place on the shown host car, so the figure does not jitter.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_mp_a_seated_figure_stays_on_the_shown_car() {
+fn a_seated_figure_stays_on_the_shown_car() {
     use rapier3d::math::{Pose, Rotation};
     let (reference, mut host) = load_garage();
     settle(&mut host, &reference);
@@ -328,7 +328,7 @@ fn tp_mp_a_seated_figure_stays_on_the_shown_car() {
 /// out, because the lower slot keeps a seat.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_mp_a_seat_with_another_player_takes_nobody_else() {
+fn a_seat_with_another_player_takes_nobody_else() {
     let (reference, mut host) = load_garage();
     settle(&mut host, &reference);
     let mut guest = save_load(&host, &reference);
@@ -373,13 +373,13 @@ fn tp_mp_a_seat_with_another_player_takes_nobody_else() {
     assert!(host.area.player.seated(), "the host keeps it");
 }
 
-/// MP5 (M01). Source `mpplayerscript`. The figure of the other player turns solid 3 s after it
+/// Source `mpplayerscript`. The figure of the other player turns solid 3 s after it
 /// shows, on layer 0, but not while it overlaps the player. The guest steps off the host spot
 /// first. A ray with the player capsule layers
 /// then hits its body at the figure.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_mp5_the_other_figure_turns_solid_after_3_s() {
+fn the_other_figure_turns_solid_after_3_s() {
     use rapier3d::prelude::{QueryFilter, Ray};
     let (reference, mut host_run) = load_garage();
     settle(&mut host_run, &reference);
@@ -439,12 +439,12 @@ fn tp_mp5_the_other_figure_turns_solid_after_3_s() {
     );
 }
 
-/// MP M04a. Source `SendStartStuff`, `RTime`, `RadioChannelMultiplayerUpd` and `SSound`. When a guest
+/// Source `SendStartStuff`, `RTime`, `RadioChannelMultiplayerUpd` and `SSound`. When a guest
 /// joins, the host sends its clock and its radio stations. The guest takes them. A host burp plays at
 /// the host position on the guest.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_mp_m04a_guest_takes_host_clock_stations_and_burp() {
+fn guest_takes_host_clock_stations_and_burp() {
     use crate::audio::AudioKind;
     let (reference, mut host_run) = load_garage();
     settle(&mut host_run, &reference);
@@ -590,11 +590,11 @@ fn loose_item(run: &GarageRuntime) -> ItemId {
         .id
 }
 
-/// M03. Source `MultiUpd` and `UpdInWorld`. The host owns unclaimed items and sends their pose each
+/// Source `MultiUpd` and `UpdInWorld`. The host owns unclaimed items and sends their pose each
 /// second. An item that the host moves moves on the guest.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_m03_a_host_item_moves_on_the_guest() {
+fn a_host_item_moves_on_the_guest() {
     let (reference, mut run) = load_garage();
     settle(&mut run, &reference);
     let mut guest = save_load(&run, &reference);
@@ -616,12 +616,12 @@ fn tp_m03_a_host_item_moves_on_the_guest() {
     );
 }
 
-/// M03. Source `Claim` and `UpdInventory`. A guest pickup claims the item, so the host does not send
+/// Source `Claim` and `UpdInventory`. A guest pickup claims the item, so the host does not send
 /// it, and the host copy moves with the guest. The drop sends the last pose, then the release, and the
 /// host owns the loose item again.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
+fn a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
     let (reference, mut run) = load_garage();
     settle(&mut run, &reference);
     let mut guest = save_load(&run, &reference);
@@ -686,11 +686,11 @@ fn tp_m03_a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
     );
 }
 
-/// M03. Source `UpdOrSpawnItem`. A runtime spawn of the host appears on the guest with the same
+/// Source `UpdOrSpawnItem`. A runtime spawn of the host appears on the guest with the same
 /// serial, where the host has it.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_m03_a_host_spawn_appears_on_the_guest() {
+fn a_host_spawn_appears_on_the_guest() {
     let (reference, mut run) = load_garage();
     settle(&mut run, &reference);
     let mut guest = save_load(&run, &reference);
@@ -732,11 +732,11 @@ fn tp_m03_a_host_spawn_appears_on_the_guest() {
     assert!(apart(absolute(&run, ids[0]), absolute(&guest, copy)) < 0.2);
 }
 
-/// M03. Source `STank` and `FluidUpdate`. A fluid change on the host reaches the guest copy, and
+/// Source `STank` and `FluidUpdate`. A fluid change on the host reaches the guest copy, and
 /// the guest does not send it back.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_m03_a_host_fluid_change_reaches_the_guest() {
+fn a_host_fluid_change_reaches_the_guest() {
     let (reference, mut run) = load_garage();
     settle(&mut run, &reference);
     let mut guest = save_load(&run, &reference);
@@ -774,11 +774,11 @@ fn tp_m03_a_host_fluid_change_reaches_the_guest() {
     assert!((host.total() - liters).abs() < 1e-3, "no echo");
 }
 
-/// M03. Source `PartSlotUnCraft` and `PartSlotCraft`. A part that comes off the host car comes off
+/// Source `PartSlotUnCraft` and `PartSlotCraft`. A part that comes off the host car comes off
 /// the guest car, and goes back on.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_m03_a_host_part_comes_off_and_goes_on_at_the_guest() {
+fn a_host_part_comes_off_and_goes_on_at_the_guest() {
     let (reference, mut run) = load_garage();
     settle(&mut run, &reference);
     let mut guest = save_load(&run, &reference);
@@ -823,11 +823,11 @@ fn tp_m03_a_host_part_comes_off_and_goes_on_at_the_guest() {
     );
 }
 
-/// M03. Source `SPartCondition` and `SFlashlight`. Rust on the host shows on the guest, and a
+/// Source `SPartCondition` and `SFlashlight`. Rust on the host shows on the guest, and a
 /// garage light switch on the host switches on the guest.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_m03_host_rust_and_light_switch_reach_the_guest() {
+fn host_rust_and_light_switch_reach_the_guest() {
     use crate::reference::LightControllerKind;
     let (reference, mut run) = load_garage();
     settle(&mut run, &reference);
@@ -865,10 +865,10 @@ fn tp_m03_host_rust_and_light_switch_reach_the_guest() {
     );
 }
 
-/// M03. Source `SFood`. A bite that the host takes shows on the guest.
+/// Source `SFood`. A bite that the host takes shows on the guest.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_m03_a_host_bite_reaches_the_guest() {
+fn a_host_bite_reaches_the_guest() {
     let (reference, mut run) = load_garage();
     settle(&mut run, &reference);
     let mut guest = save_load(&run, &reference);
@@ -892,12 +892,12 @@ fn tp_m03_a_host_bite_reaches_the_guest() {
     assert_eq!(guest.area.items.get(copy).unwrap().food.unwrap().bite, bite);
 }
 
-/// MP M04c. Source `aispawn.SpawnRoutine` (`isServerOrNoMulti`) and the item pose of an AI. The
+/// Source `aispawn.SpawnRoutine` (`isServerOrNoMulti`) and the item pose of an AI. The
 /// guest spawns no rabbits of its own, and a rabbit that the host spawns appears on the guest with
 /// the host id and follows the host pose.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_mp_m04c_host_rabbits_appear_on_the_guest() {
+fn host_rabbits_appear_on_the_guest() {
     let (reference, mut host_run) = outdoors();
     let mut guest_run = save_load(&host_run, &reference);
     let (mut host, mut guest) = (Net::default(), Net::default());
@@ -960,7 +960,7 @@ fn tp_mp_m04c_host_rabbits_appear_on_the_guest() {
 /// needs, on foot, and clips nothing.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_mp_respawn_without_other_players_goes_to_the_garage() {
+fn respawn_without_other_players_goes_to_the_garage() {
     let (reference, mut run) = load_garage();
     settle(&mut run, &reference);
     let mut net = Net::default();
@@ -989,11 +989,11 @@ fn tp_mp_respawn_without_other_players_goes_to_the_garage() {
     assert!(stands_free(&run), "the player clips nothing");
 }
 
-/// MP2. The guest can start before its restore spawns the host car. The step, the request and
+/// The guest can start before its restore spawns the host car. The step, the request and
 /// the frame then do without the car, and the car comes in later.
 #[test]
 #[ignore = "requires the installed source export"]
-fn tp_mp2_the_guest_starts_before_the_host_car_spawns() {
+fn the_guest_starts_before_the_host_car_spawns() {
     let (reference, mut host) = load_garage();
     settle(&mut host, &reference);
     // The host sat in the start car and stands again. The car stays its last car.

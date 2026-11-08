@@ -53,7 +53,7 @@ test('remove_deletes_named_save',async()=>{
 });
 // S2, K5: source `settingsscript.BAutoLoad` loads the last save at the scene start. A Load or Load last
 // reload names its save. New game starts empty.
-test('tp_s2_k5_the_page_start_loads_the_named_save_else_the_last_save_with_auto_load',async()=>{
+test('the page start loads the named save, else the last save with auto load',async()=>{
  const list={saves:[{name:'a',version:3}],autosave:{name:'autosave',version:3},last:'a'};
  let reads=0;const read=async()=>{reads++;return list;};
  const start=options=>startSave({loadName:null,newGame:false,autoLoad:true,list:read,buildId:3,...options});
