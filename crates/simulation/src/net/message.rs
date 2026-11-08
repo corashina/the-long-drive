@@ -167,6 +167,8 @@ impl CarIgnitionMessage {
 pub struct BodyMessage {
     /// `BodyState::sent_targets`: position, then rotation quaternion.
     pub targets: [[f32; 7]; 6],
+    /// `_zooming`: 1 while the player zooms.
+    pub zooming: u32,
 }
 
 /// Source `SendTime`: the host `napszak.t`.
@@ -732,6 +734,7 @@ mod tests {
         };
         let mut body = BodyMessage::default();
         body.targets[2] = [0.1, 1.2, 0.3, 0., 0., 0., 1.];
+        body.zooming = 1;
         let mut out = Vec::new();
         pose.encode(3, &mut out);
         assert_eq!(PoseMessage::decode(&out), Ok((3, pose)));

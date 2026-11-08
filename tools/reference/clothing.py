@@ -96,7 +96,41 @@ def recover_clothing(source,manifest,output):
     result['ragdoll']=recover_ragdoll(source,manifest,output)
     from .appearance_preview import recover_preview
     result['preview']=recover_preview(source)
+    result['bulging_eyes']=recover_bulging_eyes(source,manifest,result['characters'])
     return result
+
+
+# `bulgingeyesScript` of the player characters, then of the `MPPlayer` prefab characters.
+BULGING_EYES=(('level1',66030),('level1',77008),('sharedassets0.assets',1409),('sharedassets0.assets',1401))
+BULGING_EYES_FIELDS=('startScale','endScale','animx','animy','animz','speedF','speedB')
+
+
+def recover_bulging_eyes(source,manifest,characters):
+    """`bulgingeyesScript`: the eye renderers of each player character and the shared scale curves."""
+    from .source import vector
+    from .vehicles import curve_record
+    asset=next(a for a in manifest['assets'] if a['usage']=='player_prototype')
+    nodes={key(source.get(n['source']['file'],n['source']['path_id'])):n['id'] for n in manifest['nodes'] if n['asset']==asset['id']}
+    scripts=[source.get(*k) for k in BULGING_EYES]
+    if any(source.class_name(s)!='bulgingeyesScript' for s in scripts):raise ValueError('Bulging eyes script differs')
+    values=[source.read(s) for s in scripts]
+    if any({f:v[f] for f in BULGING_EYES_FIELDS}!={f:values[0][f] for f in BULGING_EYES_FIELDS} or v['disabled'] or not v['m_Enabled'] for v in values):
+        raise ValueError('Player bulging eyes differ')
+    eyes=[]
+    for script,v,character in zip(scripts,values,characters):
+        pair=[nodes.get(key(source.resolve(script,p))) for p in v['T']]
+        if len(pair)!=2 or any(n not in {r['node'] for r in character['renderers']} for n in pair):raise ValueError('Bulging eyes are not character renderers')
+        eyes.append(pair)
+    v=values[0]
+    return {'source':source_id(scripts[0]),'eyes':eyes,
+        'start_scale':list(vector(v['startScale'])),'end_scale':list(vector(v['endScale'])),
+        'curves':[curve_record(v[f]) for f in ('animx','animy','animz')],
+        'speed_forward':v['speedF'],'speed_back':v['speedB'],
+        'evidence':managed_evidence(source,['active = fps.zooming;','active = mps.zooming;',
+            'current = Mathf.Lerp(current, 1f, Time.deltaTime * speedF);',
+            'current = Mathf.Lerp(current, 0f, Time.deltaTime * speedB);',
+            'currentScale.x = Mathf.LerpUnclamped(startScale.x, endScale.x, animx.Evaluate(current));',
+            'players[i].mpscript.zooming = _zooming;'])}
 
 
 def descendant(nodes,node,root):
