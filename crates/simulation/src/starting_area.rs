@@ -62,7 +62,6 @@ pub struct StartingArea {
     pub inventory: crate::inventory::InventoryState,
     pub pose: crate::player::pose::PlayerPoseState,
     pub body: crate::player::body::BodyState,
-    pub eyes: crate::player::eyes::BulgingEyes,
     pub ragdoll: crate::player::ragdoll::Ragdoll,
     inventory_offsets: [Option<(ItemId, VehiclePose)>; 4],
     inventory_clutch_conflict: bool,
@@ -284,7 +283,6 @@ impl StartingArea {
                 .inventory_gear_keys,
             pose: crate::player::pose::PlayerPoseState::new(reference)?,
             body: crate::player::body::BodyState::new(reference)?,
-            eyes: Default::default(),
             ragdoll: crate::player::ragdoll::Ragdoll::new(reference)?,
             bodies,
             items,
@@ -1449,10 +1447,6 @@ impl GarageRuntime {
         self.area.sync_inventory();
         self.area.sync_equipment(reference, &mut self.physics);
         self.step_body(reference);
-        let zooming = self.area.player.zooming() && !self.sleeping();
-        self.area
-            .eyes
-            .step(&reference.clothing.bulging_eyes, zooming, FIXED_DT);
         self.area.sync_worn(&mut self.physics);
         self.area.items.sync_poses(&mut self.physics);
         self.break_targets(reference);

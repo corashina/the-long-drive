@@ -51,7 +51,7 @@ pub(super) struct BoundBody {
     pub posed: [Vec<Entity>; 2],
     /// Renderer primitives and their character.
     pub primitives: Vec<(Entity, usize)>,
-    /// Eye renderer nodes of both characters (source `bulgingeyesScript.T`).
+    /// Primitives of the eye renderers: the character renderers without a skin.
     pub eyes: Vec<Entity>,
 }
 
@@ -255,15 +255,6 @@ pub(super) fn bind_instance(
         if node.id == clothing.pose.anchors["CharacterRoot"].node {
             body.character_root = Some(entity);
         }
-        if clothing
-            .bulging_eyes
-            .eyes
-            .iter()
-            .flatten()
-            .any(|n| *n == node.id)
-        {
-            body.eyes.push(entity);
-        }
         if characters
             .iter()
             .any(|c| c.skins.iter().any(|s| s.joints.contains(&node.id)))
@@ -303,6 +294,9 @@ pub(super) fn bind_instance(
                 Ok(None) => {}
                 Err(error) => error!("Player body: {error}"),
             }
+            if renderer.skin.is_none() {
+                body.eyes.push(primitive);
+            }
             body.primitives.push((primitive, character));
         }
         if removed {
@@ -317,11 +311,9 @@ pub(super) fn bind_instance(
         .flat_map(|c| &c.skins)
         .flat_map(|s| &s.joints)
         .all(|id| body.joints.contains_key(id));
-    let eyes = clothing.bulging_eyes.eyes.iter().flatten().count();
-    let complete =
-        body.player.is_some() && joints && !body.primitives.is_empty() && body.eyes.len() == eyes;
+    let complete = body.player.is_some() && joints && !body.primitives.is_empty();
     let Some(root) = body.character_root.filter(|_| complete) else {
-        error!("Player body glTF lacks its root, CharacterRoot, skin joints, eyes, or renderers");
+        error!("Player body glTF lacks its root, CharacterRoot, skin joints, or renderers");
         return None;
     };
     let Some(female) = character_nodes(manifest, characters, rig) else {
@@ -495,8 +487,7 @@ pub(super) fn spawn_instance(
     )
 }
 
-/// Moves the Player Transform, `CharacterRoot` and the joints of the chosen character, and scales the eyes.
-#[allow(clippy::too_many_arguments)]
+/// Moves the Player Transform, `CharacterRoot` and the joints of the chosen character.
 pub(super) fn pose_instance(
     body: &BoundBody,
     nodes: &mut NodeQuery,
@@ -505,7 +496,6 @@ pub(super) fn pose_instance(
     joint_scale: f32,
     joints: &[simulation::boundary::PoseRow],
     character: usize,
-    eye_scale: [f32; 3],
 ) {
     if let Some(entity) = body.player
         && let Ok((mut transform, _, _)) = nodes.get_mut(entity)
@@ -523,12 +513,6 @@ pub(super) fn pose_instance(
     for (joint, row) in body.posed[character].iter().zip(joints) {
         if let Ok((mut transform, _, _)) = nodes.get_mut(*joint) {
             transform.set_if_neq(super::transform(row.pose()).with_scale(scale));
-        }
-    }
-    let eye_scale = Vec3::from_array(eye_scale);
-    for eye in &body.eyes {
-        if let Ok((mut transform, _, _)) = nodes.get_mut(*eye) {
-            transform.set_if_neq(transform.with_scale(eye_scale));
         }
     }
 }
@@ -580,6 +564,11 @@ pub(crate) fn sync(
             &slots,
             &materials,
         );
+        // Port choice: the eyes sit about 4 cm in front of the camera, and the `_Dist` head clip
+        // does not remove them. The local camera skips them. Their shadow and remote figures stay.
+        for eye in &body.bound.eyes {
+            commands.entity(*eye).insert(CameraHidden);
+        }
         body.dressed = true;
     }
     if let Ok((_, mut visibility, _)) = nodes.get_mut(scene) {
@@ -601,6 +590,5 @@ pub(crate) fn sync(
         state.joint_scale,
         &frame.frame.joints,
         outfit.character,
-        state.eye_scale,
     );
 }

@@ -127,7 +127,7 @@ impl GarageRuntime {
             sky_anchor: std::array::from_fn(|i| (anchor[i] - offset[i]) as f32),
             ember_light: ember_light.map_or(0, |id| id.0 + 1),
             dither_light: dither_light.map_or(0, |id| id.0 + 1),
-            eye_scale: area.eyes.scale(&reference.clothing.bulging_eyes),
+            pad: 0,
             dead_weight,
             motion_revision: self.audio_motion_revision,
             far_plane: self.distances.cam2_far_plane,

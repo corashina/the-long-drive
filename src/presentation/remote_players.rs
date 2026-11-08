@@ -241,7 +241,6 @@ pub(crate) fn sync(
             frame.frame.state.joint_scale,
             joints,
             outfit.character,
-            row.eye_scale,
         );
         // The voice plays at the label point above the head (source `mpplayerscript.SVoice`).
         let head = Vec3::from_array(pose.position) + Vec3::Y * LABEL_HEIGHT;
