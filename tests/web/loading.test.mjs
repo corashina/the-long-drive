@@ -4,7 +4,7 @@ import {createLoading,formatBudget} from '../../web/loading.js';
 
 function mockDocument(t){
  const nodes=new Map();
- const node=()=>({textContent:'',hidden:false,children:[],dataset:{},value:null,
+ const node=()=>({textContent:'',className:'',hidden:false,children:[],dataset:{},value:null,
   append(...children){this.children.push(...children);},replaceChildren(...children){this.children=children;}});
  globalThis.document={querySelector(selector){if(!nodes.has(selector))nodes.set(selector,node());return nodes.get(selector);},createElement:node};
  t.after(()=>delete globalThis.document);
@@ -69,8 +69,8 @@ test('a join shows the room, its players and the join steps',t=>{
  assert.equal(steps[4].children[2].textContent,'50%');
  assert.equal(steps[4].dataset.state,'active');
  loading.players([{name:'Ana',host:true,you:false},{name:'Bo',host:false,you:true}]);
- assert.equal(nodes.get('#loading-room-host').textContent,'Ana');
- assert.deepEqual(nodes.get('#loading-room-players').children.map(item=>item.textContent),['Ana','Bo (you)']);
+ const rows=nodes.get('#loading-room-players').children;
+ assert.deepEqual(rows.map(item=>[item.textContent,item.className,item.children.map(span=>span.textContent)]),[['Ana','host',[]],['Bo','',['(you)']]]);
  // A new join restarts the join steps. Singleplayer after a failed join hides them.
  loading.join('ABCDEF');
  assert.equal(steps[4].dataset.state,'waiting');

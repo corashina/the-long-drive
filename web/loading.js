@@ -1,4 +1,4 @@
-import {playerChips} from './room-card.js';
+import {playerRows} from './room-card.js';
 
 export function formatBudget(used,limit,unit){
  return unit==='bytes'
@@ -26,7 +26,7 @@ export function createLoading(){
  const bar=document.querySelector('#loading-progress'),list=document.querySelector('#loading-steps');
  const elapsed=document.querySelector('#loading-elapsed'),resources=document.querySelector('#loading-resources');
  const budgets=document.querySelector('#loading-budgets'),rows=new Map(),budgetValues=new Map();
- const roomNode=document.querySelector('#loading-room'),roomHost=document.querySelector('#loading-room-host');
+ const roomNode=document.querySelector('#loading-room');
  const roomPlayers=document.querySelector('#loading-room-players'),roomCode=document.querySelector('#loading-room-code');
  const steps=STEPS.map(step=>{
   const node=document.createElement('li'),mark=document.createElement('span'),label=document.createElement('span'),count=document.createElement('span');
@@ -92,15 +92,14 @@ export function createLoading(){
   join(code){
    if(!active)return;
    joining=Boolean(code);roomCode.textContent=code;roomNode.hidden=!joining;
-   roomHost.textContent='…';roomPlayers.replaceChildren();
+   roomPlayers.replaceChildren();
    for(const step of steps){step.node.hidden=!visible(step);step.shown='';if(step.join){step.done=0;step.total=0;step.note='';step.failed=false;}}
    update(true,true);
   },
   /** The room players of the join, `[{name,host,you}]`. */
   players(list){
    if(!active||!joining)return;
-   roomHost.textContent=list.find(p=>p.host)?.name??'';
-   roomPlayers.replaceChildren(...playerChips(document,list));
+   roomPlayers.replaceChildren(...playerRows(document,list));
   },
   progress(roads,roadTotal,assets,assetTotal,world,worldTotal,gates,gateTotal){
    if(!active)return;

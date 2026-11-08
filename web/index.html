@@ -77,15 +77,15 @@
 <h2 id="multiplayer-title" data-w="multiplayer">Multiplayer</h2>
 <div class="menu-body multiplayer-body">
 <div id="net-session" class="room-card" hidden><p class="room-title">Room code</p><p id="net-code" class="room-code" translate="no"></p>
-<dl class="room-facts"><dt>Host</dt><dd id="net-host-name"></dd><dt id="net-count">Players</dt><dd><ul id="net-players" class="room-players" aria-label="Players"></ul></dd></dl>
-<div class="room-actions"><button id="net-code-copy" type="button">Copy code</button><button id="net-link-copy" type="button">Copy link</button><button id="net-leave" data-w="xdisconnect" type="button">Leave</button></div></div>
+<div class="room-invite"><button id="net-code-copy" type="button">Copy code</button><button id="net-link-copy" type="button">Copy link</button></div>
+<p class="room-head"><span>Players</span><span id="net-count"></span></p><ul id="net-players" class="room-players" aria-label="Players"></ul></div>
 <p id="net-status" role="status"></p>
 <label for="net-name"><span data-w="mname">Name</span> <input id="net-name" type="text" maxlength="32" autocomplete="off" spellcheck="false"></label>
 <fieldset id="net-host"><legend>Host</legend><label for="net-max"><span data-w="xmaxplayers">Max players</span> <input id="net-max" type="number" min="2" max="8" value="8"></label><label for="net-host-password"><span data-w="xpassword">Password</span> <input id="net-host-password" type="password" autocomplete="new-password" placeholder="Optional…"></label><button id="net-host-start" data-w="xcreate" type="button">Host game</button><p id="net-host-hint">Start or load a game to host it.</p></fieldset>
 <fieldset id="net-join"><legend><span data-w="xjoin">Join</span></legend><label for="net-room">Room code <input id="net-room" type="text" maxlength="6" autocomplete="off" spellcheck="false" placeholder="ABCDEF…"></label><label for="net-join-password"><span data-w="xpassword">Password</span> <input id="net-join-password" type="password" autocomplete="off" placeholder="If the room has one…"></label><button id="net-join-start" data-w="xjoin" type="button">Join game</button></fieldset>
 <fieldset id="net-voice-chat"><legend><span data-w="xvoicechat">Voice chat</span></legend><label for="net-voice"><input id="net-voice" type="checkbox"> <span data-w="xvoicechat">Voice chat</span></label><label for="net-voice-mode">Mode <select id="net-voice-mode"><option value="pushToTalk">Push to talk</option><option value="toggle">Toggle</option><option value="continous">Continuous</option></select></label></fieldset>
 </div>
-<div class="menu-foot"><button id="multiplayer-back" data-w="mback" type="button">Back</button></div></div></section></section>
+<div class="menu-foot"><button id="net-leave" data-w="xdisconnect" type="button" hidden>Leave</button><button id="multiplayer-back" data-w="mback" type="button">Back</button></div></div></section></section>
 <aside id="net-chat" aria-label="Chat"><ul id="net-chat-log"></ul><input id="net-chat-line" type="text" maxlength="200" autocomplete="off" spellcheck="false" aria-label="Chat message" hidden></aside>
 <div id="net-labels" aria-hidden="true"></div><div id="net-mic" aria-label="Microphone" hidden>🎤</div>
 <aside id="hud" aria-label="Interaction feedback" hidden>
@@ -105,7 +105,7 @@
 </section>
 <section id="loading-details" aria-labelledby="loading-phase">
 <div id="loading-room" class="room-card" hidden><p class="room-title">Joining room</p><p id="loading-room-code" class="room-code" translate="no"></p>
-<dl class="room-facts"><dt>Host</dt><dd id="loading-room-host">…</dd><dt>Players</dt><dd><ul id="loading-room-players" class="room-players" aria-label="Players"></ul></dd></dl></div>
+<p class="room-head"><span>Players</span></p><ul id="loading-room-players" class="room-players" aria-label="Players"></ul></div>
 <h2 id="loading-phase">Loading 0%</h2>
 <progress id="loading-progress" max="100" value="0" aria-label="Total loading progress"></progress>
 <ol id="loading-steps" aria-label="Loading steps"></ol>

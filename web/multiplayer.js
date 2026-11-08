@@ -2,7 +2,7 @@
 import {ROLE,createNet} from './net.js';
 import {MODES,createVoiceOutput,talkState} from './voice.js';
 import {MOUSE_BUTTONS} from './bindings.js';
-import {playerChips} from './room-card.js';
+import {playerRows} from './room-card.js';
 // The source keeps the voice settings with the multiplayer settings (`snl.SaveSettings`), not with `S`.
 export const NAME_KEY='the-long-slop.player-name';
 // The URL parameter of an invite link. The boot choice then opens the join form with this room code.
@@ -14,7 +14,7 @@ const VOICE_KEY='the-long-slop.voice-chat',CHAT_SHOW_MS=10000;
 export function createMultiplayer({document,target,Peer,buildId,exportHash,simulation,saveSession,menu,outfit,storage,reloadJoin,loading,audio,voiceKeys=()=>[],media}){
  const $=selector=>document.querySelector(selector);
  const name=$('#net-name'),hostPassword=$('#net-host-password'),joinPassword=$('#net-join-password'),hostHint=$('#net-host-hint'),session=$('#net-session'),count=$('#net-count'),copyButton=$('#net-code-copy'),linkButton=$('#net-link-copy'),max=$('#net-max'),room=$('#net-room'),code=$('#net-code'),status=$('#net-status');
- const hostButton=$('#net-host-start'),joinButton=$('#net-join-start'),leaveButton=$('#net-leave'),players=$('#net-players'),hostName=$('#net-host-name');
+ const hostButton=$('#net-host-start'),joinButton=$('#net-join-start'),leaveButton=$('#net-leave'),players=$('#net-players');
  const log=$('#net-chat-log'),line=$('#net-chat-line'),labels=$('#net-labels'),labelNodes=new Map();
  const voiceOn=$('#net-voice'),voiceMode=$('#net-voice-mode'),micIcon=$('#net-mic');
  // The settle function of the pending `join(room)`, or null.
@@ -32,7 +32,7 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
   const off=net.role===ROLE.OFF;
   hostButton.disabled=!off||!menu.model.started||menu.model.pending;
   hostHint.hidden=menu.model.started||!off;
-  session.hidden=!net.code;if(code.textContent!==net.code){code.textContent=net.code;copyButton.textContent='Copy code';linkButton.textContent='Copy link';}
+  session.hidden=!net.code;leaveButton.hidden=!net.code;if(code.textContent!==net.code){code.textContent=net.code;copyButton.textContent='Copy code';linkButton.textContent='Copy link';}
   joinButton.disabled=!off||menu.model.pending;
   for(const node of [name,hostPassword,max,room,joinPassword])node.disabled=!off;
   syncMic();
@@ -88,9 +88,8 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
   // A failed `join(room)` goes back to the boot choice, which shows why.
   status:text=>{if(joining&&net.role===ROLE.OFF){const settle=joining;joining=null;settle({error:text});}else say(text);},
   peers:list=>{
-   count.textContent=`Players ${list.length} / ${net.max}`;
-   hostName.textContent=list.find(p=>p.slot===0)?.name??'';
-   players.replaceChildren(...playerChips(document,list.sort((a,b)=>a.slot-b.slot).map(p=>({name:p.name,you:p.slot===net.slot,ping:p.ping}))));
+   count.textContent=`${list.length} / ${net.max}`;
+   players.replaceChildren(...playerRows(document,list.sort((a,b)=>a.slot-b.slot).map(p=>({name:p.name,host:p.slot===0,you:p.slot===net.slot,ping:p.ping}))));
   },
   session:(role,slot)=>{
    simulation.netSession(role,slot,packets=>net.send(packets));
@@ -113,10 +112,11 @@ export function createMultiplayer({document,target,Peer,buildId,exportHash,simul
  });
  joinButton.addEventListener('click',()=>{storeName();say('Connecting…');reloadJoin({code:room.value.trim().toUpperCase(),name:name.value,password:joinPassword.value});});
  for(const node of [room,joinPassword])node.addEventListener('keydown',event=>{if(event.code==='Enter'&&!joinButton.disabled)joinButton.click();});
- const copy=(button,text)=>{document.defaultView?.navigator?.clipboard?.writeText(text).then(()=>{button.textContent='Copied';},()=>{});};
- copyButton.addEventListener('click',()=>copy(copyButton,net.code));
+ // The button shows "Copied" for a moment, then its label again.
+ const copy=(button,text,label)=>{document.defaultView?.navigator?.clipboard?.writeText(text).then(()=>{button.textContent='Copied';setTimeout(()=>{button.textContent=label;},1500);},()=>{});};
+ copyButton.addEventListener('click',()=>copy(copyButton,net.code,'Copy code'));
  // The invite link opens the boot choice with the room code filled in.
- linkButton.addEventListener('click',()=>{const url=new URL(document.defaultView.location.href);url.search='';url.hash='';url.searchParams.set(ROOM_PARAM,net.code);copy(linkButton,url.href);});
+ linkButton.addEventListener('click',()=>{const url=new URL(document.defaultView.location.href);url.search='';url.hash='';url.searchParams.set(ROOM_PARAM,net.code);copy(linkButton,url.href,'Copy link');});
  leaveButton.addEventListener('click',()=>{net.leave();say('Left the game.');});
  // Enter opens the chat line while playing. Enter sends it, Escape closes it.
  target.addEventListener('keydown',event=>{

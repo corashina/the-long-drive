@@ -205,13 +205,19 @@ button:focus-visible {outline:2px solid var(--paint);outline-offset:3px;}
 .room-card[hidden] {display:none;}
 .room-card .room-title {margin:0;font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dust);}
 .room-card .room-code {margin:4px 0 14px;font:700 40px/1 ui-monospace,Consolas,monospace;letter-spacing:.2em;padding-left:.2em;color:var(--paint);user-select:all;}
-.room-facts {display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 14px;align-items:baseline;margin:0;text-align:left;}
-.room-facts dt {color:var(--dust);}
-.room-facts dd {margin:0;font-weight:700;}
-.room-card .room-players {display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;font-weight:400;}
-.room-players li {padding:1px 10px;border-radius:3px;background:var(--shoulder);border:1px solid var(--seam);}
-.room-players .ping {margin-left:8px;color:var(--dust);}
-.room-actions {display:flex;justify-content:center;gap:8px;margin-top:14px;}
+.room-invite {display:flex;justify-content:center;gap:8px;}
+.room-head {display:flex;justify-content:space-between;margin:16px 0 6px;font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dust);}
+.room-card .room-players {margin:0;padding:0;list-style:none;text-align:left;}
+.room-players li {position:relative;display:flex;align-items:center;gap:8px;min-height:36px;padding:0 10px 0 calc(10px + 1.4em);border-bottom:1px solid var(--seam-soft);}
+.room-players li:first-child {border-top:1px solid var(--seam-soft);}
+.room-players li.host::before {content:'★';position:absolute;left:10px;color:var(--paint);}
+.room-players .you {color:var(--dust);font-size:14px;}
+.room-players .ping {margin-left:auto;color:var(--dust);}
+.room-players .ping::before {content:'';display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;}
+.room-players .good::before {background:#6c4;}
+.room-players .fair::before {background:var(--paint);}
+.room-players .bad::before {background:#d54;}
+.menu-screen .menu-foot #net-leave {border-color:#b54;color:#f99;}
 /* Boot choice: Singleplayer or Multiplayer before a world loads. The loading card shows after the choice. */
 #boot-choice[hidden],#boot-choice [hidden] {display:none;}
 #boot-choice:not([hidden]) ~ #loading-details {display:none;}
