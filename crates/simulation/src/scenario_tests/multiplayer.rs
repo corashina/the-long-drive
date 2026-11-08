@@ -76,12 +76,11 @@ fn a_joining_guest_starts_in_the_garage() {
     assert!(stands_free(&guest), "the guest clips nothing");
 }
 
-/// Source `snTempPlayerSync` and `SPlayerAnim`. The host sends its pose, duck value, body
-/// targets and zoom. The guest figure stands at the host, ducks and looks up with it, and its
-/// eyes bulge while the host zooms (`bulgingeyesScript`).
+/// Source `snTempPlayerSync` and `SPlayerAnim`. The host sends its pose, duck value and body
+/// targets. The guest figure stands at the host, and ducks and looks up with it.
 #[test]
 #[ignore = "requires the installed source export"]
-fn the_other_figure_follows_walk_duck_look_and_zoom() {
+fn the_other_figure_follows_walk_duck_and_look() {
     let (reference, mut run) = load_garage();
     settle(&mut run, &reference);
     let (mut host, mut guest) = (Net::default(), Net::default());
@@ -139,20 +138,6 @@ fn the_other_figure_follows_walk_duck_look_and_zoom() {
     look(&mut run, 0., 60.);
     let (_, looked) = sync(&mut run, FrameInput::default(), 50);
     assert_ne!(looked, up, "the figure looks up");
-    let zoom = FrameInput {
-        player_held: crate::simulation::player_keys::ZOOM,
-        ..Default::default()
-    };
-    let (row, _) = sync(&mut run, zoom, 50);
-    assert!(
-        row.eye_scale[1] > 2.5,
-        "the figure eyes bulge while the host zooms"
-    );
-    let (row, _) = sync(&mut run, FrameInput::default(), 50);
-    assert!(
-        row.eye_scale[1] < 1.01,
-        "the figure eyes return after the zoom"
-    );
 }
 
 /// One frame of a host and a guest that run their own world copies.

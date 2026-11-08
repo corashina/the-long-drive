@@ -35,8 +35,6 @@ pub(super) struct ViewState {
     head: Vector,
     height: f32,
     zoom: f32,
-    /// Source `zooming`.
-    pub(super) zooming: bool,
     walk_bob: WalkBob,
     car_bob: CarHeadBob,
     car_offset: Vector,
@@ -66,7 +64,6 @@ impl ViewState {
             head: standing,
             height: 0.,
             zoom: 1.,
-            zooming: false,
             walk_bob: WalkBob::new(player),
             car_bob: CarHeadBob::new(pose),
             car_offset: Vector::ZERO,
@@ -124,7 +121,6 @@ impl ViewState {
         self.looking = false;
         self.height = 0.;
         self.zoom = 1.;
-        self.zooming = false;
         self.lean = self.neutral_head(posture);
         self.head = self.lean;
     }
@@ -161,7 +157,6 @@ impl ViewState {
             (1., self.reference.zoom_out_rate)
         };
         self.zoom += (target - self.zoom) * (dt * rate).clamp(0., 1.);
-        self.zooming = zooming;
         let head_rotation = self.seat_entry_rotation.take().unwrap_or(head_rotation);
         let held = input.player_held & player_keys::LEAN != 0;
         if input.player_pressed & player_keys::LEAN != 0 {
