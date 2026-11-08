@@ -236,18 +236,17 @@ Unity defaults: [Physic Material](https://docs.unity3d.com/2021.3/Documentation/
 Regenerate them with `python -m tools.reference.synth_weather` (needs numpy and ffmpeg).
 The runtime stage copies them as `audio-added-N.ogg` and adds rows like `storm_inside`.
 
-## Development support limits
+## Library media limits
 
-Bevy loaded representative static and skinned glTF assets with all dependencies ready.
-Chrome rendered the static cup. Skinned rendering and animation playback remain unverified.
-Chrome loaded embedded Liberation Sans and decoded a representative WAV in the isolated media fixture.
-The WAV reached its end with muted playback. This check does not establish audible output or game audio integration.
-Six cubemap PNG previews decoded. Native BC6H DDS data keeps HDR values. Browser HDR rendering is not verified.
-The synthetic rotated sprite matched six expected pixels. The installed sprite index contains no packed rotation.
+The game renders skinned meshes, plays source clips, poses humanoids, and draws source particles.
+It ports the source shaders it uses to WGSL in `src/presentation/`.
+The exporter checks exported records and files only. It does not check rendered output.
+Claim pixel parity only after a matched live source view.
+
 All 42 source clips have validated normalized tracks. Sixteen have bound glTF packages.
 The remaining 26 clips retain native records and normalized tracks with binding limits.
 The source contains no morph channels. Synthetic morph fixtures cover geometry and channel validation.
-Animation playback, humanoid retargeting, Unity shaders, particles, live reflections, and native UI adapters remain unverified.
+Native BC6H DDS data keeps HDR values. The installed sprite index contains no packed rotation.
 
 ## Lighting authority and checks
 
@@ -269,8 +268,9 @@ Keep source recovery, analysis, scenario patches, and captures outside Git.
 Use an accepted library from another checkout without changing its files:
 
 ```powershell
-$referencePython = 'C:/Users/Corashina/Documents/Projects/the-long-slop/tools/reference/.venv/Scripts/python.exe'
-$libraryRoot = 'C:/Users/Corashina/Documents/Projects/the-long-slop/web/assets/library'
+$checkout = Read-Host 'Path to the checkout with the accepted library'
+$referencePython = "$checkout/tools/reference/.venv/Scripts/python.exe"
+$libraryRoot = "$checkout/web/assets/library"
 & $referencePython -B -m tools.reference.export --library-root $libraryRoot
 & $referencePython -B -m tools.reference.export --library-root $libraryRoot --verify
 ```
