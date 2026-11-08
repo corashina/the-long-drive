@@ -25,7 +25,7 @@ const IMMUTABLE = ['assets/runtime/', 'pkg/'];
 const HEADERS = IMMUTABLE.map(path => `/${path}*\n  Cache-Control: public, max-age=31536000, immutable\n`).join('');
 const BUCKET = 'the-long-slop-large';
 const DATABASE = 'the-long-slop-events';
-const SITE = 'https://the-long-drive-3pk.pages.dev/';
+const SITE = 'https://the-long-slop.pages.dev/';
 const TYPES = {'.wasm': 'application/wasm', '.json': 'application/json', '.gltf': 'model/gltf+json'};
 const KEY = /^[a-f0-9]{64}$/;
 // `_routes.json` accepts at most 100 rules, so the function gets whole folders. It sends paths without R2 keys to the site.

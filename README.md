@@ -80,7 +80,7 @@ Make a release build first. Enable R2 in the Cloudflare dashboard. Then prepare 
 
 ```powershell
 npx wrangler@4.147.0 login
-npx wrangler@4.147.0 pages project create the-long-drive --production-branch master
+npx wrangler@4.147.0 pages project create the-long-slop --production-branch master
 npx wrangler@4.147.0 r2 bucket create the-long-slop-large
 npx wrangler@4.147.0 d1 create the-long-slop-events
 ```
@@ -110,12 +110,12 @@ Old R2 files stay. Each upload of a changed main WASM adds about 33 MiB raw plus
 `functions/[[path]].js` serves them from the same site. [wrangler.toml](wrangler.toml) binds the bucket.
 The script stops if the site has more than 20,000 files.
 It also stops if the site does not redirect to a Cloudflare Access login. Set up Access before the first upload.
-The site opens at `https://the-long-drive-3pk.pages.dev`.
+The site opens at `https://the-long-slop.pages.dev`.
 
 The site contains files from The Long Drive. Keep it for friends only:
 
 1. In the Cloudflare dashboard, open Zero Trust, then Access, then Applications.
-2. Add a self-hosted application for `the-long-drive-3pk.pages.dev` and `*.the-long-drive-3pk.pages.dev`.
+2. Add a self-hosted application for `the-long-slop.pages.dev` and `*.the-long-slop.pages.dev`.
 3. Add an Allow policy with the email addresses of your friends. The free plan allows 50 users.
 
 ### Analytics
@@ -128,7 +128,7 @@ The deploy script applies [migrations](migrations) before the upload. Print a su
 node scripts/analytics.mjs 30
 ```
 
-For page visits and load timings, enable Web Analytics once: Workers & Pages, `the-long-drive`, Metrics, Web Analytics, Enable.
+For page visits and load timings, enable Web Analytics once: Workers & Pages, `the-long-slop`, Metrics, Web Analytics, Enable.
 
 ## FPS bench
 
