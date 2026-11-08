@@ -298,10 +298,12 @@ pub fn load_lamp_materials(
 }
 
 /// Keep all custom source cookies in the existing single sampled texture slot.
-/// A 256 cookie sits padded in the center of its 512 layer.
+/// `size` is the layer size: 512, or 256 at half texture quality.
+/// A cookie of half the layer size sits padded in the center of its layer.
 pub(crate) fn pack_custom_cookies(
     images: &mut Assets<Image>,
     handles: &[&Handle<Image>],
+    size: u32,
 ) -> Result<Handle<Image>, String> {
     let originals = handles
         .iter()
@@ -309,10 +311,10 @@ pub(crate) fn pack_custom_cookies(
         .collect::<Vec<_>>();
     let layers = originals.len();
     for (index, image) in originals.iter().enumerate() {
-        if !matches!(
-            (image.width(), image.texture_descriptor.mip_level_count),
-            (512, 10) | (256, 9)
-        ) || image.height() != image.width()
+        let width = image.width();
+        if !(width == size || width == size / 2)
+            || image.texture_descriptor.mip_level_count != width.ilog2() + 1
+            || image.height() != width
             || !matches!(
                 image.texture_descriptor.format,
                 TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb
@@ -326,15 +328,16 @@ pub(crate) fn pack_custom_cookies(
     }
     let mut array = Image::new_uninit(
         Extent3d {
-            width: 512,
-            height: 512,
+            width: size,
+            height: size,
             depth_or_array_layers: layers as u32,
         },
         TextureDimension::D2,
         TextureFormat::Rgba8Unorm,
         RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
     );
-    array.texture_descriptor.mip_level_count = 10;
+    let levels = size.ilog2() + 1;
+    array.texture_descriptor.mip_level_count = levels;
     array.texture_view_descriptor = Some(TextureViewDescriptor {
         dimension: Some(TextureViewDimension::D2Array),
         ..default()
@@ -344,10 +347,10 @@ pub(crate) fn pack_custom_cookies(
         ImageSampler::Descriptor(descriptor) => ImageSampler::Descriptor(descriptor.clone()),
         ImageSampler::Default => return Err("Source custom cookie has no sampler".into()),
     };
-    let layer_bytes = (0..10)
+    let layer_bytes = (0..levels)
         .map(|level| {
-            let size = 512usize >> level;
-            size * size * 4
+            let side = size as usize >> level;
+            side * side * 4
         })
         .sum::<usize>();
     let mut data = vec![0; layer_bytes * layers];
@@ -356,8 +359,8 @@ pub(crate) fn pack_custom_cookies(
         let mips = image.texture_descriptor.mip_level_count;
         let mut source_offset = 0;
         let mut target_offset = layer * layer_bytes;
-        for level in 0..10 {
-            let target_size = 512usize >> level;
+        for level in 0..levels {
+            let target_size = size as usize >> level;
             let source_size = (image.width() as usize >> level).max(1);
             let pad = (target_size - source_size) / 2;
             for y in 0..target_size {

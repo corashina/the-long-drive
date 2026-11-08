@@ -850,8 +850,17 @@ impl SourceFixedAssets {
                 };
                 let originals = ids[2..].iter().map(|id| handle(*id)).collect::<Vec<_>>();
                 let originals = originals.iter().collect::<Vec<_>>();
-                let array = super::lighting::pack_custom_cookies(images, &originals)
-                    .map_err(ReferenceError)?;
+                let array = super::lighting::pack_custom_cookies(
+                    images,
+                    &originals,
+                    // Half texture quality drops the top cookie mip, as Unity `masterTextureLimit` 1.
+                    if crate::display_settings::half_textures() {
+                        256
+                    } else {
+                        512
+                    },
+                )
+                .map_err(ReferenceError)?;
                 lighting.cookie_handles = Some([handle(ids[0]), handle(ids[1]), array.clone()]);
                 self.uploads
                     .lock()
