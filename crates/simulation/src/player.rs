@@ -788,7 +788,7 @@ impl PlayerState {
             CharacterLength::Relative(value) => value * self.sweep.compute_local_aabb().extents().y,
         }
     }
-    fn movement_filter(&self) -> QueryFilter<'static> {
+    pub(crate) fn movement_filter(&self) -> QueryFilter<'static> {
         QueryFilter::default()
             .exclude_sensors()
             .exclude_rigid_body(self.body)

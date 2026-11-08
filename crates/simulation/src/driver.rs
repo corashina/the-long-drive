@@ -1,6 +1,7 @@
 //! Runs the simulation from renderer commands. It owns the runtime, the input queue and the step clock.
 use crate::boundary::{Change, HudBlock, LookBlock, RenderInput, SimCommand, SimFrame};
 use crate::car_camera::{CameraInput, CameraSeat, CarCamera};
+use crate::foot_camera::FootCamera;
 use crate::reference::{ReferenceError, ReferenceManifest};
 use crate::simulation::{FIXED_DT, FrameInput, StepClock, keys};
 use crate::starting_area::{GarageRuntime, SessionPhase, WorldInput};
@@ -59,6 +60,8 @@ pub struct SimDriver {
     consumed_seq: u64,
     /// Source seated views: outside view, drop cam and map view.
     pub camera: CarCamera,
+    /// On-foot third-person view. Not in the source.
+    pub foot_camera: FootCamera,
     /// Rig input of accepted commands that no frame used yet.
     camera_input: CameraInput,
     /// Camera seat of the last two steps.
@@ -123,6 +126,7 @@ impl SimDriver {
             input_seq: 0,
             consumed_seq: 0,
             camera,
+            foot_camera: FootCamera::default(),
             camera_input: CameraInput::default(),
             camera_seat: [None; 2],
             frame_steps: 0,
@@ -486,6 +490,15 @@ impl SimDriver {
             frame.changes.push(Change::Failure(failure));
         }
         self.camera.fill(&mut frame.state);
+        if let Some((position, rotation)) = self.foot_camera.pose() {
+            let pose = VehiclePose {
+                position: position.to_array(),
+                rotation: rotation.to_array(),
+            };
+            frame.state.view_camera =
+                crate::boundary::PoseRow::new(pose, crate::boundary::PoseRow::ACTIVE);
+            frame.state.flags |= crate::boundary::StateBlock::OTHER_VIEW;
+        }
         self.fill_saves(frame);
     }
 
@@ -497,6 +510,7 @@ impl SimDriver {
         self.runtime.clear_input();
         self.raw_mouse = [0.; 2];
         self.camera_input = CameraInput::default();
+        self.foot_camera.leave();
         self.consumed_seq = self.accepted_seq;
         self.reset_look();
         self.clock.reset();
@@ -552,7 +566,10 @@ impl SimDriver {
         };
         let head = self.look.pose(alpha, [0.; 2]);
         let dt = self.delta_seconds as f32 * self.runtime.clock_factors(reference).time_scale;
-        let other_view = self.camera.other_view();
+        let other_view = self.runtime.other_view;
+        let free = seat.is_none() && !self.runtime.needs_output().dead && !self.runtime.sleeping();
+        self.foot_camera
+            .toggle(self.camera_input.pressed() & keys::CAMERA != 0, free);
         self.camera.frame(
             &self.runtime.area.player.reference().car_camera,
             &mut self.camera_input,
@@ -563,10 +580,40 @@ impl SimDriver {
             ),
             dt,
         );
-        if other_view != self.camera.other_view() {
+        if self.foot_camera.outside() {
+            self.place_foot_camera((
+                Vec3::from_array(head.position),
+                Quat::from_array(head.rotation),
+            ));
+        }
+        self.runtime.other_view = self.camera.other_view() || self.foot_camera.outside();
+        if other_view != self.runtime.other_view {
             self.runtime.audio_motion_revision = self.runtime.audio_motion_revision.wrapping_add(1);
         }
-        self.runtime.other_view = self.camera.other_view();
+    }
+
+    /// Puts the foot camera behind the head. A ball cast pulls it in front of walls.
+    fn place_foot_camera(&mut self, head: (Vec3, Quat)) {
+        use rapier3d::math::{Pose, Rotation, Vector};
+        use rapier3d::parry::query::ShapeCastOptions;
+        use rapier3d::prelude::Ball;
+        let line = FootCamera::line(head);
+        let physics = &self.runtime.physics;
+        let filter = self.runtime.area.player.movement_filter();
+        let reach = physics
+            .queries(filter)
+            .cast_shape(
+                &Pose::from_parts(Vector::from_array(head.0.to_array()), Rotation::IDENTITY),
+                Vector::from_array(line.to_array()),
+                &Ball::new(crate::foot_camera::CLEARANCE_RADIUS),
+                ShapeCastOptions {
+                    max_time_of_impact: 1.,
+                    stop_at_penetration: true,
+                    ..Default::default()
+                },
+            )
+            .map_or(1., |(_, hit)| hit.time_of_impact);
+        self.foot_camera.place(head, reach);
     }
 }
 
