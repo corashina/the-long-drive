@@ -97,7 +97,7 @@ node scripts/deploy.mjs
 The script stages `web/` in `.cache/deploy`. It keeps the app, the reference manifest, and the catalog files of the current runtime package.
 It copies each WASM package to `pkg/<hash>/` and rewrites the `./pkg/` imports to that path. Browsers cache `pkg/` and `assets/runtime/` as immutable.
 Pages accepts files up to 25 MiB. The script puts larger files, such as the main WASM, in the R2 bucket under their SHA-256. It stops if a larger file is outside these two folders.
-It also puts the Brotli files of the 5 WASM files in R2. It makes them first if a fast build skipped them.
+It also puts the Brotli files of the 4 WASM files in R2. It makes them first if a fast build skipped them.
 It makes a Brotli 11 file of each runtime package file in `.cache/package-brotli` and keeps the files that shrink by 10% or more.
 Cloudflare does not compress `.bc`, `.bin`, `.smip` and `.gltf` files, so these Brotli files go to R2 too.
 The first run compresses the full package and takes several minutes. Later runs reuse the files of unchanged sources.

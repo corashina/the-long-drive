@@ -32,3 +32,21 @@ Match the source Steam multiplayer (`sns`, `snl`, `snTempPlayerSync`). Peers con
 
 Not planned: VR, stereo 3D, mod events, Steam features.
 
+| ID | Task | Size | Remaining work |
+| --- | --- | --- | --- |
+| A01 | Player damage between players | M | Source `meleeweaponscript` and `weaponscript` send `SDmgPlayer` for a hit on a remote figure (layer 9). Add the message so melee and gun hits hurt other players. |
+| A02 | Zoom eyes and zoom sync | S | Source `bulgingeyesScript` scales the eyes while `zooming`. `SPlayerAnim` sends `zooming`. Add both. |
+| A03 | Take an item from another player's hands | M | The source allows it. `interaction/in_use.rs` blocks it. |
+| A04 | Sync the remaining item state messages | M | Check `color`, `rndType`, `licenseplate`, `localPos`, `itemDataUpd` and `itemRBUpd` in the source. Add each one whose state changes in play. |
+| A05 | Starter pulse on remote cars | S | `net/car.rs` does not pulse the starter of `UpdMultiIgnition`. |
+
+### Cleanup
+
+| ID | Task | Size | Remaining work |
+| --- | --- | --- | --- |
+| A06 | Steering wheel settings reset | S | `web/settings-screen.js` does not port the source reset. |
+| A07 | Remove the Access email from analytics | S | The site has no Access login. Remove `email()` from `functions/api/event.js`, drop the `email` column with a migration, and group `scripts/analytics.mjs` by session. Update the README. |
+| A08 | Refresh the reference export docs | S | `tools/reference/README.md` lists skinned rendering, animation, particles and Unity shaders as unverified. Its checked export example names the old `the-long-slop` folder. |
+| A09 | Name the scenario tests by game area | S | `roadmap_tests/` names tests by removed rows. `known_failures.rs` holds fixed bugs. Rename the folder, files and tests by area. |
+| A10 | Remove web exports with no importer | S | About 45 exports in `web/*.js` are used only in their own file. Remove the `export` word, or the code if it is dead. |
+
