@@ -70,6 +70,16 @@ pub fn pose_changed(current: Option<&rapier3d::math::Pose>, next: &rapier3d::mat
     })
 }
 pub const SLOT_SENSOR_FLAG: u128 = 1 << 126;
+/// A collider of a remote figure. Bits 40 to 47 hold its player slot.
+const FIGURE_FLAG: u128 = 1 << 125;
+const FIGURE_SLOT_SHIFT: u32 = 40;
+pub fn figure_bits(slot: u8) -> u128 {
+    FIGURE_FLAG | (u128::from(slot) << FIGURE_SLOT_SHIFT)
+}
+/// The player slot of a remote figure collider.
+pub fn figure_slot(user_data: u128) -> Option<u8> {
+    (user_data & FIGURE_FLAG != 0).then_some((user_data >> FIGURE_SLOT_SHIFT) as u8)
+}
 /// Collider user data bits 32 to 34 hold the `StepSurface` code. 0 is none.
 pub const STEP_SURFACE_SHIFT: u32 = 32;
 pub const STEP_SURFACE_MASK: u128 = 0b111 << STEP_SURFACE_SHIFT;

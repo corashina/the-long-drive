@@ -1,6 +1,9 @@
 //! Source `mpplayerscript` colliders of one remote player and its `massScript` rigidbody.
-use crate::reference::RemotePlayerReference;
-use crate::vehicle::{PhysicsWorld, set_collider_enabled};
+use crate::player::body::BodyState;
+use crate::reference::{NodeId, RemotePlayerReference};
+use crate::vehicle::{
+    PhysicsWorld, collider_builder, figure_bits, pose_changed, set_collider_enabled, tag_bits,
+};
 use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::parry::query::intersection_test;
 use rapier3d::prelude::{
@@ -70,6 +73,8 @@ pub struct RemoteBody {
     stance: Stance,
     /// Bodies that this body ignores: the items its player holds.
     ignored: Vec<RigidBodyHandle>,
+    /// The layer 9 bone colliders and their bones. They take hits and touch nothing.
+    hits: Vec<(ColliderHandle, NodeId)>,
 }
 
 fn groups(membership: u32, filter: u32) -> InteractionGroups {
@@ -83,6 +88,7 @@ fn groups(membership: u32, filter: u32) -> InteractionGroups {
 impl RemoteBody {
     /// Source `Start` and `massScript.AddRB`: a 75 kg body without gravity or rotation.
     pub fn new(
+        slot: u8,
         r: &RemotePlayerReference,
         shapes: Shapes,
         pose: Pose,
@@ -122,7 +128,25 @@ impl RemoteBody {
                 ColliderBuilder::ball(r.feet_radius).translation(Vector::from_array(r.feet_center)),
             ),
         ];
-        let colliders = builders.map(|b| physics.insert_collider_with_parent(b.build(), handle));
+        let figure = figure_bits(slot);
+        let colliders = builders
+            .map(|b| physics.insert_collider_with_parent(b.user_data(figure).build(), handle));
+        let hits = r
+            .hits
+            .iter()
+            .filter_map(|h| {
+                let builder = collider_builder(&h.geometry).ok()?;
+                let collider = builder
+                    .density(0.)
+                    .collision_groups(groups(r.hit_membership, 0))
+                    .user_data(figure | tag_bits(h.tag))
+                    .build();
+                Some((
+                    physics.insert_collider_with_parent(collider, handle),
+                    h.node,
+                ))
+            })
+            .collect();
         let body = Self {
             handle,
             colliders,
@@ -130,6 +154,7 @@ impl RemoteBody {
             enable_at: Some(now + SPAWN_DELAY),
             stance: Stance::Standing,
             ignored: Vec::new(),
+            hits,
         };
         body.apply(physics);
         body.set_shapes(physics, shapes);
@@ -247,6 +272,19 @@ impl RemoteBody {
         });
     }
 
+    /// The bone colliders follow the bones of `body`.
+    pub fn place_hits(&self, physics: &mut PhysicsWorld, body: &BodyState) {
+        for &(c, node) in &self.hits {
+            let Some(frame) = body.node_local(node) else {
+                continue;
+            };
+            let pose = Pose::from_parts(frame.position, frame.rotation);
+            if pose_changed(physics.rapier().colliders[c].position_wrt_parent(), &pose) {
+                physics.edit_collider(c, |c| c.set_position_wrt_parent(pose));
+            }
+        }
+    }
+
     /// Source `Physics.IgnoreCollision` with each item of `items`, and with no other body.
     pub fn ignore_only(&mut self, physics: &mut PhysicsWorld, items: &[RigidBodyHandle]) {
         for &b in &self.ignored {
@@ -275,6 +313,11 @@ impl RemoteBody {
                     c.set_solver_groups(InteractionGroups::none());
                 }
             });
+        }
+        // The bone colliders stay on while the figure shows.
+        let shows = self.stance != Stance::Dead;
+        for &(c, _) in &self.hits {
+            physics.edit_collider(c, |c| set_collider_enabled(c, shows));
         }
     }
 
@@ -319,6 +362,8 @@ mod tests {
             standing_filter: 4_039_039_487,
             seated_membership: 1 << 10,
             seated_filter: 4_163_111_112,
+            hits: Vec::new(),
+            hit_membership: 1 << 9,
             evidence: ManagedEvidence {
                 assembly_sha256: String::new(),
                 methods: Vec::new(),
@@ -344,7 +389,7 @@ mod tests {
         let r = reference();
         let mut physics = PhysicsWorld::empty_for_tests();
         let shapes = Shapes::new(&r, Vector::new(0., 0.65, 0.), 1.);
-        let mut body = RemoteBody::new(&r, shapes, Pose::IDENTITY, 10., &mut physics);
+        let mut body = RemoteBody::new(1, &r, shapes, Pose::IDENTITY, 10., &mut physics);
         let player = player_at(&mut physics, 5.);
         body.tick(12.9, &mut physics, player);
         assert!(!body.enabled());
@@ -378,7 +423,7 @@ mod tests {
         let r = reference();
         let mut physics = PhysicsWorld::empty_for_tests();
         let shapes = Shapes::new(&r, Vector::new(0., 0.65, 0.), 1.);
-        let mut body = RemoteBody::new(&r, shapes, Pose::IDENTITY, 0., &mut physics);
+        let mut body = RemoteBody::new(1, &r, shapes, Pose::IDENTITY, 0., &mut physics);
         let player = player_at(&mut physics, 5.);
         body.tick(3., &mut physics, player);
         assert!(body.enabled());
@@ -407,7 +452,7 @@ mod tests {
         let r = reference();
         let mut physics = PhysicsWorld::empty_for_tests();
         let shapes = Shapes::new(&r, Vector::new(0., 0.65, 0.), 1.);
-        let mut body = RemoteBody::new(&r, shapes, Pose::IDENTITY, 0., &mut physics);
+        let mut body = RemoteBody::new(1, &r, shapes, Pose::IDENTITY, 0., &mut physics);
         let player = player_at(&mut physics, 0.2);
         body.tick(10., &mut physics, player);
         assert!(!body.enabled(), "a figure on the player stays open");

@@ -71,7 +71,22 @@ pub struct RemotePlayerReference {
     pub standing_filter: u32,
     pub seated_membership: u32,
     pub seated_filter: u32,
+    /// The bone colliders on layer 9. A melee or gun hit on one hurts the player.
+    pub hits: Vec<RemoteHitReference>,
+    pub hit_membership: u32,
     pub evidence: ManagedEvidence,
+}
+
+/// One `Collider_*` bone collider of the remote player prefab.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteHitReference {
+    pub source: SourceId,
+    /// The bone, as the same node of the local player rig.
+    pub node: NodeId,
+    /// Geometry in the bone frame, in meters.
+    pub geometry: ColliderGeometry,
+    pub tag: Option<ColliderTag>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -243,7 +258,18 @@ impl PlayerReference {
                 && r.standing_membership == 1
                 && r.standing_filter == 4_039_039_487
                 && r.seated_membership == 1 << 10
-                && r.seated_filter == 4_163_111_112,
+                && r.seated_filter == 4_163_111_112
+                && r.hit_membership == 1 << 9
+                && r.hits.len() == 10
+                && r.hits.iter().all(|h| match &h.geometry {
+                    ColliderGeometry::Capsule { a, b, radius } => {
+                        finite(a) && finite(b) && radius.is_finite() && *radius > 0.
+                    }
+                    ColliderGeometry::Convex { points } => {
+                        points.len() == 8 && points.iter().all(|p| finite(p))
+                    }
+                    _ => false,
+                }),
             "remote player body",
         )?;
         let low = p.prone_head.translation;

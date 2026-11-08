@@ -34,7 +34,6 @@ Not planned: VR, stereo 3D, mod events, Steam features.
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| A01 | Player damage between players | M | Source `meleeweaponscript` and `weaponscript` send `SDmgPlayer` for a hit on a remote figure (layer 9). Add the message so melee and gun hits hurt other players. |
 | A02 | Zoom eyes and zoom sync | S | Source `bulgingeyesScript` scales the eyes while `zooming`. `SPlayerAnim` sends `zooming`. Add both. |
 | A03 | Take an item from another player's hands | M | The source allows it. `interaction/in_use.rs` blocks it. |
 | A04 | Sync the remaining item state messages | M | Check `color`, `rndType`, `licenseplate`, `localPos`, `itemDataUpd` and `itemRBUpd` in the source. Add each one whose state changes in play. |

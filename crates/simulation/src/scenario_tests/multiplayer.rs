@@ -1016,3 +1016,72 @@ fn the_guest_starts_before_the_host_car_spawns() {
     }
     panic!("the host car does not spawn");
 }
+
+/// Source `SDmgPlayer`. The figure of the host has layer 9 bone colliders that take hits. The
+/// guest sends the hit damage, and the host loses that much HP.
+#[test]
+#[ignore = "requires the installed source export"]
+fn a_hit_on_the_other_figure_hurts_that_player() {
+    use rapier3d::prelude::{QueryFilter, Ray};
+    let (reference, mut host_run) = load_garage();
+    settle(&mut host_run, &reference);
+    let mut guest_run = save_load(&host_run, &reference);
+    let (mut host, mut guest) = (Net::default(), Net::default());
+    host.set_session(NetRole::Host, 0);
+    guest.set_session(NetRole::Guest, 1);
+    let mut out = SimFrame::default();
+    let mut sync = |runs: [&mut GarageRuntime; 2], nets: [&mut Net; 2], s: f32| {
+        let ([host_run, guest_run], [host, guest]) = (runs, nets);
+        for _ in 0..(s / FIXED_DT) as usize {
+            exchange(
+                &reference,
+                [
+                    (&mut *host_run, &mut *host, FrameInput::default()),
+                    (&mut *guest_run, &mut *guest, FrameInput::default()),
+                ],
+                &mut out,
+            );
+        }
+    };
+    sync(
+        [&mut host_run, &mut guest_run],
+        [&mut host, &mut guest],
+        1.5,
+    );
+    let body = guest.remote_body(0).expect("the host figure has a body");
+    let at = body.position(&guest_run.physics);
+    let hits = |_, c: &rapier3d::prelude::Collider| {
+        c.is_enabled() && c.collision_groups().memberships.bits() == 1 << 9
+    };
+    // Rays across the figure from 1 m below to 1 m above its root.
+    let hit = (0..=20)
+        .find_map(|i| {
+            let from = at + Vector::new(2., i as f32 * 0.1 - 1., 0.);
+            guest_run
+                .physics
+                .queries(QueryFilter::default().predicate(&hits))
+                .cast_ray(&Ray::new(from, Vector::new(-1., 0., 0.)), 4., true)
+        })
+        .map(|(hit, _)| hit)
+        .expect("a ray through the figure hits a bone collider");
+    let data = guest_run.physics.rapier().colliders[hit].user_data;
+    assert_eq!(
+        crate::vehicle::figure_slot(data),
+        Some(0),
+        "the host figure"
+    );
+    let hp = |run: &GarageRuntime| run.needs_output().needs.hp + run.survival.pending().hp;
+    let (host_before, guest_before) = (hp(&host_run), hp(&guest_run));
+    guest_run.area.interaction.guns.player_damage.add(0, 20.);
+    sync(
+        [&mut host_run, &mut guest_run],
+        [&mut host, &mut guest],
+        0.1,
+    );
+    assert!(
+        (hp(&guest_run) - guest_before).abs() < 1.,
+        "the guest keeps its HP"
+    );
+    let lost = host_before - hp(&host_run);
+    assert!((lost - 20.).abs() < 1., "the host loses 20 HP: {lost}");
+}

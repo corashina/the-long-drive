@@ -15,6 +15,8 @@ pub struct GunsReference {
     pub ammo_mass: [f32; AMMO_TYPES],
     /// mainscript.ammoVelocity per ammo type.
     pub ammo_velocity: [f32; AMMO_TYPES],
+    /// `mainscript.jouleToHp`: the HP that one joule of shot energy takes from another player.
+    pub joule_to_hp: f32,
     pub tracer: GunTracer,
     /// mainscript.ShootDecals in `GUN_DECALS` order.
     pub decals: [GunDecal; GUN_DECALS],
@@ -293,7 +295,10 @@ impl GunsReference {
     #[cfg(feature = "validate")]
     pub fn validate(&self, m: &ReferenceManifest) -> Result<(), ReferenceError> {
         require(
-            self.source.file == "level1" && finite(&self.ammo_mass) && finite(&self.ammo_velocity),
+            self.source.file == "level1"
+                && finite(&self.ammo_mass)
+                && finite(&self.ammo_velocity)
+                && self.joule_to_hp == 0.15,
             "gun ammo values",
         )?;
         conditions::validate_particle(&self.source, &self.tracer.start, m)?;

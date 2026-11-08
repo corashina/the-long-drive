@@ -2,6 +2,7 @@
 //! recoil, trigger parts, reload hand), `ammoscript.CanReload`, `revolverScript`, `bbgunscript`,
 //! `geppityuscript`, and `mainscript` tracers, hit particles, hit clips and bullet-hole spawns.
 use super::items::ItemStore;
+use super::player_damage::PlayerDamage;
 use super::spray::Ammo;
 use crate::damage::Breakables;
 use crate::particles::{ParticleOutput, ParticleState};
@@ -10,7 +11,7 @@ use crate::reference::{
     ReferenceError, ReferenceManifest, SourceId, TorqueCurve, Transform, WorldPrototypeReference,
 };
 use crate::simulation::dials::{inverse_lerp, unity_euler};
-use crate::vehicle::{PhysicsWorld, collider_tag, to_rapier};
+use crate::vehicle::{PhysicsWorld, collider_tag, figure_slot, to_rapier};
 use crate::world::unity_random::UnityRandom;
 use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::{ColliderHandle, QueryFilter, Ray, RigidBodyHandle};
@@ -443,6 +444,10 @@ pub struct GunState {
     foods: Vec<ItemId>,
     strikes: Vec<Strike>,
     creature_hits: Vec<CreatureHit>,
+    /// `mainscript.jouleToHp`.
+    joule_to_hp: f32,
+    /// `SDmgPlayer` of the shots on other players.
+    pub player_damage: PlayerDamage,
     /// Items whose part poses changed since the presentation took them.
     presented: Vec<ItemId>,
     /// Items whose saved state changed since the caller took them.
@@ -489,6 +494,8 @@ impl GunState {
             foods: Vec::with_capacity(HIT_CAPACITY),
             strikes: Vec::with_capacity(HIT_CAPACITY),
             creature_hits: Vec::with_capacity(HIT_CAPACITY),
+            joule_to_hp: r.guns.joule_to_hp,
+            player_damage: PlayerDamage::default(),
             presented: Vec::with_capacity(8),
             changed: Vec::with_capacity(8),
             breaking: None,
@@ -1190,8 +1197,12 @@ impl GunState {
                 .checked_sub(1)
                 .map(ItemId)
                 .or_else(|| parent.and_then(|b| world.items.on_body(b).first().copied()));
-            if skips(tag, layer) {
+            let figure = figure_slot(collider.user_data);
+            if skips(tag, layer, figure.is_some()) {
                 continue;
+            }
+            if let Some(slot) = figure {
+                self.player_damage.add(slot, force * self.joule_to_hp);
             }
             // ShootEnd. The end tracer starts 3 m before the hit.
             let back = point - direction * 3.;
@@ -1708,9 +1719,10 @@ pub fn fr_allows(rule: &GunBreakRule, value: f32) -> bool {
         || (rule.near && (value - rule.value).abs() < rule.near_value)
 }
 
-/// True when the shot ignores a hit with tag `Ignore` or on the player layer.
-pub fn skips(tag: Option<ColliderTag>, layer: u32) -> bool {
-    tag == Some(ColliderTag::Ignore) || layer == PLAYER_LAYER
+/// True when the shot ignores a hit with tag `Ignore`. A remote figure takes the shot only on its
+/// layer 9 bone colliders. Other layer 9 colliders let it pass.
+pub fn skips(tag: Option<ColliderTag>, layer: u32, figure: bool) -> bool {
+    tag == Some(ColliderTag::Ignore) || figure != (layer == PLAYER_LAYER)
 }
 
 /// The shot continues through `Plant`, glass and `Cobweb`.
