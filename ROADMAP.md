@@ -34,7 +34,6 @@ Not planned: VR, stereo 3D, mod events, Steam features.
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| A04 | Sync the remaining item state messages | M | Check `color`, `rndType`, `licenseplate`, `localPos`, `itemDataUpd` and `itemRBUpd` in the source. Add each one whose state changes in play. |
 
 ### Cleanup
 

@@ -589,6 +589,56 @@ impl StorageLocks {
             .find(|l| l.item == item)
             .map(|l| l.loose_local)
     }
+    /// The pose of a locked item relative to its owner. None if the item is not locked.
+    pub fn owner_local(&self, item: ItemId, items: &ItemStore) -> Option<(ItemId, Pose)> {
+        let state = items.get(item)?;
+        let ItemLocation::Locked { owner, .. } = state.location else {
+            return None;
+        };
+        let owner_state = items.get(owner)?;
+        Some((
+            owner,
+            to_rapier(owner_state.local_pose).inverse() * to_rapier(state.local_pose),
+        ))
+    }
+    /// Source `UpdLocalPos` on a locked item: moves it and its locked children on the carrier
+    /// to `owner_local`, the pose relative to the owner.
+    pub fn set_owner_local(
+        &mut self,
+        item: ItemId,
+        owner_local: Pose,
+        items: &mut ItemStore,
+        physics: &mut PhysicsWorld,
+    ) {
+        let Some(state) = items.get(item) else {
+            return;
+        };
+        let (ItemLocation::Locked { owner, .. }, Some(carrier)) = (state.location, state.body)
+        else {
+            return;
+        };
+        let Some(owner_state) = items.get(owner) else {
+            return;
+        };
+        let target = to_rapier(owner_state.local_pose) * owner_local;
+        let delta = target * to_rapier(state.local_pose).inverse();
+        item_colliders(&mut self.colliders, carrier, item, items, physics);
+        for &handle in &self.colliders {
+            let local = local_pose(physics, handle);
+            physics.edit_collider(handle, |c| c.set_position_wrt_parent(delta * local));
+        }
+        self.riders.clear();
+        self.riders.extend(
+            items
+                .on_body(carrier)
+                .iter()
+                .filter(|&&id| id == item || items.descends(id, item)),
+        );
+        for &rider in &self.riders {
+            let state = items.get_mut(rider).unwrap();
+            state.local_pose = from_rapier(&(delta * to_rapier(state.local_pose)));
+        }
+    }
     /// Source `Lock(_ignoreTime: true)` for a saved item: no drop delay and no two-scan rule.
     /// `owner_local` is the item pose relative to the owner. The owner must be locked first.
     pub fn lock_saved(

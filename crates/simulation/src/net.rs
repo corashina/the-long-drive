@@ -9,6 +9,7 @@ pub mod creatures;
 pub mod inventory;
 pub mod items;
 pub mod lamps;
+pub mod locks;
 pub mod message;
 pub mod mounts;
 pub mod objects;
@@ -28,6 +29,7 @@ use creatures::CreatureSync;
 use inventory::InventorySync;
 use items::ItemSync;
 use lamps::LampSync;
+use locks::LockSync;
 use message::{
     BodyMessage, BrokeMessage, DamagePlayerMessage, Message, PoseMessage, RagdollMessage,
 };
@@ -78,6 +80,7 @@ pub struct Net {
     mounts: MountSync,
     conditions: ConditionSync,
     lamps: LampSync,
+    locks: LockSync,
     consumables: ConsumableSync,
     /// Remote figure poses of this frame, in stream space.
     figures: Vec<(u8, rapier3d::math::Pose)>,
@@ -107,6 +110,7 @@ impl Net {
             self.mounts.clear();
             self.conditions.clear();
             self.lamps.clear();
+            self.locks.clear();
             self.consumables.clear();
         }
     }
@@ -310,6 +314,15 @@ impl Net {
         self.conditions
             .send(runtime, &self.objects, &self.items.requested, real_dt, out);
         self.lamps.send(reference, runtime, real_dt, out);
+        self.locks.send(
+            runtime,
+            &self.objects,
+            &self.items.claims,
+            self.role == NetRole::Host,
+            &self.items.requested,
+            real_dt,
+            out,
+        );
         self.consumables
             .send(runtime, &self.objects, &self.items.requested, real_dt, out);
         self.items.requested.clear();
@@ -486,6 +499,10 @@ impl Net {
                     self.lamps.receive(reference, runtime, packet)
                 }
                 message::PART_SLOT => self.mounts.receive(runtime, index, packet),
+                message::LOCAL_POSE => {
+                    self.locks
+                        .receive(runtime, index, &self.items.claims, host, packet)
+                }
                 message::CAR_FLOATS
                 | message::CAR_HANDBRAKE
                 | message::CAR_LAMPS
