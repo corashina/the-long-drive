@@ -59,8 +59,6 @@ export function createSettingsScreen(root,settings,language,inMenu,resets={}){
   for(const p of paints)p();
   for(const b of buttons){const on=b.dataset.tab===tab;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));}
   for(const p of panels)p.hidden=p.dataset.tab!==tab;
-  // The steering wheel reset of the source is not ported.
-  resetButton.hidden=tab==='steering';
  }
  for(const b of buttons)b.addEventListener('click',()=>{tab=b.dataset.tab;paint();});
  resetButton.addEventListener('click',()=>{settings.reset(tab,inMenu());for(const reset of resets[tab]??[])reset();});
