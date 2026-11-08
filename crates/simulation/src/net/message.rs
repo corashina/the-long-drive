@@ -379,7 +379,8 @@ pub struct ClaimMessage {
     pub key: u64,
     /// 1 claims, 0 releases.
     pub claim: u32,
-    pub pad: u32,
+    /// A claim: the slot of the player that held the item before, plus 1. 0 if none.
+    pub from: u32,
 }
 
 /// Source `SInventory`: where the sender keeps an item.

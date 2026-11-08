@@ -100,7 +100,8 @@ impl ItemSync {
             }
         } else if let Ok((slot, m)) = ClaimMessage::decode(packet) {
             if let Some(id) = item(index, m.key) {
-                self.claims.got(id, slot, m.claim != 0, self.slot);
+                let from = m.from.checked_sub(1).map(|s| s as u8);
+                self.claims.got(id, slot, m.claim != 0, from, self.slot);
             }
         } else if let Ok((_, m)) = RemoveMessage::decode(packet) {
             // Source `RemoveItem`: Destroy with `removeFromMemory`.
@@ -226,12 +227,12 @@ impl ItemSync {
         );
         for change in std::mem::take(&mut self.changes) {
             match change {
-                ClaimChange::Claim(item) => {
+                ClaimChange::Claim { item, from } => {
                     if let Some(key) = index.key(item) {
                         out.push(&ClaimMessage {
                             key: key.0,
                             claim: 1,
-                            pad: 0,
+                            from: from.map_or(0, |s| u32::from(s) + 1),
                         });
                         self.more.push((item, 0., MORE_COUNT));
                     }
@@ -243,7 +244,7 @@ impl ItemSync {
                         out.push(&ClaimMessage {
                             key: key.0,
                             claim: 0,
-                            pad: 0,
+                            from: 0,
                         });
                     }
                 }

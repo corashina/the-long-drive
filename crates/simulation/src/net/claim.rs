@@ -22,7 +22,8 @@ pub struct Claims {
 /// A claim change of this peer, to send.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClaimChange {
-    Claim(ItemId),
+    /// `from`: the player that held the item before this pick.
+    Claim { item: ItemId, from: Option<u8> },
     /// Send the last pose and velocity, then the release.
     Release(ItemId),
 }
@@ -49,12 +50,12 @@ impl Claims {
         }
         for item in held.into_iter().flatten() {
             self.releasing.retain(|(i, _)| *i != item);
-            // A new pick claims, even from another owner. A later claim by another peer wins.
+            // A new pick claims, even from another owner.
             if !self.held.contains(&Some(item)) && !self.mine.contains(&item) {
                 // Source `DoClaim(true)`.
                 self.mine.insert(item);
-                self.others.remove(&item);
-                out.push(ClaimChange::Claim(item));
+                let from = self.others.remove(&item);
+                out.push(ClaimChange::Claim { item, from });
             }
         }
         self.held = held;
@@ -77,12 +78,17 @@ impl Claims {
         self.others.iter().map(|(item, slot)| (*item, *slot))
     }
 
-    /// Source `snItemsync.Claim`. `me`: the slot of this peer.
+    /// Source `snItemsync.Claim`. `me`: the slot of this peer. `from`: the player that held the
+    /// item before the claim. A claim takes the item from its owner.
     /// Two players can take one item in the same moment. The lower slot keeps it.
-    pub fn got(&mut self, item: ItemId, slot: u8, claim: bool, me: u8) {
+    pub fn got(&mut self, item: ItemId, slot: u8, claim: bool, from: Option<u8>, me: u8) {
         if claim {
-            let mine = self.mine.contains(&item) && self.held.contains(&Some(item));
-            if (mine && me < slot) || self.others.get(&item).is_some_and(|s| *s < slot) {
+            let owner = if self.mine.contains(&item) && self.held.contains(&Some(item)) {
+                Some(me)
+            } else {
+                self.other(item)
+            };
+            if owner != from && owner.is_some_and(|owner| owner < slot) {
                 return;
             }
             self.others.insert(item, slot);
@@ -115,7 +121,7 @@ mod tests {
     fn pick_claims_and_drop_releases_after_the_delay() {
         let (mut claims, mut out, item) = (Claims::default(), Vec::new(), ItemId(4));
         claims.observe(held(Some(item), None), 0., &mut out);
-        assert_eq!(out, [ClaimChange::Claim(item)]);
+        assert_eq!(out, [ClaimChange::Claim { item, from: None }]);
         assert!(claims.owns(item, false));
         out.clear();
         claims.observe(held(None, None), 1., &mut out);
@@ -135,20 +141,20 @@ mod tests {
         claims.observe(held(None, None), 1., &mut out);
         claims.observe(held(None, Some(item)), 1.01, &mut out);
         claims.observe(held(None, Some(item)), 2., &mut out);
-        assert_eq!(out, [ClaimChange::Claim(item)]);
+        assert_eq!(out, [ClaimChange::Claim { item, from: None }]);
     }
 
     #[test]
     fn another_claim_takes_the_item() {
         let (mut claims, mut out, item) = (Claims::default(), Vec::new(), ItemId(4));
         claims.observe(held(Some(item), None), 0., &mut out);
-        claims.got(item, 2, true, 3);
+        claims.got(item, 2, true, None, 3);
         assert!(!claims.owns(item, true), "not even the host owns it");
         assert_eq!(claims.other(item), Some(2));
         out.clear();
         claims.observe(held(Some(item), None), 1., &mut out);
         assert!(out.is_empty(), "a held item does not claim again");
-        claims.got(item, 3, false, 3);
+        claims.got(item, 3, false, None, 3);
         assert_eq!(claims.other(item), Some(2), "only the owner releases");
         claims.leave(2);
         assert!(claims.owns(item, true));
@@ -158,22 +164,49 @@ mod tests {
     fn the_lower_slot_keeps_an_item_that_two_players_take() {
         let (mut claims, mut out, item) = (Claims::default(), Vec::new(), ItemId(4));
         claims.observe(held(Some(item), None), 0., &mut out);
-        claims.got(item, 2, true, 1);
+        claims.got(item, 2, true, None, 1);
         assert!(claims.claimed(item), "slot 1 keeps it against slot 2");
         assert_eq!(claims.other(item), None);
         let mut third = Claims::default();
-        third.got(item, 1, true, 3);
-        third.got(item, 2, true, 3);
+        third.got(item, 1, true, None, 3);
+        third.got(item, 2, true, None, 3);
         assert_eq!(
             third.other(item),
             Some(1),
             "a third peer keeps the lower slot"
         );
-        third.got(item, 2, false, 3);
+        third.got(item, 2, false, None, 3);
         assert_eq!(
             third.other(item),
             Some(1),
             "the loser's release does not end it"
         );
+    }
+
+    #[test]
+    fn a_pick_takes_the_item_from_the_hands_of_a_lower_slot() {
+        let (mut holder, mut taker, mut third) =
+            (Claims::default(), Claims::default(), Claims::default());
+        let (mut out, item) = (Vec::new(), ItemId(4));
+        holder.observe(held(Some(item), None), 0., &mut out);
+        taker.got(item, 1, true, None, 2);
+        third.got(item, 1, true, None, 3);
+        out.clear();
+        taker.observe(held(Some(item), None), 1., &mut out);
+        assert_eq!(
+            out,
+            [ClaimChange::Claim {
+                item,
+                from: Some(1)
+            }]
+        );
+        holder.got(item, 2, true, Some(1), 1);
+        third.got(item, 2, true, Some(1), 3);
+        assert!(!holder.claimed(item), "slot 1 loses the item to the take");
+        assert_eq!(holder.other(item), Some(2));
+        assert_eq!(third.other(item), Some(2));
+        // A late take by slot 3 from slot 1 meets slot 2 as the owner. The lower slot keeps it.
+        holder.got(item, 3, true, Some(1), 1);
+        assert_eq!(holder.other(item), Some(2));
     }
 }

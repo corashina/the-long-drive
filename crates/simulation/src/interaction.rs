@@ -1482,7 +1482,27 @@ impl InteractionState {
         if self.hitch.is_hitched(item) {
             self.hitch.detach(item, items, physics)?;
         }
-        self.carry.pickup(item, point, player, items, physics)?;
+        // Source `pickupable.Pick` from another player's hands: the body is loose again. The claim
+        // of the pick tells that player to let go. If the pickup fails, it follows that player.
+        let hand = self
+            .in_use
+            .hand(item)
+            .zip(items.get(item).and_then(|i| i.body));
+        if let Some((body_type, body)) = hand {
+            physics.edit_body(body, |b| b.set_body_type(body_type, true));
+        }
+        let picked = self.carry.pickup(item, point, player, items, physics);
+        if picked.is_err()
+            && let Some((_, body)) = hand
+        {
+            physics.edit_body(body, |b| {
+                b.set_body_type(
+                    rapier3d::prelude::RigidBodyType::KinematicPositionBased,
+                    true,
+                )
+            });
+        }
+        picked?;
         self.storage.picked_up(item);
         Ok(())
     }
