@@ -77,6 +77,8 @@ pub struct CarNet {
     pub gear: Option<usize>,
     /// Source `UpdMultiIgnition`: a received engine rpm for the next step.
     pub rpm: Option<f32>,
+    /// Source `mstarting`: a received starter pulse for the next step.
+    pub starter: bool,
 }
 
 impl CarNet {
@@ -308,13 +310,14 @@ fn got_gear(reference: &ReferenceManifest, runtime: &mut GarageRuntime, car: u64
     }
 }
 
-/// Source `UpdMultiIgnition`. The port does not pulse the starter. Source `mstarting` lasts one
-/// frame, and the rpm carries the start.
+/// Source `UpdMultiIgnition`. Source `mstarting` cranks the engine for one step, and the rpm
+/// carries the start.
 fn got_ignition(runtime: &mut GarageRuntime, m: &CarIgnitionMessage) {
     if let Some(v) = find(runtime, m.car) {
         v.ignition
             .set_on(m.flags & CarIgnitionMessage::IGNITION != 0);
         v.net.rpm = Some(m.rpm);
+        v.net.starter = m.flags & CarIgnitionMessage::STARTING != 0;
         if let Some(shared) = &mut v.net.shared {
             shared.ignition = v.ignition.on();
         }

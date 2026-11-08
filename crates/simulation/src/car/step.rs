@@ -7,7 +7,7 @@ use crate::reference::{DrivingAssists, ReferenceManifest};
 use crate::simulation::{
     DriveInput, FIXED_DT, FrameInput,
     engine::{EngineInput, EngineOutput, EngineRecords, InstalledEngineInput},
-    ignition::IgnitionInput,
+    ignition::{IgnitionInput, Key},
     input::DrivingOutput,
     keys,
     powertrain::PowertrainParts,
@@ -214,6 +214,7 @@ fn step_drive(
     vehicle.net.sent = None;
     let received_gear = vehicle.net.gear.take();
     let received_rpm = vehicle.net.rpm.take();
+    let received_starter = std::mem::take(&mut vehicle.net.starter);
     let chassis = world.physics.chassis_handle(key);
     let chassis_active = world.physics.body_active(chassis);
     let climate = world.climate;
@@ -426,7 +427,16 @@ fn step_drive(
         part.state.step(
             EngineInput {
                 installed: Some(InstalledEngineInput {
-                    key: vehicle.ignition.key,
+                    key: if received_starter
+                        && vehicle.ignition.key == Key::On
+                        && vehicle.electronics_enabled()
+                    {
+                        // Source `mstarting`: the peer starter pulse. The key does not crank, so
+                        // the send pass does not echo it.
+                        Key::Cranking
+                    } else {
+                        vehicle.ignition.key
+                    },
                     throttle,
                     clutch: drivetrain.engagement,
                     wheel_rpm: drivetrain.wheel_rpm,
