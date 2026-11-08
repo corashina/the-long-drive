@@ -312,12 +312,28 @@ impl Humans {
                 let filter = QueryFilter::default()
                     .exclude_rigid_body(h.body)
                     .groups(*groups);
-                if let Some((handle, c)) = physics
+                // Unity calls `OnTriggerStay` for each overlap in no fixed order. The AI reads
+                // only the player and the usable, so the player wins, then a usable.
+                let mut best = None;
+                for (handle, c) in physics
                     .queries(filter)
                     .intersect_shape(pose * *local, shape.as_ref())
-                    .next()
                 {
-                    sens.stay(touch(handle, c));
+                    let t = touch(handle, c);
+                    let rank = match t {
+                        Touch::Player(_) => 2,
+                        Touch::Usable(_) => 1,
+                        Touch::Other => 0,
+                    };
+                    if best.is_none_or(|(r, _)| rank > r) {
+                        best = Some((rank, t));
+                    }
+                    if rank == 2 {
+                        break;
+                    }
+                }
+                if let Some((_, t)) = best {
+                    sens.stay(t);
                 }
             }
             // `ladderscript.OnTriggerStay` on the live colliders.
