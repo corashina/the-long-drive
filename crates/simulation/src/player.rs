@@ -1,6 +1,7 @@
 pub mod body;
 pub mod collision;
 mod depenetration;
+pub mod eyes;
 mod head_bob;
 mod ladder;
 mod momentum;
@@ -1408,6 +1409,10 @@ impl PlayerState {
             self.seat().is_some(),
             Some(self.posture.value()),
         )
+    }
+    /// Source `fpscontroller.zooming` of the last view step.
+    pub fn zooming(&self) -> bool {
+        self.view_state.zooming
     }
     pub fn view(&self, physics: &PhysicsWorld) -> PlayerView {
         self.view_state.resolve(

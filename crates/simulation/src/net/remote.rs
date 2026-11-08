@@ -4,7 +4,8 @@ use super::body::{RemoteBody, Shapes, Stance};
 use super::message::{BodyMessage, PoseMessage};
 use crate::boundary::PoseRow;
 use crate::player::body::BodyState;
-use crate::reference::RemotePlayerReference;
+use crate::player::eyes::BulgingEyes;
+use crate::reference::{BulgingEyesReference, RemotePlayerReference};
 use crate::vehicle::{PhysicsWorld, VehiclePose, to_rapier};
 use crate::world::WorldOrigin;
 use glam::{DQuat, DVec3};
@@ -41,6 +42,9 @@ pub struct Remote {
     pub body: BodyState,
     pub smoothing: Smoothing,
     targets: Option<[[f32; 7]; 6]>,
+    /// Source `mpplayerscript.zooming`.
+    zooming: bool,
+    pub eyes: BulgingEyes,
     pub collision: Option<RemoteBody>,
     /// The absolute position of the last body write.
     written: DVec3,
@@ -54,6 +58,8 @@ impl Remote {
             body,
             smoothing: Smoothing::default(),
             targets: None,
+            zooming: false,
+            eyes: BulgingEyes::default(),
             collision: None,
             written: DVec3::ZERO,
             ragdoll: RemoteRagdoll::default(),
@@ -63,16 +69,19 @@ impl Remote {
     /// Source `SPlayerAnim` receiver.
     pub fn got_body(&mut self, m: &BodyMessage) {
         self.targets = Some(m.targets);
+        self.zooming = m.zooming != 0;
     }
 
-    /// Source `UpdPos`, the IK, then `UpdCollider` after each received pose.
+    /// Source `UpdPos`, the IK, `bulgingeyesScript`, then `UpdCollider` after each received pose.
     /// Returns the figure pose in stream space and `CharacterRoot`.
     /// `car`: the shown world pose of a car by key and seat index, `None` when the car is not here.
+    #[allow(clippy::too_many_arguments)]
     pub fn step(
         &mut self,
         now: f64,
         dt: f32,
         reference: &RemotePlayerReference,
+        eyes: &BulgingEyesReference,
         origin: &WorldOrigin,
         physics: &mut PhysicsWorld,
         car: impl FnOnce(u64, u32) -> Option<(DVec3, DQuat)>,
@@ -87,6 +96,7 @@ impl Remote {
         }
         let shown = self.smoothing.update(now, dt, car)?;
         self.body.pose_remote(self.smoothing.duck, &targets);
+        self.eyes.step(eyes, self.zooming, dt);
         let pose = VehiclePose {
             position: origin.local(shown.position.to_array()),
             rotation: shown.rotation.as_quat().to_array(),
