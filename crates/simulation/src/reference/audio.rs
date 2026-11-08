@@ -429,7 +429,7 @@ impl AudioReference {
             let s = &b.settings;
             require(
                 mixers.contains(&b.mixer)
-                    && b.one_shot == matches!(b.kind, 0 | 10..=15 | 17 | 21 | 22 | 28 | 30)
+                    && b.one_shot == matches!(b.kind, 0 | 10..=15 | 17 | 21 | 22 | 28 | 30 | 33)
                     && b.source.path_id != 0
                     && b.audio_source.path_id != 0
                     && method(&b.method)
