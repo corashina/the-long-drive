@@ -19,10 +19,10 @@ test('the heartbeat counts only playing frames', () => {
 });
 
 test('only the hosted site sends events', () => {
-  assert.ok(hostedSite('the-long-drive-3pk.pages.dev'));
-  assert.ok(hostedSite('abc.the-long-drive-3pk.pages.dev'));
+  assert.ok(hostedSite('the-long-slop.pages.dev'));
+  assert.ok(hostedSite('abc.the-long-slop.pages.dev'));
   assert.ok(!hostedSite('127.0.0.1'));
-  assert.ok(!hostedSite('evil-the-long-drive-3pk.pages.dev'));
+  assert.ok(!hostedSite('evil-the-long-slop.pages.dev'));
 });
 
 test('the function stores a valid event with the Access email', async () => {
