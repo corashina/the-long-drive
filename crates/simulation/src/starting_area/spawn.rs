@@ -21,30 +21,47 @@ const CAR_MARGIN: f32 = 0.3;
 /// A spot this close to another player, flat, is not free. A new figure body is not solid yet.
 const PLAYER_GAP: f32 = 1.;
 
-/// The save of a joining guest: its player stands still on the garage start spot.
-pub fn garage_start(reference: &ReferenceManifest, player: &mut crate::save::PlayerSnapshot) {
-    let spawn = &reference.area.player_spawn;
-    player.pose = crate::save::AbsolutePose {
-        position: spawn.translation.map(f64::from),
-        rotation: spawn.rotation,
-    };
-    player.yaw = crate::player::yaw_from_rotation(Rotation::from_array(spawn.rotation));
-    player.pitch = 0.;
-    player.seat = None;
-    player.posture = 1.;
-    player.vertical_velocity = 0.;
-    player.recoil_velocity = [0.; 3];
-    player.momentum = [0.; 3];
-    player.running = false;
-}
-
 impl GarageRuntime {
+    /// The absolute garage start spot. Startup alignment lifts the garage and the player spawn
+    /// onto the seed terrain, so the spot takes the startup player offset.
+    fn garage_position(&self, reference: &ReferenceManifest) -> [f64; 3] {
+        let offset = self
+            .stream
+            .frame()
+            .startup
+            .expect("startup terrain before play")
+            .player_offset;
+        let mut position = reference.area.player_spawn.translation.map(f64::from);
+        position[1] += f64::from(offset);
+        position
+    }
+
+    /// The save of a joining guest: its player stands still on the garage start spot.
+    pub fn garage_start(
+        &self,
+        reference: &ReferenceManifest,
+        player: &mut crate::save::PlayerSnapshot,
+    ) {
+        let spawn = &reference.area.player_spawn;
+        player.pose = crate::save::AbsolutePose {
+            position: self.garage_position(reference),
+            rotation: spawn.rotation,
+        };
+        player.yaw = crate::player::yaw_from_rotation(Rotation::from_array(spawn.rotation));
+        player.pitch = 0.;
+        player.seat = None;
+        player.posture = 1.;
+        player.vertical_velocity = 0.;
+        player.recoil_velocity = [0.; 3];
+        player.momentum = [0.; 3];
+        player.running = false;
+    }
+
     /// The garage start spot in stream space.
     pub fn garage_spot(&self, reference: &ReferenceManifest) -> Pose {
-        let spawn = &reference.area.player_spawn;
         Pose::from_parts(
-            Vector::from_array(self.stream.origin.local(spawn.translation.map(f64::from))),
-            Rotation::from_array(spawn.rotation),
+            Vector::from_array(self.stream.origin.local(self.garage_position(reference))),
+            Rotation::from_array(reference.area.player_spawn.rotation),
         )
     }
 

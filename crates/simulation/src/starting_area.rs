@@ -43,7 +43,6 @@ mod rabbits;
 mod ragdoll;
 mod reach;
 mod spawn;
-pub use spawn::garage_start;
 pub mod spawned;
 pub mod structure_frame;
 mod survival;
