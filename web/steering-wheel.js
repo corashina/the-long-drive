@@ -25,6 +25,7 @@ export function installSteeringWheel(root,drivingSettings,wheel,gamepad,requestF
  const doc=root.ownerDocument,{settings,changed}=drivingSettings;
  const el=(tag,props,...children)=>{const node=Object.assign(doc.createElement(tag),props);node.append(...children);return node;};
  const rest=new Float32Array(gamepad.axes.length),held=new Uint32Array(gamepad.buttons.length);
+ const paints=[];
  let waiting=null,scheduled=false;
  const stop=()=>{if(!waiting)return;const {button,paint}=waiting;waiting=null;button.textContent='Bind';paint();};
  function poll(){
@@ -56,11 +57,13 @@ export function installSteeringWheel(root,drivingSettings,wheel,gamepad,requestF
  const check=(name,get,set)=>{
   const input=el('input',{type:'checkbox',checked:get()});
   input.addEventListener('change',()=>{set(input.checked);changed();});
+  paints.push(()=>{input.checked=get();});
   return el('label',{className:'wheel-check'},input,name);
  };
  const slider=(name,range,axis,field)=>{
   const input=el('input',{type:'range',min:String(range.minimum),max:String(range.maximum),step:'any',value:String(axis[field])}),output=el('output',{textContent:axis[field].toFixed(2)});
   input.addEventListener('input',()=>{axis[field]=Math.min(range.maximum,Math.max(range.minimum,Number(input.value)));output.textContent=axis[field].toFixed(2);changed();});
+  paints.push(()=>{input.value=String(axis[field]);output.textContent=axis[field].toFixed(2);});
   return el('label',{className:'wheel-slider'},name+' ',input,output);
  };
  root.append(el('legend',{textContent:'Steering wheel'}),check('H-shifter',()=>settings.h_shifter,v=>{settings.h_shifter=v;}));
@@ -77,5 +80,7 @@ export function installSteeringWheel(root,drivingSettings,wheel,gamepad,requestF
  root.append(el('div',{className:'wheel-live'},...LIVE_NAMES.flatMap((name,i)=>[el('span',{textContent:name+':'}),live[i]])));
  const show=(output,value)=>{const text=value.toFixed(2);if(output.textContent!==text)output.textContent=text;};
  // Rust steer is positive left. Source menu steer is positive right.
- return {live(steer,throttle,brake,clutch,handbrake){show(live[0],-steer);show(live[1],throttle);show(live[2],brake);show(live[3],clutch);show(live[4],handbrake);}};
+ // The settings screen Reset on the steering wheel tab.
+ const reset=()=>{drivingSettings.resetWheel();for(const paint of paints)paint();};
+ return {reset,live(steer,throttle,brake,clutch,handbrake){show(live[0],-steer);show(live[1],throttle);show(live[2],brake);show(live[3],clutch);show(live[4],handbrake);}};
 }

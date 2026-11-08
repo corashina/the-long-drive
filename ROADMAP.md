@@ -43,6 +43,5 @@ Not planned: VR, stereo 3D, mod events, Steam features.
 
 | ID | Task | Size | Remaining work |
 | --- | --- | --- | --- |
-| A06 | Steering wheel settings reset | S | `web/settings-screen.js` does not port the source reset. |
 | A10 | Remove web exports with no importer | S | About 45 exports in `web/*.js` are used only in their own file. Remove the `export` word, or the code if it is dead. |
 

@@ -342,7 +342,7 @@ async function load(){
  window.addEventListener('beforeunload',event=>{if(menu?.model.started&&!reloading)event.preventDefault();});
  const appearance=createAppearance({target:window,document,canvas,edit:outfit,characters:manifest.clothing.characters,language});
  // Source tab resets of the controls that keep their own storage.
- const resets={graphics:[()=>slider.reset()],controls:[()=>drivingSettings.resetMouse()]};
+ const resets={graphics:[()=>slider.reset()],controls:[()=>drivingSettings.resetMouse()],steering:[()=>steeringWheel.reset()]};
  menu=createMenu({canvas,language,appearance,settings,resets,defaultAssists:manifest.driving.default_assists,ui:manifest.ui,bindings,saveSession,buildId:manifest.build_id,thumbnail:()=>lastThumbnail,sleeping:()=>sleeping,seated:()=>window.gameState.seated,guest:()=>multiplayer?.role===ROLE.GUEST,online:()=>Boolean(multiplayer)&&multiplayer.role!==ROLE.OFF,worldDrawDistance:()=>worldDrawDistance,slider,audio,onNewGame:()=>seed.reroll(),reloadNewGame,autoNewGame:newGameSeed!==undefined,onPause:()=>thumbnail.capture().then(blob=>{lastThumbnail=blob;}),clearInput:()=>input.clear(),queueAction:a=>{actions=a;}});
  multiplayer=createMultiplayer({document,target:window,Peer:window.peerjs.Peer,buildId:manifest.build_id,exportHash:manifestHash,simulation,saveSession,menu,outfit,storage:()=>localStorage,
   reloadJoin:room=>reloadWith(JOIN_KEY,JSON.stringify(room)),loading,

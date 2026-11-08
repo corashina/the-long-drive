@@ -44,6 +44,12 @@ export function installDrivingSettings(storage,inputs,outputs,driving){
  });
  // Source `tabControls` reset of `FMouseDriveSensX` and `FMouseDriveSensY`.
  const resetMouse=()=>{settings.mouse=ranges.map(range=>range.default);shows.forEach(show=>show());changed();};
+ // Source `tabSteeringWheel` reset: `PressedReset` resets its toggles and sliders. The pad binds stay.
+ const resetWheel=()=>{
+  const fresh=defaultSettings(driving);settings.h_shifter=fresh.h_shifter;
+  settings.axes.forEach((axis,i)=>{const {bound}=axis;Object.assign(axis,fresh.axes[i],{bound});});
+  changed();
+ };
  // Rust takes the settings at start and after each change.
- return {settings,changed,resetMouse,take(){if(!pending)return undefined;pending=false;return JSON.stringify(settings);}};
+ return {settings,changed,resetMouse,resetWheel,take(){if(!pending)return undefined;pending=false;return JSON.stringify(settings);}};
 }
