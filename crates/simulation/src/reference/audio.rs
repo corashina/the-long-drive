@@ -93,7 +93,7 @@ record!(MechanismAudioReference {
     source: SourceId, emitter: u32, movement_voice: Option<u32>, audio_multiplier: f32,
     slide_multiplier: f32, rotation_gain: f32, slide_gain: f32, gain_smoothing: f32,
     slide_stop_seconds: f32, squeak_chance: f32, pitch_range: [f32; 2],
-    endpoints: Vec<u32>, turn_binding: Option<u32>
+    endpoints: Vec<u32>
 });
 record!(FluidAudioReference {
     source: SourceId, emitter: u32, fill_voice: Option<u32>, max_gain: f32, tune_speed: f32, fluid_tune_speed: f32,
@@ -668,7 +668,6 @@ impl AudioReference {
                             })
                     })
                     && m.endpoints.iter().all(|b| bindings.contains(b))
-                    && m.turn_binding.is_none_or(|b| bindings.contains(&b))
                     && values([
                         m.audio_multiplier,
                         m.slide_multiplier,
@@ -709,6 +708,15 @@ impl AudioReference {
                             && w.caps.iter().all(|c| (c.clip as usize) < b.clips.len())
                     })),
             "world fluid audio",
+        )?;
+        let turn = &self.survival_row(33).clips;
+        require(
+            game.mechanisms
+                .iter()
+                .chain(game.world.mechanisms.iter().map(|m| &m.recipe))
+                .filter_map(|m| m.turn.as_ref())
+                .all(|t| t.clips.iter().all(|c| turn.contains(c))),
+            "switch turn clips",
         )?;
         let interiors = ids(self.interiors.iter().map(|i| i.id), "audio interior IDs")?;
         let control = |c: &AudioControlReference| {
@@ -1013,6 +1021,7 @@ impl AudioReference {
             (29, "wind"),
             (30, "thunder_close"),
             (31, "rain_car"),
+            (33, "turn_click"),
         ];
         for (kind, role) in required {
             require(

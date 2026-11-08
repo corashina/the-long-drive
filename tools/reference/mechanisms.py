@@ -102,7 +102,7 @@ def recover_mechanisms(source, nodes, components, pointer_node, node_of, main):
             result.append({'id':len(result)+1,'source':source_id(reader),'use_node':node,'driven_nodes':[],
                 'enabled':bool(fields['m_Enabled']),'child_source':None,'invert_child':False,'invert_value':False,
                 'drag':{'mode':'direct','node':node,'node2':node,'axis':[0.,0.,0.],'axes2':[[0.,0.,0.],[0.,0.,0.]]},
-                'rotation':None,'slide':None,'reaction':{'kind':'none'},'hand_target':None,'right_hand':False,'left_hand':False,'not_nearest_hand':False,'turn':{'action':{'kind':'toggle_home_light','source':source_id(reader)},'max_state':0,'initial_state':0}})
+                'rotation':None,'slide':None,'reaction':{'kind':'none'},'hand_target':None,'right_hand':False,'left_hand':False,'not_nearest_hand':False,'turn':{'action':{'kind':'toggle_home_light','source':source_id(reader)},'max_state':0,'initial_state':0,'clips':[],'volume':0.}})
     return result
 
 
@@ -168,4 +168,6 @@ def recover_turn(source, reader, fields, components, node, pointer_node):
         if source.resolve(connects[0],connector['turnOverride']) != reader:return None
         if connector['turnOverrideT'] != [0,1,2]:raise ValueError('Cabin switch states changed')
         action={'kind':'interior_light'}
-    return {'action':action,'max_state':fields['maxTurnState'],'initial_state':fields['currentTurnState']}
+    # recover_audio replaces the clip sources with clip ids.
+    return {'action':action,'max_state':fields['maxTurnState'],'initial_state':fields['currentTurnState'],
+        'clips':[source_id(source.resolve(reader,p)) for p in fields['turnClips'] if p['m_PathID']],'volume':fields['turnVolume']}

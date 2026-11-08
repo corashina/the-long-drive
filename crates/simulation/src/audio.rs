@@ -109,7 +109,6 @@ struct MechanismSound {
     item: ItemId,
     index: usize,
     previous: [f32; 2],
-    turn: u8,
     limits: [[f32; 2]; 2],
     slide: bool,
     remaining: f32,
@@ -484,12 +483,11 @@ impl AudioState {
             .enumerate()
             .filter_map(|(index, a)| {
                 let m = game.mechanisms.iter().find(|m| m.source == a.source)?;
-                let (previous, turn) = area.interaction.mechanisms.audio_values(m.item)?;
+                let previous = area.interaction.mechanisms.audio_values(m.item)?;
                 Some(MechanismSound {
                     item: m.item,
                     index,
                     previous,
-                    turn,
                     limits: m
                         .rotation
                         .as_ref()
@@ -1154,7 +1152,7 @@ impl AudioState {
         }
         for i in 0..self.mechanism_sounds.len() {
             let item = self.mechanism_sounds[i].item;
-            let Some((current, turn)) = area.interaction.mechanisms.audio_values(item) else {
+            let Some(current) = area.interaction.mechanisms.audio_values(item) else {
                 continue;
             };
             let (active, requested) = area.interaction.mechanisms.audio_input(item);
@@ -1180,14 +1178,7 @@ impl AudioState {
                 }
                 signal.playing &= self.mechanism_sounds[i].remaining > 0. && signal.gain > 0.;
             }
-            if turn != self.mechanism_sounds[i].turn
-                && let Some(id) =
-                    self.reference.mechanisms[self.mechanism_sounds[i].index].turn_binding
-            {
-                self.emit(id, 1., self.game_seconds);
-            }
             self.mechanism_sounds[i].previous = current;
-            self.mechanism_sounds[i].turn = turn;
         }
         for i in 0..self.fluid_sounds.len() {
             let flags = area
@@ -1387,6 +1378,25 @@ impl AudioState {
             action: AudioAction::Start,
             clip,
             gain: 1.,
+            pitch,
+            position,
+        });
+    }
+    /// Source `usablescript.Turn`: `PlayClipAtPoint` of a random turn clip at the usable,
+    /// with `turnVolume`, random pitch and `AudioPriorities[4]`.
+    pub fn turn_click(&mut self, clips: &[u32], gain: f32, position: [f64; 3]) {
+        if clips.is_empty() {
+            return;
+        }
+        let clip = clips[((self.sample() * clips.len() as f32) as usize).min(clips.len() - 1)];
+        let pitch = self.random_pitch();
+        self.survival_event(SurvivalAudioEvent {
+            session: self.session,
+            emitter: 0,
+            kind: AudioKind::TurnClick,
+            action: AudioAction::Start,
+            clip,
+            gain,
             pitch,
             position,
         });
@@ -1702,6 +1712,8 @@ pub enum AudioKind {
     RainCar = 31,
     /// Source `tankcapscript.PlayFillSound` of a generated cap.
     FluidFill = 32,
+    /// Source `usablescript.Turn`.
+    TurnClick = 33,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]

@@ -4,7 +4,7 @@
 use crate::electronics::NodeElectronics;
 use crate::lighting::HeadlightState;
 use crate::reference::{
-    ItemId, LampSignal, LightControllerKind, MaterialLink, WorldLampStateReference,
+    ItemId, LampSignal, LightControllerKind, MaterialLink, PartSlotId, WorldLampStateReference,
     WorldLightReference,
 };
 
@@ -68,8 +68,8 @@ struct Controller {
     owner: Option<ItemId>,
     /// The cabin switch usable item.
     switch: Option<ItemId>,
-    /// Usable items of the cabin door slots.
-    doors: Vec<Option<ItemId>>,
+    /// The cabin door slots. None: the slot is not bound, so it stays empty.
+    doors: Vec<Option<PartSlotId>>,
     /// Output indices per state: lights, then renderers.
     lights: Vec<Vec<usize>>,
     renderers: Vec<Vec<usize>>,
@@ -90,7 +90,7 @@ pub struct CarLightLinks {
     pub owner: Option<ItemId>,
     /// Item of the `inputconnect.turnOverride` usable. None: the controller has no cabin switch.
     pub switch: Option<ItemId>,
-    pub doors: Vec<Option<ItemId>>,
+    pub doors: Vec<Option<PartSlotId>>,
 }
 
 impl CarLights {
@@ -168,8 +168,9 @@ impl CarLights {
         }
     }
 
-    /// One light step. `mounted` tells whether a part item is on the car. `door` reads
-    /// a cabin door usable value. `switch` reads a cabin switch turn state.
+    /// One light step. `mounted` tells whether a part item is on the car. `door` reads the
+    /// usable value of the part in a cabin door slot, None when the slot is empty.
+    /// `switch` reads a cabin switch turn state.
     #[allow(clippy::too_many_arguments)]
     pub fn advance(
         &mut self,
@@ -177,7 +178,7 @@ impl CarLights {
         input: CarLightInput,
         electronics: &[NodeElectronics],
         mounted: impl Fn(ItemId) -> bool,
-        door: impl Fn(ItemId) -> f32,
+        door: impl Fn(PartSlotId, bool) -> Option<f32>,
         switch: impl Fn(ItemId) -> Option<u8>,
         dt: f32,
     ) {
@@ -202,7 +203,7 @@ impl CarLights {
                         }
                         c.state.request(input.requested);
                     } else if let Some(cabin) = &reference.cabin {
-                        // Source `inputconnect` reads `turnOverride.currentTurnState` each frame.
+                        // Source `inputconnect.CheckIUsables`, then `TurnOverride`, each frame.
                         let mode = c
                             .switch
                             .and_then(&switch)
@@ -210,11 +211,10 @@ impl CarLights {
                         let on = match cabin.modes.get(mode).copied().unwrap_or(0) {
                             1 => true,
                             2 => false,
-                            _ => c
-                                .doors
-                                .iter()
-                                .flatten()
-                                .any(|&item| mounted(item) && door(item) > cabin.threshold),
+                            _ => c.doors.iter().any(|slot| {
+                                slot.and_then(|slot| door(slot, cabin.include_children))
+                                    .map_or(cabin.missing_slot_is_same, |v| v > cabin.threshold)
+                            }),
                         };
                         c.state.request(u8::from(on));
                     }
@@ -383,7 +383,7 @@ mod tests {
                 missing_slot_is_same: false,
             }),
         }];
-        let (switch, door) = (ItemId(1), ItemId(2));
+        let (switch, door) = (ItemId(1), PartSlotId(2));
         let mut lights = CarLights::new(
             &records,
             vec![CarLightLinks {
@@ -400,7 +400,7 @@ mod tests {
                     CarLightInput::default(),
                     &[],
                     |_| true,
-                    |_| open,
+                    |slot, _| (slot == door).then_some(open),
                     |item| (item == switch).then_some(state),
                     0.05,
                 );

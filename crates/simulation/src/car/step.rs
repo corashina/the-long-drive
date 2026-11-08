@@ -93,7 +93,11 @@ fn advance_lights(
         input,
         &vehicle.electronics,
         |item| root.is_some_and(|root| item == root || items.descends(item, root)),
-        |item| mechanisms.value(item, false).unwrap_or(0.),
+        // Source `inputconnect`: an empty slot and a part without a usable count the same.
+        |slot, children| {
+            let usable = mechanisms.part_usable(world.interaction.parts.slot_item(slot)?)?;
+            Some(mechanisms.value(usable, children).unwrap_or(0.))
+        },
         |item| mechanisms.turn_state(item),
         FIXED_DT,
     );

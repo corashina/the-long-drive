@@ -9,8 +9,8 @@ use crate::interaction::cleaning::WashOwner;
 use crate::interaction::items::ItemStore;
 use crate::interaction::wheels::{WheelAssemblies, WorldWheelSlot};
 use crate::reference::{
-    Bounds, ColliderId, EnginePartReference, ItemId, RadiatorPartReference, ReferenceError,
-    WorldPrototypeReference, WorldReference,
+    Bounds, ColliderId, EnginePartReference, ItemId, PartSlotId, RadiatorPartReference,
+    ReferenceError, WorldPrototypeReference, WorldReference,
 };
 use crate::simulation::car_lights::CarLightLinks;
 use crate::simulation::powertrain::{EnginePart, GaugePart, PowertrainParts, RadiatorPart};
@@ -96,6 +96,21 @@ pub(super) fn bind(
             }
             None
         };
+        // A cabin door slot node holds a `partslotscript`. content_slots binds active slots first.
+        let door_slot = |node: u32| -> Result<Option<PartSlotId>, ReferenceError> {
+            let slot = rules
+                .component(
+                    world,
+                    &prototype.nodes[node as usize].source,
+                    "partslotscript",
+                )?
+                .ok_or_else(|| ReferenceError("Cabin door slot has no partslotscript".into()))?;
+            Ok(content
+                .slots
+                .iter()
+                .find(|s| s.source == *slot.source)
+                .map(|s| s.slot))
+        };
         let lights = record
             .lights
             .iter()
@@ -108,8 +123,8 @@ pub(super) fn bind(
                         .cabin
                         .iter()
                         .flat_map(|c| &c.door_slots)
-                        .map(|&node| owner_item(node))
-                        .collect(),
+                        .map(|&node| door_slot(node))
+                        .collect::<Result<_, ReferenceError>>()?,
                 })
             })
             .collect::<Result<Vec<_>, ReferenceError>>()?;
