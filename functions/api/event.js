@@ -1,8 +1,8 @@
-// Stores one game event from `web/analytics.js` in D1. Access lets only signed-in players reach this path.
+// Stores one game event from `web/analytics.js` in D1. The site is public, so anyone can post here.
 const TYPES = new Set(['start', 'ready', 'heartbeat', 'end', 'error']);
 const MAX_BYTES = 2048;
 
-// Access signs the JWT and checks it before the request gets here, so the payload is trusted.
+// The site has no Access login, so this header is not verified. The email is a hint for analytics only.
 function email(request) {
   const payload = request.headers.get('Cf-Access-Jwt-Assertion')?.split('.')[1];
   if (!payload) return null;
