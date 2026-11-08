@@ -56,6 +56,8 @@ pub const FLUID: u8 = 23;
 pub const TANK_CAP: u8 = 24;
 /// Source `msgType.itemPosUpd`.
 pub const ITEM_POSE: u8 = 16;
+/// Source `msgType.localPos`.
+pub const LOCAL_POSE: u8 = 17;
 /// Source `msgType.claim`.
 pub const CLAIM: u8 = 18;
 /// Source `msgType.velocity`.
@@ -344,6 +346,18 @@ pub struct ItemPoseMessage {
     /// Source `category` and `prefabId`. A runtime spawn has its item prototype index plus 1, its
     /// serial and its pickup index. They are zero for other items.
     pub spawn: [u32; 3],
+    pub pad: u32,
+}
+
+/// Source `SLocalPos`: the pose of a stored item relative to its storage owner, sent by the host.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct LocalPoseMessage {
+    /// The key of the storage owner.
+    pub owner: u64,
+    pub key: u64,
+    pub position: [f32; 3],
+    pub rotation: [f32; 4],
     pub pad: u32,
 }
 
@@ -662,6 +676,10 @@ impl Message for SoundMessage {
 }
 impl Message for ItemPoseMessage {
     const TYPE: u8 = ITEM_POSE;
+}
+impl Message for LocalPoseMessage {
+    const TYPE: u8 = LOCAL_POSE;
+    const RELIABLE: bool = true;
 }
 impl Message for VelocityMessage {
     const TYPE: u8 = VELOCITY;

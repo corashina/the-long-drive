@@ -631,6 +631,43 @@ fn a_host_item_moves_on_the_guest() {
     );
 }
 
+/// Source `mountStuff.Upd` and `UpdLocalPos`. The host sends the owner pose of a stored item.
+/// The guest copy moves on its owner to the host pose.
+#[test]
+#[ignore = "requires the installed source export"]
+fn a_host_stored_item_moves_on_the_guest() {
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let mut guest = save_load(&run, &reference);
+    let mut pair = Pair::new();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    let storage = &run.area.interaction.storage;
+    let (item, (_, local)) = run
+        .area
+        .items
+        .iter()
+        .find_map(|i| Some((i.id, storage.owner_local(i.id, &run.area.items)?)))
+        .expect("a stored item");
+    let copy = same(&run, &guest, item);
+    let mut moved = local;
+    moved.translation.x += 0.2;
+    let area = &mut run.area;
+    area.interaction
+        .storage
+        .set_owner_local(item, moved, &mut area.items, &mut run.physics);
+    pair.run(&reference, &mut run, &mut guest, 1.2);
+    let (_, got) = guest
+        .area
+        .interaction
+        .storage
+        .owner_local(copy, &guest.area.items)
+        .expect("the guest copy is stored");
+    assert!(
+        got.translation.distance(moved.translation) < 0.01,
+        "the guest copy takes the host pose: host {moved:?}, guest {got:?}"
+    );
+}
+
 /// Source `Claim` and `UpdInventory`. A guest pickup claims the item, so the host does not send
 /// it, and the host copy moves with the guest. The drop sends the last pose, then the release, and the
 /// host owns the loose item again.
