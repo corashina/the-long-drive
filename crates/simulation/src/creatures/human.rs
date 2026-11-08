@@ -20,6 +20,8 @@ use crate::world::TriggerRoles;
 use crate::world::spawn_state::HumanRoll;
 use crate::world::{ObjectKey, WorldOrigin};
 use rapier3d::math::{Pose, Rotation, Vector};
+use rapier3d::parry::query::intersection_test;
+use rapier3d::parry::shape::Ball;
 use rapier3d::prelude::{
     ActiveEvents, Collider, ColliderHandle, Group, InteractionGroups, InteractionTestMode,
     QueryFilter, Ray, RigidBodyBuilder, RigidBodyHandle, SharedShape,
@@ -309,6 +311,22 @@ impl Humans {
                 &mut sensors.can_get_up,
             ];
             for (sens, (local, shape, groups)) in slots.into_iter().zip(&self.sens) {
+                let sens_pose = pose * *local;
+                // The player `drinkCol` is on layer 0. Layer 14 `sens` triggers do not touch the
+                // layer 12 player body, so this sphere is how they sense the player.
+                if let (Some((_, view)), Some((center, mouth))) = (input.player, &input.mouth)
+                    && groups.filter.bits() & MOUTH_LAYER != 0
+                    && intersection_test(
+                        &sens_pose,
+                        shape.as_ref(),
+                        &Pose::from_translation(*center),
+                        mouth,
+                    )
+                    .is_ok_and(|hit| hit.intersecting)
+                {
+                    sens.stay(Touch::Player(view));
+                    continue;
+                }
                 let filter = QueryFilter::default()
                     .exclude_rigid_body(h.body)
                     .groups(*groups);
@@ -317,7 +335,7 @@ impl Humans {
                 let mut best = None;
                 for (handle, c) in physics
                     .queries(filter)
-                    .intersect_shape(pose * *local, shape.as_ref())
+                    .intersect_shape(sens_pose, shape.as_ref())
                 {
                     let t = touch(handle, c);
                     let rank = match t {
@@ -690,6 +708,8 @@ pub struct AiInput<'a> {
     pub dt: f32,
     /// The player body and its `fpscontroller` view.
     pub player: Option<(RigidBodyHandle, PlayerView)>,
+    /// The world center and sphere of the player `drinkCol`. `None` after `Death2`.
+    pub mouth: Option<(Vector, Ball)>,
     /// `peacefulEnemies == 2`.
     pub peaceful: bool,
     pub roles: &'a TriggerRoles,
@@ -708,6 +728,8 @@ struct Rays<'a> {
 
 /// Unity layer 23.
 const GLASS_LAYER: u32 = 23;
+/// Unity layer 0 bit of the player `drinkCol`.
+const MOUTH_LAYER: u32 = 1;
 
 impl Rays<'_> {
     fn each(&self, origin: Vector, direction: Vector, range: f32, mut f: impl FnMut(Hit)) {

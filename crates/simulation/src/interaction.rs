@@ -320,6 +320,17 @@ struct TankRules {
 }
 
 impl InteractionState {
+    /// The world center of the player `drinkCol` sphere.
+    pub fn mouth_center(&self, player: &PlayerState, physics: &PhysicsWorld) -> Vector {
+        let view = to_rapier(player.view(physics).head_pose);
+        view.translation + view.rotation * self.drink_collider_center
+    }
+
+    /// The radius of the player `drinkCol` sphere.
+    pub fn mouth_radius(&self) -> f32 {
+        self.drink_collider_radius
+    }
+
     /// `RightHandPos` of a one-hand Tab item that is not a weapon, in its root frame.
     /// The port places such an item so that this grip sits at `RH`, on the right side.
     pub fn tab_grip(&self, id: ItemId) -> Option<rapier3d::math::Pose> {
@@ -2059,6 +2070,7 @@ impl InteractionState {
                 }
             }
         }
+        let cap_center = self.mouth_center(player, physics);
         for opening in &mut self.openings {
             if filled_destination == Some(opening.reference.id) {
                 opening.flow = Some((true, 1.));
@@ -2078,8 +2090,6 @@ impl InteractionState {
             let particles = opening.particles.as_ref().unwrap();
             let contact = opening.contact.as_mut().unwrap();
             contact.update_response(particles);
-            let view = to_rapier(player.view(physics).head_pose);
-            let cap_center = view.translation + view.rotation * self.drink_collider_center;
             if poured.is_some() {
                 contact.set_color(fractions);
             }

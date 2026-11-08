@@ -43,6 +43,12 @@ impl GarageRuntime {
             head: Vector::from_array(player.focus_position(&self.physics)),
         };
         let interaction = &self.area.interaction;
+        let mouth = (!player.dead()).then(|| {
+            (
+                interaction.mouth_center(player, &self.physics),
+                rapier3d::parry::shape::Ball::new(interaction.mouth_radius()),
+            )
+        });
         let usable =
             |handle, physics: &crate::vehicle::PhysicsWorld| interaction.ai_usable(handle, physics);
         let mut doors = Vec::new();
@@ -56,6 +62,7 @@ impl GarageRuntime {
                 now: self.simulation_seconds,
                 dt,
                 player: Some((player.body_handle(), view)),
+                mouth,
                 peaceful: self.creatures.peaceful,
                 roles: self.stream.trigger_roles(),
                 usable: &usable,
