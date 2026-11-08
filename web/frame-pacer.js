@@ -3,7 +3,7 @@
 // SLACK_MS lets a frame start a little early, because animation frame times move by about 1 ms.
 const SLACK_MS=2;
 // `due(now,limit)` is true when a frame starts at `now`. A limit of 0 or less starts every frame.
-export function createFramePacer(){
+function createFramePacer(){
  let next=null;
  return {due(now,limit){
   if(!(limit>0)){next=null;return true;}

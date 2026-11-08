@@ -29,7 +29,7 @@ import {createSaveSession,startSave} from './save-session.js';
 import {createSaveBridge} from './save-bridge.js';
 import {createThumbnail} from './thumbnail.js';
 import {createAutosave} from './autosave.js';
-export const saveRuntime=createSaveBridge();
+const saveRuntime=createSaveBridge();
 import {installDrawDistance} from './draw-distance.js';
 import {installDrivingSettings} from './driving-settings.js';
 import {installOutfit} from './outfit.js';

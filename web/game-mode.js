@@ -10,15 +10,15 @@ export const gameFields=startCars=>({
  homesick:{default:false,valid:v=>typeof v==='boolean'},
 });
 // Simulation bits: 1 peaceful, 2 survival. Homesick has no world effect in the original.
-export const optionBits=options=>Number(options.peaceful)|Number(options.survival)<<1;
+const optionBits=options=>Number(options.peaceful)|Number(options.survival)<<1;
 // `mainmenuscript.chSeed`: C# int.Parse, else the int limit of the sign, else 0 for an empty field.
-export function parseSeed(text){
+function parseSeed(text){
  if(/^\s*[+-]?\d+\s*$/.test(text)){const v=Number(text);if(v>=INT_MIN&&v<=INT_MAX)return v;}
  if(text.length===0)return 0;
  return text[0]==='-'?INT_MIN:INT_MAX;
 }
 // `chnewSeed`: Random.Range(int.MinValue, int.MaxValue).
-export const randomSeed=(random=Math.random)=>Math.floor(INT_MIN+random()*(INT_MAX-INT_MIN));
+const randomSeed=(random=Math.random)=>Math.floor(INT_MIN+random()*(INT_MAX-INT_MIN));
 export function installGameMode(target,select,settings){
  select.value=String(settings.values.biome);
  select.addEventListener('change',()=>settings.set('biome',Number(select.value)));

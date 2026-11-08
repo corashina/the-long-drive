@@ -3,7 +3,7 @@
 // Modes of source `voiceChatSetting`. Push to talk is the source default.
 export const MODES=['pushToTalk','toggle','continous'];
 // Source `DoHide`. The remote voice icon shows for 1 s after the voice.
-export const SPEAKING_MS=1000;
+const SPEAKING_MS=1000;
 // RMS level above which a remote stream counts as voice.
 const SPEAKING_LEVEL=0.01;
 

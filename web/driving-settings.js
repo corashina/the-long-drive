@@ -9,14 +9,14 @@ const shaped=(value,fields)=>value!==null&&typeof value==='object'&&!Array.isArr
 const index=(value,limit)=>Number.isInteger(value)&&value>=0&&value<limit;
 const within=(value,range)=>Number.isFinite(value)&&value>=range.minimum&&value<=range.maximum;
 // `driving` is the exported `driving` record.
-export function defaultSettings(driving){
+function defaultSettings(driving){
  const mouse=driving.mouse_drive,wheel=driving.steering_wheel;
  return {mouse:[mouse.sensitivity_x.default,mouse.sensitivity_y.default],h_shifter:wheel.h_shifter,
   axes:wheel.axes.map(a=>({bound:null,enabled:a.enabled,invert:a.invert,middle:a.middle?.default??0,dead:a.dead.default,sens:a.sens.default,max:a.max.default})),
   buttons:Array(11).fill(null)};
 }
 // The Rust `DrivingSettings::valid` rules and the JSON shape.
-export function validSettings(value,driving){
+function validSettings(value,driving){
  const mouse=driving.mouse_drive,axes=driving.steering_wheel.axes;
  return shaped(value,['mouse','h_shifter','axes','buttons'])
   &&Array.isArray(value.mouse)&&value.mouse.length===2&&within(value.mouse[0],mouse.sensitivity_x)&&within(value.mouse[1],mouse.sensitivity_y)

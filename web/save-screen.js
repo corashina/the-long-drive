@@ -1,9 +1,9 @@
 import {trimName,defaultName,AUTOSAVE} from './save-storage.js';
 import {bindToggle} from './settings-screen.js';
-export const PER_PAGE=6,STEP=2;
+const PER_PAGE=6,STEP=2;
 // Source `ls.w` lines of the cant-save texts.
 const CANT_BOTH=[['cantSave','whileSitting','OrSleeping'],['cantSave','whileSleeping','OrSittingHere'],['dontsleep','andsit'],['dontsit','andsleep'],['keeptrying']];
-export class SaveScreenState {
+class SaveScreenState {
  // text starts at 4, so the first pick of both texts is from 0-3, as in the source.
  constructor(){this.saves=[];this.autosave=null;this.last=null;this.canLast=false;this.top=0;this.selected=null;this.confirm=null;this.name='';this.inMenu=true;this.dead=false;this.sleeping=false;this.seated=false;this.text=4;}
  set({saves,autosave,last},canLast=false){

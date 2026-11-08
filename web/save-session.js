@@ -1,7 +1,7 @@
 import {gzip} from './gzip.js';
 const two=value=>String(value).padStart(2,'0');
 function formatDate(date){return `${date.getFullYear()}.${two(date.getMonth()+1)}.${two(date.getDate())}. ${two(date.getHours())}:${two(date.getMinutes())}`;}
-export function lastSave({saves,autosave,last},buildId){
+function lastSave({saves,autosave,last},buildId){
  const entry=[...saves,autosave].find(entry=>entry&&entry.name===last);
  return entry&&entry.version===buildId?last:null;
 }

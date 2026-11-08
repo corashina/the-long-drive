@@ -3,7 +3,7 @@ import {createWorkerLink,installWorkerClients,metric,u64} from './worker-transpo
 const identityValid=id=>id?.kind==='road'&&u64(id.session)&&u64(id.revision)&&u64(id.sequence)&&Number.isInteger(id.owner)&&id.owner>=0&&id.owner<=0xffffffff;
 const same=(a,b)=>identityValid(a)&&identityValid(b)&&a.session===b.session&&a.revision===b.revision&&a.owner===b.owner&&a.sequence===b.sequence;
 const fromBytes=bytes=>{if(!(bytes instanceof Uint8Array)||bytes.length!==28)throw Error('Invalid road identity.');const v=new DataView(bytes.buffer,bytes.byteOffset,28);return {kind:'road',session:v.getBigUint64(0,true).toString(),revision:v.getBigUint64(8,true).toString(),owner:v.getUint32(16,true),sequence:v.getBigUint64(20,true).toString()};};
-export function createRoad(worker,profile,now=()=>performance.now()){
+function createRoad(worker,profile,now=()=>performance.now()){
  let state='Idle',job=null,result=null,lastSequence=0n,pendingInstalls=0;
  const sources=new Array(3).fill(null);
  let packingStart=null,packingMs=null,publishedRecord=null;
