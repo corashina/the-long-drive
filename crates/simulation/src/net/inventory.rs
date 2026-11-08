@@ -23,6 +23,8 @@ struct Held {
     slot: u8,
     /// The body type to restore.
     body_type: RigidBodyType,
+    /// The player carries or holds it, so this player can take it.
+    hand: bool,
     /// Item pose relative to the figure of `slot`: source `transform.parent = handParent`.
     local: Option<Pose>,
     /// Source `SmoothMove`: the target relative to the figure, the elapsed time and the closest
@@ -46,7 +48,15 @@ impl InventorySync {
     }
 
     /// Source `SyncInventory`. It sends each change of where this player keeps an item.
-    pub(super) fn send(&mut self, runtime: &GarageRuntime, index: &ObjectIndex, out: &mut Out) {
+    /// An item that this player took from another player no longer follows that player.
+    pub(super) fn send(
+        &mut self,
+        runtime: &GarageRuntime,
+        index: &ObjectIndex,
+        claims: &Claims,
+        out: &mut Out,
+    ) {
+        self.held.retain(|item, _| !claims.claimed(*item));
         let area = &runtime.area;
         let carried = area.interaction.carry.held();
         let hand = area.interaction.equipment.item();
@@ -140,7 +150,9 @@ impl InventorySync {
             drop_local(runtime, item);
         }
         if flags == 0 {
-            if let Some(held) = self.held.remove(&item) {
+            // A player that lost the item to a take does not end the hold of the taker.
+            if self.held.get(&item).is_some_and(|h| h.slot == slot) {
+                let held = self.held.remove(&item).unwrap();
                 restore(runtime, item, &held);
             }
             return;
@@ -148,10 +160,12 @@ impl InventorySync {
         let held = self.held.entry(item).or_insert_with(|| Held {
             slot,
             body_type: runtime.physics.rapier().bodies[handle].body_type(),
+            hand: false,
             local: None,
             target: None,
         });
         held.slot = slot;
+        held.hand = flags & (InventoryMessage::PICKED | InventoryMessage::EQUIPPED) != 0;
         // Source `UpdItemParent`. The body is active unless stored and not in the right hand.
         // It has no gravity.
         let shown =
@@ -224,6 +238,14 @@ impl InventorySync {
                 .physics
                 .edit_body(handle, |b| b.set_next_kinematic_position(body));
         }
+    }
+
+    /// Items that other players carry or hold, with the body type to restore.
+    pub fn hands(&self) -> impl Iterator<Item = (ItemId, RigidBodyType)> + '_ {
+        self.held
+            .iter()
+            .filter(|(_, h)| h.hand)
+            .map(|(item, h)| (*item, h.body_type))
     }
 
     /// The bodies of the items that the player of `slot` carries or holds.

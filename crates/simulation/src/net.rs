@@ -273,7 +273,8 @@ impl Net {
             slot: self.slot,
             bytes: &mut self.outbox,
         };
-        self.inventory.send(runtime, &self.objects, out);
+        self.inventory
+            .send(runtime, &self.objects, &self.items.claims, out);
         items::send_pushes(
             runtime,
             &self.objects,
@@ -379,6 +380,7 @@ impl Net {
         let mut in_use = std::mem::take(&mut interaction.in_use);
         in_use.clear();
         in_use.items.extend(self.items.claims.others());
+        in_use.hands.extend(self.inventory.hands());
         for remote in &self.remotes {
             let Some((car, seat)) = remote.smoothing.car() else {
                 continue;

@@ -701,6 +701,43 @@ fn a_guest_pickup_claims_the_item_and_the_drop_returns_it() {
     );
 }
 
+/// Source `pickupable.Pick` and `Claim`. The guest takes an item from the hands of the host.
+/// The host lets go, and the host copy follows the guest.
+#[test]
+#[ignore = "requires the installed source export"]
+fn the_guest_takes_an_item_from_the_hands_of_the_host() {
+    let (reference, mut run) = load_garage();
+    settle(&mut run, &reference);
+    let mut guest = save_load(&run, &reference);
+    let mut pair = Pair::new();
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    let item = find(&run, "OilCan");
+    let copy = same(&run, &guest, item);
+    pick_up(&mut run, &reference, item);
+    let point = guest.area.items.get(copy).unwrap().pose.position;
+    stand_near(&mut guest, &reference, point, 1.);
+    pair.run(&reference, &mut run, &mut guest, 1.);
+    assert!(
+        guest.area.interaction.in_use.hand(copy).is_some(),
+        "the guest sees the item in the hands of the host"
+    );
+    pick_up(&mut guest, &reference, copy);
+    pair.run(&reference, &mut run, &mut guest, 0.5);
+    assert!(pair.guest.claims().claimed(copy), "the guest claims it");
+    assert_eq!(run.area.interaction.held(), None, "the host lets go");
+    assert_eq!(pair.host.claims().other(item), Some(1));
+    let body = run.area.items.get(item).unwrap().body.unwrap();
+    assert!(
+        run.physics.rapier().bodies[body].is_kinematic(),
+        "the host copy rides on the guest"
+    );
+    let body = guest.area.items.get(copy).unwrap().body.unwrap();
+    assert!(
+        guest.physics.rapier().bodies[body].is_dynamic(),
+        "the guest carries it"
+    );
+}
+
 /// Source `UpdOrSpawnItem`. A runtime spawn of the host appears on the guest with the same
 /// serial, where the host has it.
 #[test]

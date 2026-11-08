@@ -348,10 +348,12 @@ impl InteractionState {
                     {
                         a.actions.0 |= ActionMask::DISMOUNT;
                     }
-                    // A hitched grip body sleeps. Picking it up detaches it first.
+                    // A hitched grip body sleeps. Picking it up detaches it first. The body of an
+                    // item in another player's hands is kinematic. Picking it up makes it loose.
                     ItemLocation::World
                         if t.slot.is_none()
-                            && ((self.hitch.is_hitched(t.item)
+                            && (((self.hitch.is_hitched(t.item)
+                                || self.in_use.hand(t.item).is_some())
                                 && self.carry.allows_pickup(t.item, player.seated(), false))
                                 || item.body.is_some_and(|body| {
                                     self.carry

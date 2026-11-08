@@ -613,8 +613,10 @@ impl InteractionState {
             return None;
         }
         let item = self.action_owner(physics, items, action, handle, collider)?;
-        // Another player holds or sits on it.
-        if self.in_use.item(item).is_some() {
+        // Another player holds or sits on it. The hand can take it from the hands of that player.
+        if self.in_use.item(item).is_some()
+            && !(matches!(action, QueryAction::Grab) && self.in_use.hand(item).is_some())
+        {
             return None;
         }
         Some(AimTarget {
