@@ -184,7 +184,7 @@ test('guests see the host leave, and the room code clears',async()=>{
 });
 
 // Roadmap MP5: an outfit change on one peer reaches every other peer through the host.
-test('tp_mp5_an_outfit_change_reaches_the_other_peers',async()=>{
+test('an outfit change reaches the other peers',async()=>{
  const {Peer}=broker(),clock={t:0};
  const host=setup(Peer,clock),a=setup(Peer,clock),b=setup(Peer,clock);
  const code=await host.net.host({name:'H',outfit:{model:0}});
