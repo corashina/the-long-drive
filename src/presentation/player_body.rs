@@ -51,8 +51,9 @@ pub(super) struct BoundBody {
     pub posed: [Vec<Entity>; 2],
     /// Renderer primitives and their character.
     pub primitives: Vec<(Entity, usize)>,
-    /// Primitives of the eye renderers: the character renderers without a skin.
-    pub eyes: Vec<Entity>,
+    /// Primitives that only the head moves: the eye renderers without a skin, and the
+    /// skinned primitives with all weight on the `head` joint (`mark_limbs`).
+    pub head_parts: Vec<Entity>,
 }
 
 pub(super) type NodeQuery<'w, 's> = Query<
@@ -295,7 +296,7 @@ pub(super) fn bind_instance(
                 Err(error) => error!("Player body: {error}"),
             }
             if renderer.skin.is_none() {
-                body.eyes.push(primitive);
+                body.head_parts.push(primitive);
             }
             body.primitives.push((primitive, character));
         }
@@ -349,7 +350,8 @@ fn bind(
         frame.rig(),
         &graph,
     ) {
-        if let Err(error) = mark_limbs(
+        let mut bound = bound;
+        match mark_limbs(
             &mut commands,
             &reference.0,
             &bound,
@@ -357,7 +359,8 @@ fn bind(
             &skins,
             &mut meshes,
         ) {
-            error!("Player body limbs: {error}");
+            Ok(parts) => bound.head_parts.extend(parts),
+            Err(error) => error!("Player body limbs: {error}"),
         }
         body.bound = bound;
     }
@@ -405,6 +408,7 @@ fn limb_joints(
 /// Give the local body meshes a vertex color. Red is the skin weight of the limb joints.
 /// The surface shader keeps these vertices inside the `_Dist` head clip, so the knees, forearms and hands stay whole.
 /// The local body takes mesh copies. Remote figures and stages keep the source meshes.
+/// Returns the primitives whose vertices all have their full weight on a `head` joint.
 fn mark_limbs(
     commands: &mut Commands,
     manifest: &ReferenceManifest,
@@ -412,16 +416,31 @@ fn mark_limbs(
     graph: &SceneGraph,
     skins: &Query<(&Mesh3d, &SkinnedMesh)>,
     meshes: &mut Assets<Mesh>,
-) -> Result<(), String> {
+) -> Result<Vec<Entity>, String> {
     use bevy::mesh::VertexAttributeValues;
     let limbs = limb_joints(manifest, body, graph)?;
-    let mut copies = HashMap::<AssetId<Mesh>, Handle<Mesh>>::new();
+    let heads: HashSet<Entity> = manifest
+        .clothing
+        .characters
+        .iter()
+        .flat_map(|c| named_joints(manifest, c))
+        .filter(|(_, name)| *name == "head")
+        .filter_map(|(node, _)| body.joints.get(&node).copied())
+        .collect();
+    if heads.len() != 2 {
+        return Err("a character lacks its head joint".into());
+    }
+    let mut copies = HashMap::<AssetId<Mesh>, (Handle<Mesh>, bool)>::new();
+    let mut head_parts = Vec::new();
     for &(primitive, _) in &body.primitives {
         let Ok((mesh, skin)) = skins.get(primitive) else {
             continue;
         };
-        if let Some(copy) = copies.get(&mesh.id()) {
+        if let Some((copy, head)) = copies.get(&mesh.id()) {
             commands.entity(primitive).insert(Mesh3d(copy.clone()));
+            if *head {
+                head_parts.push(primitive);
+            }
             continue;
         }
         let source = meshes.get(&mesh.0).ok_or("body mesh is not loaded")?;
@@ -439,6 +458,23 @@ fn mark_limbs(
             return Err("body mesh lacks joint attributes".into());
         };
         let limb: Vec<bool> = skin.joints.iter().map(|j| limbs.contains(j)).collect();
+        let head: Vec<bool> = skin.joints.iter().map(|j| heads.contains(j)).collect();
+        let head_weight = |vertex: usize| -> f32 {
+            indices[vertex]
+                .iter()
+                .zip(&weights[vertex])
+                .filter(|(i, _)| head.get(usize::from(**i)).copied().unwrap_or(false))
+                .map(|(_, w)| w)
+                .sum()
+        };
+        let head_only = source
+            .indices()
+            .ok_or("body mesh lacks indices")?
+            .iter()
+            .all(|vertex| head_weight(vertex) > 0.999);
+        if head_only {
+            head_parts.push(primitive);
+        }
         let colors: Vec<[f32; 4]> = indices
             .iter()
             .zip(weights)
@@ -458,9 +494,9 @@ fn mark_limbs(
                 .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors),
         );
         commands.entity(primitive).insert(Mesh3d(copy.clone()));
-        copies.insert(mesh.id(), copy);
+        copies.insert(mesh.id(), (copy, head_only));
     }
-    Ok(())
+    Ok(head_parts)
 }
 
 /// Spawns the player asset scene, hidden until it binds.
@@ -564,10 +600,10 @@ pub(crate) fn sync(
             &slots,
             &materials,
         );
-        // Port choice: the eyes sit about 4 cm in front of the camera, and the `_Dist` head clip
-        // does not remove them. The local camera skips them. Their shadow and remote figures stay.
-        for eye in &body.bound.eyes {
-            commands.entity(*eye).insert(CameraHidden);
+        // Port choice: the `_Dist` head clip does not remove the eyes and other head parts in front
+        // of the camera. The local camera skips them. Their shadow and remote figures stay.
+        for part in &body.bound.head_parts {
+            commands.entity(*part).insert(CameraHidden);
         }
         body.dressed = true;
     }
