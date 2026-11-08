@@ -325,6 +325,7 @@ impl Net {
                 self.clock,
                 real_dt,
                 body,
+                &reference.clothing.bulging_eyes,
                 origin,
                 &mut runtime.physics,
                 |_, _| seated,
@@ -353,6 +354,7 @@ impl Net {
                 flags,
                 body_pose: PoseRow::new(pose, 0),
                 body_root: PoseRow::new(root, 0),
+                eye_scale: remote.eyes.scale(&reference.clothing.bulging_eyes),
             });
             let body = &remote.body;
             frame
@@ -583,6 +585,7 @@ impl Net {
             self.body_timer = 0.;
             self.push(&BodyMessage {
                 targets: area.body.sent_targets(),
+                zooming: area.eyes.active.into(),
             });
         }
     }

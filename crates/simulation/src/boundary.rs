@@ -126,6 +126,8 @@ pub struct RemoteRow {
     pub body_pose: PoseRow,
     /// `CharacterRoot` relative to the Player.
     pub body_root: PoseRow,
+    /// Local scale of the eye renderers, like `StateBlock::eye_scale`.
+    pub eye_scale: [f32; 3],
 }
 
 impl RemoteRow {
@@ -169,8 +171,8 @@ pub struct StateBlock {
     pub ember_light: u32,
     /// Item that owns the `lightdither` light, as `ItemId + 1`. 0 is none.
     pub dither_light: u32,
-    /// Keeps the block free of padding.
-    pub pad: u32,
+    /// Local scale of the player eye renderers (source `bulgingeyesScript`).
+    pub eye_scale: [f32; 3],
     /// `DeadV` weight: death seconds over the survival death seconds, 0 to 1. 0 while alive.
     pub dead_weight: f32,
     /// Bumps when the audio motion history restarts.
