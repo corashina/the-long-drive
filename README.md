@@ -109,19 +109,13 @@ Each deployment has an `r2.json` map from path to R2 keys. So a rollback in the 
 Old R2 files stay. Each upload of a changed main WASM adds about 33 MiB raw plus its Brotli file to the 10 GB free storage.
 `functions/[[path]].js` serves them from the same site. [wrangler.toml](wrangler.toml) binds the bucket.
 The script stops if the site has more than 20,000 files.
-It also stops if the site does not redirect to a Cloudflare Access login. Set up Access before the first upload.
 The site opens at `https://the-long-slop.pages.dev`.
-
-The site contains files from The Long Drive. Keep it for friends only:
-
-1. In the Cloudflare dashboard, open Zero Trust, then Access, then Applications.
-2. Add a self-hosted application for `the-long-slop.pages.dev` and `*.the-long-slop.pages.dev`.
-3. Add an Allow policy with the email addresses of your friends. The free plan allows 50 users.
+The site is public.
 
 ### Analytics
 
 The game sends a few events to `/api/event` on the hosted site only: start, ready (load time, GPU, quality), a heartbeat every 5 minutes (play time, FPS, worst frame, multiplayer role), end and start-up failure.
-`functions/api/event.js` adds the Access email, country and user agent, and stores each event in the D1 database `the-long-slop-events`.
+`functions/api/event.js` adds the Access email (when a request has one), country and user agent, and stores each event in the D1 database `the-long-slop-events`.
 The deploy script applies [migrations](migrations) before the upload. Print a summary of the last 30 days:
 
 ```powershell
