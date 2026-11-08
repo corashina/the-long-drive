@@ -58,7 +58,7 @@ fn tp_mp2_a_joining_guest_starts_in_the_garage() {
     seconds(&mut host, &reference, 0.5);
     assert!(host.area.player.seated(), "the host sits");
     let mut shared = save(&host, &reference);
-    crate::starting_area::garage_start(&reference, &mut shared.player);
+    host.garage_start(&reference, &mut shared.player);
     let mut guest = load(&reference, &shared);
     let mut net = Net::default();
     net.set_session(NetRole::Guest, 1);
@@ -68,8 +68,10 @@ fn tp_mp2_a_joining_guest_starts_in_the_garage() {
         net.fill(&reference, &mut guest, FIXED_DT, 1., &mut out);
     }
     assert!(!guest.area.player.seated(), "the guest stands");
-    let spawn = Vector::from_array(reference.area.player_spawn.translation);
-    let gap = (absolute_body(&guest) - spawn).length();
+    // The spot is on the startup-aligned garage floor, not on the raw reference spawn.
+    let spot = guest.garage_spot(&reference).translation.to_array();
+    let spot = guest.stream.origin.absolute(spot).map(|v| v as f32);
+    let gap = (absolute_body(&guest) - Vector::from_array(spot)).length();
     assert!(gap < 7., "the guest is near the garage start spot: {gap} m");
     assert!(stands_free(&guest), "the guest clips nothing");
 }

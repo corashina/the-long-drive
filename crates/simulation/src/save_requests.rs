@@ -227,7 +227,7 @@ impl SimDriver {
                     self.runtime
                         .capture_save(reference, &self.save.source, &capture.date)?;
                 if capture.guest {
-                    crate::starting_area::garage_start(reference, &mut snapshot.player);
+                    self.runtime.garage_start(reference, &mut snapshot.player);
                 }
                 let corrupt = |error: serde_json::Error| SaveError::CorruptData(error.to_string());
                 let summary = serde_json::to_string(&CaptureSummary {
