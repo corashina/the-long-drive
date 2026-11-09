@@ -81,7 +81,7 @@ Make a release build first. Enable R2 in the Cloudflare dashboard. Then prepare 
 
 ```powershell
 npx wrangler@4.147.0 login
-npx wrangler@4.147.0 pages project create the-long-slop --production-branch master
+npx wrangler@4.147.0 pages project create thelongdrive --production-branch master
 npx wrangler@4.147.0 r2 bucket create the-long-slop-large
 npx wrangler@4.147.0 d1 create the-long-slop-events
 ```
@@ -110,7 +110,7 @@ Each deployment has an `r2.json` map from path to R2 keys. So a rollback in the 
 Old R2 files stay. Each upload of a changed main WASM adds about 33 MiB raw plus its Brotli file to the 10 GB free storage.
 `functions/[[path]].js` serves them from the same site. [wrangler.toml](wrangler.toml) binds the bucket.
 The script stops if the site has more than 20,000 files.
-The site opens at `https://the-long-slop.pages.dev`.
+The site opens at `https://thelongdrive.pages.dev`.
 The site is public. `web/og.png` is the link preview image.
 
 ### Analytics
@@ -123,7 +123,7 @@ The deploy script applies [migrations](migrations) before the upload. Print a su
 node scripts/analytics.mjs 30
 ```
 
-For page visits and load timings, enable Web Analytics once: Workers & Pages, `the-long-slop`, Metrics, Web Analytics, Enable.
+For page visits and load timings, enable Web Analytics once: Workers & Pages, `thelongdrive`, Metrics, Web Analytics, Enable.
 
 ## FPS bench
 

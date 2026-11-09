@@ -1,5 +1,5 @@
 # Cloudflare Pages project. `node scripts/deploy.mjs` stages the site and uploads it.
-name = "the-long-slop"
+name = "thelongdrive"
 pages_build_output_dir = ".cache/deploy"
 compatibility_date = "2026-10-01"
 
