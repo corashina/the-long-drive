@@ -17,7 +17,8 @@ export function createAnalytics({enabled,send,session,role}){
  }
  return {
   event,
-  build(id){build=id;},
+  // The manifest build ID is a number. The event function accepts only a string.
+ build(id){build=String(id);},
   // Each game frame. `playing` is false in menus and pauses.
   frame(now,playing){
    if(beat===null)beat=now;

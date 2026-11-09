@@ -6,14 +6,14 @@ import {onRequestPost} from '../../functions/api/event.js';
 test('the heartbeat counts only playing frames', () => {
   const sent = [];
   const analytics = createAnalytics({enabled: true, send: body => sent.push(JSON.parse(body)), session: 's', role: () => 1});
-  analytics.build('b');
+  analytics.build(11140890);
   analytics.frame(0, false);
   for (let now = 10; now <= 1000; now += 10) analytics.frame(now, true);
   // A hidden tab: the gap is not a frame.
   analytics.frame(5000, true);
   analytics.frame(5020, false);
   analytics.frame(300000, false);
-  assert.deepEqual(sent, [{session: 's', type: 'heartbeat', build: 'b', data: {playSec: 1, fps: 100, worstMs: 10, role: 1}}]);
+  assert.deepEqual(sent, [{session: 's', type: 'heartbeat', build: '11140890', data: {playSec: 1, fps: 100, worstMs: 10, role: 1}}]);
   analytics.end();
   assert.equal(sent.length, 1);
 });

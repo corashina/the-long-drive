@@ -4,6 +4,7 @@ Prepare a fixed Lada 2101 in the starting garage. Drive onto the desert road.
 Read [vehicles](docs/vehicles.md) for the selected car and source records.
 The home, car, and supplies come from installed Steam build 11140890.
 Rust, Bevy, and Rapier run the browser game through WebAssembly.
+Play in desktop Chrome or Edge 113 or later, with a keyboard and mouse. The game needs WebGPU.
 
 ## Export, build, and run
 
@@ -110,7 +111,7 @@ Old R2 files stay. Each upload of a changed main WASM adds about 33 MiB raw plus
 `functions/[[path]].js` serves them from the same site. [wrangler.toml](wrangler.toml) binds the bucket.
 The script stops if the site has more than 20,000 files.
 The site opens at `https://the-long-slop.pages.dev`.
-The site is public.
+The site is public. `web/og.png` is the link preview image.
 
 ### Analytics
 
