@@ -2,6 +2,9 @@
 /web/pkg/
 /node_modules/
 /.cache/
+/.wrangler/
+/.claude/*.lock
+/_to_delete/
 /.impeccable/review/
 /.superpowers/
 /docs/superpowers/
