@@ -4,7 +4,7 @@ const HEARTBEAT_MS=300000;
 // A longer frame gap is a hidden tab or a stall, not a frame.
 const MAX_FRAME_MS=1000;
 
-export const hostedSite=hostname=>hostname==='the-long-slop.pages.dev'||hostname.endsWith('.the-long-slop.pages.dev');
+export const hostedSite=hostname=>hostname==='thelongdrive.pages.dev'||hostname.endsWith('.thelongdrive.pages.dev');
 
 // `send` takes the JSON body. `role` returns the multiplayer role.
 export function createAnalytics({enabled,send,session,role}){
