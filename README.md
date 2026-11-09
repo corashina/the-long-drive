@@ -1,7 +1,6 @@
 # The Long Drive
 
 Prepare a fixed Lada 2101 in the starting garage. Drive onto the desert road.
-Read [vehicles](docs/vehicles.md) for the selected car and source records.
 The home, car, and supplies come from installed Steam build 11140890.
 Rust, Bevy, and Rapier run the browser game through WebAssembly.
 Play in desktop Chrome or Edge 113 or later, with a keyboard and mouse. The game needs WebGPU.
