@@ -105,7 +105,7 @@ The first run compresses the full package and takes several minutes. Later runs 
 The function sends Brotli files with `Content-Encoding: br` when the browser accepts Brotli. Other browsers get the raw file.
 `_routes.json` sends all of `pkg/` and `assets/runtime/` to the function, because Pages accepts only 100 route rules.
 So each runtime file download is one function request. The free plan allows 100,000 function requests per day and 10 million R2 reads per month.
-The script uploads each R2 key once and records it in `.cache/r2-uploaded.json`. Delete that file after you empty the bucket.
+The script uploads each R2 key once and records it in `.cache/r2-uploaded-<bucket>.json`. Delete that file after you empty the bucket.
 Each deployment has an `r2.json` map from path to R2 keys. So a rollback in the dashboard also restores its R2 files.
 Old R2 files stay. Each upload of a changed main WASM adds about 33 MiB raw plus its Brotli file to the 10 GB free storage.
 `functions/[[path]].js` serves them from the same site. [wrangler.toml](wrangler.toml) binds the bucket.
