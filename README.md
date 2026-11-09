@@ -183,32 +183,10 @@ Library assets do not add gameplay.
 | Backspace | Hide or show feedback | Hide or show feedback |
 | Esc | Pause menu | Pause menu |
 
-Remove the hubcap before removing its wheel. Removed parts enter your hands.
-Move a held part close to a compatible empty slot. Tap F when the install prompt appears.
-Aim at an empty wheel slot to install a wheel.
-Some source items, including the fuel can, cannot rotate.
+### Tips
 
-Carry a fuel can. Open the fuel cap. Aim at the opening and hold LMB to fill it.
-Direct fill moves fluid from the carried container into the selected open container.
-Aim at an open supply valve to fill the supply from your carried container.
-An open container spills when it tilts. Supplies keep their current mixture and stock.
-The Lada starts with 0.5 L gasoline, 2.5 L oil, and 3.6 L water.
-Its capacities are 39 L fuel, 5 L oil, and 5 L coolant.
-The Skoda starts with the same fluids. Its capacities are 32 L fuel, 5 L oil, and 5 L coolant.
-
-Controls contains Automatic clutch and Automatic gears. Automatic gears requires Automatic clutch.
-With Automatic gears, S requests reverse after the car stops. W requests forward travel.
-Disable Automatic gears to select gears. Without Automatic clutch, press the clutch past halfway before a shift.
-The gear display shows R, N, or the forward gear number while seated.
-Save stores both cars' gears and engine state, plus the two assist choices. Load restores them.
-New game restores neutral and enables both assists. Recovery and input clearing keep the selected gears.
-
-Use Recover in the pause menu. Use Controls for bindings and Fullscreen.
-Release the wheel before tire removal. Aim at its tire and press F to remove it.
-Hold a compatible tire beside the loose rim. Release F at the tire slot to install it.
-Remove the hubcap before installing the wheel.
-Focus loss pauses play and clears input. Continue captures the mouse again.
-Recovery preserves fluids, parts, condition, trip distance, cycle time, and lamp state.
-An empty fuel tank requests the nearest supported physical supply. Water supplies do not provide gasoline.
-Recovery waits for destination geometry, materials, collision, and clearance before moving the car.
-Restart restores the garage, supplies, car, origin, trip distance, source cycle time, and lamp state.
+- Remove the hubcap before you remove its wheel. Tap F near an empty slot to install a held part.
+- To refuel, carry a fuel can and open the fuel cap. Aim at the opening and hold LMB.
+- Controls has Automatic clutch and Automatic gears. Disable Automatic gears to select gears yourself.
+- If the car is stuck, use Recover in the pause menu. Recovery keeps fluids, parts, and trip distance.
+- Focus loss pauses play. Select Continue to capture the mouse again.
