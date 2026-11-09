@@ -215,8 +215,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const mib = value => (value / 1024 / 1024).toFixed(1);
   console.log(`Staged ${count} files and ${uploads.length} R2 files, ${mib(bytes)} MiB.`);
   console.log(`Brotli for ${gzipFiles.count} gzip files (start packs, manifest): ${mib(gzipFiles.stored)} MiB gzip, ${mib(gzipFiles.brotli)} MiB Brotli.`);
-  // R2 keys are SHA-256 values, so a key uploaded once never changes. Delete this file after you empty the bucket.
-  const uploadedPath = resolve(projectRoot, '.cache/r2-uploaded.json');
+  // R2 keys are SHA-256 values, so a key uploaded once never changes. The record is per bucket. Delete it after you empty the bucket.
+  const uploadedPath = resolve(projectRoot, `.cache/r2-uploaded-${BUCKET}.json`);
   const uploaded = new Set(JSON.parse(await readFile(uploadedPath, 'utf8').catch(() => '[]')));
   const groups = Map.groupBy(uploads.filter(({key}) => !uploaded.has(key)), ({path}) => TYPES[extname(path)] ?? 'application/octet-stream');
   for (const [type, group] of groups) {
