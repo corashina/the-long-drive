@@ -1,4 +1,4 @@
-# The Long Slop
+# The Long Drive
 
 Prepare a fixed Lada 2101 in the starting garage. Drive onto the desert road.
 Read [vehicles](docs/vehicles.md) for the selected car and source records.

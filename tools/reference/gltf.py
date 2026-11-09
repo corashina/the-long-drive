@@ -58,7 +58,7 @@ class GltfBuilder:
         self.gl = gl
         self.source = source
         self.output = output
-        self.document = gl.GLTF2(asset=gl.Asset(generator='The Long Slop reference exporter'))
+        self.document = gl.GLTF2(asset=gl.Asset(generator='The Long Drive reference exporter'))
         self.binary = bytearray()
         self.meshes = {}
         self.materials = {}

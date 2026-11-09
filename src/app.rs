@@ -177,7 +177,7 @@ pub fn run() -> Result<(), JsValue> {
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
-                        title: "The Long Slop".into(),
+                        title: "The Long Drive".into(),
                         canvas: Some("#game".into()),
                         fit_canvas_to_parent: true,
                         prevent_default_event_handling: true,

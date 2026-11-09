@@ -170,6 +170,6 @@ export function createStaticServer({
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT ?? 4173);
   createStaticServer().listen(port, '127.0.0.1', function () {
-    console.log(`The Long Slop: http://127.0.0.1:${this.address().port}`);
+    console.log(`The Long Drive: http://127.0.0.1:${this.address().port}`);
   });
 }
