@@ -2,7 +2,7 @@ import {gameFields,installGameMode,installGameOptions,installSeed,installStartCa
 // New game, Load and Join reload the page, as the source loads the game scene again. The simulation
 // then starts in the menu game mode, from the save or from the host world, so one world exists at a time.
 // A fresh page asks Singleplayer or Multiplayer first, so a join from it loads only the host world.
-const NEW_GAME_KEY='tls-new-game',LOAD_KEY='tls-load',JOIN_KEY='tls-join';
+const NEW_GAME_KEY='tld-new-game',LOAD_KEY='tld-load',JOIN_KEY='tld-join';
 const takeSession=key=>{try{const v=sessionStorage.getItem(key);sessionStorage.removeItem(key);return v;}catch{return null;}};
 // A browser shortcut (Ctrl+W while the crouch key is held) must not close a running game. The game's own reloads skip the prompt.
 let reloading=false;
@@ -253,7 +253,7 @@ async function load(){
  if(!matchMedia('(any-pointer: fine)').matches)throw Error('The game needs a keyboard and mouse. Open it on a desktop computer.');
  if(!navigator.gpu)throw Error(NO_WEBGPU);
  // Download and compile the game code and download the manifest while the browser opens the adapter.
- const code=Promise.all([import('./pkg/the_long_slop.js'),fetch('./pkg/the_long_slop_bg.wasm').then(response=>{
+ const code=Promise.all([import('./pkg/thelongdrive.js'),fetch('./pkg/thelongdrive_bg.wasm').then(response=>{
   if(!response.ok)throw Error('Cannot load game code (HTTP '+response.status+').');
   return WebAssembly.compileStreaming(response);
  })]);

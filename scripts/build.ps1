@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 . "$PSScriptRoot/cargo-target.ps1"
 $cargoTarget = Get-CargoTargetDirectory $root
-$image = 'the-long-slop-toolchain'
+$image = 'thelongdrive-toolchain'
 # Fast builds skip LTO, wasm-opt and Brotli. Use them to iterate, not for F3 numbers.
 # Every build first checks the shipped manifest natively. The game runs no manifest checks.
 $cargoProfile = if ($Fast) { 'fast' } else { 'release' }

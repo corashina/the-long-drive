@@ -11,7 +11,7 @@ import {gunzip} from './gzip.js';
 export const RELIABLE=0x8000;
 // The largest `pose` message. A larger message splits into IP fragments, and the loss of one drops all of it.
 export const DATAGRAM=1150;
-export const PREFIX='tls-',TIMEOUT_MS=5000,TICK_MS=1000;
+export const PREFIX='tld-',TIMEOUT_MS=5000,TICK_MS=1000;
 const MAX_PLAYERS=8,JOIN_TIMEOUT_MS=15000,LOAD_TIMEOUT_MS=120000,CHUNK=16384,CHAT_BYTES=200;
 const LETTERS='ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const ROLE={OFF:0,HOST:1,GUEST:2};

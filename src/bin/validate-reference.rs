@@ -4,7 +4,7 @@
 //! `--crunch` reads stored crunch textures and checks that the game unpacker gives the exporter's BC blocks.
 use sha2::{Digest, Sha256};
 use std::io::{self, Read, Write};
-use the_long_slop::reference::{ReferenceManifest, encode_manifest, read_manifest};
+use thelongdrive::reference::{ReferenceManifest, encode_manifest, read_manifest};
 
 fn validate_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let start = std::time::Instant::now();

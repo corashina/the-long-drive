@@ -1,12 +1,12 @@
-use the_long_slop::reference::WorldReference;
-use the_long_slop::world::*;
+use thelongdrive::reference::WorldReference;
+use thelongdrive::world::*;
 fn reference() -> &'static WorldReference {
     static REFERENCE: std::sync::OnceLock<WorldReference> = std::sync::OnceLock::new();
     REFERENCE.get_or_init(|| {
         let path = std::env::var("FRONTIER_MANIFEST")
-            .unwrap_or(the_long_slop::reference::INSTALLED_MANIFEST.into());
-        let bytes = the_long_slop::reference::read_manifest(path).unwrap();
-        let reference = the_long_slop::reference::ReferenceManifest::from_manifest(&bytes).unwrap();
+            .unwrap_or(thelongdrive::reference::INSTALLED_MANIFEST.into());
+        let bytes = thelongdrive::reference::read_manifest(path).unwrap();
+        let reference = thelongdrive::reference::ReferenceManifest::from_manifest(&bytes).unwrap();
         std::sync::Arc::unwrap_or_clone(reference.world)
     })
 }
@@ -249,7 +249,7 @@ fn checkpoint_order_and_helper_coverage_are_checked() {
 
 #[test]
 fn required_views_include_casters_and_use_their_own_origin() {
-    use the_long_slop::reference::shadow_candidates::DirectionalHull;
+    use thelongdrive::reference::shadow_candidates::DirectionalHull;
     let camera = [
         [1., 0., 0., 1.],
         [-1., 0., 0., 1.],
@@ -296,7 +296,7 @@ fn required_views_include_casters_and_use_their_own_origin() {
 
 #[test]
 fn required_source_planes_reflect_z_after_nonzero_rebase() {
-    use the_long_slop::reference::{
+    use thelongdrive::reference::{
         shadow_candidates::DirectionalHull, shadow_planes::implicit_cull_planes,
         view_math::source_culling_view,
     };

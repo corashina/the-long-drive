@@ -6,7 +6,7 @@ Prepare the host tools below before export.
 ```powershell
 python -m venv tools/reference/.venv
 tools/reference/.venv/Scripts/python.exe -m pip install -r tools/reference/requirements.txt
-docker build --tag the-long-slop-toolchain --file tools/Dockerfile .
+docker build --tag thelongdrive-toolchain --file tools/Dockerfile .
 tools/reference/.venv/Scripts/python.exe -m tools.reference.export --steam-root "C:/Program Files (x86)/Steam/steamapps/common/The Long Drive"
 tools/reference/.venv/Scripts/python.exe -m unittest discover -s tools/reference/tests
 ./scripts/check.ps1 -Test reference_loading
@@ -46,7 +46,7 @@ The preflight loads tool assemblies and checks package, assembly, and dependency
 It does not read game assemblies or write analysis output.
 
 Runtime derivation and `--stage runtime --verify` require Docker and the project toolchain image.
-Build the image with `docker build --tag the-long-slop-toolchain --file tools/Dockerfile .`.
+Build the image with `docker build --tag thelongdrive-toolchain --file tools/Dockerfile .`.
 The export sends the exporter JSON to the native `validate-reference --encode` command through stdin.
 That command validates it and makes `manifest.bin.gz`, the game manifest file.
 The game file is the manifest as postcard, then `world.receipts` as postcard. Only the checks read the receipts.

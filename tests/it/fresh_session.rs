@@ -1,4 +1,4 @@
-use the_long_slop::save::fresh_permit::FreshSessionPermit;
+use thelongdrive::save::fresh_permit::FreshSessionPermit;
 
 #[test]
 fn fresh_permit_is_bound_to_request_session_and_generation() {
@@ -16,14 +16,14 @@ fn fresh_permit_is_bound_to_request_session_and_generation() {
 #[test]
 #[ignore = "requires the installed source export"]
 fn first_permit_retains_runtime_and_commits_once_paused() {
-    use the_long_slop::{reference::ReferenceManifest, starting_area::GarageRuntime};
+    use thelongdrive::{reference::ReferenceManifest, starting_area::GarageRuntime};
     let bytes =
-        the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
+        thelongdrive::reference::read_manifest(thelongdrive::reference::INSTALLED_MANIFEST)
             .unwrap();
     let reference = ReferenceManifest::from_manifest(&bytes).unwrap();
     let mut runtime = GarageRuntime::new(
         &reference,
-        the_long_slop::world::GameMode::default(),
+        thelongdrive::world::GameMode::default(),
         reference.world.draw_distance.default,
     )
     .unwrap();
@@ -36,7 +36,7 @@ fn first_permit_retains_runtime_and_commits_once_paused() {
     assert!(retry.commit(8, &mut runtime, 4).is_err());
     let mut changed_session = GarageRuntime::new(
         &reference,
-        the_long_slop::world::GameMode::default(),
+        thelongdrive::world::GameMode::default(),
         reference.world.draw_distance.default,
     )
     .unwrap();
@@ -49,7 +49,7 @@ fn first_permit_retains_runtime_and_commits_once_paused() {
     retry.commit(8, &mut runtime, 3).unwrap();
     assert_eq!(
         runtime.phase,
-        the_long_slop::starting_area::SessionPhase::Paused
+        thelongdrive::starting_area::SessionPhase::Paused
     );
     assert_eq!(runtime.simulation_seconds, 0.);
     assert_eq!(runtime.stream.frame().request.session, session);

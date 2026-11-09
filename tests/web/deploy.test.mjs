@@ -27,12 +27,12 @@ async function fixture(t) {
   await put(web, 'assets/reference/manifest.bin.gz', gzipSync(randomBytes(4096)));
   await put(web, 'assets/reference/manifest.json.gz', gzipSync(randomBytes(64)));
   await put(web, 'index.html', '<html>');
-  await put(web, 'main.js', "import('./pkg/the_long_slop.js');fetch('./pkg/the_long_slop_bg.wasm');");
+  await put(web, 'main.js', "import('./pkg/thelongdrive.js');fetch('./pkg/thelongdrive_bg.wasm');");
   for (const path of WASM) {
     await put(web, path, path);
     await put(web, path.replace(/_bg\.wasm$/, '.js'), path);
   }
-  await put(web, 'pkg/the_long_slop.d.ts');
+  await put(web, 'pkg/thelongdrive.d.ts');
   await put(web, 'assets/runtime/current/world/a.bc', 'a');
   await put(web, 'assets/runtime/current/packs/start-0.gz', gzipSync(randomBytes(4096)));
   await put(web, 'assets/runtime/current/world/unused.bc', 'b');
@@ -46,7 +46,7 @@ async function fixture(t) {
 
 // The package folder in the staged main.js.
 async function packageFolder(site) {
-  return /\.\/(pkg\/[a-f0-9]{16})\/the_long_slop\.js/.exec(await readFile(join(site, 'main.js'), 'utf8'))?.[1];
+  return /\.\/(pkg\/[a-f0-9]{16})\/thelongdrive\.js/.exec(await readFile(join(site, 'main.js'), 'utf8'))?.[1];
 }
 
 test('stages the app and only the catalog files of the current package', async t => {
@@ -68,10 +68,10 @@ test('puts a content hash in the package paths', async t => {
   const {web, site, compressionRoot, packageBrotliRoot} = await fixture(t);
   await stageSite({webRoot: web, siteRoot: site, compressionRoot, packageBrotliRoot});
   const folder = await packageFolder(site);
-  assert.equal(await readFile(join(site, 'main.js'), 'utf8'), `import('./${folder}/the_long_slop.js');fetch('./${folder}/the_long_slop_bg.wasm');`);
+  assert.equal(await readFile(join(site, 'main.js'), 'utf8'), `import('./${folder}/thelongdrive.js');fetch('./${folder}/thelongdrive_bg.wasm');`);
   assert.equal((await readdir(join(site, 'pkg'))).length, WASM.length);
-  assert.deepEqual((await readdir(join(site, folder))).sort(), ['the_long_slop.js', 'the_long_slop_bg.wasm']);
-  await writeFile(join(web, 'pkg/the_long_slop_bg.wasm'), 'new');
+  assert.deepEqual((await readdir(join(site, folder))).sort(), ['thelongdrive.js', 'thelongdrive_bg.wasm']);
+  await writeFile(join(web, 'pkg/thelongdrive_bg.wasm'), 'new');
   await stageSite({webRoot: web, siteRoot: site, compressionRoot, packageBrotliRoot});
   assert.notEqual(await packageFolder(site), folder);
 });
@@ -84,10 +84,10 @@ test('refuses an import of a missing package file', async t => {
 
 test('routes the WASM files to R2 with Brotli and a file over the Pages size limit raw', async t => {
   const {web, site, compressionRoot, packageBrotliRoot} = await fixture(t);
-  await truncate(join(web, 'pkg/the_long_slop_bg.wasm'), 25 * 1024 * 1024 + 1);
+  await truncate(join(web, 'pkg/thelongdrive_bg.wasm'), 25 * 1024 * 1024 + 1);
   const {uploads} = await stageSite({webRoot: web, siteRoot: site, compressionRoot, packageBrotliRoot});
-  const path = `${await packageFolder(site)}/the_long_slop_bg.wasm`;
-  assert.deepEqual(uploads[0], {path, source: join(web, 'pkg/the_long_slop_bg.wasm'), key: uploads[0].key});
+  const path = `${await packageFolder(site)}/thelongdrive_bg.wasm`;
+  assert.deepEqual(uploads[0], {path, source: join(web, 'pkg/thelongdrive_bg.wasm'), key: uploads[0].key});
   assert.equal(uploads.length, WASM.length + 1);
   for (const {key, source} of uploads) {
     assert.match(key, /^[a-f0-9]{64}$/);

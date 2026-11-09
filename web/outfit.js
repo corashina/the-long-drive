@@ -1,7 +1,7 @@
 // Player outfit (`settingsplayercustomscript.outfitclass`) in browser storage, sent to Rust as `Outfit` JSON.
 // This file is the one owner of the outfit and its storage key.
 // `characters` are the manifest `clothing.characters`. Each has `segments` with `default_enabled` and `default_hsv`.
-const KEY='the-long-slop.outfit';
+const KEY='thelongdrive.outfit';
 // `enabledCharacter`: 0 no body, 1 shadow only, 2 visible.
 const MODELS=3,VISIBLE=2;
 // True when `value` is an object with exactly these fields, like Rust `deny_unknown_fields`.

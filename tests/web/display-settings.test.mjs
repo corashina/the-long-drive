@@ -10,14 +10,14 @@ const memory=items=>({getItem:k=>items[k]??null,setItem:(k,v)=>{items[k]=v;}});
 const DEFAULTS='{"scene_scale":0,"shadows":0,"grass":0,"sunglasses":true,"heat_haze":true,"old_heat_haze":false,"lut":"default","grayscale":false,"depth_of_field":false,"mirrors":0,"mirror_distance":150,"lamp_shadows":true,"antialiasing":1,"ambient_occlusion":0,"reflections":0,"textures":0,"rain":0}';
 
 test('display_rows_store_check_and_reset_with_the_graphics_tab',()=>{
- const items={'the-long-slop.settings':JSON.stringify({shadows:2,scene_scale:90,lamp_shadows:false,mirror_distance:1000})};
+ const items={'thelongdrive.settings':JSON.stringify({shadows:2,scene_scale:90,lamp_shadows:false,mirror_distance:1000})};
  const settings=createSettings(()=>memory(items),reference,displayFields(mirror,{}));
  assert.equal(settings.values.shadows,2);
  assert.equal(settings.values.lamp_shadows,false);
  assert.equal(settings.values.scene_scale,0);
  assert.equal(settings.values.mirror_distance,150);
  settings.set('scene_scale',100);settings.set('lut','sepia');settings.set('lut','bad');
- assert.equal(JSON.parse(items['the-long-slop.settings']).scene_scale,100);
+ assert.equal(JSON.parse(items['thelongdrive.settings']).scene_scale,100);
  assert.equal(settings.values.lut,'sepia');
  settings.reset('controls',true);
  assert.equal(settings.values.lut,'sepia');

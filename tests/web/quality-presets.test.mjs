@@ -15,7 +15,7 @@ test('preset_sets_rows_and_a_hand_change_sets_custom',()=>{
  assert.equal(input.value,'high');
  input.value='low';input.change();
  for(const [name,value] of Object.entries(PRESETS.low))assert.equal(settings.values[name],value);
- assert.equal(JSON.parse(items['the-long-slop.settings']).quality,'low');
+ assert.equal(JSON.parse(items['thelongdrive.settings']).quality,'low');
  settings.set('shadows',0);
  assert.equal(settings.values.quality,'custom');
  assert.equal(input.value,'custom');
@@ -41,7 +41,7 @@ test('first_preset_comes_from_the_device_and_a_stored_choice_wins',()=>{
  for(const [name,value] of Object.entries(PRESETS.medium))assert.equal(fresh.values[name],value);
  fresh.set('shadows',0);fresh.reset('graphics',true);
  assert.equal(fresh.values.quality,'medium');
- const stored=store({'the-long-slop.settings':JSON.stringify({...PRESETS.high,quality:'high'})},'low');
+ const stored=store({'thelongdrive.settings':JSON.stringify({...PRESETS.high,quality:'high'})},'low');
  installQualityPresets(stored,select());
  assert.equal(stored.values.quality,'high');
  assert.equal(stored.values.shadows,0);

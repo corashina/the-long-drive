@@ -206,7 +206,7 @@ def contract_command(cargo: str, *arguments: str) -> list[str]:
         '--mount', 'type=volume,source=tld-wasm-cargo,target=/cargo',
         '--mount', 'type=volume,source=tld-wasm-target,target=/target',
         '--env', f'CARGO_TARGET_DIR=/target/{namespace}',
-        'the-long-slop-toolchain', 'cargo', cargo, '--quiet', '--locked',
+        'thelongdrive-toolchain', 'cargo', cargo, '--quiet', '--locked',
         '--bin', 'validate-reference', *(('--', *arguments) if arguments else ())]
 
 

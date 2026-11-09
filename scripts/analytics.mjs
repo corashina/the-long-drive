@@ -20,7 +20,7 @@ const QUERIES = {
 };
 
 for (const [title, sql] of Object.entries(QUERIES)) {
-  const result = spawnSync('npx', ['--yes', WRANGLER, 'd1', 'execute', 'the-long-slop-events', '--remote', '--json', '--command', sql.replace(/\s+/g, ' ')],
+  const result = spawnSync('npx', ['--yes', WRANGLER, 'd1', 'execute', 'thelongdrive-events', '--remote', '--json', '--command', sql.replace(/\s+/g, ' ')],
     {encoding: 'utf8', shell: process.platform === 'win32'});
   if (result.status !== 0) throw Error(`${title}: ${result.stderr || result.stdout}`);
   console.log(`\n${title} (last ${days} days)`);

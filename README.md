@@ -16,7 +16,7 @@ Build the toolchain image, then export the complete library and selected runtime
 ```powershell
 python -m venv tools/reference/.venv
 ./tools/reference/.venv/Scripts/python.exe -m pip install -r tools/reference/requirements.txt
-docker build --tag the-long-slop-toolchain --file tools/Dockerfile .
+docker build --tag thelongdrive-toolchain --file tools/Dockerfile .
 ./tools/reference/.venv/Scripts/python.exe -m tools.reference.export --steam-root 'C:/Program Files (x86)/Steam/steamapps/common/The Long Drive'
 ./scripts/build.ps1
 node scripts/serve.mjs
@@ -82,8 +82,8 @@ Make a release build first. Enable R2 in the Cloudflare dashboard. Then prepare 
 ```powershell
 npx wrangler@4.147.0 login
 npx wrangler@4.147.0 pages project create thelongdrive --production-branch master
-npx wrangler@4.147.0 r2 bucket create the-long-slop-large
-npx wrangler@4.147.0 d1 create the-long-slop-events
+npx wrangler@4.147.0 r2 bucket create thelongdrive-large
+npx wrangler@4.147.0 d1 create thelongdrive-events
 ```
 
 Put the database ID in [wrangler.toml](wrangler.toml) if you make a new account.
@@ -116,7 +116,7 @@ The site is public. `web/og.png` is the link preview image.
 ### Analytics
 
 The game sends a few events to `/api/event` on the hosted site only: start, ready (load time, GPU, quality), a heartbeat every 5 minutes (play time, FPS, worst frame, multiplayer role), end and start-up failure.
-`functions/api/event.js` adds the country and user agent, and stores each event in the D1 database `the-long-slop-events`.
+`functions/api/event.js` adds the country and user agent, and stores each event in the D1 database `thelongdrive-events`.
 The deploy script applies [migrations](migrations) before the upload. Print a summary of the last 30 days:
 
 ```powershell
