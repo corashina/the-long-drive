@@ -6,7 +6,6 @@
 //     [--channel chrome]   (the installed Google Chrome; an empty value takes the Playwright Chromium)
 //     [--quality ultra]    (a Graphics quality preset; empty keeps the setting defaults)
 //     [--draw-budget 2700] (most draws per frame at p90 in each scene; 0 turns the check off)
-//     [--cpu-throttle 4]   (Chrome runs the page CPU this many times slower, like a weak device; 0 is off)
 //   node tests/bench/fps.mjs compare A.json B.json
 //
 // Run headed on the real GPU. Headless Chrome can take a software adapter: then GPU ms are null.
@@ -69,7 +68,7 @@ const SCENES={
 };
 
 function options(argv){
- const o={label:'build',url:'http://localhost:4173/',seed:'1122282040',scenes:'garage,road,town',town:'',settle:10,seconds:20,trace:false,headless:false,channel:'chrome',quality:'',drawBudget:DRAW_BUDGET,cpuThrottle:0};
+ const o={label:'build',url:'http://localhost:4173/',seed:'1122282040',scenes:'garage,road,town',town:'',settle:10,seconds:20,trace:false,headless:false,channel:'chrome',quality:'',drawBudget:DRAW_BUDGET};
  for(let i=0;i<argv.length;i++){
   const name=argv[i].replace(/^--/,'').replace(/-(\w)/g,(_,c)=>c.toUpperCase());
   if(!(name in o))throw new Error('Unknown option '+argv[i]);
@@ -167,7 +166,6 @@ async function startGame(browser,o,log){
  },[o.seed,settings]);
  await context.addInitScript(countDraws);
  const page=await context.newPage();
- if(o.cpuThrottle>1)await (await context.newCDPSession(page)).send('Emulation.setCPUThrottlingRate',{rate:o.cpuThrottle});
  const started=Date.now(),event=text=>log.events.push(((Date.now()-started)/1000).toFixed(1)+' s '+text);
  page.on('console',m=>{
   if(m.text().startsWith('[bench]'))event(m.text().slice(8));
@@ -311,7 +309,7 @@ async function bench(o){
  // A scene fails the budget when its p90 of draws per frame is above it.
  const over=o.drawBudget?scenes.filter(s=>s.summary.draws.p90>o.drawBudget):[];
  if(!failure&&over.length)failure=new Error(`Draw budget ${o.drawBudget} per frame exceeded: `+over.map(s=>`${s.name} p90 ${Math.round(s.summary.draws.p90)}`).join(', '));
- const result={label:o.label,seed:o.seed,quality:o.quality||null,url:o.url,date:new Date().toISOString(),drawBudget:o.drawBudget||null,cpuThrottle:o.cpuThrottle||null,adapter,scenes,errors:log.errors,events:log.events,error:failure?.message??null};
+ const result={label:o.label,seed:o.seed,quality:o.quality||null,url:o.url,date:new Date().toISOString(),drawBudget:o.drawBudget||null,adapter,scenes,errors:log.errors,events:log.events,error:failure?.message??null};
  const path=OUT+o.label+'-'+result.date.replace(/[:.]/g,'-')+'.json';
  writeFileSync(path,JSON.stringify(result,null,1));
  console.log('Wrote '+path);

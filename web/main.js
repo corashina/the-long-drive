@@ -84,7 +84,7 @@ import {createSimulation,installSimulationBridge} from './simulation.js';
 import {NAME_KEY,ROOM_PARAM,createMultiplayer} from './multiplayer.js';
 import {createBootChoice} from './boot-choice.js';
 import {ROLE} from './net.js';
-import {createAnalytics,hostedSite,readyData} from './analytics.js';
+import {createAnalytics,hostedSite} from './analytics.js';
 import {installGrassBridge} from './grass.js';
 import {installCrunch} from './crunch.js';
 import {configureAssetCatalog,readAsset,releaseStartPacks,startPackMeasurements,worldBootstrapMeasurements,worldInputBytes,setAssetCpuProfile} from './world-assets.js';
@@ -115,11 +115,10 @@ window.gameStartupStage=(stage,started)=>{if(started){startup.begin(stage);cpuPr
 window.gameLoadingProgress=(...counts)=>loading.progress(...counts);
 window.gameLoadingBudget=(name,used,limit,unit)=>loading.budget(name,used,limit,unit);
 const bootStarted=performance.now();
-const analytics=createAnalytics({enabled:hostedSite(location.hostname),send:body=>navigator.sendBeacon('/api/event',body),session:crypto.randomUUID(),role:()=>multiplayer?.role??ROLE.OFF,
- view:()=>({quality:settings?.values.quality??null,scale:sceneScale?.()??null})});
+const analytics=createAnalytics({enabled:hostedSite(location.hostname),send:body=>navigator.sendBeacon('/api/event',body),session:crypto.randomUUID(),role:()=>multiplayer?.role??ROLE.OFF});
 analytics.event('start');
 window.addEventListener('pagehide',()=>analytics.end());
-let adapterName='',adapterTimestamps=false,sceneScale;
+let adapterName='';
 let wasmMemory,renderAudit,watchRenderAudit,renderAuditWatched=false,initialReadyMs=null,peakFrameMs=0,lastFrameTime=null,measureRequested=false;
 const wasmLimit=wasmMemoryLimit(navigator.deviceMemory),wasmTotal=()=>(wasmMemory?.buffer.byteLength??0)+simulation.wasmBytes()+grassClients.wasmBytes();
 const performancePanel=createPerformance(wasmTotal,wasmLimit,()=>renderAudit&&JSON.parse(renderAudit()),on=>{renderAuditWatched=on;watchRenderAudit?.(on);},()=>worldDrawDistance,()=>simulation.stats());
@@ -222,11 +221,10 @@ window.gameSleep=(phase,eligible,showHint,charge,cooldownRemaining,progress)=>{
  sleep.phase=phase;sleep.eligible=eligible;sleep.showHint=showHint;sleep.charge=charge;sleep.cooldownRemaining=cooldownRemaining;sleep.progress=progress;sleep.held=(input.state.held&262144)!==0;sleep.dead=dead;sleeping=phase===2;survival?.updateSleep(sleep,feedback?.state.enabled);
 };
 function fail(message,notifyRenderer=true){if(failed)return;failed=true;failure=message;bootChoice.close();analytics.error(message);if(message.startsWith('WASM memory '))slider?.clear();performancePanel.stop();startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.fail({...startupFailureDetails,message,loading:loading.snapshot()});startupDone=true;loading.fail();const text='Cannot start the game. '+message+' Reload to try again.';toast.classList.remove('shown');if(menu)menu.fail(text);else{runtimeError.textContent=text;runtimeError.hidden=false;}if(notifyRenderer)renderFailure?.(message);}
-function finishStartup(){if(failed||startupDone||!startupReady||!input||!menu)return;startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.finish({inputReady:true});startupDone=true;
- analytics.event('ready',readyData({loadMs:initialReadyMs,gpu:adapterName,quality:settings.values.quality,timestamps:adapterTimestamps,trace:startup.snapshot(),device:navigator}));}
+function finishStartup(){if(failed||startupDone||!startupReady||!input||!menu)return;startup.reconcile(performance.getEntriesByType('resource'));stopStartupEnvironment();startup.finish({inputReady:true});startupDone=true;}
 window.gameFailure=message=>fail(message,false);
 window.gameLoading=()=>{if(failed)return;loading.start(true);menu.loading();};
-window.gameReady=()=>{if(failed||!worldAdmitted)return;if(initialReadyMs===null){initialReadyMs=performance.now()-bootStarted-bootChoice.waitedMs;}releaseStartPacks();loading.finish();menu.ready();multiplayer?.ready();startupReady=true;finishStartup();};
+window.gameReady=()=>{if(failed||!worldAdmitted)return;if(initialReadyMs===null){initialReadyMs=performance.now()-bootStarted-bootChoice.waitedMs;analytics.event('ready',{loadMs:Math.round(initialReadyMs),gpu:adapterName,quality:settings.values.quality});}releaseStartPacks();loading.finish();menu.ready();multiplayer?.ready();startupReady=true;finishStartup();};
 window.addEventListener('error',event=>fail(event.message||'The runtime stopped.'));
 window.addEventListener('unhandledrejection',event=>fail(event.reason?.message||String(event.reason)));
 const mebibytes=bytes=>Math.round(bytes/1048576).toLocaleString('en-US');
@@ -269,14 +267,14 @@ async function load(){
  const adapter=await navigator.gpu?.requestAdapter({powerPreference:'high-performance'});
  if(!adapter)throw Error(NO_WEBGPU);
  const quality=firstQuality(adapter.info,navigator);
- adapterName=[adapter.info.vendor,adapter.info.architecture,adapter.info.description].filter(Boolean).join(' ');adapterTimestamps=adapter.features.has('timestamp-query');
+ adapterName=[adapter.info.vendor,adapter.info.architecture,adapter.info.description].filter(Boolean).join(' ');
  startup.end('graphics');startup.begin('manifest');
  const bytes=await manifestBytes;
  // The worker parses and checks its copy while this thread loads the interface.
  simulation.load(bytes.slice());
  loading.step('code',0);
- const [{default:init,prepare,run,source_render_failure,source_render_audit,watch_render_audit,cpu_profile,cpu_profile_audit,request_thumbnail,wake_frame,prewarm_pipeline_list,set_depth_prepass,scene_scale},module]=await code;
- const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;sceneScale=scene_scale;renderAudit=source_render_audit;watchRenderAudit=watch_render_audit;watch_render_audit(renderAuditWatched);
+ const [{default:init,prepare,run,source_render_failure,source_render_audit,watch_render_audit,cpu_profile,cpu_profile_audit,request_thumbnail,wake_frame,prewarm_pipeline_list,set_depth_prepass},module]=await code;
+ const exports=await init({module_or_path:module});wasmMemory=exports.memory;loading.step('code',1);renderFailure=source_render_failure;renderAudit=source_render_audit;watchRenderAudit=watch_render_audit;watch_render_audit(renderAuditWatched);
  rustCpuProfile=cpu_profile;rustCpuAudit=cpu_profile_audit;if(startupCpuProfile)rustCpuProfile(true);
  // Hidden bench toggle: ?prepass=0 draws the world view opaque pass without the depth prepass.
  if(new URLSearchParams(location.search).get('prepass')==='0')set_depth_prepass(false);
