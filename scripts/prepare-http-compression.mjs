@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {constants, createBrotliCompress} from 'node:zlib';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-export const WASM = ['pkg/the_long_slop_bg.wasm', 'pkg/simulation_worker_bg.wasm', 'pkg/mesh_worker_bg.wasm', 'pkg/crunch_worker_bg.wasm'];
+export const WASM = ['pkg/thelongdrive_bg.wasm', 'pkg/simulation_worker_bg.wasm', 'pkg/mesh_worker_bg.wasm', 'pkg/crunch_worker_bg.wasm'];
 const canonical = value => typeof value === 'string' && /^[a-zA-Z0-9_./ -]+$/.test(value)
   && !value.split('/').some(part => !part || part === '.' || part === '..' || part.trim() !== part);
 

@@ -1,5 +1,5 @@
 // `storage` and `session` return the Storage. The browser throws on access when storage is blocked.
-const KEY='the-long-slop.draw-distance',PENDING='tls-draw-distance',STEP=100;
+const KEY='thelongdrive.draw-distance',PENDING='tld-draw-distance',STEP=100;
 export function installDrawDistance(storage,session,input,output,{minimum,maximum,fallback}){
  const snap=value=>Math.min(maximum,minimum+Math.round((value-minimum)/STEP)*STEP);
  const valid=value=>Number.isFinite(value)&&value>=minimum&&value<=maximum;

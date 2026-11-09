@@ -1,10 +1,10 @@
-use the_long_slop::reference::{MAX_MANIFEST_BYTES, ReferenceManifest};
+use thelongdrive::reference::{MAX_MANIFEST_BYTES, ReferenceManifest};
 
 #[test]
 #[ignore = "requires the installed source export"]
 fn installed_startup_selects_only_garage_lada() {
     let bytes =
-        the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
+        thelongdrive::reference::read_manifest(thelongdrive::reference::INSTALLED_MANIFEST)
             .unwrap();
     let mut reference = ReferenceManifest::from_manifest(&bytes).unwrap();
     assert!(
@@ -30,7 +30,7 @@ fn installed_startup_selects_only_garage_lada() {
 #[ignore = "requires the installed source export"]
 fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
     let bytes =
-        the_long_slop::reference::read_manifest(the_long_slop::reference::INSTALLED_MANIFEST)
+        thelongdrive::reference::read_manifest(thelongdrive::reference::INSTALLED_MANIFEST)
             .unwrap();
     let mut reference = ReferenceManifest::from_manifest(&bytes).unwrap();
     let index = reference
@@ -74,10 +74,10 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
         .records
         .edit(|records| records.push(root));
     let evaluator =
-        the_long_slop::world::terrain_evaluator(&reference.world, reference.world.terrain.seed);
-    the_long_slop::world::StartupTerrain::new(
+        thelongdrive::world::terrain_evaluator(&reference.world, reference.world.terrain.seed);
+    thelongdrive::world::StartupTerrain::new(
         &reference.world,
-        &the_long_slop::world::DrawDistances::resolve(
+        &thelongdrive::world::DrawDistances::resolve(
             &reference.world.draw_distance,
             reference.world.draw_distance.default,
         ),
@@ -85,19 +85,19 @@ fn installed_manifest_checks_lod_bounds_and_initializes_runtime() {
         &[],
     )
     .expect("installed startup frames initialize");
-    let mut runtime = the_long_slop::starting_area::GarageRuntime::new(
+    let mut runtime = thelongdrive::starting_area::GarageRuntime::new(
         &reference,
-        the_long_slop::world::GameMode::default(),
+        thelongdrive::world::GameMode::default(),
         reference.world.draw_distance.default,
     )
     .expect("installed world initializes");
     runtime.stream.prepare(0.);
     assert_eq!(runtime.stream.metrics().prepared_roads, 256);
-    use the_long_slop::world::{ROAD_SEGMENTS, RoadIndex, RoadSequence};
+    use thelongdrive::world::{ROAD_SEGMENTS, RoadIndex, RoadSequence};
     let seed = reference.world.terrain.seed;
     let mut small = RoadIndex::new(
         RoadSequence::new(&reference.world, seed, None).unwrap(),
-        the_long_slop::world::terrain_evaluator(&reference.world, seed),
+        thelongdrive::world::terrain_evaluator(&reference.world, seed),
     );
     let mut large = RoadIndex::new(
         RoadSequence::new(&reference.world, seed, None).unwrap(),

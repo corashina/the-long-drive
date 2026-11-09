@@ -5,10 +5,10 @@ compatibility_date = "2026-10-01"
 
 [[r2_buckets]]
 binding = "LARGE_FILES"
-bucket_name = "the-long-slop-large"
+bucket_name = "thelongdrive-large"
 
 [[d1_databases]]
 binding = "EVENTS"
-database_name = "the-long-slop-events"
-database_id = "caf9553e-fce3-4a30-a134-560fa4752aed"
+database_name = "thelongdrive-events"
+database_id = "afa4e5dc-5d5d-4ee6-ace0-c327f8662833"
 migrations_dir = "migrations"

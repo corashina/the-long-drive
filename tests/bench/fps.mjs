@@ -158,10 +158,10 @@ async function startGame(browser,o,log){
  await context.addInitScript(([seed,settings])=>{
   if(!sessionStorage.getItem('bench-started')){
    sessionStorage.setItem('bench-started','1');
-   sessionStorage.setItem('tls-new-game',seed);
-   if(settings)localStorage.setItem('the-long-slop.settings',settings);
+   sessionStorage.setItem('tld-new-game',seed);
+   if(settings)localStorage.setItem('thelongdrive.settings',settings);
   }
-  const keys=['tls-new-game','tls-load','tls-join'].filter(k=>sessionStorage.getItem(k)!==null).map(k=>k+'='+sessionStorage.getItem(k));
+  const keys=['tld-new-game','tld-load','tld-join'].filter(k=>sessionStorage.getItem(k)!==null).map(k=>k+'='+sessionStorage.getItem(k));
   console.info('[bench] load '+keys.join(' '));
  },[o.seed,settings]);
  await context.addInitScript(countDraws);

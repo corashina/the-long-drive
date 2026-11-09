@@ -56,7 +56,7 @@ try {
 
     . "$PSScriptRoot/cargo-target.ps1"
     $cargoTarget = Get-CargoTargetDirectory $root
-    $image = 'the-long-slop-toolchain'
+    $image = 'thelongdrive-toolchain'
     & docker build --tag $image --file "$root/tools/Dockerfile" $root
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     & docker run --rm --mount "type=bind,source=$root,target=/workspace" `

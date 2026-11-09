@@ -4,10 +4,10 @@ import {MODES,createVoiceOutput,talkState} from './voice.js';
 import {MOUSE_BUTTONS} from './bindings.js';
 import {playerRows} from './room-card.js';
 // The source keeps the voice settings with the multiplayer settings (`snl.SaveSettings`), not with `S`.
-export const NAME_KEY='the-long-slop.player-name';
+export const NAME_KEY='thelongdrive.player-name';
 // The URL parameter of an invite link. The boot choice then opens the join form with this room code.
 export const ROOM_PARAM='room';
-const VOICE_KEY='the-long-slop.voice-chat',CHAT_SHOW_MS=10000;
+const VOICE_KEY='thelongdrive.voice-chat',CHAT_SHOW_MS=10000;
 
 // `reloadJoin(room)` starts the page again to join `room`. `join(room)` joins without a reload, before a world loads. `loading`: the loading card, which shows the join. `audio`: the AudioController.
 // `voiceKeys()`: the codes of the `voicechat` action. `media`: `navigator.mediaDevices`.

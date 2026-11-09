@@ -2,7 +2,7 @@
 // This file is the one owner of the settings and their storage key.
 // `storage` returns the Storage. The browser throws on access when storage is blocked.
 import {PADS,AXES,BUTTONS} from './gamepad.js';
-const KEY='the-long-slop.driving-settings';
+const KEY='thelongdrive.driving-settings';
 const AXIS_FIELDS=['bound','enabled','invert','middle','dead','sens','max'];
 // True when `value` is an object with exactly these fields, like Rust `deny_unknown_fields`.
 const shaped=(value,fields)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===fields.length&&fields.every(f=>Object.hasOwn(value,f));

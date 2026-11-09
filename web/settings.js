@@ -3,7 +3,7 @@
 // `fields` adds values outside the source settings: name to {default, valid(value), tab}. A tab reset resets the fields of its tab.
 // `storage` returns the Storage. The browser throws on access when storage is blocked.
 import {actionName} from './bindings.js';
-const KEY='the-long-slop.settings';
+const KEY='thelongdrive.settings';
 // Source `QualitySettings.vSyncCount` 1 makes Unity ignore `targetFrameRate`. The source VSync default is on.
 // A browser always runs on the display refresh, so the FPS limit starts off. The setting still works.
 const TOGGLE_DEFAULTS={BEnableFpsLimit:false};
