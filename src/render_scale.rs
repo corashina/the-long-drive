@@ -11,11 +11,17 @@ use std::sync::atomic::{AtomicU32, Ordering};
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SceneScaleSetting(pub SceneScale);
 
-/// The scale percent that F3 shows.
+/// The scale percent that F3 and analytics show.
 static PERCENT: AtomicU32 = AtomicU32::new(100);
 
 pub(crate) fn percent() -> u32 {
     PERCENT.load(Ordering::Relaxed)
+}
+
+/// The scale percent now drawn, for the analytics heartbeat.
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn scene_scale() -> u32 {
+    percent()
 }
 
 #[derive(Default)]
