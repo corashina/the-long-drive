@@ -246,8 +246,12 @@ async function downloadManifest(response){
   return bytes;
  }finally{clearInterval(timer);}
 }
+const NO_WEBGPU='This browser cannot use WebGPU. Use desktop Chrome or Edge 113 or later.';
 async function load(){
  cpuProfile.begin('startup');
+ // Check the device before the downloads start. Phones and tablets have no keyboard and mouse.
+ if(!matchMedia('(any-pointer: fine)').matches)throw Error('The game needs a keyboard and mouse. Open it on a desktop computer.');
+ if(!navigator.gpu)throw Error(NO_WEBGPU);
  // Download and compile the game code and download the manifest while the browser opens the adapter.
  const code=Promise.all([import('./pkg/the_long_slop.js'),fetch('./pkg/the_long_slop_bg.wasm').then(response=>{
   if(!response.ok)throw Error('Cannot load game code (HTTP '+response.status+').');
@@ -261,7 +265,7 @@ async function load(){
  startup.begin('graphics');
  // Bevy asks for the high performance adapter, so this is the GPU that renders.
  const adapter=await navigator.gpu?.requestAdapter({powerPreference:'high-performance'});
- if(!adapter)throw Error('This browser cannot use WebGPU.');
+ if(!adapter)throw Error(NO_WEBGPU);
  const quality=firstQuality(adapter.info,navigator);
  adapterName=[adapter.info.vendor,adapter.info.architecture,adapter.info.description].filter(Boolean).join(' ');
  startup.end('graphics');startup.begin('manifest');
