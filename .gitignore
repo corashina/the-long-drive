@@ -5,11 +5,8 @@
 /.wrangler/
 /.claude/*.lock
 /_to_delete/
-/.impeccable/review/
 /.superpowers/
 /docs/superpowers/
-/Steam/
-/steam/
 *.log
 /web/assets/reference/
 /tools/reference/.venv/
@@ -19,9 +16,6 @@ __pycache__/
 /web/assets/runtime/
 /web/assets/runtime-*/
 
-.env
-.env.*
-!.env.example
 Thumbs.db
 .DS_Store
 /.worktrees/
