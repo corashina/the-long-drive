@@ -190,3 +190,7 @@ Library assets do not add gameplay.
 - Controls has Automatic clutch and Automatic gears. Disable Automatic gears to select gears yourself.
 - If the car is stuck, use Recover in the pause menu. Recovery keeps fluids, parts, and trip distance.
 - Focus loss pauses play. Select Continue to capture the mouse again.
+
+## License
+
+The code in this repository is MIT-licensed (see `LICENSE`). The Long Drive and the assets the exporter reads from your Steam install belong to their owner and are not part of this repository or its licence.
